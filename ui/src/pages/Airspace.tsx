@@ -31,6 +31,7 @@ export function AirspacePage() {
   const [popover, setPopover] = useState<Popover | null>(null);
   const [showTower, setShowTower] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -38,7 +39,14 @@ export function AirspacePage() {
     let disposed = false;
     const scene = new AirspaceScene();
     let unsub = () => {};
-    void scene.init(host).then(() => {
+    void scene
+      .init(host)
+      .catch((err: unknown) => {
+        console.error('[airspace] init failed', err);
+        setInitError(err instanceof Error ? err.message : String(err));
+        throw err;
+      })
+      .then(() => {
       if (disposed) {
         scene.destroy();
         return;
@@ -60,7 +68,8 @@ export function AirspacePage() {
       if (st.topology) scene.setTopology(st.topology);
       if (st.policy) scene.setPolicy(st.policy);
       unsub = onFlightEvent((e) => scene.handle(e));
-    });
+      })
+      .catch(() => undefined);
     const iv = setInterval(() => {
       if (sceneRef.current) setStats(sceneRef.current.stats());
     }, 1000);
@@ -80,7 +89,7 @@ export function AirspacePage() {
     if (policy && sceneRef.current) sceneRef.current.setPolicy(policy);
   }, [policy]);
   useEffect(() => {
-    sceneRef.current?.setRightInset(showTower ? 360 : 0);
+    sceneRef.current?.setRightInset(showTower ? 372 : 0);
   }, [showTower, topology, policy]);
 
   const toggleDraw = () => {
@@ -100,31 +109,47 @@ export function AirspacePage() {
   return (
     <div className="airspace" ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
       <div className="hud">
-        <div className="card stat">
-          <div className="label">Flights (session)</div>
-          <div className="value">{counters.flights.toLocaleString()}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Spend (session)</div>
-          <div className="value mono">{formatUsd(counters.cost_nanousd)}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Blocked / errors</div>
-          <div className="value" style={{ color: counters.denied + counters.errors ? 'var(--danger)' : undefined }}>
-            {counters.denied} / {counters.errors}
+        <div className="hud-strip">
+          <div className="seg">
+            <div className="label">Flights</div>
+            <div className="value">{counters.flights.toLocaleString()}</div>
+          </div>
+          <div className="seg">
+            <div className="label">Spend</div>
+            <div className="value">{formatUsd(counters.cost_nanousd)}</div>
+          </div>
+          <div className="seg">
+            <div className="label">Blocked · errors</div>
+            <div className="value" style={{ color: counters.denied + counters.errors ? 'var(--danger)' : undefined }}>
+              {counters.denied} · {counters.errors}
+            </div>
+          </div>
+          <div className="seg">
+            <div className="label">In the air</div>
+            <div className="value">{stats.particles}</div>
+          </div>
+          <div className="seg">
+            <div className="label">Holding</div>
+            <div className="value" style={{ color: pendingHere.length ? 'var(--warn)' : undefined }}>{pendingHere.length}</div>
           </div>
         </div>
-        <div className="card stat">
-          <div className="label">In the air</div>
-          <div className="value">{stats.particles}</div>
-        </div>
         <button className={`btn ${drawMode ? 'active' : ''}`} onClick={toggleDraw} title="Drag a lasso around stations to create a zone">
-          ✎ Draw zone
+          Draw zone
         </button>
         <button className={`btn ${showTower ? 'active' : ''}`} onClick={() => setShowTower((v) => !v)}>
-          Tower {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
+          Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
       </div>
+      <div className="airspace-caption">
+        <b>Airspace</b> · every request is routed through the tower · live
+      </div>
+      {initError && (
+        <div className="card" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%,-50%)', maxWidth: 440, zIndex: 6 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>The Airspace could not start</div>
+          <div className="hint" style={{ marginBottom: 10 }}>{initError}</div>
+          <button className="btn sm" onClick={() => location.reload()}>Reload</button>
+        </div>
+      )}
       {drawMode && <div className="mode-banner">Drag a lasso around the stations that belong together</div>}
 
       {showTower && (
@@ -200,8 +225,12 @@ export function AirspacePage() {
             {hover.station.label}
           </div>
           <div className="r">
-            <span>{hover.station.kind === 'agent' ? 'agent key' : 'model deployment'}</span>
+            <span>{hover.station.kind === 'agent' ? 'agent' : hover.station.kind === 'mcp' ? 'tool server' : 'model'}</span>
             <b>{hover.station.sub}</b>
+          </div>
+          <div className="r">
+            <span>last minute</span>
+            <b>{hover.station.rpm} flights</b>
           </div>
           <div className="r">
             <span>requests (live)</span>
@@ -258,6 +287,23 @@ export function AirspacePage() {
           </div>
         </div>
       )}
+      {hover?.hub && !popover && (
+        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
+          <div className="t">Control Tower</div>
+          <div className="r">
+            <span>flights / min</span>
+            <b>{hover.hub.rpm}</b>
+          </div>
+          <div className="r">
+            <span>spend / min</span>
+            <b>{formatUsd(hover.hub.costPerMin)}</b>
+          </div>
+          <div className="r">
+            <span>holding</span>
+            <b>{hover.hub.held}</b>
+          </div>
+        </div>
+      )}
       {hover?.zone && !popover && (
         <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
           <div className="t" style={{ color: hover.zone.color }}>
@@ -277,10 +323,17 @@ export function AirspacePage() {
           <i style={{ background: 'var(--ok)' }} /> response
         </span>
         <span>
-          <i style={{ background: 'var(--warn)' }} /> holding at gate
+          <i style={{ background: 'var(--warn)' }} /> holding for approval
         </span>
         <span>
-          <i style={{ background: 'var(--danger)' }} /> blocked / error
+          <i style={{ background: 'var(--danger)' }} /> blocked · error
+        </span>
+        <span className="sep" />
+        <span>
+          <em className="gate deny" /> deny gate
+        </span>
+        <span>
+          <em className="gate hold" /> approval gate
         </span>
         <span className={`pill ${wsState === 'live' ? 'live' : 'warn'}`}>
           <i className="led" /> {wsState}

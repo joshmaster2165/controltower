@@ -157,7 +157,8 @@ function HBars({ title, rows, format, unit }: { title: string; rows: Array<{ nam
             const bw = Math.max(2, (r.value / max) * barMaxW);
             const y = i * rowH + 4;
             const bh = 20;
-            const path = `M${labelW},${y} h${bw - 4} a4,4 0 0 1 4,4 v${bh - 8} a4,4 0 0 1 -4,4 h-${bw - 4} z`;
+            const rr = Math.min(4, bw / 2);
+            const path = `M${labelW},${y} h${bw - rr} a${rr},${rr} 0 0 1 ${rr},${rr} v${bh - 2 * rr} a${rr},${rr} 0 0 1 -${rr},${rr} h-${bw - rr} z`;
             return (
               <g key={r.name} onMouseEnter={() => setHover(i)} style={{ cursor: 'default' }}>
                 <rect x={0} y={y - 4} width={w} height={rowH} fill={hover === i ? '#f3f6fb' : 'transparent'} />

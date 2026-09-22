@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Control Tower">
+  <path d="M41 15a13 13 0 0 1 9 9" stroke="#1F5EFF" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+  <path d="M44 8a20 20 0 0 1 13 13" stroke="#1F5EFF" stroke-width="3" stroke-linecap="round" opacity=".3"/>
+  <rect x="30.5" y="5" width="3" height="11" rx="1.5" fill="#0B3D91"/>
+  <path d="M13 18h38l-4.5 12H17.5z" fill="#1F5EFF"/>
+  <rect x="20" y="22.5" width="24" height="3" rx="1.5" fill="#FFFFFF" opacity=".85"/>
+  <path d="M26.5 30h11l3.5 25H23z" fill="#0B3D91"/>
+  <rect x="17" y="54" width="30" height="4.5" rx="2.25" fill="#0B3D91"/>
+</svg>

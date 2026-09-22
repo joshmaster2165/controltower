@@ -56,7 +56,7 @@ export function App() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <span className="dot" /> Control Tower
+          <img src="/logo.svg" alt="" /> Control <span className="accent">Tower</span>
         </div>
         <nav className="nav">
           {NAV.map((n) => (

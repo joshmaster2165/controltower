@@ -10,6 +10,7 @@ interface CatalogEntry {
   baseUrlEditable: boolean;
   fields: Array<{ key: string; label: string; secret: boolean; placeholder?: string; required: boolean }>;
   extra?: Record<string, unknown>;
+  extraFields?: Array<{ key: string; label: string; placeholder?: string; required: boolean }>;
   docs?: string;
   available: boolean;
   suggestedModels?: string[];
@@ -73,6 +74,7 @@ export function ProvidersPage() {
       for (const f of adding.fields) if (form[f.key]) credentials[f.key] = form[f.key]!;
       const extra: Record<string, unknown> = {};
       if (adding.kind === 'azure-openai' && form.api_version) extra.api_version = form.api_version;
+      for (const f of adding.extraFields ?? []) if (form[`x_${f.key}`]) extra[f.key] = form[`x_${f.key}`];
       const r = await api.post<{ provider: Provider }>('/admin/api/providers', {
         catalog_id: adding.id,
         name: form.name,
@@ -152,6 +154,12 @@ export function ProvidersPage() {
               <input className="input mono" value={form.api_version ?? ''} onChange={(e) => setForm({ ...form, api_version: e.target.value })} />
             </div>
           )}
+          {(adding.extraFields ?? []).map((f) => (
+            <div className="field" key={`x_${f.key}`}>
+              <label>{f.label}</label>
+              <input className="input mono" placeholder={f.placeholder} value={form[`x_${f.key}`] ?? ''} onChange={(e) => setForm({ ...form, [`x_${f.key}`]: e.target.value })} required={f.required} />
+            </div>
+          ))}
           {adding.fields.map((f) => (
             <div className="field" key={f.key}>
               <label>{f.label}</label>

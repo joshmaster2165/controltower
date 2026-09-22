@@ -3,6 +3,9 @@ import type { ProviderAdapter } from './adapter.js';
 import { MockAdapter } from './mock.js';
 import { OpenAICompatAdapter } from './openai-compat.js';
 import { AnthropicAdapter } from './anthropic.js';
+import { GeminiAdapter } from './gemini.js';
+import { VertexAdapter } from './vertex.js';
+import { BedrockAdapter } from './bedrock.js';
 
 /**
  * Adapter registry. Adapters are stateless; one instance per kind.
@@ -18,6 +21,9 @@ export class Adapters {
     this.register(new OpenAICompatAdapter('azure-openai'));
     this.register(new OpenAICompatAdapter('openai-compatible'));
     this.register(new AnthropicAdapter());
+    this.register(new GeminiAdapter());
+    this.register(new VertexAdapter());
+    this.register(new BedrockAdapter());
   }
 
   register(a: ProviderAdapter): void {

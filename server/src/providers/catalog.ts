@@ -12,6 +12,8 @@ export interface CatalogEntry {
   baseUrlEditable: boolean;
   fields: Array<{ key: string; label: string; secret: boolean; placeholder?: string; required: boolean }>;
   extra?: Record<string, unknown>;
+  /** Non-secret settings stored in provider.extra (e.g. Vertex project/location). */
+  extraFields?: Array<{ key: string; label: string; placeholder?: string; required: boolean }>;
   docs?: string;
   /** Adapter availability in this build. */
   available: boolean;
@@ -61,10 +63,10 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     name: 'Google Gemini',
     kind: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    baseUrlEditable: false,
+    baseUrlEditable: true,
     fields: [{ key: 'api_key', label: 'API key', secret: true, required: true }],
     docs: 'https://aistudio.google.com/apikey',
-    available: false,
+    available: true,
     suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash'],
   },
   {
@@ -73,11 +75,33 @@ export const PROVIDER_CATALOG: CatalogEntry[] = [
     kind: 'bedrock',
     baseUrlEditable: false,
     fields: [
-      { key: 'access_key_id', label: 'Access key ID', secret: false, required: false },
-      { key: 'secret_access_key', label: 'Secret access key', secret: true, required: false },
+      { key: 'access_key_id', label: 'Access key ID', secret: false, placeholder: 'AKIA…', required: true },
+      { key: 'secret_access_key', label: 'Secret access key', secret: true, required: true },
+      { key: 'session_token', label: 'Session token (optional)', secret: true, required: false },
       { key: 'region', label: 'Region', secret: false, placeholder: 'us-east-1', required: true },
     ],
-    available: false,
+    extraFields: [{ key: 'endpoint', label: 'Endpoint override (VPC endpoint or testing)', placeholder: 'https://bedrock-runtime.us-east-1.amazonaws.com', required: false }],
+    docs: 'https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html',
+    available: true,
+    suggestedModels: ['anthropic.claude-sonnet-4-5', 'amazon.nova-pro-v1:0'],
+  },
+  {
+    id: 'vertex',
+    name: 'Google Vertex AI',
+    kind: 'vertex',
+    baseUrlEditable: false,
+    fields: [
+      { key: 'service_account_json', label: 'Service account JSON (or leave blank and use an access token)', secret: true, required: false },
+      { key: 'access_token', label: 'Access token (optional; gcloud auth print-access-token)', secret: true, required: false },
+    ],
+    extraFields: [
+      { key: 'project', label: 'GCP project id', required: true },
+      { key: 'location', label: 'Location', placeholder: 'us-central1', required: true },
+      { key: 'endpoint', label: 'Endpoint override (testing)', required: false },
+    ],
+    docs: 'https://cloud.google.com/vertex-ai/generative-ai/docs/start/quickstarts/quickstart-multimodal',
+    available: true,
+    suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash', 'claude-sonnet-4-5'],
   },
   { id: 'groq', name: 'Groq', kind: 'openai-compatible', baseUrl: 'https://api.groq.com/openai/v1', baseUrlEditable: false, fields: [{ key: 'api_key', label: 'API key', secret: true, required: true }], available: true, suggestedModels: ['llama-3.3-70b-versatile'] },
   { id: 'together', name: 'Together AI', kind: 'openai-compatible', baseUrl: 'https://api.together.xyz/v1', baseUrlEditable: false, fields: [{ key: 'api_key', label: 'API key', secret: true, required: true }], available: true },

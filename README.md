@@ -1,5 +1,5 @@
 <p align="center">
-  <strong>Control Tower</strong><br/>
+  <img src="ui/public/logo-wordmark.svg" alt="Control Tower" width="320"><br/>
   The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.
 </p>
 
@@ -12,7 +12,7 @@
 - **Stop it.** Approvals hold the agent's request at the gate; a human clicks approve in the **Tower** and the flight continues. Unanswered holds turn into a resumable ticket, never a silent timeout.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL), API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace, zones and gates drawn on the map, human approvals with hold → ticket → grant, the MCP tool gateway, and demo mode. Not yet: Gemini/Bedrock/Vertex adapters, embeddings, Flight Recorder replay/simulate, the Ledger page, Slack notifications. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL), API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace, zones and gates drawn on the map, human approvals with hold → ticket → grant, the MCP tool gateway, and demo mode. Not yet: embeddings, Flight Recorder replay/simulate, the Ledger page, Slack notifications. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -24,7 +24,7 @@ Open <http://localhost:4000>, set your admin password, and you're in. With `CT_D
 
 Then, in the browser:
 
-1. **Providers** → add OpenAI / Anthropic / Azure / Gemini / Bedrock / any OpenAI-compatible URL, paste credentials, *Test Connect*.
+1. **Providers** → add OpenAI / Anthropic / Azure / Gemini / Vertex AI / Bedrock / any OpenAI-compatible URL, paste credentials, *Test Connect*.
 2. **Models** → add deployments (pricing is pre-mapped) and group them under an alias like `smart` with fallbacks.
 3. **Playground** → send a message; watch the flight on the Airspace.
 4. **Keys** → create a key per agent, with team/project labels, model allow-lists, rate limits and a budget.

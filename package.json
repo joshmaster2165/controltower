@@ -14,10 +14,12 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:e2e": "playwright test",
     "start": "node server/dist/server.mjs",
     "prices:import": "tsx scripts/import-litellm-prices.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.2",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",

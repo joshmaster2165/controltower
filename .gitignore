@@ -13,3 +13,5 @@ data/
 coverage/
 playwright-report/
 test-results/
+test-results/
+playwright-report/

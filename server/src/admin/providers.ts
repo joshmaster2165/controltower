@@ -45,7 +45,10 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (!slug) return reply.status(400).send({ error: { code: 'invalid', message: 'slug is required' } });
     if (ctx.registry.providersBySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `A provider with slug "${slug}" already exists.` } });
     for (const f of cat.fields) {
-      if (f.required && !b.credentials?.[f.key]) return reply.status(400).send({ error: { code: 'invalid', message: `${f.label} is required` } });
+      if (f.required && !b.credentials?.[f.key]) return reply.status(400).send({ error: { code: 'invalid', message: ` is required` } });
+    }
+    for (const f of cat.extraFields ?? []) {
+      if (f.required && !b.extra?.[f.key]) return reply.status(400).send({ error: { code: 'invalid', message: ` is required` } });
     }
     const id = ulid();
     const now = Date.now();

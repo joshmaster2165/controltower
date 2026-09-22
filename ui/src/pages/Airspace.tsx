@@ -7,7 +7,7 @@ import { hex } from '../airspace/colors';
 import { api, ApiError, type Rule, type Zone } from '../api';
 import { ApprovalCard } from './Tower';
 
-const SWATCHES = ['#64d2ff', '#8b7bff', '#3ddc97', '#ffb547', '#ff5c7a', '#ff7ad9', '#a5ff8b', '#ffa26b'];
+const SWATCHES = ['#1f5eff', '#0b3d91', '#0e9aa7', '#6366f1', '#1a9e6b', '#d9860b', '#d3374e', '#7c3aed'];
 
 type Popover =
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
@@ -92,7 +92,7 @@ export function AirspacePage() {
 
   const stationKeyFor = (id: string) => {
     const s = sceneRef.current?.stationList().find((x) => x.id === id);
-    return s?.kind === 'agent' ? `key:${id}` : `deployment:${id}`;
+    return s?.kind === 'agent' ? `key:${id}` : s?.kind === 'mcp' ? `mcp:${id}` : `deployment:${id}`;
   };
 
   const pendingHere = approvals.filter((a) => a.status === 'pending');

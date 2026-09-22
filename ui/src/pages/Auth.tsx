@@ -28,7 +28,7 @@ export function SetupPage() {
     <div className="center">
       <form className="card auth" onSubmit={submit}>
         <div className="brand" style={{ marginBottom: 14 }}>
-          <span className="dot" /> Control Tower
+          <img src="/logo.svg" alt="" /> Control <span className="accent">Tower</span>
         </div>
         <h1>Set up your tower</h1>
         <p>Create the admin account. Everything else — providers, models, keys, MCP servers, zones — happens in the browser after this.</p>
@@ -74,7 +74,7 @@ export function LoginPage() {
     <div className="center">
       <form className="card auth" onSubmit={submit}>
         <div className="brand" style={{ marginBottom: 14 }}>
-          <span className="dot" /> Control Tower
+          <img src="/logo.svg" alt="" /> Control <span className="accent">Tower</span>
         </div>
         <h1>Sign in</h1>
         <p>Admin access to the Airspace, keys and approvals.</p>

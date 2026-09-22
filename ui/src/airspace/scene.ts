@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Sprite, Text, TextStyle, Texture } from 'pixi.js';
 import type { FlightEvent } from '@controltower/shared';
 import type { PolicyBundle, Rule, Topology, Zone } from '../api';
-import { agentColor, PROVIDER_COLORS, STATUS_COLORS } from './colors';
+import { agentColor, CANVAS, MCP_COLOR, PROVIDER_COLORS, STATUS_COLORS } from './colors';
 
 /**
  * The Airspace. Stations (agents on the left, model deployments on the right)
@@ -139,7 +139,7 @@ export class AirspaceScene {
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
-      background: 0x070b14,
+      background: CANVAS.bg,
       resizeTo: host,
       antialias: true,
       resolution: Math.min(2, window.devicePixelRatio || 1),
@@ -148,7 +148,6 @@ export class AirspaceScene {
     });
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.zoneGfx, this.zoneLabels, this.laneGfx, this.gateGfx, this.stationLayer, this.particleLayer, this.lassoGfx);
-    this.particleLayer.blendMode = 'add';
 
     const g = new Graphics();
     for (let i = 8; i > 0; i--) g.circle(16, 16, i * 2).fill({ color: 0xffffff, alpha: 0.06 + (8 - i) * 0.02 });
@@ -270,7 +269,7 @@ export class AirspaceScene {
       const prov = provById.get(d.provider_id);
       const label = d.public_name ?? d.upstream_model;
       const sub = prov?.name ?? prov?.kind ?? '';
-      const color = PROVIDER_COLORS[prov?.kind ?? ''] ?? 0x9fb7ff;
+      const color = PROVIDER_COLORS[prov?.kind ?? ''] ?? 0x475569;
       const st = this.stations.get(d.id);
       if (st) {
         st.label = label;
@@ -288,7 +287,7 @@ export class AirspaceScene {
         st.label = m.name;
         st.sub = sub;
       } else {
-        this.stations.set(m.id, { id: m.id, kind: 'mcp', label: m.name, sub, color: 0x3ddc97, x: 0, y: 0, r: 16, heat: 0, requests: 0, denied: 0, errors: 0, cost: 0 });
+        this.stations.set(m.id, { id: m.id, kind: 'mcp', label: m.name, sub, color: MCP_COLOR, x: 0, y: 0, r: 16, heat: 0, requests: 0, denied: 0, errors: 0, cost: 0 });
       }
     }
     for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
@@ -375,7 +374,7 @@ export class AirspaceScene {
 
   private ensureUnknown(): Station {
     if (!this.unknownStation) {
-      this.unknownStation = { id: '__unknown', kind: 'unknown', label: 'unrouted', sub: 'no matching model', color: 0x5c6883, x: 0, y: 0, r: 12, heat: 0, requests: 0, denied: 0, errors: 0, cost: 0 };
+      this.unknownStation = { id: '__unknown', kind: 'unknown', label: 'unrouted', sub: 'no matching model', color: 0x8a98ad, x: 0, y: 0, r: 12, heat: 0, requests: 0, denied: 0, errors: 0, cost: 0 };
       this.stations.set('__unknown', this.unknownStation);
       this.layout();
     }
@@ -452,16 +451,15 @@ export class AirspaceScene {
   private rebuildStations(): void {
     this.stationLayer.removeChildren();
     this.stationGfx.clear();
-    const labelStyle = new TextStyle({ fill: 0xe6ecf7, fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '500' });
-    const subStyle = new TextStyle({ fill: 0x8b98b3, fontSize: 10.5, fontFamily: 'Inter, system-ui, sans-serif' });
+    const labelStyle = new TextStyle({ fill: CANVAS.label, fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '500' });
+    const subStyle = new TextStyle({ fill: CANVAS.sub, fontSize: 10.5, fontFamily: 'Inter, system-ui, sans-serif' });
     for (const s of this.stations.values()) {
       const glow = new Sprite(this.glowTex);
       glow.anchor.set(0.5);
       glow.tint = s.color;
-      glow.alpha = 0.25;
+      glow.alpha = 0.18;
       glow.scale.set(s.r / 8);
       glow.position.set(s.x, s.y);
-      glow.blendMode = 'add';
       const body = new Graphics();
       this.drawStationBody(body, s);
       body.position.set(s.x, s.y);
@@ -479,17 +477,17 @@ export class AirspaceScene {
   private drawStationBody(g: Graphics, s: Station): void {
     g.clear();
     if (s.kind === 'agent') {
-      g.circle(0, 0, s.r).fill({ color: 0x0c1220 }).stroke({ color: s.color, width: 2, alpha: 0.95 });
+      g.circle(0, 0, s.r).fill({ color: CANVAS.stationFill }).stroke({ color: s.color, width: 2, alpha: 0.95 });
       g.circle(0, 0, s.r * 0.35).fill({ color: s.color, alpha: 0.9 });
     } else if (s.kind === 'mcp') {
       // Hexagon: a tool server.
-      g.poly([0, -s.r, s.r * 0.87, -s.r * 0.5, s.r * 0.87, s.r * 0.5, 0, s.r, -s.r * 0.87, s.r * 0.5, -s.r * 0.87, -s.r * 0.5]).fill({ color: 0x0c1220 }).stroke({ color: s.color, width: 2, alpha: 0.95 });
+      g.poly([0, -s.r, s.r * 0.87, -s.r * 0.5, s.r * 0.87, s.r * 0.5, 0, s.r, -s.r * 0.87, s.r * 0.5, -s.r * 0.87, -s.r * 0.5]).fill({ color: CANVAS.stationFill }).stroke({ color: s.color, width: 2, alpha: 0.95 });
       g.circle(0, 0, 3.5).fill({ color: s.color, alpha: 0.9 });
     } else if (s.kind === 'model') {
-      g.roundRect(-s.r, -s.r * 0.75, s.r * 2, s.r * 1.5, 6).fill({ color: 0x0c1220 }).stroke({ color: s.color, width: 2, alpha: 0.95 });
+      g.roundRect(-s.r, -s.r * 0.75, s.r * 2, s.r * 1.5, 6).fill({ color: CANVAS.stationFill }).stroke({ color: s.color, width: 2, alpha: 0.95 });
       g.rect(-s.r * 0.5, -3, s.r, 6).fill({ color: s.color, alpha: 0.85 });
     } else {
-      g.circle(0, 0, s.r).fill({ color: 0x0c1220 }).stroke({ color: s.color, width: 1.5, alpha: 0.8 });
+      g.circle(0, 0, s.r).fill({ color: CANVAS.stationFill }).stroke({ color: s.color, width: 1.5, alpha: 0.8 });
     }
   }
 
@@ -499,7 +497,7 @@ export class AirspaceScene {
     this.zoneLabels.removeChildren();
     this.zoneBoxes.clear();
     if (!this.policy) return;
-    const style = new TextStyle({ fill: 0xe6ecf7, fontSize: 11.5, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '600', letterSpacing: 0.5 });
+    const style = new TextStyle({ fill: CANVAS.label, fontSize: 11.5, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: '600', letterSpacing: 0.5 });
     for (const z of this.policy.zones) {
       const members = this.zoneStations(z);
       if (members.length === 0) continue;
@@ -514,7 +512,7 @@ export class AirspaceScene {
         const y = Math.min(...ys) - 26;
         const w = Math.max(...xs) - Math.min(...xs) + padX * 2;
         const hh = Math.max(...ys) - Math.min(...ys) + 26 + 50;
-        g.roundRect(x, y, w, hh, 16).fill({ color, alpha: 0.07 }).stroke({ color, width: 1.5, alpha: 0.45 });
+        g.roundRect(x, y, w, hh, 16).fill({ color, alpha: 0.06 }).stroke({ color, width: 1.5, alpha: 0.55 });
         const t = new Text({ text: z.name.toUpperCase(), style });
         t.tint = color;
         t.position.set(x + 12, y - 16);
@@ -534,12 +532,12 @@ export class AirspaceScene {
       const a = this.stations.get(l.from);
       const b = this.stations.get(l.to);
       if (!a || !b) continue;
-      const base = 0.08 + Math.min(0.5, Math.log10(1 + l.requests) * 0.12);
-      const alpha = Math.min(0.9, base + l.activity * 0.5);
+      const base = 0.16 + Math.min(0.45, Math.log10(1 + l.requests) * 0.12);
+      const alpha = Math.min(0.95, base + l.activity * 0.45);
       const width = 1 + Math.min(3, Math.log10(1 + l.cost / 1e6) * 0.9) + l.activity * 1.2;
       const effect = l.gate?.rule.effect;
-      const color = effect === 'deny' ? 0xff5c7a : a.color;
-      g.moveTo(a.x, a.y).quadraticCurveTo(l.cx, l.cy, b.x, b.y).stroke({ color, width, alpha: effect === 'deny' ? Math.max(alpha, 0.18) : alpha });
+      const color = effect === 'deny' ? STATUS_COLORS.denied : a.color;
+      g.moveTo(a.x, a.y).quadraticCurveTo(l.cx, l.cy, b.x, b.y).stroke({ color, width, alpha: effect === 'deny' ? Math.max(alpha, 0.25) : alpha });
     }
   }
 
@@ -551,16 +549,16 @@ export class AirspaceScene {
       const { x, y, rule } = l.gate;
       switch (rule.effect) {
         case 'deny':
-          g.circle(x, y, 9).fill({ color: 0x0c1220 }).stroke({ color: 0xff5c7a, width: 2 });
-          g.rect(x - 5, y - 1.5, 10, 3).fill({ color: 0xff5c7a });
+          g.circle(x, y, 9).fill({ color: CANVAS.stationFill }).stroke({ color: STATUS_COLORS.denied, width: 2 });
+          g.rect(x - 5, y - 1.5, 10, 3).fill({ color: STATUS_COLORS.denied });
           break;
         case 'require_approval':
-          g.circle(x, y, 9).fill({ color: 0x0c1220 }).stroke({ color: 0xffb547, width: 2 });
-          g.poly([x, y - 5, x + 5, y, x, y + 5, x - 5, y]).fill({ color: 0xffb547 });
+          g.circle(x, y, 9).fill({ color: CANVAS.stationFill }).stroke({ color: STATUS_COLORS.held, width: 2 });
+          g.poly([x, y - 5, x + 5, y, x, y + 5, x - 5, y]).fill({ color: STATUS_COLORS.held });
           break;
         default:
-          g.circle(x, y, 8).fill({ color: 0x0c1220 }).stroke({ color: 0x3ddc97, width: 2, alpha: 0.9 });
-          g.circle(x, y, 2.5).fill({ color: 0x3ddc97 });
+          g.circle(x, y, 8).fill({ color: CANVAS.stationFill }).stroke({ color: STATUS_COLORS.ok, width: 2, alpha: 0.9 });
+          g.circle(x, y, 2.5).fill({ color: STATUS_COLORS.ok });
       }
     }
   }
@@ -569,7 +567,7 @@ export class AirspaceScene {
     const g = this.lassoGfx;
     g.clear();
     if (!this.lasso || this.lasso.length < 2) return;
-    g.poly(this.lasso.flat(), true).fill({ color: 0x64d2ff, alpha: 0.08 }).stroke({ color: 0x64d2ff, width: 1.5, alpha: 0.9 });
+    g.poly(this.lasso.flat(), true).fill({ color: 0x1f5eff, alpha: 0.08 }).stroke({ color: 0x1f5eff, width: 1.5, alpha: 0.9 });
   }
 
   private pointOnLane(l: Lane, t: number): [number, number] {
@@ -601,7 +599,7 @@ export class AirspaceScene {
       case 'flight.decision': {
         if (e.decision === 'deny') {
           const p = this.byFlight.get(e.flight_id);
-          if (p) this.shatter(p, 0xff5c7a, true);
+          if (p) this.shatter(p, STATUS_COLORS.denied, true);
         }
         break;
       }
@@ -625,14 +623,14 @@ export class AirspaceScene {
           p.sprite.tint = p.color;
           this.pulseLane(p.lane, 0.6);
         } else {
-          this.shatter(p, e.outcome === 'denied' ? 0xff5c7a : 0xffb547, true);
+          this.shatter(p, e.outcome === 'denied' ? STATUS_COLORS.denied : STATUS_COLORS.held, true);
         }
         break;
       }
       case 'flight.upstream': {
         if (e.outcome === 'fallback') {
           const p = this.byFlight.get(e.flight_id);
-          if (p) this.spark(p, 0xffb547, 5);
+          if (p) this.spark(p, STATUS_COLORS.held, 5);
         }
         break;
       }
@@ -657,10 +655,10 @@ export class AirspaceScene {
         } else if (e.status === 'error') {
           to.errors++;
           p.lane.errors++;
-          this.shatter(p, 0xff5c7a);
+          this.shatter(p, STATUS_COLORS.denied);
         } else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') {
           p.lane.denied++;
-          if (p.phase !== 'shatter') this.shatter(p, e.status === 'ticketed' ? 0xffb547 : 0xff5c7a, e.status !== 'rejected');
+          if (p.phase !== 'shatter') this.shatter(p, e.status === 'ticketed' ? STATUS_COLORS.held : STATUS_COLORS.denied, e.status !== 'rejected');
         } else {
           this.remove(p);
         }
@@ -674,7 +672,7 @@ export class AirspaceScene {
     sprite.anchor.set(0.5);
     sprite.tint = color;
     sprite.scale.set(size * 0.55);
-    sprite.alpha = 0.95;
+    sprite.alpha = 1;
     this.particleLayer.addChild(sprite);
     const p: Particle = { sprite, from, to, lane, t: 0, duration: phase === 'out' ? OUT_MS : BACK_MS, phase, color, size, flightId: id, born: performance.now(), hoverAngle: Math.random() * Math.PI * 2 };
     this.particles.push(p);

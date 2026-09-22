@@ -1,6 +1,10 @@
-/** Stable, pleasant per-agent hues; providers get a fixed family colour. */
+/**
+ * Light, enterprise palette for the Airspace canvas. Agent hues are a
+ * restrained blue/teal/indigo family so the map reads as one system; status
+ * colours are the only saturated non-blue accents.
+ */
 
-const AGENT_PALETTE = [0x64d2ff, 0x8b7bff, 0x3ddc97, 0xffb547, 0xff7ad9, 0x7cf2ff, 0xa5ff8b, 0xffa26b, 0xc9b6ff, 0x6bd6ff];
+const AGENT_PALETTE = [0x1f5eff, 0x0b3d91, 0x0e9aa7, 0x5b6cff, 0x2a9d8f, 0x3b82f6, 0x6366f1, 0x0891b2, 0x1d4ed8, 0x0d9488];
 
 export function hashString(s: string): number {
   let h = 2166136261;
@@ -16,23 +20,34 @@ export function agentColor(id: string): number {
 }
 
 export const PROVIDER_COLORS: Record<string, number> = {
-  openai: 0x74e3b2,
-  'azure-openai': 0x5fb5ff,
-  'openai-compatible': 0x9fb7ff,
-  anthropic: 0xf2b97a,
-  gemini: 0x8ea8ff,
-  vertex: 0x8ea8ff,
-  bedrock: 0xffb64d,
-  mock: 0xb69dff,
+  openai: 0x0f766e,
+  'azure-openai': 0x0369a1,
+  'openai-compatible': 0x475569,
+  anthropic: 0xb45309,
+  gemini: 0x2563eb,
+  vertex: 0x2563eb,
+  bedrock: 0xc2410c,
+  mock: 0x6d28d9,
+};
+
+export const MCP_COLOR = 0x0e7490;
+
+export const CANVAS = {
+  bg: 0xf4f6fa,
+  stationFill: 0xffffff,
+  label: 0x0f1b2d,
+  sub: 0x5b6b82,
+  lane: 0x9fb0c8,
+  gateFill: 0xffffff,
 };
 
 export const STATUS_COLORS = {
-  ok: 0x3ddc97,
-  error: 0xff5c7a,
-  denied: 0xff5c7a,
-  held: 0xffb547,
-  ticketed: 0xffb547,
-  info: 0x64d2ff,
+  ok: 0x1a9e6b,
+  error: 0xd3374e,
+  denied: 0xd3374e,
+  held: 0xd9860b,
+  ticketed: 0xd9860b,
+  info: 0x1f5eff,
 } as const;
 
 export function hex(n: number): string {

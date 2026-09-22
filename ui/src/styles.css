@@ -216,7 +216,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 
 /* Airspace v3: link-state legend + focus panel */
 .legend em.ln { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
-.legend em.ln.active { border-color: #1f5eff; border-top-width: 3px; }
+.legend em.ln.active { border-color: #1f5eff; }
 .legend em.ln.idle { border-color: #c9d3e1; }
 .legend em.ln.unused { border-color: #c9d3e1; border-top-style: dashed; border-top-width: 1.5px; }
 .legend em.ln.holding { border-color: var(--warn); }

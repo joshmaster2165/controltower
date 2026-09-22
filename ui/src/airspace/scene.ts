@@ -406,7 +406,8 @@ export class AirspaceScene {
     this.ready = true;
     const frame = (now: number) => {
       // No per-flight motion: redraw only when something changed, plus a slow tick for ageing states.
-      if (this.dirty || now - this.lastDraw > 1000) {
+      const pulsing = this.anyLive();
+      if (this.dirty || now - this.lastDraw > (pulsing ? 33 : 1000)) {
         try {
           this.draw();
         } catch (err) {
@@ -879,6 +880,11 @@ export class AirspaceScene {
     return this.used24h.has(s.id) || s.lastAt > now - 24 * 3600e3 ? 'idle' : 'unused';
   }
 
+  private anyLive(): boolean {
+    for (const s of this.stations.values()) if (s.recent.length || s.held) return true;
+    return false;
+  }
+
   private activePairs(now: number): number {
     let n = 0;
     for (const ts of this.livePairs.values()) if (now - ts < WINDOW_MS) n++;
@@ -1064,31 +1070,29 @@ export class AirspaceScene {
       ctx.beginPath();
       ctx.moveTo(p0[0], p0[1]);
       ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
-      const rate = s.recent.length;
-      const fresh = s.lastAt ? Math.max(0, 1 - (now - s.lastAt) / WINDOW_MS) : 0;
-      const weight = 1.6 + Math.min(3, Math.log2(1 + rate) * 0.55);
+      // Thin lines everywhere; live lines pulse their colour in place (slow breathing, per-line phase).
+      const pulse = 0.5 + 0.5 * Math.sin(now / 650 + s.py * 0.031);
       let color = LINE_IDLE;
-      let width = 1.25;
+      let width = 1;
       let dash: number[] = [];
       switch (st) {
         case 'unused':
           color = LINE_UNUSED;
-          width = 1;
           dash = [3, 5];
           break;
         case 'idle':
           break;
         case 'active':
-          color = rgba(s.color, 0.35 + 0.45 * fresh);
-          width = weight;
+          color = rgba(s.color, 0.3 + 0.55 * pulse);
+          width = 1.5;
           break;
         case 'blocked':
-          color = rgba(STATUS_COLORS.denied, 0.7);
-          width = weight;
+          color = rgba(STATUS_COLORS.denied, 0.3 + 0.55 * pulse);
+          width = 1.5;
           break;
         case 'holding':
-          color = rgba(STATUS_COLORS.held, 0.85);
-          width = Math.max(2, weight);
+          color = rgba(STATUS_COLORS.held, 0.35 + 0.55 * pulse);
+          width = 1.5;
           break;
       }
       ctx.globalAlpha = dim(s.id);

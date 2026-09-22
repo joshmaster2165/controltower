@@ -1,0 +1,133 @@
+/**
+ * Vendors LiteLLM's MIT-licensed model pricing table as data.
+ *   pnpm prices:import            # fetch from GitHub main
+ *   pnpm prices:import ./file.json
+ * Writes server/src/pricing/prices.generated.ts (sorted, deterministic).
+ * See THIRD_PARTY.md for attribution. Control Tower never imports LiteLLM code.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+const SOURCE = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+const OUT = path.resolve('server/src/pricing/prices.generated.ts');
+
+// litellm_provider → our pricing namespace. Unmapped providers are dropped.
+const NAMESPACE: Record<string, string> = {
+  openai: 'openai',
+  azure: 'openai',
+  text_completion_openai: 'openai',
+  anthropic: 'anthropic',
+  gemini: 'gemini',
+  vertex_ai: 'gemini',
+  'vertex_ai-language-models': 'gemini',
+  bedrock: 'bedrock',
+  bedrock_converse: 'bedrock',
+  groq: 'groq',
+  together_ai: 'together',
+  fireworks_ai: 'fireworks',
+  mistral: 'mistral',
+  deepseek: 'deepseek',
+  xai: 'xai',
+  openrouter: 'openrouter',
+  perplexity: 'perplexity',
+  cerebras: 'cerebras',
+  sambanova: 'sambanova',
+};
+
+interface LiteEntry {
+  litellm_provider?: string;
+  mode?: string;
+  input_cost_per_token?: number;
+  output_cost_per_token?: number;
+  cache_read_input_token_cost?: number;
+  cache_creation_input_token_cost?: number;
+  input_cost_per_token_above_200k_tokens?: number;
+  output_cost_per_token_above_200k_tokens?: number;
+  input_cost_per_token_above_128k_tokens?: number;
+  output_cost_per_token_above_128k_tokens?: number;
+  max_input_tokens?: number;
+  max_output_tokens?: number;
+  supports_function_calling?: boolean;
+  supports_vision?: boolean;
+  supports_reasoning?: boolean;
+  supports_prompt_caching?: boolean;
+  deprecation_date?: string;
+}
+
+const perM = (v: number | undefined) => (typeof v === 'number' ? Math.round(v * 1e6 * 1e6) / 1e6 : undefined);
+
+async function main() {
+  const arg = process.argv[2];
+  let text: string;
+  if (arg && fs.existsSync(arg)) text = fs.readFileSync(arg, 'utf8');
+  else {
+    const res = await fetch(SOURCE);
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    text = await res.text();
+  }
+  const sha = crypto.createHash('sha256').update(text).digest('hex').slice(0, 12);
+  const raw = JSON.parse(text) as Record<string, LiteEntry>;
+  const out: Record<string, Record<string, unknown>> = {};
+  let dropped = 0;
+  for (const [key, v] of Object.entries(raw)) {
+    if (key === 'sample_spec' || !v.litellm_provider) continue;
+    const ns = NAMESPACE[v.litellm_provider];
+    if (!ns || !['chat', 'completion', 'embedding'].includes(v.mode ?? '')) {
+      dropped++;
+      continue;
+    }
+    if (typeof v.input_cost_per_token !== 'number') {
+      dropped++;
+      continue;
+    }
+    // Strip the provider prefix LiteLLM puts on some keys (e.g. "groq/llama-3.3-70b-versatile").
+    let model = key;
+    const slash = key.indexOf('/');
+    if (slash > 0 && Object.keys(NAMESPACE).some((p) => key.startsWith(p + '/'))) model = key.slice(slash + 1);
+    if (ns === 'gemini' && !/^gemini/i.test(model) && v.litellm_provider !== 'gemini') {
+      dropped++;
+      continue; // vertex non-gemini models (claude, llama) are priced under their own namespaces
+    }
+    const entry: Record<string, unknown> = {
+      mode: v.mode,
+      input: perM(v.input_cost_per_token),
+      output: perM(v.output_cost_per_token) ?? 0,
+    };
+    if (v.cache_read_input_token_cost) entry.cache_read = perM(v.cache_read_input_token_cost);
+    if (v.cache_creation_input_token_cost) entry.cache_write = perM(v.cache_creation_input_token_cost);
+    const tiers: Array<Record<string, number>> = [];
+    if (v.input_cost_per_token_above_128k_tokens) tiers.push({ above_input_tokens: 128000, input: perM(v.input_cost_per_token_above_128k_tokens)!, output: perM(v.output_cost_per_token_above_128k_tokens ?? v.output_cost_per_token)! });
+    if (v.input_cost_per_token_above_200k_tokens) tiers.push({ above_input_tokens: 200000, input: perM(v.input_cost_per_token_above_200k_tokens)!, output: perM(v.output_cost_per_token_above_200k_tokens ?? v.output_cost_per_token)! });
+    if (tiers.length) entry.tiers = tiers;
+    if (v.max_input_tokens) entry.context = v.max_input_tokens;
+    if (v.max_output_tokens) entry.max_output = v.max_output_tokens;
+    const caps: Record<string, boolean> = {};
+    if (v.supports_function_calling) caps.tools = true;
+    if (v.supports_vision) caps.vision = true;
+    if (v.supports_reasoning) caps.reasoning = true;
+    if (v.supports_prompt_caching) caps.caching = true;
+    if (Object.keys(caps).length) entry.caps = caps;
+    out[`${ns}/${model}`] = entry;
+  }
+  const keys = Object.keys(out).sort();
+  const body = keys.map((k) => `  ${JSON.stringify(k)}: ${JSON.stringify(out[k])},`).join('\n');
+  const file = `/* eslint-disable */
+// GENERATED by scripts/import-litellm-prices.ts — do not edit by hand.
+// Source: ${SOURCE} (MIT, © Berri AI). See THIRD_PARTY.md.
+import type { PriceEntry } from './index.js';
+
+export const GENERATED_AT = ${JSON.stringify(new Date().toISOString())};
+export const SOURCE_SHA = ${JSON.stringify(sha)};
+export const GENERATED_PRICES: Record<string, PriceEntry> = {
+${body}
+};
+`;
+  fs.writeFileSync(OUT, file);
+  console.log(`wrote ${keys.length} entries (dropped ${dropped}) → ${path.relative(process.cwd(), OUT)}; source sha ${sha}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

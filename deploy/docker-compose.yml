@@ -1,0 +1,22 @@
+# One-command self-host. Demo traffic is on so the Airspace is alive immediately;
+# set CT_DEMO=0 (or clear demo data in the console) when you connect real providers.
+services:
+  controltower:
+    image: ghcr.io/controltower-ai/controltower:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: controltower
+    ports:
+      - "4000:4000"
+    environment:
+      CT_DEMO: "1"
+      # CT_PUBLIC_URL: "https://tower.example.com"   # used for signed approval links and the ingress probe
+      # CT_MASTER_KEY: ""                              # base64 32 bytes; otherwise generated in /data/master.key
+    volumes:
+      - controltower-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  controltower-data:

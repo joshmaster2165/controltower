@@ -1,0 +1,8 @@
+packages:
+  - shared
+  - server
+  - ui
+
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild

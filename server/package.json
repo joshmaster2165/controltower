@@ -1,0 +1,30 @@
+{
+  "name": "@controltower/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Control Tower gateway server: LLM + MCP gateway, policy engine, approvals, admin API, Airspace event bus.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/ws": "^8.18.1"
+  },
+  "dependencies": {
+    "@controltower/shared": "workspace:*",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/static": "^10.1.4",
+    "@fastify/websocket": "^11.3.1",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.5",
+    "kysely": "^0.29.6",
+    "ulid": "^3.0.2",
+    "undici": "^8.11.0",
+    "zod": "^4.6.5"
+  }
+}

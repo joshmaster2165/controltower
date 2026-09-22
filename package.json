@@ -1,0 +1,27 @@
+{
+  "name": "controltower",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Control Tower — self-hosted AI gateway with a live, animated map of agent traffic, visual access rules and human approvals.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @controltower/server dev",
+    "dev:ui": "pnpm --filter @controltower/ui dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "start": "node server/dist/server.mjs",
+    "prices:import": "tsx scripts/import-litellm-prices.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

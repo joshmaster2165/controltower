@@ -5,6 +5,7 @@ import type { AppContext } from '../context.js';
 import { requireAdmin, isSetupComplete } from './auth.js';
 import { generateApiKey } from '../crypto/apikeys.js';
 import { LAT_BUCKETS } from '../events/db-sink.js';
+import { classifyOperation } from '../mcp/gateway.js';
 
 /**
  * Admin API. Read endpoints feed the console; write endpoints mutate the DB
@@ -53,6 +54,28 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       .groupBy(['key_id', 'deployment_id', 'kind'])
       .execute();
 
+    // Connectivity: who actually talked to what (model, tool server, tool) in the last 24h.
+    const edgeRows = await sql<{ key_id: string; target: string | null; tool: string | null; requests: number; errors: number; denied: number; cost: number; last_ts: number }>`
+      SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool,
+        COUNT(*) AS requests,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
+        SUM(CASE WHEN status IN ('denied', 'rejected', 'ticketed') THEN 1 ELSE 0 END) AS denied,
+        COALESCE(SUM(cost_nanousd), 0) AS cost,
+        MAX(ts) AS last_ts
+      FROM flights
+      WHERE ts >= ${since} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
+      GROUP BY key_id, target, tool`.execute(ctx.db.read);
+    const edges = edgeRows.rows.map((e) => ({
+      key_id: e.key_id,
+      target_id: e.target!,
+      tool: e.tool ?? undefined,
+      requests: Number(e.requests),
+      errors: Number(e.errors),
+      denied: Number(e.denied),
+      cost_nanousd: Number(e.cost),
+      last_ts: Number(e.last_ts),
+    }));
+
     return {
       version: r.version,
       keys: [...r.keysById.values()].map((k) => ({
@@ -77,7 +100,16 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         demo: d.demo,
       })),
       aliases: [...r.aliases.values()].map((a) => ({ id: a.id, name: a.name, strategy: a.strategy, targets: a.targets })),
-      mcp_servers: [...ctx.mcp.servers.values()].map((s) => ({ id: s.id, slug: s.slug, name: s.name, health: s.health, enabled: s.enabled, tools: s.tools.map((t) => t.name), demo: s.demo })),
+      mcp_servers: [...ctx.mcp.servers.values()].map((s) => ({
+        id: s.id,
+        slug: s.slug,
+        name: s.name,
+        health: s.health,
+        enabled: s.enabled,
+        tools: s.tools.map((t) => ({ name: t.name, op: classifyOperation(t) })),
+        demo: s.demo,
+      })),
+      edges,
       lanes: lanes.map((l) => ({
         key_id: l.key_id,
         deployment_id: l.deployment_id,
@@ -93,6 +125,41 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       })),
       lat_buckets: LAT_BUCKETS,
     };
+  });
+
+  // ---- Airspace arrangement: the map is shared documentation, so node positions live on the server ----
+  app.get('/admin/api/airspace/layout', { preHandler: guard }, async () => {
+    const row = await ctx.db.read.selectFrom('settings').select(['value', 'updated_at']).where('key', '=', 'airspace.layout').executeTakeFirst();
+    let positions: Record<string, [number, number]> = {};
+    try {
+      positions = row ? (JSON.parse(row.value) as Record<string, [number, number]>) : {};
+    } catch {
+      positions = {};
+    }
+    return { positions, updated_at: row?.updated_at ?? null };
+  });
+
+  app.put('/admin/api/airspace/layout', { preHandler: guard }, async (req, reply) => {
+    const b = (req.body ?? {}) as { positions?: unknown };
+    const input = b.positions;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return reply.status(400).send({ error: { code: 'invalid', message: 'positions must be an object of id → [x, y]' } });
+    const entries = Object.entries(input as Record<string, unknown>);
+    if (entries.length > 5000) return reply.status(400).send({ error: { code: 'invalid', message: 'too many positions' } });
+    const clean: Record<string, [number, number]> = {};
+    for (const [id, v] of entries) {
+      if (id.length > 128 || !Array.isArray(v) || v.length !== 2) continue;
+      const [x, y] = v as unknown[];
+      if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) continue;
+      clean[id] = [Math.round(x), Math.round(y)];
+    }
+    const now = Date.now();
+    const value = JSON.stringify(clean);
+    await ctx.db.write
+      .insertInto('settings')
+      .values({ key: 'airspace.layout', value, updated_at: now })
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value, updated_at: now }))
+      .execute();
+    return { ok: true, count: Object.keys(clean).length, updated_at: now };
   });
 
   app.get('/admin/api/events/recent', { preHandler: guard }, async (req) => {

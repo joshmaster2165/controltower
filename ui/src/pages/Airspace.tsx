@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
-import { AirspaceScene, type ClickInfo, type HoverInfo } from '../airspace/scene';
+import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type LinkState } from '../airspace/scene';
 import { hex } from '../airspace/colors';
 import { api, ApiError, type Rule, type Zone } from '../api';
 import { ApprovalCard } from './Tower';
@@ -13,6 +13,16 @@ type Popover =
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
   | { kind: 'gate'; rule: Rule; x: number; y: number };
+
+const STATE_LABEL: Record<LinkState, string> = {
+  active: 'active',
+  idle: 'idle (24h)',
+  unused: 'no traffic',
+  holding: 'holding for approval',
+  blocked: 'blocked',
+};
+
+const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', unknown: 'unrouted' } as const;
 
 export function AirspacePage() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -26,12 +36,27 @@ export function AirspacePage() {
   const refreshPolicy = useStore((s) => s.refreshPolicy);
   const refreshApprovals = useStore((s) => s.refreshApprovals);
   const [hover, setHover] = useState<HoverInfo | null>(null);
-  const [stats, setStats] = useState({ particles: 0, stations: 0 });
+  const [stats, setStats] = useState({ active: 0, stations: 0, held: 0 });
   const [drawMode, setDrawMode] = useState(false);
   const [popover, setPopover] = useState<Popover | null>(null);
   const [showTower, setShowTower] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<FocusSummary | null>(null);
+  const focusRef = useRef<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [customLayout, setCustomLayout] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const cameraReady = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyFocus = (id: string | null) => {
+    focusRef.current = id;
+    setFocusId(id);
+    sceneRef.current?.setFocus(id);
+    setFocus(id ? (sceneRef.current?.focusSummary(id) ?? null) : null);
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -47,50 +72,119 @@ export function AirspacePage() {
         throw err;
       })
       .then(() => {
-      if (disposed) {
-        scene.destroy();
-        return;
-      }
-      sceneRef.current = scene;
-      (window as unknown as { __ctScene?: AirspaceScene }).__ctScene = scene;
-      scene.onHover(setHover);
-      scene.onClick((c: ClickInfo) => {
-        if (c.kind === 'lasso') {
-          setDrawMode(false);
-          scene.drawMode = false;
-          if (c.stationIds.length) setPopover({ kind: 'lasso', stationIds: c.stationIds, x: c.x, y: c.y });
-          else setPopover(null);
-        } else if (c.kind === 'zone') setPopover({ kind: 'zone', zone: c.zone, x: c.x, y: c.y });
-        else if (c.kind === 'gate') setPopover({ kind: 'gate', rule: c.rule, x: c.x, y: c.y });
-        else setPopover(null);
-      });
-      const st = useStore.getState();
-      if (st.topology) scene.setTopology(st.topology);
-      if (st.policy) scene.setPolicy(st.policy);
-      unsub = onFlightEvent((e) => scene.handle(e));
+        if (disposed) {
+          scene.destroy();
+          return;
+        }
+        sceneRef.current = scene;
+        (window as unknown as { __ctScene?: AirspaceScene }).__ctScene = scene;
+        scene.onHover(setHover);
+        scene.onClick((c: ClickInfo) => {
+          if (c.kind === 'lasso') {
+            setDrawMode(false);
+            scene.drawMode = false;
+            if (c.stationIds.length) setPopover({ kind: 'lasso', stationIds: c.stationIds, x: c.x, y: c.y });
+            else setPopover(null);
+          } else if (c.kind === 'station') {
+            setPopover(null);
+            applyFocus(focusRef.current === c.station.id ? null : c.station.id);
+          } else if (c.kind === 'zone') setPopover({ kind: 'zone', zone: c.zone, x: c.x, y: c.y });
+          else if (c.kind === 'gate') setPopover({ kind: 'gate', rule: c.rule, x: c.x, y: c.y });
+          else {
+            setPopover(null);
+            applyFocus(null);
+          }
+        });
+        const st = useStore.getState();
+        if (st.topology) scene.setTopology(st.topology);
+        if (st.policy) scene.setPolicy(st.policy);
+        unsub = onFlightEvent((e) => scene.handle(e));
+
+        // Arrangement is shared (server); camera is per viewer (localStorage).
+        scene.onLayoutChange((positions) => {
+          setCustomLayout(Object.keys(positions).length > 0);
+          setSaveState('saving');
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = setTimeout(() => {
+            api
+              .put('/admin/api/airspace/layout', { positions })
+              .then(() => setSaveState('saved'))
+              .catch(() => setSaveState('error'));
+          }, 500);
+        });
+        scene.onCamera((c) => {
+          setZoom(c.k);
+          try {
+            localStorage.setItem('ct.airspace.camera', JSON.stringify(c));
+          } catch {
+            /* storage unavailable */
+          }
+        });
+        void api
+          .get<{ positions: Record<string, [number, number]> }>('/admin/api/airspace/layout')
+          .then((r) => {
+            if (disposed) return;
+            scene.setPositions(r.positions);
+            setCustomLayout(scene.hasCustomLayout());
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (disposed) return;
+            let saved: { x: number; y: number; k: number } | null = null;
+            try {
+              saved = JSON.parse(localStorage.getItem('ct.airspace.camera') ?? 'null') as typeof saved;
+            } catch {
+              saved = null;
+            }
+            if (saved) scene.setCamera(saved);
+            else scene.fit();
+            setZoom(scene.getCamera().k);
+            cameraReady.current = true;
+          });
       })
       .catch(() => undefined);
     const iv = setInterval(() => {
-      if (sceneRef.current) setStats(sceneRef.current.stats());
+      const sc = sceneRef.current;
+      if (!sc) return;
+      setStats(sc.stats());
+      if (focusRef.current) setFocus(sc.focusSummary(focusRef.current));
     }, 1000);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') applyFocus(null);
+    };
+    window.addEventListener('keydown', onKey);
     return () => {
       disposed = true;
       clearInterval(iv);
+      window.removeEventListener('keydown', onKey);
       unsub();
       sceneRef.current?.destroy();
       sceneRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (topology && sceneRef.current) sceneRef.current.setTopology(topology);
+    if (topology && sceneRef.current) {
+      sceneRef.current.setTopology(topology);
+      if (focusRef.current) setFocus(sceneRef.current.focusSummary(focusRef.current));
+    }
   }, [topology]);
   useEffect(() => {
     if (policy && sceneRef.current) sceneRef.current.setPolicy(policy);
   }, [policy]);
   useEffect(() => {
-    sceneRef.current?.setRightInset(showTower ? 372 : 0);
-  }, [showTower, topology, policy]);
+    sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
+  }, [showTower, focusId, topology, policy]);
+
+  const fitView = () => {
+    sceneRef.current?.fit();
+    if (sceneRef.current) setZoom(sceneRef.current.getCamera().k);
+  };
+  const resetLayout = () => {
+    if (!confirm('Reset the Airspace to the automatic layout? Everyone sees the shared arrangement.')) return;
+    sceneRef.current?.resetLayout();
+  };
 
   const toggleDraw = () => {
     const next = !drawMode;
@@ -125,23 +219,25 @@ export function AirspacePage() {
             </div>
           </div>
           <div className="seg">
-            <div className="label">In the air</div>
-            <div className="value">{stats.particles}</div>
+            <div className="label">Active links</div>
+            <div className="value">{stats.active}</div>
           </div>
           <div className="seg">
             <div className="label">Holding</div>
-            <div className="value" style={{ color: pendingHere.length ? 'var(--warn)' : undefined }}>{pendingHere.length}</div>
+            <div className="value" style={{ color: pendingHere.length ? 'var(--warn)' : undefined }}>
+              {pendingHere.length}
+            </div>
           </div>
         </div>
         <button className={`btn ${drawMode ? 'active' : ''}`} onClick={toggleDraw} title="Drag a lasso around stations to create a zone">
           Draw zone
         </button>
-        <button className={`btn ${showTower ? 'active' : ''}`} onClick={() => setShowTower((v) => !v)}>
+        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }}>
           Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
       </div>
       <div className="airspace-caption">
-        <b>Airspace</b> · every request is routed through the tower · live
+        <b>Airspace</b> · drag nodes to arrange · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace it
       </div>
       {initError && (
         <div className="card" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%,-50%)', maxWidth: 440, zIndex: 6 }}>
@@ -152,23 +248,27 @@ export function AirspacePage() {
       )}
       {drawMode && <div className="mode-banner">Drag a lasso around the stations that belong together</div>}
 
-      {showTower && (
-        <div className="tower-drawer">
-          {pendingHere.length === 0 ? (
-            <div className="card hint">No flights holding. Click a gate to make it a checkpoint, or draw a zone first.</div>
-          ) : (
-            pendingHere.map((a) => <ApprovalCard key={a.id} a={a} onDecided={() => void refreshApprovals()} />)
-          )}
-          {feed.slice(0, 4).map((f) => (
-            <div className="feed" key={f.id} style={{ position: 'static', width: 'auto' }}>
-              <div className="row">
-                <i style={{ background: f.kind === 'held' ? 'var(--warn)' : f.kind === 'ok' || f.kind === 'info' ? 'var(--accent)' : 'var(--danger)' }} />
-                <span>{f.text}</span>
-                <span className="m">{f.meta}</span>
+      {focus ? (
+        <FocusPanel summary={focus} onClose={() => applyFocus(null)} onPick={(id) => applyFocus(id)} />
+      ) : (
+        showTower && (
+          <div className="tower-drawer">
+            {pendingHere.length === 0 ? (
+              <div className="card hint">No flights holding. Click a gate to make it a checkpoint, or draw a zone first.</div>
+            ) : (
+              pendingHere.map((a) => <ApprovalCard key={a.id} a={a} onDecided={() => void refreshApprovals()} />)
+            )}
+            {feed.slice(0, 4).map((f) => (
+              <div className="feed" key={f.id} style={{ position: 'static', width: 'auto' }}>
+                <div className="row">
+                  <i style={{ background: f.kind === 'held' ? 'var(--warn)' : f.kind === 'ok' || f.kind === 'info' ? 'var(--accent)' : 'var(--danger)' }} />
+                  <span>{f.text}</span>
+                  <span className="m">{f.meta}</span>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       )}
 
       {popover?.kind === 'lasso' && (
@@ -189,15 +289,7 @@ export function AirspacePage() {
         />
       )}
       {popover?.kind === 'zone' && policy && (
-        <ZonePopover
-          x={popover.x}
-          y={popover.y}
-          zone={popover.zone}
-          zones={policy.zones}
-          rules={policy.rules}
-          onClose={() => setPopover(null)}
-          onChanged={() => void refreshPolicy()}
-        />
+        <ZonePopover x={popover.x} y={popover.y} zone={popover.zone} zones={policy.zones} rules={policy.rules} onClose={() => setPopover(null)} onChanged={() => void refreshPolicy()} />
       )}
       {popover?.kind === 'gate' && policy && (
         <GatePopover
@@ -219,114 +311,43 @@ export function AirspacePage() {
         </div>
       )}
 
-      {hover?.station && !popover && (
-        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
-          <div className="t" style={{ color: hex(hover.station.color) }}>
-            {hover.station.label}
-          </div>
-          <div className="r">
-            <span>{hover.station.kind === 'agent' ? 'agent' : hover.station.kind === 'mcp' ? 'tool server' : 'model'}</span>
-            <b>{hover.station.sub}</b>
-          </div>
-          <div className="r">
-            <span>last minute</span>
-            <b>{hover.station.rpm} flights</b>
-          </div>
-          <div className="r">
-            <span>requests (live)</span>
-            <b>{hover.station.requests}</b>
-          </div>
-          {hover.station.kind !== 'agent' && (
-            <div className="r">
-              <span>spend (live)</span>
-              <b>{formatUsd(hover.station.cost)}</b>
-            </div>
-          )}
-        </div>
-      )}
-      {hover?.lane && !popover && (
-        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
-          <div className="t">
-            {hover.lane.fromLabel} → {hover.lane.toLabel}
-          </div>
-          <div className="r">
-            <span>requests (24h)</span>
-            <b>{hover.lane.requests}</b>
-          </div>
-          <div className="r">
-            <span>spend (24h)</span>
-            <b>{formatUsd(hover.lane.cost)}</b>
-          </div>
-          <div className="r">
-            <span>avg latency</span>
-            <b>{hover.lane.avgMs == null ? '—' : `${Math.round(hover.lane.avgMs)} ms`}</b>
-          </div>
-          <div className="r">
-            <span>errors / blocked</span>
-            <b>
-              {hover.lane.errors} / {hover.lane.denied}
-            </b>
-          </div>
-          {hover.lane.gate && (
-            <div className="r">
-              <span>gate</span>
-              <b>{hover.lane.gate.rule.effect.replace('_', ' ')}</b>
-            </div>
-          )}
-        </div>
-      )}
-      {hover?.gate && !popover && (
-        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
-          <div className="t">{hover.gate.rule.name}</div>
-          <div className="r">
-            <span>effect</span>
-            <b>{hover.gate.rule.effect.replace('_', ' ')}</b>
-          </div>
-          <div className="r">
-            <span>click to edit</span>
-          </div>
-        </div>
-      )}
-      {hover?.hub && !popover && (
-        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
-          <div className="t">Control Tower</div>
-          <div className="r">
-            <span>flights / min</span>
-            <b>{hover.hub.rpm}</b>
-          </div>
-          <div className="r">
-            <span>spend / min</span>
-            <b>{formatUsd(hover.hub.costPerMin)}</b>
-          </div>
-          <div className="r">
-            <span>holding</span>
-            <b>{hover.hub.held}</b>
-          </div>
-        </div>
-      )}
-      {hover?.zone && !popover && (
-        <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
-          <div className="t" style={{ color: hover.zone.color }}>
-            {hover.zone.name}
-          </div>
-          <div className="r">
-            <span>click to manage gates</span>
-          </div>
-        </div>
-      )}
+      {hover && !popover && <Tooltip hover={hover} />}
+
+      <div className="map-controls" style={{ right: showTower || focusId ? 388 : 16 }}>
+        <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1 / 1.2)} aria-label="Zoom out">
+          −
+        </button>
+        <span className="zoom">{Math.round(zoom * 100)}%</span>
+        <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1.2)} aria-label="Zoom in">
+          +
+        </button>
+        <span className="sep" />
+        <button className="btn sm ghost" onClick={fitView}>
+          Fit
+        </button>
+        {customLayout && (
+          <button className="btn sm ghost" onClick={resetLayout}>
+            Reset layout
+          </button>
+        )}
+        {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
+      </div>
 
       <div className="legend">
         <span>
-          <i style={{ background: 'var(--accent)' }} /> request
+          <em className="ln active" /> active (last min)
         </span>
         <span>
-          <i style={{ background: 'var(--ok)' }} /> response
+          <em className="ln idle" /> idle (24h)
         </span>
         <span>
-          <i style={{ background: 'var(--warn)' }} /> holding for approval
+          <em className="ln unused" /> no traffic
         </span>
         <span>
-          <i style={{ background: 'var(--danger)' }} /> blocked · error
+          <em className="ln holding" /> holding
+        </span>
+        <span>
+          <em className="ln blocked" /> blocked
         </span>
         <span className="sep" />
         <span>
@@ -339,6 +360,230 @@ export function AirspacePage() {
           <i className="led" /> {wsState}
         </span>
         {policy && !policy.enforcement && <span className="pill warn">enforcement off</span>}
+      </div>
+    </div>
+  );
+}
+
+function Tooltip({ hover }: { hover: HoverInfo }) {
+  const pos = { left: hover.x, top: hover.y };
+  if (hover.station) {
+    const s = hover.station;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t" style={{ color: hex(s.color) }}>
+          {s.label}
+        </div>
+        <div className="r">
+          <span>{KIND_LABEL[s.kind]}</span>
+          <b>{STATE_LABEL[s.state]}</b>
+        </div>
+        <div className="r">
+          <span>last minute</span>
+          <b>{s.rpm} flights</b>
+        </div>
+        <div className="r">
+          <span>24h requests</span>
+          <b>{s.requests24h.toLocaleString()}</b>
+        </div>
+        <div className="r">
+          <span>24h spend</span>
+          <b>{formatUsd(s.cost24h)}</b>
+        </div>
+        {(s.denied24h > 0 || s.errors24h > 0) && (
+          <div className="r">
+            <span>blocked · errors</span>
+            <b>
+              {s.denied24h} · {s.errors24h}
+            </b>
+          </div>
+        )}
+        <div className="r">
+          <span>click to trace connections</span>
+        </div>
+      </div>
+    );
+  }
+  if (hover.tool) {
+    const t = hover.tool;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">
+          {t.server} · {t.name}
+        </div>
+        <div className="r">
+          <span>operation</span>
+          <b>{t.op === 'admin' ? 'destructive' : t.op}</b>
+        </div>
+        <div className="r">
+          <span>last minute</span>
+          <b>{t.rpm} calls</b>
+        </div>
+        <div className="r">
+          <span>24h calls</span>
+          <b>{t.count24h.toLocaleString()}</b>
+        </div>
+        {t.gates.map((g) => (
+          <div className="r" key={g.id}>
+            <span>gate</span>
+            <b>{g.effect.replace('_', ' ')}</b>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (hover.lane) {
+    const l = hover.lane;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">
+          {l.fromLabel} → {l.toLabel}
+        </div>
+        <div className="r">
+          <span>state</span>
+          <b>{STATE_LABEL[l.state]}</b>
+        </div>
+        <div className="r">
+          <span>last minute</span>
+          <b>{l.rpm} flights</b>
+        </div>
+        <div className="r">
+          <span>24h requests · spend</span>
+          <b>
+            {l.requests.toLocaleString()} · {formatUsd(l.cost)}
+          </b>
+        </div>
+        {l.gate && (
+          <div className="r">
+            <span>gate</span>
+            <b>{l.gate.rule.effect.replace('_', ' ')}</b>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (hover.gate) {
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">{hover.gate.rule.name}</div>
+        <div className="r">
+          <span>effect</span>
+          <b>{hover.gate.rule.effect.replace('_', ' ')}</b>
+        </div>
+        <div className="r">
+          <span>triggered (last min)</span>
+          <b>{hover.gate.hits}</b>
+        </div>
+        <div className="r">
+          <span>click to edit</span>
+        </div>
+      </div>
+    );
+  }
+  if (hover.hub) {
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">Control Tower</div>
+        <div className="r">
+          <span>active links</span>
+          <b>{hover.hub.active}</b>
+        </div>
+        <div className="r">
+          <span>flights / min</span>
+          <b>{hover.hub.rpm}</b>
+        </div>
+        <div className="r">
+          <span>holding</span>
+          <b>{hover.hub.held}</b>
+        </div>
+      </div>
+    );
+  }
+  if (hover.zone) {
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t" style={{ color: hover.zone.color }}>
+          {hover.zone.name}
+        </div>
+        <div className="r">
+          <span>click to manage gates</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+function FocusPanel({ summary, onClose, onPick }: { summary: FocusSummary; onClose: () => void; onPick: (id: string) => void }) {
+  const s = summary.station;
+  const title = s.kind === 'agent' ? 'Reaches' : 'Used by';
+  const maxReq = Math.max(1, ...summary.links.map((l) => l.requests));
+  return (
+    <div className="tower-drawer">
+      <div className="card focus-panel">
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="hint" style={{ textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 11, fontWeight: 600 }}>
+              {KIND_LABEL[s.kind]} · {STATE_LABEL[s.state]}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 16, marginTop: 2 }}>{s.label}</div>
+            <div className="hint">{s.sub}</div>
+          </div>
+          <button className="btn sm ghost" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="focus-stats">
+          <div>
+            <div className="label">Last min</div>
+            <div className="value">{s.rpm}</div>
+          </div>
+          <div>
+            <div className="label">24h requests</div>
+            <div className="value">{s.requests24h.toLocaleString()}</div>
+          </div>
+          <div>
+            <div className="label">24h spend</div>
+            <div className="value">{formatUsd(s.cost24h)}</div>
+          </div>
+        </div>
+        <div className="focus-title">
+          {title} · {summary.links.length}
+        </div>
+        {summary.links.length === 0 && <div className="hint">No connections in the last 24 hours.</div>}
+        {summary.links.map((l) => (
+          <div key={l.id} className="focus-link" onClick={() => onPick(l.id)} role="button" tabIndex={0}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="swatch" style={{ background: hex(l.color) }} />
+              <span className="name">{l.label}</span>
+              <span className="kind">{KIND_LABEL[l.kind]}</span>
+              {l.live && <span className="live-dot" title="active in the last minute" />}
+              <span className="num">{l.requests.toLocaleString()}</span>
+            </div>
+            <div className="bar">
+              <div style={{ width: `${(l.requests / maxReq) * 100}%` }} />
+            </div>
+            {(l.denied > 0 || l.errors > 0 || l.cost > 0) && (
+              <div className="meta">
+                {formatUsd(l.cost)}
+                {l.denied > 0 && <span className="bad"> · {l.denied} blocked</span>}
+                {l.errors > 0 && <span className="bad"> · {l.errors} errors</span>}
+              </div>
+            )}
+            {l.tools.length > 0 && (
+              <div className="tools">
+                {l.tools.map((t) => (
+                  <span key={t.name} className="tag">
+                    {t.name} · {t.requests.toLocaleString()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="hint" style={{ marginTop: 10 }}>
+          Click a connection to trace it · Esc to clear
+        </div>
       </div>
     </div>
   );

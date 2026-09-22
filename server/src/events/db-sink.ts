@@ -243,7 +243,8 @@ export class DbSink {
   private accumulate(e: FlightCompleted): void {
     const s = this.started.get(e.flight_id);
     const keyId = s?.key_id ?? '';
-    const depId = e.deployment_id ?? s?.deployment_id ?? '';
+    // Tool calls have no deployment: attribute them to their MCP server.
+    const depId = e.deployment_id ?? s?.deployment_id ?? s?.mcp_server_id ?? '';
     const aliasId = s?.alias_id ?? '';
     const kind = s?.kind ?? '';
     const wasHeld = this.held.has(e.flight_id);

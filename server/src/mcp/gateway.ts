@@ -44,7 +44,7 @@ function rpcError(id: RpcRequest['id'], code: number, message: string, data?: un
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message, ...(data !== undefined ? { data } : {}) } };
 }
 
-function classifyOperation(tool: McpTool): PolicyTarget['operation'] {
+export function classifyOperation(tool: McpTool): PolicyTarget['operation'] {
   const a = (tool.annotations ?? {}) as { readOnlyHint?: boolean; destructiveHint?: boolean };
   if (a.readOnlyHint === true) return 'read';
   if (a.destructiveHint === true) return 'admin';

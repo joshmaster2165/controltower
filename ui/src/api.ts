@@ -44,6 +44,7 @@ export const api = {
   get: <T>(path: string) => call<T>('GET', path),
   post: <T>(path: string, body?: unknown) => call<T>('POST', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => call<T>('PATCH', path, body ?? {}),
+  put: <T>(path: string, body?: unknown) => call<T>('PUT', path, body ?? {}),
   del: <T>(path: string) => call<T>('DELETE', path),
 };
 
@@ -113,14 +114,30 @@ export interface TopologyLane {
   out_tokens: number;
   avg_ms: number | null;
 }
+export interface TopologyMcpTool {
+  name: string;
+  /** read | write | admin (destructive) | unknown */
+  op: 'read' | 'write' | 'admin' | 'unknown';
+}
 export interface TopologyMcpServer {
   id: string;
   slug: string;
   name: string;
   health: string;
   enabled: boolean;
-  tools: string[];
+  tools: TopologyMcpTool[];
   demo: boolean;
+}
+/** Who talked to what in the last 24h: agent → model deployment or tool server (and tool). */
+export interface TopologyEdge {
+  key_id: string;
+  target_id: string;
+  tool?: string;
+  requests: number;
+  errors: number;
+  denied: number;
+  cost_nanousd: number;
+  last_ts: number;
 }
 export interface Topology {
   version: number;
@@ -129,6 +146,7 @@ export interface Topology {
   deployments: TopologyDeployment[];
   aliases: TopologyAlias[];
   mcp_servers: TopologyMcpServer[];
+  edges: TopologyEdge[];
   lanes: TopologyLane[];
 }
 

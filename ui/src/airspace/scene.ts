@@ -1,75 +1,128 @@
 import type { FlightEvent } from '@controltower/shared';
-import type { PolicyBundle, Rule, Topology, Zone } from '../api';
+import type { PolicyBundle, Rule, Topology, TopologyEdge, Zone } from '../api';
 import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, STATUS_COLORS } from './colors';
 
 /**
- * The Airspace — Canvas 2D (no WebGL dependency, works in every browser).
+ * The Airspace — a live map of the agentic ecosystem (Canvas 2D).
  *
- * Every flight is routed through the tower in the middle, because that is
- * what actually happens: agents (left) → Control Tower (policy, gates) →
- * models and tool servers (right). Flights hold in a circling pattern around
- * the tower while a human decides, shatter at the gate that blocks them, and
- * return as a response trace sized by output tokens.
+ * Agents (left) connect through Control Tower (centre) to model deployments
+ * and MCP tool servers (right); tool servers list their tools. Nothing
+ * travels: every connection shows its *state*, which stays legible at scale.
+ *
+ *   active   traffic in the last minute — agent/station colour, weight ∝ rate
+ *   idle     used in the last 24h, quiet now — solid grey
+ *   unused   never used — faint dashed
+ *   holding  a flight is waiting for human approval — amber
+ *   blocked  most recent traffic denied — red
+ *
+ * Click a node to focus it: everything it talks to is highlighted and the
+ * rest of the map recedes.
  */
+
+const WINDOW_MS = 60_000;
+const STALE_MS = 60_000;
+const TOOL_ROW = 20;
+const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const INK = '#0f1b2d';
+const INK_DIM = '#5b6b82';
+const INK_FAINT = '#8a98ad';
+const LINE_IDLE = '#c9d3e1';
+const LINE_UNUSED = '#dfe5ee';
+
+export type StationKind = 'agent' | 'model' | 'mcp' | 'unknown';
+export type ToolOp = 'read' | 'write' | 'admin' | 'unknown';
+
+export interface ToolRow {
+  name: string;
+  full: string;
+  op: ToolOp;
+  recent: number[];
+  lastAt: number;
+  count24h: number;
+  gates: Rule[];
+  y: number;
+}
 
 export interface Station {
   id: string;
-  kind: 'agent' | 'model' | 'mcp' | 'unknown';
+  kind: StationKind;
   label: string;
   sub: string;
+  slug: string;
   color: number;
-  /** card top-left */
   x: number;
   y: number;
   w: number;
   h: number;
-  /** port where the spoke attaches */
+  headH: number;
   px: number;
   py: number;
-  r: number;
-  heat: number;
-  requests: number;
-  denied: number;
-  errors: number;
-  cost: number;
-  arrivals: number[];
+  tools: ToolRow[];
+  expanded: boolean;
+  userToggled: boolean;
+  recent: number[];
+  denials: number[];
+  lastAt: number;
+  held: number;
 }
 
-export interface Lane {
-  from: string;
-  to: string;
-  activity: number;
+export type LinkState = 'active' | 'idle' | 'unused' | 'holding' | 'blocked';
+
+export interface StationView {
+  id: string;
+  kind: StationKind;
+  label: string;
+  sub: string;
+  color: number;
+  rpm: number;
+  held: number;
+  state: LinkState;
+  requests24h: number;
+  cost24h: number;
+  errors24h: number;
+  denied24h: number;
+}
+
+export interface LaneView {
+  fromLabel: string;
+  toLabel: string;
+  state: LinkState;
+  rpm: number;
   requests: number;
   cost: number;
   errors: number;
   denied: number;
-  avgMs: number | null;
-  cx: number;
-  cy: number;
-  gate: { rule: Rule; x: number; y: number } | null;
-}
-
-export interface SceneStats {
-  particles: number;
-  stations: number;
+  gate: { rule: Rule } | null;
 }
 
 export interface HoverInfo {
   x: number;
   y: number;
-  station?: Station & { rpm: number };
-  lane?: Lane & { fromLabel: string; toLabel: string };
+  station?: StationView;
+  lane?: LaneView;
   zone?: Zone;
-  gate?: { rule: Rule; lane: Lane };
-  hub?: { rpm: number; held: number; costPerMin: number };
+  gate?: { rule: Rule; hits: number };
+  hub?: { rpm: number; held: number; active: number };
+  tool?: { server: string; name: string; op: ToolOp; rpm: number; count24h: number; gates: Rule[] };
 }
 
 export type ClickInfo =
-  | { kind: 'station'; station: Station; x: number; y: number }
+  | { kind: 'station'; station: StationView; x: number; y: number }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
-  | { kind: 'gate'; rule: Rule; lane: Lane; x: number; y: number }
+  | { kind: 'gate'; rule: Rule; x: number; y: number }
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
   | { kind: 'empty'; x: number; y: number };
+
+export interface FocusSummary {
+  station: StationView;
+  links: Array<{ id: string; label: string; kind: StationKind; color: number; requests: number; cost: number; denied: number; errors: number; live: boolean; tools: Array<{ name: string; requests: number }> }>;
+}
+
+export interface SceneStats {
+  active: number;
+  stations: number;
+  held: number;
+}
 
 type Pt = [number, number];
 interface Bez {
@@ -80,55 +133,9 @@ interface Bez {
 }
 interface Spoke {
   station: Station;
-  bez: Bez; // agents: station → hub; destinations: hub → station
-  activity: number;
-  gates: Array<{ rule: Rule; t: number; x: number; y: number }>;
+  bez: Bez;
+  gates: Array<{ rule: Rule; x: number; y: number }>;
 }
-
-interface Particle {
-  id: string;
-  agent: Station;
-  dest: Station;
-  color: number;
-  size: number;
-  phase: 'in' | 'hub' | 'out' | 'await' | 'hold' | 'retA' | 'retB' | 'shatter';
-  t: number;
-  verdict: 'pending' | 'allow' | 'deny' | 'held';
-  completed: { status: string; outTokens: number } | undefined;
-  stopAt: number | undefined;
-  from: Pt | undefined; // blend-in origin for the current phase
-  angle: number;
-  born: number;
-  x: number;
-  y: number;
-  trail: Pt[];
-  shards: Array<{ x: number; y: number; vx: number; vy: number }> | undefined;
-  shardColor: number;
-  life: number;
-  /** Where on which curve the pulse currently is (undefined when off the lines). */
-  seg: { bez: Bez; k: number } | undefined;
-}
-
-interface Pulse {
-  x: number;
-  y: number;
-  color: number;
-  t: number;
-  max: number;
-}
-
-const IN_MS = 650;
-const HUB_MS = 140;
-const OUT_MS = 650;
-const RET_MS = 520;
-const STALE_MS = 8_000;
-const MAX_AGE_MS = 90_000;
-const RESPONSE = 0x1a9e6b;
-const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-const INK = '#0f1b2d';
-const INK_DIM = '#5b6b82';
-const INK_FAINT = '#8a98ad';
-const LINE = '#d3dce8';
 
 const LOGO_PATHS = [
   { d: 'M13 18h38l-4.5 12H17.5z', fill: '#1f5eff' },
@@ -137,6 +144,14 @@ const LOGO_PATHS = [
   { d: 'M19.25 54h25.5a2.25 2.25 0 0 1 0 4.5h-25.5a2.25 2.25 0 0 1 0-4.5z', fill: '#0b3d91' },
   { d: 'M21.5 22.5h21a1.5 1.5 0 0 1 0 3h-21a1.5 1.5 0 0 1 0-3z', fill: '#ffffff' },
 ];
+
+/** Compact operation badges on tool rows (R read, W write, D destructive); the tooltip spells them out. */
+const OP_STYLE: Record<ToolOp, { label: string; color: string }> = {
+  read: { label: 'R', color: '#1a9e6b' },
+  write: { label: 'W', color: '#1f5eff' },
+  admin: { label: 'D', color: '#d3374e' },
+  unknown: { label: '', color: '#8a98ad' },
+};
 
 function rgba(c: number, a: number): string {
   return `rgba(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255},${a})`;
@@ -152,11 +167,10 @@ function bezAt(b: Bez, t: number): Pt {
   const d = t * t * t;
   return [a * b.p0[0] + bb * b.p1[0] + c * b.p2[0] + d * b.p3[0], a * b.p0[1] + bb * b.p1[1] + c * b.p2[1] + d * b.p3[1]];
 }
-function lerp(a: Pt, b: Pt, k: number): Pt {
-  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
-}
-function ease(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+function globMatch(pattern: string, value: string): boolean {
+  if (pattern === '*') return true;
+  if (!pattern.includes('*')) return pattern === value;
+  return new RegExp('^' + pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$').test(value);
 }
 function pointInPoly(x: number, y: number, poly: Pt[]): boolean {
   let inside = false;
@@ -178,6 +192,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 function fitText(ctx: CanvasRenderingContext2D, s: string, max: number): string {
+  if (max <= 0) return '';
   if (ctx.measureText(s).width <= max) return s;
   let lo = 0;
   let hi = s.length;
@@ -188,46 +203,58 @@ function fitText(ctx: CanvasRenderingContext2D, s: string, max: number): string 
   }
   return s.slice(0, lo) + '…';
 }
+function prune(arr: number[], cutoff: number): void {
+  let i = 0;
+  while (i < arr.length && arr[i]! < cutoff) i++;
+  if (i) arr.splice(0, i);
+}
 
 export class AirspaceScene {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
-  private bg: HTMLCanvasElement | null = null;
   private host!: HTMLElement;
   private ro: ResizeObserver | null = null;
   private raf = 0;
-  private last = 0;
   private dpr = 1;
   private w = 0;
   private h = 0;
   private ready = false;
-  private reducedMotion = false;
+  private dirty = true;
+  private lastDraw = 0;
+  private lastHoverRefresh = 0;
 
   private stations = new Map<string, Station>();
   private spokes = new Map<string, Spoke>();
-  private particles: Particle[] = [];
-  private byFlight = new Map<string, Particle>();
-  private pulses: Pulse[] = [];
-  private laneStats = new Map<string, Lane>();
+  private edges: TopologyEdge[] = [];
+  private used24h = new Set<string>();
+  private livePairs = new Map<string, number>(); // `${agent}>${dest}` → last ts
+  private liveToolPairs = new Map<string, number>(); // `${agent}>${dest}|${tool}` → last ts
+  private live = new Map<string, { agent: string; dest: string | undefined; held: boolean }>();
+  private ruleHits = new Map<string, number[]>();
+  private hubRecent: number[] = [];
   private zoneBoxes: Array<{ zone: Zone; x: number; y: number; w: number; h: number; chip: { x: number; y: number; w: number; h: number } }> = [];
   private topology: Topology | null = null;
   private policy: PolicyBundle | null = null;
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
-  private sweep = 0;
-  private hubArrivals: Array<{ ts: number; cost: number }> = [];
   private rightInset = 0;
   private pointer: Pt | null = null;
   private hovered: string | null = null;
-  private lastHover = 0;
   private lasso: Pt[] | null = null;
-  /** Last time a frame actually rendered; while the tab is hidden we don't queue visuals. */
-  private lastFrameAt = 0;
   private hoverCb: ((h: HoverInfo | null) => void) | null = null;
   private clickCb: ((c: ClickInfo) => void) | null = null;
   private unknownStation: Station | null = null;
   private logo: Array<{ path: Path2D; fill: string }> = [];
+  private focusId: string | null = null;
+  private relatedCache: { id: string; set: Set<string> } | null = null;
+  /** Camera: screen = world * k + (x, y). */
+  private cam = { x: 0, y: 0, k: 1 };
+  /** User-placed card positions (world, top-left); '__hub' is the tower centre. */
+  private positions = new Map<string, Pt>();
+  private drag: { kind: 'station' | 'hub' | 'pan'; id: string; start: Pt; last: Pt; moved: boolean; offset: Pt } | null = null;
+  private layoutCb: ((positions: Record<string, Pt>) => void) | null = null;
+  private camCb: ((cam: { x: number; y: number; k: number }) => void) | null = null;
   drawMode = false;
 
   async init(host: HTMLElement): Promise<void> {
@@ -237,93 +264,158 @@ export class AirspaceScene {
     this.canvas.style.width = '100%';
     this.canvas.style.height = '100%';
     this.canvas.setAttribute('role', 'img');
-    this.canvas.setAttribute('aria-label', 'Airspace: live map of agent traffic through Control Tower');
+    this.canvas.setAttribute('aria-label', 'Airspace: map of agents, Control Tower, models and tool servers with connection states');
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D is not available in this browser');
     this.ctx = ctx;
     host.prepend(this.canvas);
-    this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     try {
       this.logo = LOGO_PATHS.map((p) => ({ path: new Path2D(p.d), fill: p.fill }));
     } catch {
       this.logo = [];
     }
-
     this.resize();
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
 
-    const pos = (ev: PointerEvent): Pt => {
+    const screenPos = (ev: MouseEvent): Pt => {
       const r = this.canvas.getBoundingClientRect();
       return [ev.clientX - r.left, ev.clientY - r.top];
     };
     this.canvas.addEventListener('pointermove', (ev) => {
-      const p = pos(ev);
-      this.pointer = p;
-      if (this.lasso) this.lasso.push(p);
-      this.hoverTest(true);
+      const sp = screenPos(ev);
+      this.pointer = sp;
+      if (this.lasso) {
+        this.lasso.push(this.toWorld(sp));
+        this.dirty = true;
+        return;
+      }
+      const d = this.drag;
+      if (d) {
+        if (!d.moved && Math.hypot(sp[0] - d.start[0], sp[1] - d.start[1]) > 4) {
+          d.moved = true;
+          this.canvas.style.cursor = d.kind === 'pan' ? 'grabbing' : 'move';
+          this.hoverCb?.(null);
+        }
+        if (d.moved) {
+          if (d.kind === 'pan') {
+            this.cam.x += sp[0] - d.last[0];
+            this.cam.y += sp[1] - d.last[1];
+          } else {
+            const wp = this.toWorld(sp);
+            this.positions.set(d.kind === 'hub' ? '__hub' : d.id, [Math.round(wp[0] - d.offset[0]), Math.round(wp[1] - d.offset[1])]);
+            this.layout();
+          }
+          d.last = sp;
+          this.dirty = true;
+        }
+        return;
+      }
+      this.hoverTest();
     });
     this.canvas.addEventListener('pointerleave', () => {
       this.pointer = null;
+      if (this.hovered) this.dirty = true;
       this.hovered = null;
       this.hoverCb?.(null);
     });
     this.canvas.addEventListener('pointerdown', (ev) => {
-      if (ev.button !== 0 || !this.drawMode) return;
-      this.lasso = [pos(ev)];
+      if (ev.button !== 0 && ev.button !== 1) return;
+      const sp = screenPos(ev);
+      const wp = this.toWorld(sp);
       this.canvas.setPointerCapture(ev.pointerId);
+      if (this.drawMode && ev.button === 0) {
+        this.lasso = [wp];
+        return;
+      }
+      let kind: 'station' | 'hub' | 'pan' = 'pan';
+      let id = '';
+      let offset: Pt = [0, 0];
+      if (ev.button === 0) {
+        const s = this.stationAt(wp);
+        if (s) {
+          kind = 'station';
+          id = s.id;
+          offset = [wp[0] - s.x, wp[1] - s.y];
+        } else if ((this.hub[0] - wp[0]) ** 2 + (this.hub[1] - wp[1]) ** 2 < (this.hubR + 6) ** 2) {
+          kind = 'hub';
+          id = '__hub';
+          offset = [wp[0] - this.hub[0], wp[1] - this.hub[1]];
+        }
+      }
+      this.drag = { kind, id, start: sp, last: sp, moved: false, offset };
     });
     this.canvas.addEventListener('pointerup', (ev) => {
-      const [x, y] = pos(ev);
+      const sp = screenPos(ev);
+      const wp = this.toWorld(sp);
       if (this.lasso) {
         const poly = this.lasso;
         this.lasso = null;
+        this.dirty = true;
         if (poly.length > 2) {
           let area = 0;
           for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) area += (poly[j]![0] + poly[i]![0]) * (poly[j]![1] - poly[i]![1]);
-          let inside: (s: Station) => boolean;
-          if (Math.abs(area / 2) < 600) {
-            const [x0, y0] = poly[0]!;
-            const [x1, y1] = poly[poly.length - 1]!;
-            inside = (s) => {
-              const cx = s.x + s.w / 2;
-              const cy = s.y + s.h / 2;
-              return cx >= Math.min(x0, x1) && cx <= Math.max(x0, x1) && cy >= Math.min(y0, y1) && cy <= Math.max(y0, y1);
-            };
-          } else {
-            inside = (s) => pointInPoly(s.x + s.w / 2, s.y + s.h / 2, poly);
-          }
+          const [x0, y0] = poly[0]!;
+          const [x1, y1] = poly[poly.length - 1]!;
+          const inside = (s: Station) => {
+            const cx = s.x + s.w / 2;
+            const cy = s.y + s.headH / 2;
+            return Math.abs(area / 2) < 600 ? cx >= Math.min(x0, x1) && cx <= Math.max(x0, x1) && cy >= Math.min(y0, y1) && cy <= Math.max(y0, y1) : pointInPoly(cx, cy, poly);
+          };
           const ids = [...this.stations.values()].filter((s) => s.kind !== 'unknown' && inside(s)).map((s) => s.id);
-          this.clickCb?.({ kind: 'lasso', stationIds: ids, x, y });
+          this.clickCb?.({ kind: 'lasso', stationIds: ids, x: sp[0], y: sp[1] });
+        }
+        return;
+      }
+      const d = this.drag;
+      this.drag = null;
+      this.canvas.style.cursor = 'default';
+      if (d?.moved) {
+        if (d.kind === 'pan') this.camCb?.({ ...this.cam });
+        else this.emitLayout();
+        this.hoverTest();
+        return;
+      }
+      // A click, not a drag. Chevron on a tool server toggles its tool list.
+      for (const s of this.stations.values()) {
+        if (s.kind === 'mcp' && s.tools.length && wp[0] >= s.x + s.w - 26 && wp[0] <= s.x + s.w && wp[1] >= s.y && wp[1] <= s.y + s.headH) {
+          s.userToggled = true;
+          s.expanded = !s.expanded;
+          this.layout();
           return;
         }
       }
-      this.clickCb?.(this.hitTest(x, y));
+      this.clickCb?.(this.hitTest(wp, sp));
     });
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        // Drop anything that queued up while we weren't drawing; start fresh.
-        this.particles = [];
-        this.byFlight.clear();
-        this.pulses = [];
-      }
-    });
+    this.canvas.addEventListener(
+      'wheel',
+      (ev) => {
+        ev.preventDefault();
+        const sp = screenPos(ev);
+        if (ev.ctrlKey || ev.metaKey) this.zoomAt(sp, Math.exp(-ev.deltaY * 0.01));
+        else {
+          this.cam.x -= ev.deltaX;
+          this.cam.y -= ev.deltaY;
+          this.dirty = true;
+        }
+        this.camCb?.({ ...this.cam });
+      },
+      { passive: false },
+    );
 
     this.ready = true;
-    this.last = performance.now();
-    this.lastFrameAt = this.last;
     const frame = (now: number) => {
-      // Keep real time even when frames are sparse (throttled or busy tabs); cap only true stalls.
-      const dt = Math.min(250, now - this.last);
-      this.last = now;
-      this.lastFrameAt = now;
-      try {
-        this.tick(dt, now);
-        this.draw(now);
-      } catch (err) {
-        console.error('[airspace] frame error', err);
+      // No per-flight motion: redraw only when something changed, plus a slow tick for ageing states.
+      if (this.dirty || now - this.lastDraw > 1000) {
+        try {
+          this.draw();
+        } catch (err) {
+          console.error('[airspace] draw error', err);
+        }
+        this.lastDraw = now;
+        this.dirty = false;
       }
+      if (this.pointer && now - this.lastHoverRefresh > 1000) this.hoverTest();
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
@@ -344,17 +436,21 @@ export class AirspaceScene {
   }
 
   stats(): SceneStats {
-    return { particles: this.particles.filter((p) => p.phase !== 'shatter').length, stations: this.stations.size };
+    const now = Date.now();
+    let active = 0;
+    for (const s of this.stations.values()) if (s.kind !== 'agent' && s.recent.length) active++;
+    for (const [, ts] of this.livePairs) if (now - ts < WINDOW_MS) active++;
+    let held = 0;
+    for (const f of this.live.values()) if (f.held) held++;
+    return { active: this.activePairs(now), stations: this.stations.size, held };
   }
 
   debug(): Record<string, number> {
-    const out: Record<string, number> = { tracked: this.byFlight.size };
-    for (const p of this.particles) out[p.phase] = (out[p.phase] ?? 0) + 1;
-    return out;
+    return { stations: this.stations.size, live: this.live.size, edges: this.edges.length, active: this.activePairs(Date.now()) };
   }
 
-  stationList(): Station[] {
-    return [...this.stations.values()];
+  stationList(): Array<{ id: string; kind: StationKind }> {
+    return [...this.stations.values()].map((s) => ({ id: s.id, kind: s.kind }));
   }
 
   setRightInset(px: number): void {
@@ -363,23 +459,110 @@ export class AirspaceScene {
     this.layout();
   }
 
+  onLayoutChange(cb: (positions: Record<string, Pt>) => void): void {
+    this.layoutCb = cb;
+  }
+  onCamera(cb: (cam: { x: number; y: number; k: number }) => void): void {
+    this.camCb = cb;
+  }
+  /** Saved arrangement from the server (world coordinates). */
+  setPositions(p: Record<string, [number, number]>): void {
+    this.positions = new Map(Object.entries(p).filter(([, v]) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n))) as Array<[string, Pt]>);
+    this.layout();
+  }
+  hasCustomLayout(): boolean {
+    return this.positions.size > 0;
+  }
+  resetLayout(): void {
+    this.positions.clear();
+    this.layout();
+    this.emitLayout();
+    this.fit();
+  }
+  getCamera(): { x: number; y: number; k: number } {
+    return { ...this.cam };
+  }
+  setCamera(c: { x: number; y: number; k: number }): void {
+    if (![c.x, c.y, c.k].every(Number.isFinite)) return;
+    this.cam = { x: c.x, y: c.y, k: Math.min(2.5, Math.max(0.25, c.k)) };
+    this.dirty = true;
+  }
+  zoomBy(f: number): void {
+    this.zoomAt([(this.w - this.rightInset) / 2, this.h / 2], f);
+    this.camCb?.({ ...this.cam });
+  }
+  /** Frame every node in the visible area (left of any right-hand panel). */
+  fit(): void {
+    const items = [...this.stations.values()];
+    if (!items.length) {
+      this.cam = { x: 0, y: 0, k: 1 };
+      this.dirty = true;
+      return;
+    }
+    let x0 = this.hub[0] - this.holdR - 40;
+    let y0 = this.hub[1] - this.holdR - 30;
+    let x1 = this.hub[0] + this.holdR + 40;
+    let y1 = this.hub[1] + this.holdR + 50;
+    for (const s of items) {
+      x0 = Math.min(x0, s.x - 16);
+      y0 = Math.min(y0, s.y - 36);
+      x1 = Math.max(x1, s.x + s.w + 16);
+      y1 = Math.max(y1, s.y + s.h + 16);
+    }
+    const top = 110;
+    const bottom = 60;
+    const aw = Math.max(200, this.w - this.rightInset - 32);
+    const ah = Math.max(200, this.h - top - bottom);
+    const k = Math.min(1.25, Math.max(0.25, Math.min(aw / (x1 - x0), ah / (y1 - y0))));
+    this.cam = { k, x: 16 + (aw - (x1 - x0) * k) / 2 - x0 * k, y: top + (ah - (y1 - y0) * k) / 2 - y0 * k };
+    this.dirty = true;
+    this.camCb?.({ ...this.cam });
+  }
+  private zoomAt(sp: Pt, f: number): void {
+    const w = this.toWorld(sp);
+    const k = Math.min(2.5, Math.max(0.25, this.cam.k * f));
+    this.cam = { k, x: sp[0] - w[0] * k, y: sp[1] - w[1] * k };
+    this.dirty = true;
+  }
+  private toWorld(p: Pt): Pt {
+    return [(p[0] - this.cam.x) / this.cam.k, (p[1] - this.cam.y) / this.cam.k];
+  }
+  private stationAt(wp: Pt): Station | undefined {
+    for (const s of this.stations.values()) if (wp[0] >= s.x && wp[0] <= s.x + s.w && wp[1] >= s.y && wp[1] <= s.y + s.h) return s;
+    return undefined;
+  }
+  private emitLayout(): void {
+    this.layoutCb?.(Object.fromEntries(this.positions));
+  }
+
+  setFocus(id: string | null): void {
+    this.focusId = id && this.stations.has(id) ? id : null;
+    this.relatedCache = null;
+    this.dirty = true;
+  }
+
   // ---------------------------------------------------------------- topology
 
-  private blank(id: string, kind: Station['kind'], label: string, sub: string, color: number): Station {
-    return { id, kind, label, sub, color, x: 0, y: 0, w: 0, h: 0, px: 0, py: 0, r: 16, heat: 0, requests: 0, denied: 0, errors: 0, cost: 0, arrivals: [] };
+  private blank(id: string, kind: StationKind, label: string, sub: string, color: number, slug = ''): Station {
+    return { id, kind, label, sub, slug, color, x: 0, y: 0, w: 0, h: 0, headH: 46, px: 0, py: 0, tools: [], expanded: true, userToggled: false, recent: [], denials: [], lastAt: 0, held: 0 };
   }
 
   setTopology(t: Topology): void {
     this.topology = t;
     const keep = new Set<string>();
-    const upsert = (id: string, kind: Station['kind'], label: string, sub: string, color: number) => {
+    const upsert = (id: string, kind: StationKind, label: string, sub: string, color: number, slug = ''): Station => {
       keep.add(id);
-      const s = this.stations.get(id);
+      let s = this.stations.get(id);
       if (s) {
         s.label = label;
         s.sub = sub;
         s.color = color;
-      } else this.stations.set(id, this.blank(id, kind, label, sub, color));
+        s.slug = slug;
+      } else {
+        s = this.blank(id, kind, label, sub, color, slug);
+        this.stations.set(id, s);
+      }
+      return s;
     };
     for (const k of t.keys) upsert(k.id, 'agent', k.name, [k.team, k.project].filter(Boolean).join(' · ') || 'agent', agentColor(k.agent_id ?? k.id));
     const provById = new Map(t.providers.map((p) => [p.id, p]));
@@ -387,26 +570,27 @@ export class AirspaceScene {
       const prov = provById.get(d.provider_id);
       upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[prov?.kind ?? ''] ?? 0x475569);
     }
-    for (const m of t.mcp_servers ?? []) upsert(m.id, 'mcp', m.name, `Tool server · ${m.tools.length} tool${m.tools.length === 1 ? '' : 's'}`, MCP_COLOR);
-    for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
-
-    this.laneStats.clear();
-    for (const l of t.lanes) {
-      if (!l.key_id || !l.deployment_id) continue;
-      this.laneStats.set(`${l.key_id}>${l.deployment_id}`, {
-        from: l.key_id,
-        to: l.deployment_id,
-        activity: 0,
-        requests: l.requests,
-        cost: l.cost_nanousd,
-        errors: l.errors,
-        denied: l.denied,
-        avgMs: l.avg_ms,
-        cx: 0,
-        cy: 0,
-        gate: null,
+    for (const m of t.mcp_servers ?? []) {
+      const s = upsert(m.id, 'mcp', m.name, `MCP server · ${m.tools.length} tool${m.tools.length === 1 ? '' : 's'}`, MCP_COLOR, m.slug);
+      const prev = new Map(s.tools.map((r) => [r.name, r]));
+      s.tools = m.tools.map((tool) => {
+        const old = prev.get(tool.name);
+        return { name: tool.name, full: `${m.slug}__${tool.name}`, op: tool.op, recent: old?.recent ?? [], lastAt: old?.lastAt ?? 0, count24h: 0, gates: [], y: 0 };
       });
     }
+    for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
+
+    this.edges = t.edges ?? [];
+    this.used24h.clear();
+    for (const e of this.edges) {
+      this.used24h.add(e.key_id);
+      this.used24h.add(e.target_id);
+      if (e.tool) {
+        const row = this.stations.get(e.target_id)?.tools.find((r) => r.name === e.tool);
+        if (row) row.count24h += e.requests;
+      }
+    }
+    this.relatedCache = null;
     this.layout();
   }
 
@@ -465,40 +649,49 @@ export class AirspaceScene {
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.floor(this.w * this.dpr);
     this.canvas.height = Math.floor(this.h * this.dpr);
-    this.bg = null;
     this.layout();
   }
 
   private layout(): void {
-    if (!this.ready && !this.canvas) return;
+    if (!this.canvas) return;
+    this.dirty = true;
     const W = Math.max(480, this.w - this.rightInset);
     const padTop = 118;
     const padBottom = 64;
     const avail = Math.max(200, this.h - padTop - padBottom);
-    const cardW = Math.round(Math.max(172, Math.min(236, W * 0.17)));
+    const cardW = Math.round(Math.max(208, Math.min(252, W * 0.18)));
     this.hub = [Math.round(W / 2), Math.round(padTop + avail / 2)];
     this.hubR = 36;
-    this.holdR = 72;
+    this.holdR = 70;
 
     const zones = this.policy?.zones ?? [];
     const rank = (s: Station) => {
       const zs = this.zonesOf(s);
       return zs.length ? zones.findIndex((z) => z.id === zs[0]!.id) : 999;
     };
+    const kindRank = (s: Station) => (s.kind === 'model' ? 0 : s.kind === 'mcp' ? 1 : 2);
     const place = (list: Station[], x: number, side: 'left' | 'right') => {
-      list.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
+      list.sort((a, b) => rank(a) - rank(b) || kindRank(a) - kindRank(b) || a.label.localeCompare(b.label));
       const n = list.length;
       if (!n) return;
+      for (const s of list) if (!s.userToggled) s.expanded = s.kind === 'mcp' && s.tools.length > 0;
       const groups: number[] = [];
       for (let i = 0; i < n; i++) if (i === 0 || rank(list[i]!) !== rank(list[i - 1]!)) groups.push(i);
       const headed = groups.filter((i) => rank(list[i]!) !== 999).length;
-      let cardH = 46;
+      let head = 46;
       let gap = 10;
       const zoneGap = 16;
       const header = 24;
-      const need = () => n * cardH + (n - 1) * gap + (groups.length - 1) * zoneGap + headed * header;
-      while (need() > avail && cardH > 32) {
-        cardH -= 2;
+      const heightOf = (s: Station) => head + (s.expanded && s.tools.length ? s.tools.length * TOOL_ROW + 8 : 0);
+      const need = () => list.reduce((sum, s) => sum + heightOf(s), 0) + (n - 1) * gap + (groups.length - 1) * zoneGap + headed * header;
+      // Too tall: collapse auto-expanded tool lists (largest first), then tighten cards.
+      while (need() > avail) {
+        const c = list.filter((s) => s.expanded && !s.userToggled).sort((a, b) => b.tools.length - a.tools.length)[0];
+        if (!c) break;
+        c.expanded = false;
+      }
+      while (need() > avail && head > 32) {
+        head -= 2;
         gap = Math.max(4, gap - 1);
       }
       let y = padTop + Math.max(0, (avail - need()) / 2);
@@ -510,18 +703,31 @@ export class AirspaceScene {
         s.x = x;
         s.y = Math.round(y);
         s.w = cardW;
-        s.h = cardH;
+        s.headH = head;
+        s.h = heightOf(s);
         s.px = side === 'left' ? x + cardW : x;
-        s.py = s.y + cardH / 2;
-        y += cardH;
+        s.py = s.y + head / 2;
+        s.tools.forEach((r, j) => (r.y = s.y + head + 4 + j * TOOL_ROW));
+        y += s.h;
       });
     };
-    const agents = [...this.stations.values()].filter((s) => s.kind === 'agent');
-    const dests = [...this.stations.values()].filter((s) => s.kind !== 'agent');
-    place(agents, 28, 'left');
-    place(dests, W - 28 - cardW, 'right');
+    place([...this.stations.values()].filter((s) => s.kind === 'agent'), 28, 'left');
+    place([...this.stations.values()].filter((s) => s.kind !== 'agent'), W - 28 - cardW, 'right');
 
-    // Spokes: cubic curves that leave the card horizontally and meet the tower's rim.
+    // User arrangement wins over the automatic columns; ports always face the tower.
+    const hubPos = this.positions.get('__hub');
+    if (hubPos) this.hub = [hubPos[0], hubPos[1]];
+    for (const s of this.stations.values()) {
+      const p = this.positions.get(s.id);
+      if (p) {
+        s.x = p[0];
+        s.y = p[1];
+      }
+      s.px = s.x + s.w / 2 < this.hub[0] ? s.x + s.w : s.x;
+      s.py = s.y + s.headH / 2;
+      s.tools.forEach((r, j) => (r.y = s.y + s.headH + 4 + j * TOOL_ROW));
+    }
+
     this.spokes.clear();
     const [hx, hy] = this.hub;
     for (const s of this.stations.values()) {
@@ -534,24 +740,28 @@ export class AirspaceScene {
         s.kind === 'agent'
           ? { p0: [s.px, s.py], p1: [s.px - span * 0.45, s.py], p2: [rim[0] + span * 0.3, rim[1] + (s.py - rim[1]) * 0.2], p3: rim }
           : { p0: rim, p1: [rim[0] + span * 0.3, rim[1] + (s.py - rim[1]) * 0.2], p2: [s.px - span * 0.45, s.py], p3: [s.px, s.py] };
-      this.spokes.set(s.id, { station: s, bez, activity: this.spokes.get(s.id)?.activity ?? 0, gates: [] });
+      this.spokes.set(s.id, { station: s, bez, gates: [] });
     }
 
-    // Gates: a rule sits on the spoke of the station it guards.
+    // Gates: tool-scoped rules sit on the tool rows; the rest on the spoke of the station they guard.
+    for (const s of this.stations.values()) for (const r of s.tools) r.gates = [];
     for (const r of this.policy?.rules ?? []) {
       if (!r.enabled) continue;
-      if (r.to_zone) {
-        const z = zones.find((x) => x.id === r.to_zone);
-        if (!z) continue;
-        for (const s of this.zoneMembers(z)) this.addGate(s.id, r, 0.34);
+      const toolGlobs = (r.match as { tools?: string[] }).tools;
+      const toZone = r.to_zone ? zones.find((x) => x.id === r.to_zone) : undefined;
+      if (toolGlobs?.length) {
+        const servers = toZone ? this.zoneMembers(toZone).filter((s) => s.kind === 'mcp') : [...this.stations.values()].filter((s) => s.kind === 'mcp');
+        for (const s of servers) for (const row of s.tools) if (toolGlobs.some((g) => globMatch(g, row.full))) row.gates.push(r);
+        continue;
+      }
+      if (toZone) {
+        for (const s of this.zoneMembers(toZone)) this.addGate(s.id, r, 0.34);
       } else if (r.from_zone) {
         const z = zones.find((x) => x.id === r.from_zone);
-        if (!z) continue;
-        for (const s of this.zoneMembers(z)) if (s.kind === 'agent') this.addGate(s.id, r, 0.66);
+        if (z) for (const s of this.zoneMembers(z)) if (s.kind === 'agent') this.addGate(s.id, r, 0.66);
       }
     }
 
-    // Zone frames around each column's members.
     this.zoneBoxes = [];
     for (const z of zones) {
       const members = this.zoneMembers(z);
@@ -573,350 +783,255 @@ export class AirspaceScene {
     if (!sp) return;
     const t = sp.station.kind === 'agent' ? baseT - sp.gates.length * 0.1 : baseT + sp.gates.length * 0.1;
     const [x, y] = bezAt(sp.bez, t);
-    sp.gates.push({ rule, t, x, y });
+    sp.gates.push({ rule, x, y });
   }
 
   // ------------------------------------------------------------------ events
 
   handle(e: FlightEvent): void {
     if (!this.ready) return;
-    const stale = Date.now() - e.ts > STALE_MS;
+    const now = Date.now();
+    if (now - e.ts > STALE_MS) return;
+    this.dirty = true;
     switch (e.t) {
       case 'flight.started': {
-        if (stale) return;
-        // Not rendering (hidden tab, paused pane): don't pile up visuals to replay all at once.
-        if (document.visibilityState !== 'visible' || performance.now() - this.lastFrameAt > 1000) return;
         const agent = this.stations.get(e.key_id);
         if (!agent) return;
-        const dest = (e.deployment_id && this.stations.get(e.deployment_id)) || (e.mcp_server_id && this.stations.get(e.mcp_server_id)) || this.ensureUnknown();
-        const size = Math.min(1.6, Math.log10(1 + e.est_input_tokens) * 0.4);
-        const [x, y] = [agent.px, agent.py];
-        const p: Particle = {
-          id: e.flight_id,
-          agent,
-          dest,
-          color: agent.color,
-          size,
-          phase: 'in',
-          t: 0,
-          verdict: 'pending',
-          completed: undefined,
-          stopAt: undefined,
-          from: undefined,
-          angle: Math.random() * Math.PI * 2,
-          born: performance.now(),
-          x,
-          y,
-          trail: [],
-          shards: undefined,
-          shardColor: 0,
-          life: 0,
-          seg: undefined,
-        };
-        this.particles.push(p);
-        this.byFlight.set(e.flight_id, p);
-        agent.heat = Math.min(1, agent.heat + 0.5);
-        const sp = this.spokes.get(agent.id);
-        if (sp) sp.activity = Math.min(1, sp.activity + 0.25);
+        const destId = e.deployment_id ?? e.mcp_server_id;
+        const dest = (destId && this.stations.get(destId)) || (destId ? undefined : this.ensureUnknown());
+        agent.recent.push(e.ts);
+        agent.lastAt = e.ts;
+        this.hubRecent.push(e.ts);
+        if (dest) {
+          dest.recent.push(e.ts);
+          dest.lastAt = e.ts;
+          this.livePairs.set(`${agent.id}>${dest.id}`, e.ts);
+          if (e.tool) {
+            const row = dest.tools.find((r) => r.name === e.tool);
+            if (row) {
+              row.recent.push(e.ts);
+              row.lastAt = e.ts;
+            }
+            this.liveToolPairs.set(`${agent.id}>${dest.id}|${e.tool}`, e.ts);
+          }
+          if (this.focusId) this.relatedCache = null;
+        }
+        this.live.set(e.flight_id, { agent: agent.id, dest: dest?.id, held: false });
         break;
       }
       case 'flight.decision': {
-        const p = this.byFlight.get(e.flight_id);
-        if (!p) break;
-        if (e.decision === 'deny') {
-          p.verdict = 'deny';
-          if (p.phase === 'out' || p.phase === 'await' || p.phase === 'hold') this.shatter(p, STATUS_COLORS.denied);
-        } else if (e.decision === 'hold') {
-          p.verdict = 'held';
-        } else if (p.verdict === 'pending') p.verdict = 'allow';
+        if (e.rule_id && (e.decision === 'deny' || e.decision === 'hold')) {
+          const hits = this.ruleHits.get(e.rule_id) ?? [];
+          hits.push(e.ts);
+          this.ruleHits.set(e.rule_id, hits);
+        }
+        if (e.decision === 'deny') this.recordDenial(e.flight_id, e.ts);
         break;
       }
       case 'flight.held': {
-        const p = this.byFlight.get(e.flight_id);
-        if (!p) break;
-        p.verdict = 'held';
-        if (p.phase === 'out' || p.phase === 'await') this.enterHold(p);
+        const f = this.live.get(e.flight_id);
+        if (f && !f.held) {
+          f.held = true;
+          this.adjustHeld(f, 1);
+        }
         break;
       }
       case 'flight.resolved': {
-        const p = this.byFlight.get(e.flight_id);
-        if (!p) break;
-        if (e.outcome === 'approved') {
-          p.verdict = 'allow';
-          this.pulse(this.hub[0], this.hub[1], STATUS_COLORS.ok, this.hubR + 30);
-          if (p.phase === 'hold') this.go(p, 'out');
-        } else {
-          p.verdict = 'deny';
-          this.shatter(p, e.outcome === 'denied' ? STATUS_COLORS.denied : STATUS_COLORS.held);
+        const f = this.live.get(e.flight_id);
+        if (f?.held) {
+          f.held = false;
+          this.adjustHeld(f, -1);
         }
-        break;
-      }
-      case 'flight.upstream': {
-        if (e.outcome === 'fallback') {
-          const p = this.byFlight.get(e.flight_id);
-          if (p) this.pulse(p.x, p.y, STATUS_COLORS.held, 14);
-        }
+        if (e.outcome === 'denied') this.recordDenial(e.flight_id, e.ts);
         break;
       }
       case 'flight.completed': {
-        const p = this.byFlight.get(e.flight_id);
-        const dest = p?.dest;
-        if (dest) {
-          dest.requests++;
-          if (e.cost_nanousd) dest.cost += e.cost_nanousd;
-          if (e.status === 'ok') {
-            dest.arrivals.push(Date.now());
-            p!.agent.arrivals.push(Date.now());
-          }
-          if (e.status === 'error') dest.errors++;
-          if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') p!.agent.denied++;
-        }
-        this.hubArrivals.push({ ts: Date.now(), cost: e.cost_nanousd ?? 0 });
-        if (!p) break;
-        this.byFlight.delete(e.flight_id);
-        p.completed = { status: e.status, outTokens: e.usage?.output ?? 0 };
-        if (e.status === 'ok') {
-          if (p.phase === 'await' || p.phase === 'hold') this.startReturn(p);
-        } else if (e.status === 'error') {
-          if (p.phase === 'await' || p.phase === 'out' || p.phase === 'hold') this.shatter(p, STATUS_COLORS.error);
-        } else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') {
-          if (p.phase !== 'in' && p.phase !== 'hub') this.shatter(p, e.status === 'ticketed' ? STATUS_COLORS.held : STATUS_COLORS.denied);
-          else p.verdict = 'deny';
-        } else {
-          this.shatter(p, 0x8a98ad);
-        }
+        const f = this.live.get(e.flight_id);
+        if (f?.held) this.adjustHeld(f, -1);
+        this.live.delete(e.flight_id);
         break;
       }
+      default:
+        break;
     }
   }
 
-  private go(p: Particle, phase: Particle['phase']): void {
-    p.from = [p.x, p.y];
-    p.phase = phase;
-    p.t = 0;
+  private recordDenial(flightId: string, ts: number): void {
+    const f = this.live.get(flightId);
+    if (!f) return;
+    this.stations.get(f.agent)?.denials.push(ts);
+    if (f.dest) this.stations.get(f.dest)?.denials.push(ts);
   }
 
-  private enterHold(p: Particle): void {
-    p.from = [p.x, p.y];
-    p.angle = Math.atan2(p.y - this.hub[1], p.x - this.hub[0]);
-    p.phase = 'hold';
-    p.t = 0;
+  private adjustHeld(f: { agent: string; dest: string | undefined }, d: number): void {
+    const a = this.stations.get(f.agent);
+    if (a) a.held = Math.max(0, a.held + d);
+    const b = f.dest ? this.stations.get(f.dest) : undefined;
+    if (b) b.held = Math.max(0, b.held + d);
   }
 
-  private startReturn(p: Particle): void {
-    const out = p.completed?.outTokens ?? 0;
-    p.color = RESPONSE;
-    p.size = Math.min(1.8, Math.log10(1 + out) * 0.5);
-    p.dest.heat = Math.min(1, p.dest.heat + 0.6);
-    this.pulse(p.dest.px, p.dest.py, p.dest.color, 16);
-    const sp = this.spokes.get(p.dest.id);
-    if (sp) sp.activity = Math.min(1, sp.activity + 0.25);
-    this.go(p, 'retA');
+  // ------------------------------------------------------------------- state
+
+  private stateOf(s: Station, now: number): LinkState {
+    if (s.held > 0) return 'holding';
+    const rate = s.recent.length;
+    if (rate > 0) return s.denials.length >= Math.max(1, rate * 0.5) ? 'blocked' : 'active';
+    return this.used24h.has(s.id) || s.lastAt > now - 24 * 3600e3 ? 'idle' : 'unused';
   }
 
-  private shatter(p: Particle, color: number): void {
-    if (p.phase === 'shatter') return;
-    p.phase = 'shatter';
-    p.life = 800;
-    p.shardColor = color;
-    p.shards = Array.from({ length: 10 }, () => {
-      const a = Math.random() * Math.PI * 2;
-      const v = 30 + Math.random() * 90;
-      return { x: p.x, y: p.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v };
-    });
-    this.pulse(p.x, p.y, color, 22);
-    this.byFlight.delete(p.id);
+  private activePairs(now: number): number {
+    let n = 0;
+    for (const ts of this.livePairs.values()) if (now - ts < WINDOW_MS) n++;
+    return n;
   }
 
-  private pulse(x: number, y: number, color: number, max: number): void {
-    this.pulses.push({ x, y, color, t: 0, max });
-  }
-
-  // ------------------------------------------------------------------- frame
-
-  private tick(dt: number, now: number): void {
-    if (!this.reducedMotion) this.sweep = (this.sweep + dt * 0.0009) % (Math.PI * 2);
-    for (const s of this.stations.values()) s.heat *= Math.exp(-dt / 1400);
-    for (const sp of this.spokes.values()) sp.activity *= Math.exp(-dt / 2500);
-    for (const pl of this.pulses) pl.t += dt / 700;
-    this.pulses = this.pulses.filter((pl) => pl.t < 1);
-
-    const [hx, hy] = this.hub;
-    for (const p of this.particles) {
-      const agentSp = this.spokes.get(p.agent.id);
-      const destSp = this.spokes.get(p.dest.id);
-      if (!agentSp || !destSp) {
-        p.phase = 'shatter';
-        p.life = 0;
-        continue;
-      }
-      let pos: Pt = [p.x, p.y];
-      p.seg = undefined;
-      switch (p.phase) {
-        case 'in':
-          p.t += dt / IN_MS;
-          p.seg = { bez: agentSp.bez, k: ease(Math.min(1, p.t)) };
-          pos = bezAt(agentSp.bez, p.seg.k);
-          if (p.t >= 1) {
-            p.phase = 'hub';
-            p.t = 0;
-            this.pulse(pos[0], pos[1], p.color, 12);
-          }
-          break;
-        case 'hub': {
-          p.t += dt / HUB_MS;
-          const a = Math.atan2(pos[1] - hy, pos[0] - hx) + dt * 0.004;
-          pos = [hx + Math.cos(a) * (this.hubR + 4), hy + Math.sin(a) * (this.hubR + 4)];
-          const waited = now - p.born - IN_MS;
-          if (p.t >= 1 && (p.verdict !== 'pending' || waited > 1800 || p.completed)) {
-            if (p.verdict === 'deny') {
-              const gate = destSp.gates.find((g) => g.rule.effect === 'deny');
-              if (gate) {
-                this.go(p, 'out');
-                p.stopAt = gate.t;
-              } else this.shatter(p, STATUS_COLORS.denied);
-            } else if (p.verdict === 'held') this.enterHold(p);
-            else this.go(p, 'out');
-          }
-          break;
-        }
-        case 'out': {
-          p.t += dt / OUT_MS;
-          const k = ease(Math.min(1, p.t));
-          p.seg = { bez: destSp.bez, k };
-          const target = bezAt(destSp.bez, k);
-          pos = p.from && p.t < 0.3 ? lerp(p.from, target, p.t / 0.3) : target;
-          if (p.stopAt != null && k >= p.stopAt) {
-            p.x = pos[0];
-            p.y = pos[1];
-            this.shatter(p, STATUS_COLORS.denied);
-            break;
-          }
-          if (p.t >= 1) {
-            if (p.completed?.status === 'ok') this.startReturn(p);
-            else if (p.completed && p.completed.status !== 'ok') this.shatter(p, p.completed.status === 'ticketed' ? STATUS_COLORS.held : STATUS_COLORS.denied);
-            else {
-              p.phase = 'await';
-              p.t = 0;
-              p.from = undefined;
-            }
-          }
-          break;
-        }
-        case 'await': {
-          p.angle += dt * 0.006;
-          pos = [p.dest.px - 10 + Math.cos(p.angle) * 6, p.dest.py + Math.sin(p.angle) * 6];
-          break;
-        }
-        case 'hold': {
-          p.t += dt;
-          p.angle += dt * 0.0012;
-          const ring: Pt = [hx + Math.cos(p.angle) * this.holdR, hy + Math.sin(p.angle) * this.holdR * 0.92];
-          pos = p.from && p.t < 450 ? lerp(p.from, ring, ease(p.t / 450)) : ring;
-          break;
-        }
-        case 'retA': {
-          p.t += dt / RET_MS;
-          p.seg = { bez: destSp.bez, k: 1 - ease(Math.min(1, p.t)) };
-          const target = bezAt(destSp.bez, p.seg.k);
-          pos = p.from && p.t < 0.25 ? lerp(p.from, target, p.t / 0.25) : target;
-          if (p.t >= 1) {
-            p.phase = 'retB';
-            p.t = 0;
-            p.from = undefined;
-          }
-          break;
-        }
-        case 'retB':
-          p.t += dt / RET_MS;
-          p.seg = { bez: agentSp.bez, k: 1 - ease(Math.min(1, p.t)) };
-          pos = bezAt(agentSp.bez, p.seg.k);
-          if (p.t >= 1) {
-            p.agent.heat = Math.min(1, p.agent.heat + 0.35);
-            this.pulse(p.agent.px, p.agent.py, RESPONSE, 12);
-            p.life = -1;
-          }
-          break;
-        case 'shatter':
-          p.life -= dt;
-          for (const s of p.shards ?? []) {
-            s.x += (s.vx * dt) / 1000;
-            s.y += (s.vy * dt) / 1000;
-            s.vx *= 0.97;
-            s.vy *= 0.97;
-          }
-          break;
-      }
-      if (p.phase !== 'shatter') {
-        p.trail.push([p.x, p.y]);
-        if (p.trail.length > 12) p.trail.shift();
-        p.x = pos[0];
-        p.y = pos[1];
-      }
-      if (p.phase !== 'hold' && p.phase !== 'shatter' && now - p.born > MAX_AGE_MS) p.life = -1;
+  private related(): Set<string> | null {
+    if (!this.focusId) return null;
+    if (this.relatedCache?.id === this.focusId) return this.relatedCache.set;
+    const f = this.stations.get(this.focusId);
+    if (!f) return null;
+    const set = new Set<string>([f.id]);
+    const add = (a: string, d: string) => {
+      if (f.kind === 'agent' && a === f.id) set.add(d);
+      else if (f.kind !== 'agent' && d === f.id) set.add(a);
+    };
+    for (const e of this.edges) add(e.key_id, e.target_id);
+    for (const k of this.livePairs.keys()) {
+      const [a, d] = k.split('>') as [string, string];
+      add(a, d);
     }
-    this.particles = this.particles.filter((p) => !(p.life < 0 || (p.phase === 'shatter' && p.life <= 0)));
-    for (const [id, p] of this.byFlight) if (!this.particles.includes(p)) this.byFlight.delete(id);
-
-    const cutoff = Date.now() - 60_000;
-    while (this.hubArrivals.length && this.hubArrivals[0]!.ts < cutoff) this.hubArrivals.shift();
-    for (const s of this.stations.values()) while (s.arrivals.length && s.arrivals[0]! < cutoff) s.arrivals.shift();
-
-    if (this.pointer && now - this.lastHover > 250) this.hoverTest(false);
+    this.relatedCache = { id: f.id, set };
+    return set;
   }
 
-  private drawBackground(): void {
-    if (this.bg && this.bg.width === this.canvas.width && this.bg.height === this.canvas.height) {
-      this.ctx.drawImage(this.bg, 0, 0, this.w, this.h);
-      return;
+  /** For the focus panel: what a node connects to, with 24h counts. */
+  focusSummary(id: string): FocusSummary | null {
+    const f = this.stations.get(id);
+    if (!f) return null;
+    const now = Date.now();
+    const byId = new Map<string, FocusSummary['links'][number]>();
+    const get = (otherId: string) => {
+      let l = byId.get(otherId);
+      if (!l) {
+        const o = this.stations.get(otherId);
+        if (!o) return undefined;
+        l = { id: o.id, label: o.label, kind: o.kind, color: o.color, requests: 0, cost: 0, denied: 0, errors: 0, live: false, tools: [] };
+        byId.set(otherId, l);
+      }
+      return l;
+    };
+    for (const e of this.edges) {
+      const other = f.kind === 'agent' ? (e.key_id === f.id ? e.target_id : null) : e.target_id === f.id ? e.key_id : null;
+      if (!other) continue;
+      const l = get(other);
+      if (!l) continue;
+      l.requests += e.requests;
+      l.cost += e.cost_nanousd;
+      l.denied += e.denied;
+      l.errors += e.errors;
+      if (e.tool) {
+        const t = l.tools.find((x) => x.name === e.tool);
+        if (t) t.requests += e.requests;
+        else l.tools.push({ name: e.tool, requests: e.requests });
+      }
     }
-    const c = document.createElement('canvas');
-    c.width = this.canvas.width;
-    c.height = this.canvas.height;
-    const g = c.getContext('2d')!;
-    g.scale(this.dpr, this.dpr);
-    const grad = g.createLinearGradient(0, 0, 0, this.h);
-    grad.addColorStop(0, '#f8fafc');
-    grad.addColorStop(1, '#f1f4f9');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, this.w, this.h);
-    g.fillStyle = '#dde4ee';
-    for (let x = 12; x < this.w; x += 24) for (let y = 12; y < this.h; y += 24) g.fillRect(x, y, 1.2, 1.2);
-    this.bg = c;
-    this.ctx.drawImage(c, 0, 0, this.w, this.h);
+    for (const [k, ts] of this.livePairs) {
+      if (now - ts > WINDOW_MS) continue;
+      const [a, d] = k.split('>') as [string, string];
+      const other = f.kind === 'agent' ? (a === f.id ? d : null) : d === f.id ? a : null;
+      if (other) {
+        const l = get(other);
+        if (l) l.live = true;
+      }
+    }
+    const links = [...byId.values()].sort((a, b) => Number(b.live) - Number(a.live) || b.requests - a.requests);
+    for (const l of links) l.tools.sort((a, b) => b.requests - a.requests);
+    return { station: this.view(f, now), links };
   }
 
-  private draw(now: number): void {
+  private view(s: Station, now: number): StationView {
+    let requests24h = 0;
+    let cost24h = 0;
+    let errors24h = 0;
+    let denied24h = 0;
+    for (const e of this.edges) {
+      if ((s.kind === 'agent' && e.key_id === s.id) || (s.kind !== 'agent' && e.target_id === s.id)) {
+        requests24h += e.requests;
+        cost24h += e.cost_nanousd;
+        errors24h += e.errors;
+        denied24h += e.denied;
+      }
+    }
+    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h };
+  }
+
+  // -------------------------------------------------------------------- draw
+
+  /** Gridlines in world space: they pan and zoom with the map, hairline at any zoom. */
+  private drawGrid(): void {
     const ctx = this.ctx;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.drawBackground();
-    const [hx, hy] = this.hub;
+    const k = this.cam.k;
+    const x0 = -this.cam.x / k;
+    const y0 = -this.cam.y / k;
+    const x1 = x0 + this.w / k;
+    const y1 = y0 + this.h / k;
+    const draw = (step: number, color: string) => {
+      ctx.beginPath();
+      for (let x = Math.floor(x0 / step) * step; x <= x1; x += step) {
+        ctx.moveTo(x, y0);
+        ctx.lineTo(x, y1);
+      }
+      for (let y = Math.floor(y0 / step) * step; y <= y1; y += step) {
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1 / k;
+      ctx.stroke();
+    };
+    if (24 * k >= 8) draw(24, '#edf1f6');
+    draw(120, '#dde4ed');
+  }
 
-    // Radar: rings + slow sweep around the tower.
+  private draw(): void {
+    const ctx = this.ctx;
+    const now = Date.now();
+    const cutoff = now - WINDOW_MS;
+    prune(this.hubRecent, cutoff);
+    for (const s of this.stations.values()) {
+      prune(s.recent, cutoff);
+      prune(s.denials, cutoff);
+      for (const r of s.tools) prune(r.recent, cutoff);
+    }
+    for (const [k, v] of this.ruleHits) {
+      prune(v, cutoff);
+      if (!v.length) this.ruleHits.delete(k);
+    }
+
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = '#f6f8fb';
+    ctx.fillRect(0, 0, this.w, this.h);
+    const { k } = this.cam;
+    ctx.setTransform(this.dpr * k, 0, 0, this.dpr * k, this.dpr * this.cam.x, this.dpr * this.cam.y);
+    this.drawGrid();
+    const [hx, hy] = this.hub;
+    const rel = this.related();
+    const dim = (id: string) => (rel && !rel.has(id) ? 0.22 : 1);
+
+    // Static radar rings.
     const maxR = Math.min(260, Math.max(140, (this.w - this.rightInset) * 0.16));
-    ctx.save();
     for (const r of [this.holdR + 36, maxR * 0.75, maxR]) {
       ctx.beginPath();
       ctx.arc(hx, hy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(31,94,255,0.07)';
+      ctx.strokeStyle = 'rgba(31,94,255,0.06)';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-    if (!this.reducedMotion && 'createConicGradient' in ctx) {
-      const cg = ctx.createConicGradient(this.sweep, hx, hy);
-      cg.addColorStop(0, 'rgba(31,94,255,0.10)');
-      cg.addColorStop(0.1, 'rgba(31,94,255,0)');
-      cg.addColorStop(1, 'rgba(31,94,255,0)');
-      ctx.fillStyle = cg;
-      ctx.beginPath();
-      ctx.arc(hx, hy, maxR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
 
     // Zones.
     for (const zb of this.zoneBoxes) {
       const c = hexToNum(zb.zone.color);
+      ctx.globalAlpha = rel ? 0.5 : 1;
       roundRect(ctx, zb.x, zb.y, zb.w, zb.h, 14);
       ctx.fillStyle = rgba(c, 0.05);
       ctx.fill();
@@ -936,110 +1051,100 @@ export class AirspaceScene {
       ctx.fillStyle = '#334155';
       ctx.textBaseline = 'middle';
       ctx.fillText(zb.zone.name.toUpperCase(), zb.chip.x + 18, zb.chip.y + 9.5);
+      ctx.globalAlpha = 1;
     }
 
-    // Spokes.
-    for (const sp of this.spokes.values()) {
+    // Connections: state, not motion. Idle/unused first so active ones sit on top.
+    const order: LinkState[] = ['unused', 'idle', 'active', 'blocked', 'holding'];
+    const spokes = [...this.spokes.values()].map((sp) => ({ sp, st: this.stateOf(sp.station, now) }));
+    spokes.sort((a, b) => order.indexOf(a.st) - order.indexOf(b.st));
+    for (const { sp, st } of spokes) {
+      const s = sp.station;
       const { p0, p1, p2, p3 } = sp.bez;
-      const blocked = sp.gates.some((g) => g.rule.effect === 'deny' && !g.rule.from_zone);
       ctx.beginPath();
       ctx.moveTo(p0[0], p0[1]);
       ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
-      ctx.strokeStyle = blocked ? rgba(STATUS_COLORS.denied, 0.35) : LINE;
-      ctx.lineWidth = 1.25;
-      ctx.setLineDash(sp.station.kind === 'unknown' ? [4, 4] : []);
+      const rate = s.recent.length;
+      const fresh = s.lastAt ? Math.max(0, 1 - (now - s.lastAt) / WINDOW_MS) : 0;
+      const weight = 1.6 + Math.min(3, Math.log2(1 + rate) * 0.55);
+      let color = LINE_IDLE;
+      let width = 1.25;
+      let dash: number[] = [];
+      switch (st) {
+        case 'unused':
+          color = LINE_UNUSED;
+          width = 1;
+          dash = [3, 5];
+          break;
+        case 'idle':
+          break;
+        case 'active':
+          color = rgba(s.color, 0.35 + 0.45 * fresh);
+          width = weight;
+          break;
+        case 'blocked':
+          color = rgba(STATUS_COLORS.denied, 0.7);
+          width = weight;
+          break;
+        case 'holding':
+          color = rgba(STATUS_COLORS.held, 0.85);
+          width = Math.max(2, weight);
+          break;
+      }
+      ctx.globalAlpha = dim(s.id);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash);
+      ctx.lineCap = 'round';
       ctx.stroke();
       ctx.setLineDash([]);
-      if (sp.activity > 0.02) {
-        // A gentle breathing tint on the line itself: same width, soft alpha, slow pulse.
-        const breath = 0.65 + 0.35 * Math.sin(now / 420 + sp.station.py * 0.05);
-        ctx.strokeStyle = rgba(sp.station.color, Math.min(0.3, sp.activity * 0.3) * breath);
-        ctx.lineWidth = 1.75;
-        ctx.stroke();
-      }
+      ctx.globalAlpha = 1;
     }
 
-    // Holding pattern.
-    const held = this.particles.filter((p) => p.phase === 'hold').length;
+    // Holding ring (static): amber when anything is waiting on a human.
+    let held = 0;
+    for (const f of this.live.values()) if (f.held) held++;
     ctx.beginPath();
     ctx.ellipse(hx, hy, this.holdR, this.holdR * 0.92, 0, 0, Math.PI * 2);
     ctx.setLineDash([3, 6]);
-    ctx.lineDashOffset = -now / 60;
-    ctx.strokeStyle = held ? rgba(STATUS_COLORS.held, 0.75) : 'rgba(138,152,173,0.35)';
-    ctx.lineWidth = held ? 1.5 : 1;
+    ctx.strokeStyle = held ? rgba(STATUS_COLORS.held, 0.8) : 'rgba(138,152,173,0.3)';
+    ctx.lineWidth = held ? 1.75 : 1;
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.lineDashOffset = 0;
-
-    // Gates.
-    for (const sp of this.spokes.values()) {
-      for (const g of sp.gates) this.drawGate(g.x, g.y, g.rule, this.hovered === `gate:${g.rule.id}:${sp.station.id}`);
+    if (held) {
+      const label = `${held} holding`;
+      ctx.font = `600 11px ${FONT}`;
+      const tw = ctx.measureText(label).width + 16;
+      const bx = hx - tw / 2;
+      const by = hy - this.holdR * 0.92 - 11;
+      roundRect(ctx, bx, by, tw, 20, 10);
+      ctx.fillStyle = '#fff8ec';
+      ctx.fill();
+      ctx.strokeStyle = rgba(STATUS_COLORS.held, 0.6);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = '#8a5200';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, hx, by + 10.5);
+      ctx.textAlign = 'left';
     }
 
-    // Flights: a soft band of light travelling along the line — no dots.
-    for (const p of this.particles) {
-      if (p.phase === 'shatter') continue; // blocked flights are shown as a flash ring (see pulses)
-      if (p.phase === 'hold') {
-        // Holding: a short glowing arc on the holding ring that breathes.
-        const breathe = 0.55 + 0.45 * Math.sin(now / 260 + p.angle * 3);
-        for (const [w, a] of [
-          [7, 0.1],
-          [2.5, 0.55],
-        ] as const) {
-          ctx.beginPath();
-          ctx.ellipse(hx, hy, this.holdR, this.holdR * 0.92, 0, p.angle - 0.22, p.angle + 0.22);
-          ctx.strokeStyle = rgba(STATUS_COLORS.held, a * breathe);
-          ctx.lineWidth = w;
-          ctx.lineCap = 'round';
-          ctx.stroke();
-        }
-        continue;
-      }
-      if (!p.seg) continue;
-      const { bez, k } = p.seg;
-      const half = 0.1;
-      const steps = 14;
-      const strength = 0.45 + Math.min(0.25, p.size * 0.15);
-      ctx.lineCap = 'round';
-      for (const [w, a] of [
-        [7, 0.08],
-        [2.5, strength],
-      ] as const) {
-        let prev = bezAt(bez, Math.max(0, Math.min(1, k - half)));
-        for (let i = 1; i <= steps; i++) {
-          const t = k - half + (2 * half * i) / steps;
-          if (t < 0 || t > 1) continue;
-          const pt = bezAt(bez, t);
-          const d = Math.abs(t - k) / half;
-          const alpha = a * (1 - d) * (1 - d);
-          if (alpha > 0.005) {
-            ctx.beginPath();
-            ctx.moveTo(prev[0], prev[1]);
-            ctx.lineTo(pt[0], pt[1]);
-            ctx.strokeStyle = rgba(p.color, alpha);
-            ctx.lineWidth = w;
-            ctx.stroke();
-          }
-          prev = pt;
-        }
-      }
+    // Gates on spokes.
+    for (const sp of this.spokes.values()) {
+      ctx.globalAlpha = dim(sp.station.id);
+      for (const g of sp.gates) this.drawGate(g.x, g.y, g.rule, 10, this.hovered === `gate:${g.rule.id}:${sp.station.id}`);
+      ctx.globalAlpha = 1;
     }
 
     this.drawHub(now, held);
 
-    // Station cards.
-    for (const s of this.stations.values()) this.drawCard(s);
-
-    // Pulses.
-    for (const pl of this.pulses) {
-      ctx.beginPath();
-      ctx.arc(pl.x, pl.y, 4 + pl.t * pl.max, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(pl.color, (1 - pl.t) * 0.6);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    for (const s of this.stations.values()) {
+      ctx.globalAlpha = dim(s.id);
+      this.drawCard(s, now, rel);
+      ctx.globalAlpha = 1;
     }
 
-    // Lasso.
     if (this.lasso && this.lasso.length > 1) {
       ctx.beginPath();
       ctx.moveTo(this.lasso[0]![0], this.lasso[0]![1]);
@@ -1063,42 +1168,67 @@ export class AirspaceScene {
     }
   }
 
-  private drawGate(x: number, y: number, rule: Rule, hot: boolean): void {
+  private drawGate(x: number, y: number, rule: Rule, r: number, hot: boolean): void {
     const ctx = this.ctx;
     const c = rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : STATUS_COLORS.ok;
+    const hits = this.ruleHits.get(rule.id)?.length ?? 0;
+    if (hits) {
+      ctx.beginPath();
+      ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(c, 0.14);
+      ctx.fill();
+    }
     ctx.save();
     ctx.shadowColor = 'rgba(15,27,45,0.12)';
     ctx.shadowBlur = hot ? 10 : 6;
     ctx.shadowOffsetY = 1;
     ctx.beginPath();
-    ctx.arc(x, y, hot ? 11 : 10, 0, Math.PI * 2);
+    ctx.arc(x, y, hot ? r + 1 : r, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.restore();
     ctx.beginPath();
-    ctx.arc(x, y, hot ? 11 : 10, 0, Math.PI * 2);
+    ctx.arc(x, y, hot ? r + 1 : r, 0, Math.PI * 2);
     ctx.strokeStyle = hex(c);
     ctx.lineWidth = 2;
     ctx.stroke();
+    this.drawGateGlyph(x, y, rule, r / 10);
+    if (hits && r >= 9) {
+      const label = String(hits);
+      ctx.font = `700 9.5px ${FONT}`;
+      const tw = Math.max(15, ctx.measureText(label).width + 8);
+      roundRect(ctx, x + r - 2, y - r - 8, tw, 14, 7);
+      ctx.fillStyle = hex(c);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x + r - 2 + tw / 2, y - r - 0.5);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  private drawGateGlyph(x: number, y: number, rule: Rule, k: number): void {
+    const ctx = this.ctx;
+    const c = rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : STATUS_COLORS.ok;
     ctx.fillStyle = hex(c);
     ctx.strokeStyle = hex(c);
     if (rule.effect === 'deny') {
-      roundRect(ctx, x - 5, y - 1.5, 10, 3, 1.5);
+      roundRect(ctx, x - 5 * k, y - 1.5 * k, 10 * k, 3 * k, 1.5 * k);
       ctx.fill();
     } else if (rule.effect === 'require_approval') {
-      // hourglass
       ctx.beginPath();
-      ctx.moveTo(x - 4, y - 5);
-      ctx.lineTo(x + 4, y - 5);
-      ctx.lineTo(x - 4, y + 5);
-      ctx.lineTo(x + 4, y + 5);
+      ctx.moveTo(x - 4 * k, y - 5 * k);
+      ctx.lineTo(x + 4 * k, y - 5 * k);
+      ctx.lineTo(x - 4 * k, y + 5 * k);
+      ctx.lineTo(x + 4 * k, y + 5 * k);
       ctx.closePath();
       ctx.fill();
     } else {
       ctx.beginPath();
-      ctx.moveTo(x - 4, y);
-      ctx.lineTo(x - 1, y + 3);
-      ctx.lineTo(x + 4, y - 3);
+      ctx.moveTo(x - 4 * k, y);
+      ctx.lineTo(x - 1 * k, y + 3 * k);
+      ctx.lineTo(x + 4 * k, y - 3 * k);
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1110,9 +1240,8 @@ export class AirspaceScene {
     const ctx = this.ctx;
     const [hx, hy] = this.hub;
     const r = this.hubR;
-    const beat = 1 + Math.sin(now / 900) * 0.04;
     ctx.beginPath();
-    ctx.arc(hx, hy, (r + 10) * beat, 0, Math.PI * 2);
+    ctx.arc(hx, hy, r + 10, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(31,94,255,0.06)';
     ctx.fill();
     ctx.save();
@@ -1126,7 +1255,7 @@ export class AirspaceScene {
     ctx.restore();
     ctx.beginPath();
     ctx.arc(hx, hy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = '#cfd9e8';
+    ctx.strokeStyle = this.hovered === 'hub' ? '#9fb3d1' : '#cfd9e8';
     ctx.lineWidth = 1.5;
     ctx.stroke();
     if (this.logo.length) {
@@ -1140,7 +1269,8 @@ export class AirspaceScene {
       }
       ctx.restore();
     }
-    const rpm = this.hubArrivals.length;
+    const rpm = this.hubRecent.length;
+    const active = this.activePairs(now);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.font = `700 10px ${FONT}`;
@@ -1148,13 +1278,14 @@ export class AirspaceScene {
     ctx.fillText('CONTROL TOWER', hx, hy + this.holdR + 22);
     ctx.font = `500 11px ${FONT}`;
     ctx.fillStyle = INK_FAINT;
-    ctx.fillText(`${rpm} flight${rpm === 1 ? '' : 's'}/min${held ? ` · ${held} holding` : ''}`, hx, hy + this.holdR + 37);
+    ctx.fillText(`${active} active link${active === 1 ? '' : 's'} · ${rpm}/min${held ? ` · ${held} holding` : ''}`, hx, hy + this.holdR + 37);
     ctx.textAlign = 'left';
   }
 
-  private drawCard(s: Station): void {
+  private drawCard(s: Station, now: number, rel: Set<string> | null): void {
     const ctx = this.ctx;
-    const hot = this.hovered === `station:${s.id}`;
+    const hot = this.hovered === `station:${s.id}` || this.focusId === s.id;
+    const st = this.stateOf(s, now);
     ctx.save();
     ctx.shadowColor = `rgba(15,27,45,${hot ? 0.14 : 0.07})`;
     ctx.shadowBlur = hot ? 16 : 10;
@@ -1164,41 +1295,77 @@ export class AirspaceScene {
     ctx.fill();
     ctx.restore();
     roundRect(ctx, s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1, 10);
-    ctx.strokeStyle = s.heat > 0.05 ? rgba(s.color, 0.25 + s.heat * 0.5) : hot ? '#b9c7dd' : '#e1e7ef';
-    ctx.lineWidth = s.heat > 0.05 ? 1.5 : 1;
+    ctx.strokeStyle =
+      this.focusId === s.id ? hex(s.color) : st === 'holding' ? rgba(STATUS_COLORS.held, 0.7) : st === 'blocked' ? rgba(STATUS_COLORS.denied, 0.6) : st === 'active' ? rgba(s.color, 0.45) : hot ? '#b9c7dd' : '#e1e7ef';
+    ctx.lineWidth = this.focusId === s.id ? 2 : st === 'active' || st === 'holding' || st === 'blocked' ? 1.5 : 1;
     ctx.stroke();
 
-    // Icon tile.
+    // Header.
+    const head = s.headH;
     const ix = s.x + 10;
-    const iy = s.y + (s.h - 26) / 2;
+    const iy = s.y + (head - 26) / 2;
     roundRect(ctx, ix, iy, 26, 26, 7);
     ctx.fillStyle = rgba(s.color, 0.1);
     ctx.fill();
     this.drawGlyph(s, ix + 13, iy + 13);
 
-    // Text.
     const tx = ix + 36;
-    const right = s.x + s.w - 12;
-    const rpm = s.arrivals.length;
+    const chevronW = s.kind === 'mcp' && s.tools.length ? 22 : 0;
+    const right = s.x + s.w - 12 - chevronW;
+    const compact = head < 40;
+    // Status line on the right: live rate, holding, idle.
+    let status = '';
+    let statusColor = INK_FAINT;
+    if (s.held) {
+      status = `${s.held} holding`;
+      statusColor = '#b26b00';
+    } else if (s.recent.length) {
+      status = `${s.recent.length}/min`;
+      statusColor = st === 'blocked' ? '#b4233a' : INK_DIM;
+    } else if (st === 'idle') status = 'idle';
     ctx.font = `600 11px ${FONT}`;
-    const rpmText = rpm ? `${rpm}/min` : '';
-    const rpmW = rpmText ? ctx.measureText(rpmText).width + 8 : 0;
+    const statusW = status ? ctx.measureText(status).width + 10 : 0;
     ctx.textBaseline = 'alphabetic';
-    const compact = s.h < 40;
     ctx.font = `600 ${compact ? 11.5 : 12.5}px ${FONT}`;
     ctx.fillStyle = INK;
-    ctx.fillText(fitText(ctx, s.label, right - tx - rpmW), tx, s.y + (compact ? s.h / 2 + 4 : s.h / 2 - 2));
+    const titleY = s.y + (compact ? head / 2 + 4 : head / 2 - 2);
+    ctx.fillText(fitText(ctx, s.label, right - tx - statusW), tx, titleY);
     if (!compact) {
       ctx.font = `400 11px ${FONT}`;
       ctx.fillStyle = INK_DIM;
-      ctx.fillText(fitText(ctx, s.sub, right - tx), tx, s.y + s.h / 2 + 13);
+      ctx.fillText(fitText(ctx, s.sub, right - tx), tx, s.y + head / 2 + 13);
     }
-    if (rpmText) {
+    if (status) {
       ctx.font = `600 11px ${FONT}`;
-      ctx.fillStyle = INK_FAINT;
+      ctx.fillStyle = statusColor;
       ctx.textAlign = 'right';
-      ctx.fillText(rpmText, right, s.y + (compact ? s.h / 2 + 4 : s.h / 2 - 2));
+      ctx.fillText(status, right, titleY);
       ctx.textAlign = 'left';
+      if (st === 'active' || st === 'holding' || st === 'blocked') {
+        ctx.beginPath();
+        ctx.arc(right - ctx.measureText(status).width - 7, titleY - 4, 3, 0, Math.PI * 2);
+        ctx.fillStyle = st === 'holding' ? hex(STATUS_COLORS.held) : st === 'blocked' ? hex(STATUS_COLORS.denied) : hex(STATUS_COLORS.ok);
+        ctx.fill();
+      }
+    }
+    if (chevronW) {
+      const cx = s.x + s.w - 16;
+      const cy = s.y + head / 2;
+      ctx.beginPath();
+      if (s.expanded) {
+        ctx.moveTo(cx - 4, cy - 2);
+        ctx.lineTo(cx, cy + 2);
+        ctx.lineTo(cx + 4, cy - 2);
+      } else {
+        ctx.moveTo(cx - 2, cy - 4);
+        ctx.lineTo(cx + 2, cy);
+        ctx.lineTo(cx - 2, cy + 4);
+      }
+      ctx.strokeStyle = INK_FAINT;
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
     }
 
     // Port.
@@ -1206,9 +1373,80 @@ export class AirspaceScene {
     ctx.arc(s.px, s.py, 3.5, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = s.heat > 0.05 ? hex(s.color) : '#b9c7dd';
+    ctx.strokeStyle = st === 'active' ? hex(s.color) : st === 'holding' ? hex(STATUS_COLORS.held) : st === 'blocked' ? hex(STATUS_COLORS.denied) : '#b9c7dd';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+
+    // Tool rows.
+    if (!s.expanded || !s.tools.length) return;
+    ctx.beginPath();
+    ctx.moveTo(s.x + 10, s.y + head + 0.5);
+    ctx.lineTo(s.x + s.w - 10, s.y + head + 0.5);
+    ctx.strokeStyle = '#edf1f6';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const focusAgent = rel && this.focusId && this.stations.get(this.focusId)?.kind === 'agent' ? this.focusId : null;
+    for (const row of s.tools) {
+      const cy = row.y + TOOL_ROW / 2;
+      const usedByFocus = focusAgent ? this.toolUsedBy(focusAgent, s.id, row.name) : true;
+      ctx.globalAlpha = (rel ? (rel.has(s.id) ? 1 : 0.22) : 1) * (usedByFocus ? 1 : 0.35);
+      if (this.hovered === `tool:${s.id}:${row.name}`) {
+        roundRect(ctx, s.x + 6, row.y, s.w - 12, TOOL_ROW, 5);
+        ctx.fillStyle = '#f3f6fb';
+        ctx.fill();
+      }
+      const active = row.recent.length > 0;
+      ctx.beginPath();
+      ctx.arc(s.x + 18, cy, 3.5, 0, Math.PI * 2);
+      if (active) {
+        ctx.fillStyle = hex(MCP_COLOR);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = row.count24h ? '#9fb0c8' : '#dbe2ec';
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+      }
+      // Right side: count · gate · op tag
+      let rx = s.x + s.w - 12;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      const count = active ? `${row.recent.length}/min` : row.count24h ? `${row.count24h.toLocaleString()}` : '';
+      if (count) {
+        ctx.font = `${active ? 600 : 500} 10.5px ${FONT}`;
+        ctx.fillStyle = active ? INK_DIM : INK_FAINT;
+        ctx.fillText(count, rx, cy + 0.5);
+        rx -= ctx.measureText(count).width + 8;
+      }
+      for (const g of row.gates) {
+        this.drawGate(rx - 7, cy, g, 6.5, false);
+        rx -= 18;
+      }
+      const op = OP_STYLE[row.op];
+      if (op.label) {
+        ctx.font = `700 9px ${FONT}`;
+        const tw = 15;
+        roundRect(ctx, rx - tw, cy - 7, tw, 14, 4);
+        ctx.fillStyle = op.color + '14';
+        ctx.fill();
+        ctx.fillStyle = op.color;
+        ctx.textAlign = 'center';
+        ctx.fillText(op.label, rx - tw / 2, cy + 0.5);
+        rx -= tw + 6;
+      }
+      ctx.textAlign = 'left';
+      ctx.font = `500 11px ${FONT}`;
+      ctx.fillStyle = row.count24h || active ? INK : INK_FAINT;
+      ctx.fillText(fitText(ctx, row.name, rx - (s.x + 28)), s.x + 28, cy + 0.5);
+      ctx.textBaseline = 'alphabetic';
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private toolUsedBy(agentId: string, serverId: string, tool: string): boolean {
+    if (this.liveToolPairs.has(`${agentId}>${serverId}|${tool}`)) return true;
+    return this.edges.some((e) => e.key_id === agentId && e.target_id === serverId && e.tool === tool);
   }
 
   private drawGlyph(s: Station, cx: number, cy: number): void {
@@ -1219,7 +1457,7 @@ export class AirspaceScene {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     switch (s.kind) {
-      case 'agent': {
+      case 'agent':
         roundRect(ctx, cx - 6, cy - 4, 12, 9, 3);
         ctx.stroke();
         ctx.beginPath();
@@ -1234,8 +1472,7 @@ export class AirspaceScene {
         ctx.arc(cx + 2.5, cy + 0.5, 1.2, 0, Math.PI * 2);
         ctx.fill();
         break;
-      }
-      case 'model': {
+      case 'model':
         roundRect(ctx, cx - 5, cy - 5, 10, 10, 2);
         ctx.stroke();
         for (const d of [-2.5, 2.5]) {
@@ -1251,8 +1488,7 @@ export class AirspaceScene {
           ctx.stroke();
         }
         break;
-      }
-      case 'mcp': {
+      case 'mcp':
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = Math.PI / 6 + (i * Math.PI) / 3;
@@ -1267,92 +1503,88 @@ export class AirspaceScene {
         ctx.arc(cx, cy, 2, 0, Math.PI * 2);
         ctx.fill();
         break;
-      }
-      default: {
+      default:
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
         ctx.arc(cx, cy, 6, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
-      }
     }
   }
 
   // ------------------------------------------------------------ interaction
 
-  private laneFor(sp: Spoke): Lane & { fromLabel: string; toLabel: string } {
-    const s = sp.station;
-    let requests = 0;
-    let cost = 0;
-    let errors = 0;
-    let denied = 0;
-    let latSum = 0;
-    let latN = 0;
-    for (const l of this.laneStats.values()) {
-      if ((s.kind === 'agent' && l.from === s.id) || (s.kind !== 'agent' && l.to === s.id)) {
-        requests += l.requests;
-        cost += l.cost;
-        errors += l.errors;
-        denied += l.denied;
-        if (l.avgMs != null) {
-          latSum += l.avgMs * l.requests;
-          latN += l.requests;
-        }
-      }
-    }
+  private laneView(sp: Spoke, now: number): LaneView {
+    const v = this.view(sp.station, now);
     const g = sp.gates[0];
     return {
-      from: s.kind === 'agent' ? s.id : 'tower',
-      to: s.kind === 'agent' ? 'tower' : s.id,
-      activity: sp.activity,
-      requests,
-      cost,
-      errors,
-      denied,
-      avgMs: latN ? latSum / latN : null,
-      cx: 0,
-      cy: 0,
-      gate: g ? { rule: g.rule, x: g.x, y: g.y } : null,
-      fromLabel: s.kind === 'agent' ? s.label : 'Control Tower',
-      toLabel: s.kind === 'agent' ? 'Control Tower' : s.label,
+      fromLabel: sp.station.kind === 'agent' ? sp.station.label : 'Control Tower',
+      toLabel: sp.station.kind === 'agent' ? 'Control Tower' : sp.station.label,
+      state: v.state,
+      rpm: v.rpm,
+      requests: v.requests24h,
+      cost: v.cost24h,
+      errors: v.errors24h,
+      denied: v.denied24h,
+      gate: g ? { rule: g.rule } : null,
     };
   }
 
-  private hitTest(x: number, y: number): ClickInfo {
+  private hitTest(wp: Pt, sp: Pt): ClickInfo {
+    const now = Date.now();
+    const [x, y] = wp;
+    const [sx, sy] = sp;
     for (const s of this.stations.values()) {
-      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return { kind: 'station', station: s, x, y };
+      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return { kind: 'station', station: this.view(s, now), x: sx, y: sy };
     }
     for (const sp of this.spokes.values()) {
-      for (const g of sp.gates) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) return { kind: 'gate', rule: g.rule, lane: this.laneFor(sp), x, y };
+      for (const g of sp.gates) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) return { kind: 'gate', rule: g.rule, x: sx, y: sy };
     }
     for (const zb of this.zoneBoxes) {
       const c = zb.chip;
-      if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return { kind: 'zone', zone: zb.zone, x, y };
+      if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return { kind: 'zone', zone: zb.zone, x: sx, y: sy };
     }
-    return { kind: 'empty', x, y };
+    return { kind: 'empty', x: sx, y: sy };
   }
 
-  private hoverTest(fromMove: boolean): void {
-    this.lastHover = performance.now();
+  private setHovered(id: string | null): void {
+    if (this.hovered !== id) {
+      this.hovered = id;
+      this.dirty = true;
+    }
+  }
+
+  private hoverTest(): void {
+    this.lastHoverRefresh = performance.now();
     if (!this.pointer || this.lasso) {
-      if (fromMove) this.hoverCb?.(null);
+      this.hoverCb?.(null);
       return;
     }
-    const [x, y] = this.pointer;
+    const now = Date.now();
+    const [sx, sy] = this.pointer;
+    const [x, y] = this.toWorld(this.pointer);
     for (const s of this.stations.values()) {
-      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) {
-        this.hovered = `station:${s.id}`;
-        this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'default';
-        this.hoverCb?.({ x, y, station: { ...s, rpm: s.arrivals.length } });
-        return;
+      if (x < s.x || x > s.x + s.w || y < s.y || y > s.y + s.h) continue;
+      if (s.expanded && y > s.y + s.headH) {
+        const row = s.tools.find((r) => y >= r.y && y < r.y + TOOL_ROW);
+        if (row) {
+          this.setHovered(`tool:${s.id}:${row.name}`);
+          this.canvas.style.cursor = 'default';
+          this.hoverCb?.({ x: sx, y: sy, tool: { server: s.label, name: row.name, op: row.op, rpm: row.recent.length, count24h: row.count24h, gates: row.gates } });
+          return;
+        }
       }
+      this.setHovered(`station:${s.id}`);
+      this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
+      this.hoverCb?.({ x: sx, y: sy, station: this.view(s, now) });
+      return;
     }
     for (const sp of this.spokes.values()) {
       for (const g of sp.gates) {
         if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) {
-          this.hovered = `gate:${g.rule.id}:${sp.station.id}`;
+          this.setHovered(`gate:${g.rule.id}:${sp.station.id}`);
           this.canvas.style.cursor = 'pointer';
-          this.hoverCb?.({ x, y, gate: { rule: g.rule, lane: this.laneFor(sp) } });
+          this.hoverCb?.({ x: sx, y: sy, gate: { rule: g.rule, hits: this.ruleHits.get(g.rule.id)?.length ?? 0 } });
           return;
         }
       }
@@ -1360,18 +1592,19 @@ export class AirspaceScene {
     for (const zb of this.zoneBoxes) {
       const c = zb.chip;
       if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
-        this.hovered = `zone:${zb.zone.id}`;
+        this.setHovered(`zone:${zb.zone.id}`);
         this.canvas.style.cursor = 'pointer';
-        this.hoverCb?.({ x, y, zone: zb.zone });
+        this.hoverCb?.({ x: sx, y: sy, zone: zb.zone });
         return;
       }
     }
     const [hx, hy] = this.hub;
     if ((hx - x) ** 2 + (hy - y) ** 2 < (this.hubR + 6) ** 2) {
-      this.hovered = 'hub';
-      this.canvas.style.cursor = 'default';
-      const costPerMin = this.hubArrivals.reduce((s, a) => s + a.cost, 0);
-      this.hoverCb?.({ x, y, hub: { rpm: this.hubArrivals.length, held: this.particles.filter((p) => p.phase === 'hold').length, costPerMin } });
+      this.setHovered('hub');
+      this.canvas.style.cursor = 'grab';
+      let held = 0;
+      for (const f of this.live.values()) if (f.held) held++;
+      this.hoverCb?.({ x: sx, y: sy, hub: { rpm: this.hubRecent.length, held, active: this.activePairs(now) } });
       return;
     }
     let best: { sp: Spoke; d: number } | null = null;
@@ -1384,11 +1617,11 @@ export class AirspaceScene {
     }
     this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'default';
     if (best) {
-      this.hovered = `spoke:${best.sp.station.id}`;
-      this.hoverCb?.({ x, y, lane: this.laneFor(best.sp) });
+      this.setHovered(`spoke:${best.sp.station.id}`);
+      this.hoverCb?.({ x: sx, y: sy, lane: this.laneView(best.sp, now) });
       return;
     }
-    this.hovered = null;
+    this.setHovered(null);
     this.hoverCb?.(null);
   }
 }

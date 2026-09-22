@@ -598,7 +598,7 @@ export class AirspaceScene {
         this.byFlight.set(e.flight_id, p);
         agent.heat = Math.min(1, agent.heat + 0.5);
         const sp = this.spokes.get(agent.id);
-        if (sp) sp.activity = Math.min(1, sp.activity + 0.5);
+        if (sp) sp.activity = Math.min(1, sp.activity + 0.25);
         break;
       }
       case 'flight.decision': {
@@ -691,7 +691,7 @@ export class AirspaceScene {
     p.dest.heat = Math.min(1, p.dest.heat + 0.6);
     this.pulse(p.dest.px, p.dest.py, p.dest.color, 16);
     const sp = this.spokes.get(p.dest.id);
-    if (sp) sp.activity = Math.min(1, sp.activity + 0.5);
+    if (sp) sp.activity = Math.min(1, sp.activity + 0.25);
     this.go(p, 'retA');
   }
 
@@ -718,7 +718,7 @@ export class AirspaceScene {
   private tick(dt: number, now: number): void {
     if (!this.reducedMotion) this.sweep = (this.sweep + dt * 0.0009) % (Math.PI * 2);
     for (const s of this.stations.values()) s.heat *= Math.exp(-dt / 1400);
-    for (const sp of this.spokes.values()) sp.activity *= Math.exp(-dt / 1100);
+    for (const sp of this.spokes.values()) sp.activity *= Math.exp(-dt / 2500);
     for (const pl of this.pulses) pl.t += dt / 700;
     this.pulses = this.pulses.filter((pl) => pl.t < 1);
 
@@ -927,8 +927,10 @@ export class AirspaceScene {
       ctx.stroke();
       ctx.setLineDash([]);
       if (sp.activity > 0.02) {
-        ctx.strokeStyle = rgba(sp.station.color, Math.min(0.55, sp.activity * 0.55));
-        ctx.lineWidth = 1.25 + sp.activity * 2.5;
+        // A gentle breathing tint on the line itself: same width, soft alpha, slow pulse.
+        const breath = 0.65 + 0.35 * Math.sin(now / 420 + sp.station.py * 0.05);
+        ctx.strokeStyle = rgba(sp.station.color, Math.min(0.3, sp.activity * 0.3) * breath);
+        ctx.lineWidth = 1.75;
         ctx.stroke();
       }
     }

@@ -26,17 +26,18 @@ RUN mkdir -p /out && cd /out && npm init -y >/dev/null \
 FROM node:24-alpine
 RUN apk add --no-cache tini
 WORKDIR /app
-COPY --from=build /app/server/dist ./dist
-COPY --from=build /out/node_modules ./node_modules
-COPY --from=build /app/ui/dist ./ui
-COPY --from=build /app/server/package.json ./package.json
-COPY LICENSE ./LICENSE
+# --chown at copy time: a separate `RUN chown -R` would duplicate every file into a new layer.
+COPY --from=build --chown=node:node /app/server/dist ./dist
+COPY --from=build --chown=node:node /out/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/ui/dist ./ui
+COPY --from=build --chown=node:node /app/server/package.json ./package.json
+COPY --chown=node:node LICENSE ./LICENSE
 ENV NODE_ENV=production \
     CT_PORT=4000 \
     CT_HOST=0.0.0.0 \
     CT_DATA_DIR=/data \
     CT_UI_DIR=/app/ui
-RUN mkdir -p /data && chown -R node:node /data /app
+RUN mkdir -p /data && chown node:node /data /app
 USER node
 VOLUME ["/data"]
 EXPOSE 4000

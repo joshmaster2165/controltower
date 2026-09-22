@@ -77,6 +77,8 @@ const KEEPALIVE_MS = 15_000;
 export interface RunOptions {
   /** Bypass header auth with a known key (admin playground). */
   keyOverride?: KeyRecord;
+  /** `embeddings` bodies carry `input` instead of `messages` and never stream. */
+  kind?: 'chat' | 'embeddings';
 }
 
 export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<string, unknown>): Flight {
@@ -161,7 +163,9 @@ export class FlightRunner {
   async runChat(req: FastifyRequest, reply: FastifyReply, dialect: WireDialect, runOpts: RunOptions = {}): Promise<void> {
     const ctx = this.ctx;
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const f = newFlight(dialect === 'anthropic-messages' ? 'messages' : 'chat', dialect, body);
+    const embeddings = runOpts.kind === 'embeddings';
+    if (embeddings) body.stream = false;
+    const f = newFlight(embeddings ? 'embeddings' : dialect === 'anthropic-messages' ? 'messages' : 'chat', dialect, body);
     reply.header('x-ct-flight-id', f.id);
 
     // ServerResponse 'close' fires when the connection drops OR when the response
@@ -180,7 +184,9 @@ export class FlightRunner {
       // ---- ingress ----
       if (typeof body !== 'object' || Array.isArray(body)) throw E.badRequest('Request body must be a JSON object.');
       if (!f.modelRequested) throw E.badRequest('Missing required field: model.');
-      if (!Array.isArray(body.messages)) throw E.badRequest('Missing required field: messages (array).');
+      if (embeddings) {
+        if (typeof body.input !== 'string' && !Array.isArray(body.input)) throw E.badRequest('Missing required field: input (string or array).');
+      } else if (!Array.isArray(body.messages)) throw E.badRequest('Missing required field: messages (array).');
       f.estInput = estimateInputTokens(body);
 
       // ---- auth ----

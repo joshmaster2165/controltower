@@ -28,6 +28,10 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     await runner.runChat(req, reply, 'anthropic-messages');
   });
 
+  app.post('/v1/embeddings', async (req, reply) => {
+    await runner.runChat(req, reply, 'openai-chat', { kind: 'embeddings' });
+  });
+
   app.get('/v1/models', async (req, reply) => {
     const presented = extractApiKey(req);
     const key = presented ? ctx.registry.authenticate(presented) : undefined;

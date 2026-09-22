@@ -10,16 +10,18 @@ import { ModelsPage } from './pages/Models';
 import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
+import { LedgerPage } from './pages/Ledger';
 import { api } from './api';
 
 const NAV: Array<{ id: Route; label: string }> = [
   { id: 'airspace', label: 'Airspace' },
   { id: 'tower', label: 'Tower' },
+  { id: 'ledger', label: 'Ledger' },
   { id: 'flights', label: 'Flights' },
   { id: 'keys', label: 'Keys' },
   { id: 'providers', label: 'Providers' },
   { id: 'models', label: 'Models' },
-  { id: 'mcp', label: 'MCP servers' },
+  { id: 'mcp', label: 'MCP' },
   { id: 'playground', label: 'Playground' },
 ];
 
@@ -86,7 +88,7 @@ export function App() {
         {route === 'models' && <ModelsPage />}
         {route === 'mcp' && <McpPage />}
         {route === 'playground' && <PlaygroundPage />}
-        {route === 'ledger' && <div className="page"><h1>Ledger</h1><p className="sub">Coming in v0.2.</p></div>}
+        {route === 'ledger' && <LedgerPage />}
       </main>
     </div>
   );

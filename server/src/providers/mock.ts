@@ -76,6 +76,24 @@ export class MockAdapter implements ProviderAdapter {
       return { kind: 'error', err: { code: 'provider_error', message: 'mock: internal error', httpStatus: 502, upstreamStatus: 500, fallback: true, cooldown: true } };
     }
 
+    if (body.input !== undefined && body.messages === undefined) {
+      // Embeddings: deterministic pseudo-vectors so tests are stable.
+      const inputs = Array.isArray(body.input) ? (body.input as string[]) : [String(body.input)];
+      await sleep(40 * scale, ctx.signal);
+      ctx.onFirstByte?.();
+      const dims = 64;
+      const data = inputs.map((text, index) => {
+        let seed = 0;
+        for (const ch of text) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+        const embedding = Array.from({ length: dims }, (_, i) => Math.sin(seed + i) / 8);
+        return { object: 'embedding', index, embedding };
+      });
+      const tokens = inputs.reduce((s, t) => s + Math.max(1, Math.round(t.length / 4)), 0);
+      const usage: Usage = { input: tokens, output: 0, cacheRead: 0, cacheWrite: 0 };
+      const json = { object: 'list', data, model: opts.upstreamModel, usage: { prompt_tokens: tokens, total_tokens: tokens } };
+      return { kind: 'json', status: 200, contentType: 'application/json', body: Buffer.from(JSON.stringify(json)), usage };
+    }
+
     const inputTokens = estimateInput(body);
     const requested = typeof body.max_tokens === 'number' ? body.max_tokens : 160;
     const outTokens = Math.max(4, Math.min(requested, Math.round(gauss(90, 40))));

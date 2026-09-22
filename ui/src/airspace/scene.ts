@@ -105,6 +105,8 @@ interface Particle {
   shards: Array<{ x: number; y: number; vx: number; vy: number }> | undefined;
   shardColor: number;
   life: number;
+  /** Where on which curve the pulse currently is (undefined when off the lines). */
+  seg: { bez: Bez; k: number } | undefined;
 }
 
 interface Pulse {
@@ -220,6 +222,8 @@ export class AirspaceScene {
   private hovered: string | null = null;
   private lastHover = 0;
   private lasso: Pt[] | null = null;
+  /** Last time a frame actually rendered; while the tab is hidden we don't queue visuals. */
+  private lastFrameAt = 0;
   private hoverCb: ((h: HoverInfo | null) => void) | null = null;
   private clickCb: ((c: ClickInfo) => void) | null = null;
   private unknownStation: Station | null = null;
@@ -297,11 +301,23 @@ export class AirspaceScene {
       this.clickCb?.(this.hitTest(x, y));
     });
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        // Drop anything that queued up while we weren't drawing; start fresh.
+        this.particles = [];
+        this.byFlight.clear();
+        this.pulses = [];
+      }
+    });
+
     this.ready = true;
     this.last = performance.now();
+    this.lastFrameAt = this.last;
     const frame = (now: number) => {
-      const dt = Math.min(64, now - this.last);
+      // Keep real time even when frames are sparse (throttled or busy tabs); cap only true stalls.
+      const dt = Math.min(250, now - this.last);
       this.last = now;
+      this.lastFrameAt = now;
       try {
         this.tick(dt, now);
         this.draw(now);
@@ -568,6 +584,8 @@ export class AirspaceScene {
     switch (e.t) {
       case 'flight.started': {
         if (stale) return;
+        // Not rendering (hidden tab, paused pane): don't pile up visuals to replay all at once.
+        if (document.visibilityState !== 'visible' || performance.now() - this.lastFrameAt > 1000) return;
         const agent = this.stations.get(e.key_id);
         if (!agent) return;
         const dest = (e.deployment_id && this.stations.get(e.deployment_id)) || (e.mcp_server_id && this.stations.get(e.mcp_server_id)) || this.ensureUnknown();
@@ -593,6 +611,7 @@ export class AirspaceScene {
           shards: undefined,
           shardColor: 0,
           life: 0,
+          seg: undefined,
         };
         this.particles.push(p);
         this.byFlight.set(e.flight_id, p);
@@ -732,10 +751,12 @@ export class AirspaceScene {
         continue;
       }
       let pos: Pt = [p.x, p.y];
+      p.seg = undefined;
       switch (p.phase) {
         case 'in':
           p.t += dt / IN_MS;
-          pos = bezAt(agentSp.bez, ease(Math.min(1, p.t)));
+          p.seg = { bez: agentSp.bez, k: ease(Math.min(1, p.t)) };
+          pos = bezAt(agentSp.bez, p.seg.k);
           if (p.t >= 1) {
             p.phase = 'hub';
             p.t = 0;
@@ -762,6 +783,7 @@ export class AirspaceScene {
         case 'out': {
           p.t += dt / OUT_MS;
           const k = ease(Math.min(1, p.t));
+          p.seg = { bez: destSp.bez, k };
           const target = bezAt(destSp.bez, k);
           pos = p.from && p.t < 0.3 ? lerp(p.from, target, p.t / 0.3) : target;
           if (p.stopAt != null && k >= p.stopAt) {
@@ -795,7 +817,8 @@ export class AirspaceScene {
         }
         case 'retA': {
           p.t += dt / RET_MS;
-          const target = bezAt(destSp.bez, 1 - ease(Math.min(1, p.t)));
+          p.seg = { bez: destSp.bez, k: 1 - ease(Math.min(1, p.t)) };
+          const target = bezAt(destSp.bez, p.seg.k);
           pos = p.from && p.t < 0.25 ? lerp(p.from, target, p.t / 0.25) : target;
           if (p.t >= 1) {
             p.phase = 'retB';
@@ -806,7 +829,8 @@ export class AirspaceScene {
         }
         case 'retB':
           p.t += dt / RET_MS;
-          pos = bezAt(agentSp.bez, 1 - ease(Math.min(1, p.t)));
+          p.seg = { bez: agentSp.bez, k: 1 - ease(Math.min(1, p.t)) };
+          pos = bezAt(agentSp.bez, p.seg.k);
           if (p.t >= 1) {
             p.agent.heat = Math.min(1, p.agent.heat + 0.35);
             this.pulse(p.agent.px, p.agent.py, RESPONSE, 12);
@@ -952,56 +976,53 @@ export class AirspaceScene {
       for (const g of sp.gates) this.drawGate(g.x, g.y, g.rule, this.hovered === `gate:${g.rule.id}:${sp.station.id}`);
     }
 
-    // Flights.
+    // Flights: a soft band of light travelling along the line — no dots.
     for (const p of this.particles) {
-      if (p.phase === 'shatter') {
-        const a = Math.max(0, p.life / 800);
-        ctx.fillStyle = rgba(p.shardColor, a);
-        for (const s of p.shards ?? []) {
+      if (p.phase === 'shatter') continue; // blocked flights are shown as a flash ring (see pulses)
+      if (p.phase === 'hold') {
+        // Holding: a short glowing arc on the holding ring that breathes.
+        const breathe = 0.55 + 0.45 * Math.sin(now / 260 + p.angle * 3);
+        for (const [w, a] of [
+          [7, 0.1],
+          [2.5, 0.55],
+        ] as const) {
           ctx.beginPath();
-          ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.ellipse(hx, hy, this.holdR, this.holdR * 0.92, 0, p.angle - 0.22, p.angle + 0.22);
+          ctx.strokeStyle = rgba(STATUS_COLORS.held, a * breathe);
+          ctx.lineWidth = w;
+          ctx.lineCap = 'round';
+          ctx.stroke();
         }
         continue;
       }
-      const color = p.phase === 'hold' ? STATUS_COLORS.held : p.color;
-      const r = 2.6 + p.size * 1.6;
-      const n = p.trail.length;
-      if (n > 1) {
-        ctx.lineCap = 'round';
-        for (let i = 1; i < n; i++) {
-          const a = p.trail[i - 1]!;
-          const b = p.trail[i]!;
-          ctx.beginPath();
-          ctx.moveTo(a[0], a[1]);
-          ctx.lineTo(b[0], b[1]);
-          ctx.strokeStyle = rgba(color, (i / n) * 0.45);
-          ctx.lineWidth = r * 1.4 * (i / n);
-          ctx.stroke();
+      if (!p.seg) continue;
+      const { bez, k } = p.seg;
+      const half = 0.1;
+      const steps = 14;
+      const strength = 0.45 + Math.min(0.25, p.size * 0.15);
+      ctx.lineCap = 'round';
+      for (const [w, a] of [
+        [7, 0.08],
+        [2.5, strength],
+      ] as const) {
+        let prev = bezAt(bez, Math.max(0, Math.min(1, k - half)));
+        for (let i = 1; i <= steps; i++) {
+          const t = k - half + (2 * half * i) / steps;
+          if (t < 0 || t > 1) continue;
+          const pt = bezAt(bez, t);
+          const d = Math.abs(t - k) / half;
+          const alpha = a * (1 - d) * (1 - d);
+          if (alpha > 0.005) {
+            ctx.beginPath();
+            ctx.moveTo(prev[0], prev[1]);
+            ctx.lineTo(pt[0], pt[1]);
+            ctx.strokeStyle = rgba(p.color, alpha);
+            ctx.lineWidth = w;
+            ctx.stroke();
+          }
+          prev = pt;
         }
-        const tail = p.trail[n - 1]!;
-        ctx.beginPath();
-        ctx.moveTo(tail[0], tail[1]);
-        ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = rgba(color, 0.5);
-        ctx.lineWidth = r * 1.4;
-        ctx.stroke();
       }
-      if (p.phase === 'hold') {
-        const breathe = 1 + Math.sin(now / 180 + p.angle) * 0.25;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r * 2.4 * breathe, 0, Math.PI * 2);
-        ctx.fillStyle = rgba(STATUS_COLORS.held, 0.16);
-        ctx.fill();
-      }
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = hex(color);
-      ctx.fill();
     }
 
     this.drawHub(now, held);

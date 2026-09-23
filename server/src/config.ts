@@ -42,14 +42,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const dataDir = path.resolve(env.CT_DATA_DIR ?? './data');
   return {
     version: pkg.version,
-    port: int(env.CT_PORT, 4000),
+    // PORT is what most platforms (Render, Railway, Fly, Heroku-likes) hand the app.
+    port: int(env.CT_PORT || env.PORT, 4000),
     host: env.CT_HOST ?? '0.0.0.0',
     dataDir,
     databaseUrl: env.CT_DATABASE_URL || undefined,
     demo: bool(env.CT_DEMO),
     autoModels: bool(env.CT_AUTO_MODELS, true),
     mode: env.CT_MODE === 'off' ? 'off' : 'on',
-    publicUrl: env.CT_PUBLIC_URL || undefined,
+    publicUrl: env.CT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || (env.FLY_APP_NAME ? `https://${env.FLY_APP_NAME}.fly.dev` : undefined),
     metricsToken: env.CT_METRICS_TOKEN || undefined,
     masterKeyEnv: env.CT_MASTER_KEY || undefined,
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),

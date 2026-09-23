@@ -1,0 +1,33 @@
+# Deploy to Fly.io (https://fly.io) with a persistent volume:
+#   fly launch --config deploy/fly.toml --copy-config --no-deploy   # pick an app name and region
+#   fly volumes create controltower_data --size 1                  # same region as the app
+#   fly deploy --config deploy/fly.toml
+# The console is then at https://<app>.fly.dev.
+app = "controltower"
+primary_region = "iad"
+
+[build]
+  image = "ghcr.io/joshmaster2165/controltower:latest"
+
+[[mounts]]
+  source = "controltower_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  # A gateway holds requests for approval and keeps an event stream open: keep one machine running.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "3s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  memory = "512mb"
+  cpus = 1

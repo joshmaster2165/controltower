@@ -1,0 +1,20 @@
+# One-click deploy to Render:
+#   https://render.com/deploy?repo=https://github.com/joshmaster2165/controltower
+# Runs the published image with a persistent disk for the SQLite database and
+# the master key. Persistent disks need a paid instance type (Starter or up).
+services:
+  - type: web
+    name: controltower
+    runtime: image
+    image:
+      url: ghcr.io/joshmaster2165/controltower:latest
+    plan: starter
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: PORT
+        value: "4000"
+    disk:
+      name: controltower-data
+      mountPath: /data
+      sizeGB: 1

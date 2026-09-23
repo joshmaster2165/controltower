@@ -24,7 +24,7 @@ RUN mkdir -p /out && cd /out && npm init -y >/dev/null \
 
 # ---------- runtime ----------
 FROM node:24-alpine
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini su-exec
 WORKDIR /app
 # --chown at copy time: a separate `RUN chown -R` would duplicate every file into a new layer.
 COPY --from=build --chown=node:node /app/server/dist ./dist
@@ -32,17 +32,17 @@ COPY --from=build --chown=node:node /out/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/ui/dist ./ui
 COPY --from=build --chown=node:node /app/server/package.json ./package.json
 COPY --chown=node:node LICENSE ./LICENSE
+COPY --chmod=755 deploy/entrypoint.sh /usr/local/bin/ct-entrypoint
 ENV NODE_ENV=production \
-    CT_PORT=4000 \
     CT_HOST=0.0.0.0 \
     CT_DATA_DIR=/data \
     CT_UI_DIR=/app/ui
 RUN mkdir -p /data && chown node:node /data /app
-USER node
+# No USER line: the entrypoint fixes /data ownership as root, then runs Control Tower as `node`.
 VOLUME ["/data"]
 EXPOSE 4000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.CT_PORT||4000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.CT_PORT||process.env.PORT||4000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "ct-entrypoint"]
 CMD ["node", "dist/server.mjs"]

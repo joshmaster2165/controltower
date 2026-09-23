@@ -30,6 +30,19 @@ Open <http://localhost:4000> and set your admin password. The **Get started** gu
 
 Just exploring? `CT_DEMO=1` (or *Start the demo fleet* on the Get started page) fills the map with a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models, Salesforce/GitHub tool servers and a Statuspage API — through the real pipeline. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. *Stop demo and clear it* removes every demo row and its traffic, and leaves your own setup alone; demo mode refuses to start if your setup already uses one of its model or tool names, so demo traffic can never reach real providers.
 
+### Other ways to run it
+
+- **Docker Compose:** `docker compose -f deploy/docker-compose.yml up -d`
+- **Render, one click:** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/joshmaster2165/controltower) — the published image on a Starter instance with a 1 GB disk for the database (Render disks need a paid instance). The console is at the `onrender.com` URL Render gives you.
+- **Fly.io:** with [`flyctl`](https://fly.io/docs/flyctl/install/):
+
+  ```bash
+  fly launch --config deploy/fly.toml --copy-config --no-deploy   # pick an app name and region
+  fly volumes create controltower_data --size 1
+  fly deploy --config deploy/fly.toml
+  ```
+- **Anywhere that runs containers:** use `ghcr.io/joshmaster2165/controltower`, mount a volume at `/data`, and send traffic to port 4000 (or the `PORT` the platform sets — the image honours it). Links in alerts use `CT_PUBLIC_URL`; on Render and Fly it is detected automatically.
+
 Then, in the browser:
 
 1. **Providers** → add OpenAI / Anthropic / Azure / Gemini / Vertex AI / Bedrock / any OpenAI-compatible URL, paste credentials, *Test Connect*.
@@ -189,14 +202,14 @@ Everything is configured in the browser. Environment variables exist for operato
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CT_PORT` | `4000` | Listen port |
+| `CT_PORT` | `4000` | Listen port (falls back to `PORT`, which most platforms set) |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |
 | `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
-| `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe |
+| `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render and Fly.io |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |
 

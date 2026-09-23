@@ -3,6 +3,7 @@ import type { AppContext } from '../context.js';
 import { FlightRunner, extractApiKey } from '../pipeline/flight.js';
 import { E, errorBody } from './errors.js';
 import { ANTHROPIC_PASSTHROUGH_HEADERS } from '../providers/anthropic.js';
+import { parseObserveBody, parseOtlpTraces } from '../observe/observe.js';
 
 export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const runner = new FlightRunner(ctx);
@@ -30,6 +31,41 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
 
   app.post('/v1/embeddings', async (req, reply) => {
     await runner.runChat(req, reply, 'openai-chat', { kind: 'embeddings' });
+  });
+
+  // ---- observed traffic: calls that do not pass through Control Tower ----
+  const selfHosts = new Set([`localhost:${ctx.config.port}`, `127.0.0.1:${ctx.config.port}`, `[::1]:${ctx.config.port}`]);
+  if (ctx.config.publicUrl) {
+    try {
+      selfHosts.add(new URL(ctx.config.publicUrl).host.toLowerCase());
+    } catch {
+      /* ignore */
+    }
+  }
+  const observer = (req: import('fastify').FastifyRequest) => {
+    const presented = extractApiKey(req);
+    const key = presented ? ctx.registry.authenticate(presented) : undefined;
+    return key && key.enabled && !(key.expiresAt && key.expiresAt < Date.now()) ? key : undefined;
+  };
+
+  app.post('/v1/observe', { bodyLimit: 1024 * 1024 }, async (req, reply) => {
+    const key = observer(req);
+    if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
+    const parsed = parseObserveBody(req.body);
+    if ('error' in parsed) return reply.status(400).send(errorBody('openai-chat', E.badRequest(parsed.error)));
+    return reply.send(await ctx.observed.record(key.id, parsed.events));
+  });
+
+  // OpenTelemetry: point an OTLP/HTTP exporter here with protocol http/json.
+  app.post('/v1/traces', { bodyLimit: 4 * 1024 * 1024 }, async (req, reply) => {
+    const key = observer(req);
+    if (!key) return reply.status(401).send({ code: 16, message: 'Missing or invalid Control Tower API key (Authorization: Bearer ct_sk_…).' });
+    if (!String(req.headers['content-type'] ?? '').includes('json')) {
+      return reply.status(415).send({ code: 3, message: 'Control Tower accepts OTLP/HTTP with JSON encoding. Set OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/json.' });
+    }
+    await ctx.observed.record(key.id, parseOtlpTraces(req.body, selfHosts));
+    // OTLP success response: an empty ExportTraceServiceResponse.
+    return reply.send({});
   });
 
   app.get('/v1/models', async (req, reply) => {

@@ -24,6 +24,7 @@ import { McpRegistry } from './mcp/registry.js';
 import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
 import { AlertService } from './alerts/alerts.js';
 import { Metrics } from './metrics/metrics.js';
+import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 
 async function main(): Promise<void> {
@@ -109,6 +110,8 @@ async function main(): Promise<void> {
       }),
   });
   bus.subscribe(metrics.push);
+  const observedVersion = new Versioned();
+  const observed = new ObservedStore(db.write, observedVersion);
 
   const ctx: Omit<AppContext, 'log'> = {
     config,
@@ -130,6 +133,8 @@ async function main(): Promise<void> {
     alerts,
     alertsVersion,
     metrics,
+    observed,
+    observedVersion,
     demo: undefined,
     startedAt,
     shuttingDown: false,
@@ -140,6 +145,7 @@ async function main(): Promise<void> {
   logRef = app.log;
   approvals.start();
   alerts.start();
+  observed.start();
 
   if (mk.source === 'generated') {
     app.log.warn(`Generated a new master key at ${mk.file}. BACK IT UP: provider credentials are unreadable without it.`);
@@ -195,6 +201,7 @@ async function main(): Promise<void> {
     full.approvals.drain();
     approvals.stop();
     alerts.stop();
+    observed.stop();
     mcp.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);

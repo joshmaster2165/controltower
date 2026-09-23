@@ -318,6 +318,26 @@ export interface AlertsTable {
   demo: Bool;
 }
 
+export interface ObservedTargetsTable {
+  target: string;
+  kind: string;
+  system: string | null;
+  bypass: Bool;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface ObservedHourlyTable {
+  bucket: number;
+  key_id: string;
+  target: string;
+  count: number;
+  errors: number;
+  writes: number;
+  dur_ms_sum: number;
+  last_seen: number;
+}
+
 export interface SchemaMigrationsTable {
   version: number;
   name: string;
@@ -347,6 +367,8 @@ export interface Database {
   alert_channels: AlertChannelsTable;
   alert_rules: AlertRulesTable;
   alerts: AlertsTable;
+  observed_targets: ObservedTargetsTable;
+  observed_hourly: ObservedHourlyTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

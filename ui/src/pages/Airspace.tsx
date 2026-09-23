@@ -31,7 +31,12 @@ const STATE_LABEL: Record<LinkState, string> = {
   blocked: 'blocked',
 };
 
-const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', unknown: 'unrouted' } as const;
+const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', observed: 'observed system', unknown: 'unrouted' } as const;
+
+function ago(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86_400 ? `${Math.floor(s / 3600)}h ago` : new Date(ts).toLocaleDateString();
+}
 
 /** Place a side panel near the click, fully on screen; it scrolls if taller than the room left. */
 function panelPos(x: number, y: number, h: number): CSSProperties {
@@ -501,6 +506,9 @@ export function AirspacePage() {
         <span>
           <em className="gate inspect" /> inspect gate
         </span>
+        <span>
+          <i className="obs-line" /> observed, not enforced
+        </span>
         <span className={`pill ${wsState === 'live' ? 'live' : 'warn'}`}>
           <i className="led" /> {wsState}
         </span>
@@ -512,6 +520,61 @@ export function AirspacePage() {
 
 function Tooltip({ hover }: { hover: HoverInfo }) {
   const pos = { left: hover.x, top: hover.y };
+  if (hover.observedLine) {
+    const o = hover.observedLine;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">
+          {o.agent} → {o.system ?? o.target}
+        </div>
+        <div className="r">
+          <span>24h calls{o.writes24h ? ' · writes' : ''}</span>
+          <b>
+            {o.count24h.toLocaleString()}
+            {o.writes24h ? ` · ${o.writes24h.toLocaleString()}` : ''}
+          </b>
+        </div>
+        {o.errors24h > 0 && (
+          <div className="r">
+            <span>errors</span>
+            <b>{o.errors24h.toLocaleString()}</b>
+          </div>
+        )}
+        <div className="r">
+          <span>last seen</span>
+          <b>{ago(o.lastSeen)}</b>
+        </div>
+        <div className="note">{o.bypass ? 'A model provider called directly — this traffic bypasses the gateway, its gates and its budgets.' : 'Reported by the agent (SDK / OpenTelemetry). Not proxied, so Control Tower can see it but cannot block it.'}</div>
+      </div>
+    );
+  }
+  if (hover.station?.kind === 'observed') {
+    const s = hover.station;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t" style={{ color: hex(s.color) }}>
+          {s.label}
+        </div>
+        <div className="r">
+          <span>{s.obs?.target !== s.label ? s.obs?.target : 'observed system'}</span>
+          <b>{STATE_LABEL[s.state]}</b>
+        </div>
+        <div className="r">
+          <span>24h calls · errors</span>
+          <b>
+            {s.observed24h.toLocaleString()} · {(s.obs?.errors24h ?? 0).toLocaleString()}
+          </b>
+        </div>
+        {s.obs && (
+          <div className="r">
+            <span>last seen</span>
+            <b>{ago(s.obs.lastSeen)}</b>
+          </div>
+        )}
+        <div className="note">{s.obs?.bypass ? 'Agents call this model provider directly — bypassing gates, budgets and cost tracking. Route them through Control Tower.' : 'Seen, not enforced: agents report these calls; they do not pass through Control Tower.'}</div>
+      </div>
+    );
+  }
   if (hover.station) {
     const s = hover.station;
     return (
@@ -535,6 +598,12 @@ function Tooltip({ hover }: { hover: HoverInfo }) {
           <span>24h spend</span>
           <b>{formatUsd(s.cost24h)}</b>
         </div>
+        {s.observed24h > 0 && (
+          <div className="r">
+            <span>24h observed calls</span>
+            <b>{s.observed24h.toLocaleString()}</b>
+          </div>
+        )}
         {(s.denied24h > 0 || s.errors24h > 0) && (
           <div className="r">
             <span>blocked · errors</span>
@@ -702,6 +771,7 @@ function FocusPanel({ summary, onClose, onPick }: { summary: FocusSummary; onClo
               <i className="swatch" style={{ background: hex(l.color) }} />
               <span className="name">{l.label}</span>
               <span className="kind">{KIND_LABEL[l.kind]}</span>
+              {l.observed && <span className={`obs-tag ${l.bypass ? 'bypass' : ''}`}>{l.bypass ? 'bypasses gateway' : 'not enforced'}</span>}
               {l.live && <span className="live-dot" title="active in the last minute" />}
               <span className="num">{l.requests.toLocaleString()}</span>
             </div>

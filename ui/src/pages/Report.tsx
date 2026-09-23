@@ -36,6 +36,7 @@ interface Inventory {
   paths: PathRow[];
   gates: Array<{ id: string; name: string; effect: string; covers: string; enabled: boolean; hits: number }>;
   zones: Array<{ id: string; name: string; members: number }>;
+  observed: Array<{ agent: string; team: string | null; target: string; system: string | null; kind: string; bypass: boolean; calls: number; errors: number; writes: number; last_seen: number }>;
 }
 
 const ACCESS = { allow: 'allowed', deny: 'blocked', hold: 'needs approval' } as const;
@@ -169,6 +170,49 @@ export function ReportPage() {
               </tbody>
             </table>
           </div>
+
+          {inv.observed.length > 0 && (
+            <>
+              <h2>Seen, not enforced</h2>
+              <p className="hint" style={{ marginTop: -4 }}>
+                Calls agents reported through the SDK endpoint or OpenTelemetry that do not pass through Control Tower. No gate, budget or inspection applies to them.
+              </p>
+              <div className="card" style={{ padding: 0, marginBottom: 20 }}>
+                <table className="table report-table">
+                  <thead>
+                    <tr>
+                      <th>Agent</th>
+                      <th>System</th>
+                      <th>Kind</th>
+                      <th className="num">Calls</th>
+                      <th className="num">Writes</th>
+                      <th className="num">Errors</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inv.observed.map((o) => (
+                      <tr key={`${o.agent}|${o.target}`}>
+                        <td>
+                          <b>{o.agent}</b>
+                          {o.team && <div className="dim">{o.team}</div>}
+                        </td>
+                        <td>
+                          {o.system ?? o.target}
+                          {o.system && <div className="dim mono">{o.target}</div>}
+                        </td>
+                        <td className="dim">{o.kind}</td>
+                        <td className="num">{n(o.calls)}</td>
+                        <td className="num">{o.writes ? n(o.writes) : '—'}</td>
+                        <td className="num">{o.errors ? n(o.errors) : '—'}</td>
+                        <td>{o.bypass ? <span className="obs-tag bypass">bypasses gateway</span> : <span className="obs-tag">not enforced</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
 
           <div className="report-cols">
             <section>

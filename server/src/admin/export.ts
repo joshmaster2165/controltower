@@ -49,6 +49,8 @@ export interface DataflowInventory {
   paths: PathRow[];
   gates: Array<{ id: string; name: string; effect: string; covers: string; enabled: boolean; hits: number }>;
   zones: Array<{ id: string; name: string; members: number }>;
+  /** Paths agents reported (SDK / OpenTelemetry) that do not pass through Control Tower. */
+  observed: Array<{ agent: string; team: string | null; target: string; system: string | null; kind: string; bypass: boolean; calls: number; errors: number; writes: number; last_seen: number }>;
 }
 
 function describeScope(r: RuleRecord, ctx: AppContext, policy: PolicyService): string {
@@ -176,6 +178,15 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
   const hitBy = new Map(hits.map((h) => [h.rule_id!, Number(h.n)]));
   const gates = policy.rules.map((r) => ({ id: r.id, name: r.name, effect: r.effect, covers: describeScope(r, ctx, policy), enabled: r.enabled, hits: hitBy.get(r.id) ?? 0 }));
   const zones = [...policy.zones.values()].map((z) => ({ id: z.id, name: z.name, members: z.stations.size }));
+  const obs = await ctx.observed.summary(since);
+  const obsTargets = new Map(obs.targets.map((t) => [t.id, t]));
+  const observed = obs.edges
+    .map((e) => {
+      const t = obsTargets.get(e.target_id);
+      const k = ctx.registry.keysById.get(e.key_id);
+      return { agent: k?.name ?? e.key_id, team: k?.team ?? null, target: t?.target ?? e.target_id, system: t?.system ?? null, kind: t?.kind ?? 'other', bypass: !!t?.bypass, calls: e.count_24h, errors: e.errors_24h, writes: e.writes_24h, last_seen: e.last_seen };
+    })
+    .sort((a, b) => Number(b.bypass) - Number(a.bypass) || a.agent.localeCompare(b.agent) || b.calls - a.calls);
 
   return {
     generated_at: Date.now(),
@@ -196,6 +207,7 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
     paths,
     gates,
     zones,
+    observed,
   };
 }
 
@@ -251,6 +263,11 @@ export function inventoryMarkdown(inv: DataflowInventory): string {
   if (inv.zones.length) {
     out.push('', '## Zones', '');
     for (const z of inv.zones) out.push(`- **${z.name}** — ${z.members} explicit member${z.members === 1 ? '' : 's'}`);
+  }
+  if (inv.observed.length) {
+    out.push('', '## Seen, not enforced', '', 'Calls agents reported (SDK / OpenTelemetry) that do not pass through Control Tower. They are documented here but no gate, budget or inspection applies to them.', '');
+    out.push('| Agent | System | Kind | Calls | Writes | Errors | Note |', '|---|---|---|---:|---:|---:|---|');
+    for (const o of inv.observed) out.push(`| ${mdCell(o.agent)} | ${mdCell(o.system ? `${o.system} (${o.target})` : o.target)} | ${mdCell(o.kind)} | ${n(o.calls)} | ${n(o.writes)} | ${n(o.errors)} | ${o.bypass ? '**calls a model provider directly — bypasses the gateway**' : ''} |`);
   }
   out.push('', '---', '', 'Only traffic that passes through Control Tower is listed and enforced. Access decisions shown ignore gates that depend on tool arguments; those are evaluated per call.', '');
   return out.join('\n');

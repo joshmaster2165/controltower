@@ -1,5 +1,5 @@
 import type { FlightEvent } from '@controltower/shared';
-import type { PolicyBundle, Rule, Topology, TopologyEdge, Zone } from '../api';
+import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, Zone } from '../api';
 import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, STATUS_COLORS } from './colors';
 
 /**
@@ -30,7 +30,7 @@ const LINE_IDLE = '#c9d3e1';
 const LINE_UNUSED = '#dfe5ee';
 const ACCENT_HEX = '#1f5eff';
 
-export type StationKind = 'agent' | 'model' | 'mcp' | 'unknown';
+export type StationKind = 'agent' | 'model' | 'mcp' | 'observed' | 'unknown';
 export type ToolOp = 'read' | 'write' | 'admin' | 'unknown';
 
 export interface ToolRow {
@@ -67,6 +67,8 @@ export interface Station {
   denials: number[];
   lastAt: number;
   held: number;
+  /** Observed systems only: reported by agents, not proxied, so never enforced. */
+  obs?: { target: string; kind: string; bypass: boolean; lastSeen: number; count24h: number; errors24h: number } | undefined;
 }
 
 export type LinkState = 'active' | 'idle' | 'unused' | 'holding' | 'blocked';
@@ -84,6 +86,9 @@ export interface StationView {
   cost24h: number;
   errors24h: number;
   denied24h: number;
+  /** Calls reported by the agent (SDK / OpenTelemetry) that bypass Control Tower. */
+  observed24h: number;
+  obs?: Station['obs'];
 }
 
 export interface LaneView {
@@ -107,6 +112,7 @@ export interface HoverInfo {
   gate?: { rule: Rule; hits: number };
   hub?: { rpm: number; held: number; active: number };
   tool?: { server: string; name: string; op: ToolOp; rpm: number; count24h: number; gates: Rule[] };
+  observedLine?: { agent: string; target: string; system: string | null; bypass: boolean; count24h: number; errors24h: number; writes24h: number; lastSeen: number };
 }
 
 export type ClickInfo =
@@ -126,7 +132,7 @@ export type ClickInfo =
 
 export interface FocusSummary {
   station: StationView;
-  links: Array<{ id: string; label: string; kind: StationKind; color: number; requests: number; cost: number; denied: number; errors: number; live: boolean; tools: Array<{ name: string; requests: number }> }>;
+  links: Array<{ id: string; label: string; kind: StationKind; color: number; requests: number; cost: number; denied: number; errors: number; live: boolean; tools: Array<{ name: string; requests: number }>; observed?: boolean; bypass?: boolean }>;
 }
 
 export interface SceneStats {
@@ -170,6 +176,11 @@ function rgba(c: number, a: number): string {
 function hexToNum(h: string): number {
   return Number.parseInt(h.replace('#', ''), 16) || 0x1f5eff;
 }
+/** Observed systems are outside the gateway: nothing can be gated or zoned there. */
+function gateable(kind: StationKind): boolean {
+  return kind !== 'unknown' && kind !== 'observed';
+}
+
 function gateColor(rule: Rule): number {
   return rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : rule.effect === 'inspect' ? STATUS_COLORS.info : STATUS_COLORS.ok;
 }
@@ -255,6 +266,9 @@ export class AirspaceScene {
   private sim: Map<string, { deny: number; hold: number; allow: number }> | null = null;
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
+  private obsEdges: ObservedEdge[] = [];
+  /** Agent → observed system, drawn straight across (not through the tower). */
+  private obsLines: Array<{ edge: ObservedEdge; agent: Station; target: Station; bez: Bez }> = [];
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
@@ -316,7 +330,7 @@ export class AirspaceScene {
       if (this.connect) {
         this.connect.end = this.toWorld(sp);
         const t = this.stationAt(this.connect.end);
-        this.setHovered(t && t.kind !== 'unknown' && (t.kind === 'agent') !== (this.connect.from.kind === 'agent') ? `station:${t.id}` : null);
+        this.setHovered(t && gateable(t.kind) && (t.kind === 'agent') !== (this.connect.from.kind === 'agent') ? `station:${t.id}` : null);
         this.dirty = true;
         return;
       }
@@ -360,7 +374,7 @@ export class AirspaceScene {
       }
       if (this.gateMode && ev.button === 0) {
         const s = this.stationAt(wp);
-        if (s && s.kind !== 'unknown') {
+        if (s && gateable(s.kind)) {
           this.connect = { from: s, start: [s.px, s.py], end: wp, down: sp };
           this.hoverCb?.(null);
           return;
@@ -400,7 +414,7 @@ export class AirspaceScene {
             const cy = s.y + s.headH / 2;
             return Math.abs(area / 2) < 600 ? cx >= Math.min(x0, x1) && cx <= Math.max(x0, x1) && cy >= Math.min(y0, y1) && cy <= Math.max(y0, y1) : pointInPoly(cx, cy, poly);
           };
-          const ids = [...this.stations.values()].filter((s) => s.kind !== 'unknown' && inside(s)).map((s) => s.id);
+          const ids = [...this.stations.values()].filter((s) => gateable(s.kind) && inside(s)).map((s) => s.id);
           this.clickCb?.({ kind: 'lasso', stationIds: ids, x: sp[0], y: sp[1] });
         }
         return;
@@ -418,7 +432,7 @@ export class AirspaceScene {
           return;
         }
         const target = this.stationAt(wp);
-        if (target && target.kind !== 'unknown' && target.id !== c.from.id && (target.kind === 'agent') !== (c.from.kind === 'agent')) {
+        if (target && gateable(target.kind) && target.id !== c.from.id && (target.kind === 'agent') !== (c.from.kind === 'agent')) {
           const agent = c.from.kind === 'agent' ? c.from : target;
           const dest = c.from.kind === 'agent' ? target : c.from;
           // Dropping on a tool row scopes the gate to that tool.
@@ -450,7 +464,7 @@ export class AirspaceScene {
     this.canvas.addEventListener('contextmenu', (ev) => {
       const sp = screenPos(ev);
       const s = this.stationAt(this.toWorld(sp));
-      if (!s || s.kind === 'unknown') return;
+      if (!s || !gateable(s.kind)) return;
       ev.preventDefault();
       this.clickCb?.({ kind: 'context', stationId: s.id, stationKind: s.kind, x: sp[0], y: sp[1] });
     });
@@ -700,6 +714,20 @@ export class AirspaceScene {
         return { name: tool.name, full: `${m.slug}__${tool.name}`, op: tool.op, recent: old?.recent ?? [], lastAt: old?.lastAt ?? 0, count24h: 0, gates: [], y: 0, gateHits: [] };
       });
     }
+    const OBS_KIND: Record<string, string> = { http: 'service', database: 'database', queue: 'queue', model: 'model API', saas: 'SaaS', rpc: 'service', tool: 'tool', other: 'system' };
+    for (const o of t.observed?.targets ?? []) {
+      // postgresql://orders-db.internal/orders → "orders", "postgresql · orders-db.internal"
+      const uri = /^([\w+.-]+):\/\/([^/]+)(?:\/(.+))?$/.exec(o.target);
+      const label = o.system ?? (uri ? (uri[3] ?? uri[2]!) : o.target);
+      const sub = o.bypass
+        ? 'direct model call · bypasses gateway'
+        : uri && !o.system
+          ? `${uri[1]} · ${uri[2]} · observed`
+          : `${o.system ? `${o.target} · ` : ''}${OBS_KIND[o.kind] ?? 'system'} · observed`;
+      const st = upsert(o.id, 'observed', label, sub, o.bypass ? 0xd3374e : 0x64748b);
+      st.obs = { target: o.target, kind: o.kind, bypass: o.bypass, lastSeen: o.last_seen, count24h: o.count_24h, errors24h: o.errors_24h };
+    }
+    this.obsEdges = t.observed?.edges ?? [];
     for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
 
     this.edges = t.edges ?? [];
@@ -817,7 +845,7 @@ export class AirspaceScene {
       const zs = this.zonesOf(s);
       return zs.length ? zones.findIndex((z) => z.id === zs[0]!.id) : 999;
     };
-    const kindRank = (s: Station) => (s.kind === 'model' ? 0 : s.kind === 'mcp' ? 1 : 2);
+    const kindRank = (s: Station) => (s.kind === 'model' ? 0 : s.kind === 'mcp' ? 1 : s.kind === 'observed' ? 3 : 2);
     const place = (list: Station[], x: number, side: 'left' | 'right') => {
       list.sort((a, b) => rank(a) - rank(b) || kindRank(a) - kindRank(b) || a.label.localeCompare(b.label));
       const n = list.length;
@@ -878,7 +906,20 @@ export class AirspaceScene {
 
     this.spokes.clear();
     const [hx, hy] = this.hub;
+    this.obsLines = [];
+    for (const e of this.obsEdges) {
+      const a = this.stations.get(e.key_id);
+      const o = this.stations.get(e.target_id);
+      if (!a || !o) continue;
+      const from: Pt = [a.px, a.py];
+      const to: Pt = [o.px, o.py];
+      const span = to[0] - from[0];
+      // Bow away from the tower: this traffic does not pass through it.
+      const bow = Math.max(40, Math.abs(span) * 0.12);
+      this.obsLines.push({ edge: e, agent: a, target: o, bez: { p0: from, p1: [from[0] + span * 0.35, from[1] + bow], p2: [to[0] - span * 0.35, to[1] + bow], p3: to } });
+    }
     for (const s of this.stations.values()) {
+      if (s.kind === 'observed') continue;
       const dx = s.px - hx;
       const dy = s.py - hy;
       const len = Math.hypot(dx, dy) || 1;
@@ -1041,6 +1082,7 @@ export class AirspaceScene {
   // ------------------------------------------------------------------- state
 
   private stateOf(s: Station, now: number): LinkState {
+    if (s.obs) return now - s.obs.lastSeen < WINDOW_MS ? 'active' : s.obs.count24h > 0 ? 'idle' : 'unused';
     if (s.held > 0) return 'holding';
     const rate = s.recent.length;
     if (rate > 0) return s.denials.length >= Math.max(1, rate * 0.5) ? 'blocked' : 'active';
@@ -1069,6 +1111,7 @@ export class AirspaceScene {
       else if (f.kind !== 'agent' && d === f.id) set.add(a);
     };
     for (const e of this.edges) add(e.key_id, e.target_id);
+    for (const e of this.obsEdges) add(e.key_id, e.target_id);
     for (const k of this.livePairs.keys()) {
       const [a, d] = k.split('>') as [string, string];
       add(a, d);
@@ -1108,6 +1151,17 @@ export class AirspaceScene {
         else l.tools.push({ name: e.tool, requests: e.requests });
       }
     }
+    for (const e of this.obsEdges) {
+      const other = f.kind === 'agent' ? (e.key_id === f.id ? e.target_id : null) : e.target_id === f.id ? e.key_id : null;
+      if (!other) continue;
+      const l = get(other);
+      if (!l) continue;
+      l.observed = true;
+      l.bypass = !!this.stations.get(e.target_id)?.obs?.bypass;
+      l.requests += e.count_24h;
+      l.errors += e.errors_24h;
+      if (now - e.last_seen < WINDOW_MS) l.live = true;
+    }
     for (const [k, ts] of this.livePairs) {
       if (now - ts > WINDOW_MS) continue;
       const [a, d] = k.split('>') as [string, string];
@@ -1135,7 +1189,9 @@ export class AirspaceScene {
         denied24h += e.denied;
       }
     }
-    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h };
+    let observed24h = 0;
+    for (const e of this.obsEdges) if ((s.kind === 'agent' && e.key_id === s.id) || (s.kind === 'observed' && e.target_id === s.id)) observed24h += e.count_24h;
+    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs };
   }
 
   // -------------------------------------------------------------------- draw
@@ -1283,6 +1339,26 @@ export class AirspaceScene {
       ctx.lineWidth = width;
       ctx.setLineDash(dash);
       ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
+    // Observed traffic: dashed, straight from agent to system, never through the tower.
+    for (const l of this.obsLines) {
+      const { p0, p1, p2, p3 } = l.bez;
+      const live = now - l.edge.last_seen < WINDOW_MS;
+      const bypass = !!l.target.obs?.bypass;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 650 + l.agent.py * 0.031);
+      const base = bypass ? STATUS_COLORS.denied : 0x64748b;
+      const hot = this.hovered === `obs:${l.agent.id}>${l.target.id}`;
+      ctx.beginPath();
+      ctx.moveTo(p0[0], p0[1]);
+      ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
+      ctx.strokeStyle = rgba(base, live ? 0.35 + 0.5 * pulse : bypass ? 0.55 : 0.35);
+      ctx.lineWidth = hot ? 2.5 : live ? 1.5 : 1.1;
+      ctx.setLineDash([5, 5]);
+      ctx.globalAlpha = Math.min(dim(l.agent.id), dim(l.target.id)) * (this.sim ? 0.25 : 1);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
@@ -1565,7 +1641,10 @@ export class AirspaceScene {
     ctx.strokeStyle =
       this.focusId === s.id ? hex(s.color) : st === 'holding' ? rgba(STATUS_COLORS.held, 0.7) : st === 'blocked' ? rgba(STATUS_COLORS.denied, 0.6) : st === 'active' ? rgba(s.color, 0.45) : hot ? '#b9c7dd' : '#e1e7ef';
     ctx.lineWidth = this.focusId === s.id ? 2 : st === 'active' || st === 'holding' || st === 'blocked' ? 1.5 : 1;
+    // Observed systems are outside the gateway: dashed outline, like their lines.
+    if (s.kind === 'observed') ctx.setLineDash([4, 3]);
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // Header.
     const head = s.headH;
@@ -1726,6 +1805,17 @@ export class AirspaceScene {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     switch (s.kind) {
+      case 'observed':
+        // An eye: seen, not controlled.
+        ctx.beginPath();
+        ctx.moveTo(cx - 7, cy);
+        ctx.quadraticCurveTo(cx, cy - 7, cx + 7, cy);
+        ctx.quadraticCurveTo(cx, cy + 7, cx - 7, cy);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+        ctx.fill();
+        break;
       case 'agent':
         roundRect(ctx, cx - 6, cy - 4, 12, 9, 3);
         ctx.stroke();
@@ -1872,6 +1962,22 @@ export class AirspaceScene {
       this.setHovered(`station:${s.id}`);
       this.canvas.style.cursor = this.drawMode || this.gateMode ? 'crosshair' : 'grab';
       this.hoverCb?.({ x: sx, y: sy, station: this.view(s, now) });
+      return;
+    }
+    for (const l of this.obsLines) {
+      // Sample every ~5px along the curve: these lines are long.
+      const { p0, p3 } = l.bez;
+      const step = Math.min(0.04, 5 / Math.max(1, Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 1.3));
+      let near = false;
+      for (let t = step; t < 1 && !near; t += step) {
+        const [px, py] = bezAt(l.bez, t);
+        near = (px - x) ** 2 + (py - y) ** 2 < 49;
+      }
+      if (!near) continue;
+      this.setHovered(`obs:${l.agent.id}>${l.target.id}`);
+      this.canvas.style.cursor = 'default';
+      const o = l.target.obs;
+      this.hoverCb?.({ x: sx, y: sy, observedLine: { agent: l.agent.label, target: o?.target ?? l.target.label, system: l.target.label !== o?.target ? l.target.label : null, bypass: !!o?.bypass, count24h: l.edge.count_24h, errors24h: l.edge.errors_24h, writes24h: l.edge.writes_24h, lastSeen: l.edge.last_seen } });
       return;
     }
     for (const g of this.hubGates) {

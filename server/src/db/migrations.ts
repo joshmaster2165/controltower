@@ -375,3 +375,31 @@ ALTER TABLE alert_rules ADD COLUMN kind TEXT NOT NULL DEFAULT 'gate';
 ALTER TABLE alert_rules ADD COLUMN params TEXT NOT NULL DEFAULT '{}';
 `,
 });
+
+migrations.push({
+  version: 6,
+  name: 'observed',
+  sqlite: `
+CREATE TABLE observed_targets (
+  target     TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  system     TEXT,
+  bypass     INTEGER NOT NULL DEFAULT 0,
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL
+);
+
+CREATE TABLE observed_hourly (
+  bucket     INTEGER NOT NULL,
+  key_id     TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  count      INTEGER NOT NULL DEFAULT 0,
+  errors     INTEGER NOT NULL DEFAULT 0,
+  writes     INTEGER NOT NULL DEFAULT 0,
+  dur_ms_sum INTEGER NOT NULL DEFAULT 0,
+  last_seen  INTEGER NOT NULL,
+  PRIMARY KEY (bucket, key_id, target)
+);
+CREATE INDEX observed_hourly_bucket ON observed_hourly(bucket);
+`,
+});

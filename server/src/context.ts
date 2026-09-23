@@ -17,6 +17,7 @@ import type { DemoFleet } from './demo/fleet.js';
 import type { McpRegistry } from './mcp/registry.js';
 import type { AlertService } from './alerts/alerts.js';
 import type { Metrics } from './metrics/metrics.js';
+import type { ObservedStore } from './observe/observe.js';
 
 /** Everything a request handler may touch. Built once in main.ts. */
 export interface AppContext {
@@ -41,6 +42,9 @@ export interface AppContext {
   /** Bumped when an alert fires or alert configuration changes. */
   alertsVersion: Versioned;
   metrics: Metrics;
+  observed: ObservedStore;
+  /** Bumped when observed (non-gateway) systems or paths appear. */
+  observedVersion: Versioned;
   demo: DemoFleet | undefined;
   log: FastifyBaseLogger;
   startedAt: number;

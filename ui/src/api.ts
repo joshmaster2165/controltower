@@ -147,7 +147,31 @@ export interface Topology {
   aliases: TopologyAlias[];
   mcp_servers: TopologyMcpServer[];
   edges: TopologyEdge[];
+  observed?: { targets: ObservedTarget[]; edges: ObservedEdge[] };
   lanes: TopologyLane[];
+}
+
+/** A system agents reach without going through Control Tower (reported via SDK / OpenTelemetry). */
+export interface ObservedTarget {
+  id: string;
+  target: string;
+  kind: 'http' | 'database' | 'queue' | 'model' | 'saas' | 'rpc' | 'tool' | 'other';
+  system: string | null;
+  /** A model provider called directly: traffic that should be going through the gateway. */
+  bypass: boolean;
+  first_seen: number;
+  last_seen: number;
+  count_24h: number;
+  errors_24h: number;
+}
+
+export interface ObservedEdge {
+  key_id: string;
+  target_id: string;
+  count_24h: number;
+  errors_24h: number;
+  writes_24h: number;
+  last_seen: number;
 }
 
 export interface FlightRow {

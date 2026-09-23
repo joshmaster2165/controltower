@@ -406,3 +406,7 @@ ul.notes li { color: var(--text-dim); }
   .report-table tr { break-inside: avoid; }
 }
 .linked-approval { max-width: 560px; margin-bottom: 22px; padding: 14px; border: 1px solid var(--accent); border-radius: var(--radius); background: #f7f9ff; }
+.legend i.obs-line { width: 18px; height: 0; border-radius: 0; border-top: 1.5px dashed #64748b; background: none; }
+.tooltip .note { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 11.5px; max-width: 250px; line-height: 1.4; }
+.obs-tag { font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 4px; border: 1px dashed #94a3b8; color: #475569; white-space: nowrap; }
+.obs-tag.bypass { border-color: rgba(211, 55, 78, 0.6); color: var(--danger); }

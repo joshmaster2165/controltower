@@ -132,9 +132,31 @@ scrape_configs:
 
 Counters: `controltower_requests_total{agent,team,kind,model,provider,status}`, `controltower_tokens_total{agent,model,type}`, `controltower_spend_usd_total{agent,team,model}`, `controltower_upstream_failures_total{model,code}`, `controltower_fallbacks_total{model}`, `controltower_gate_decisions_total{gate,decision}`, `controltower_approvals_total{outcome}`. Histograms (5 ms … 600 s): `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, plus `controltower_gateway_overhead_seconds`. Gauges: requests in flight, held requests, event backlog, `controltower_deployment_state` (0 healthy, 1 cooling down), `controltower_mcp_server_up`, budget limit / spent / remaining per scope, build info and uptime. Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will.
 
+## Traffic that doesn't go through Control Tower
+
+Agents also call databases, SaaS APIs and internal services directly. Report those calls and they appear on the map as **dashed lines straight from the agent to the system — not through the tower** — and in the inventory under *Seen, not enforced*. A model provider called directly (OpenAI, Anthropic, Bedrock, …) is drawn **red**: that traffic is skipping the gateway, its gates and its budgets.
+
+Authenticate with the agent's own Control Tower key.
+
+```bash
+curl -X POST http://localhost:4000/v1/observe \
+  -H "Authorization: Bearer $CT_KEY" -H "content-type: application/json" \
+  -d '{"events":[{"target":"https://api.stripe.com/v1/refunds","operation":"write"},{"target":"postgresql://orders-db:5432/orders","kind":"database","count":12}]}'
+```
+
+Or point any OpenTelemetry SDK at Control Tower — outbound (`CLIENT`/`PRODUCER`) spans become observed calls, using the standard HTTP, database, messaging, RPC and GenAI attributes; calls to Control Tower itself are ignored:
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4000/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/json
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer ct_sk_…"
+```
+
+Only a target name is kept: URLs lose their path and query string, connection strings lose their credentials (`postgresql://app:pw@db/orders` → `postgresql://db/orders`), and no payload is stored. OTLP protobuf is not accepted yet — use `http/json`.
+
 ## What is actually enforced
 
-Control Tower only enforces traffic that goes through it. A lane is drawn **solid** only when the gateway is in the path for that hop (LLM calls and MCP tool calls routed through Control Tower). Anything learned by observation alone is drawn **dashed**, and a rule existing on an edge never makes it solid. An agent that edits its own `base_url` bypasses the LLM gateway; the MCP gateway's `tools/list` filtering is the stronger control, because a tool the agent cannot see needs no approval. An egress-proxy sidecar to close the `base_url` gap is on the roadmap. We would rather you know the boundary than believe in one that isn't there.
+Control Tower only enforces traffic that goes through it. A lane is drawn **solid** only when the gateway is in the path for that hop (LLM calls and MCP tool calls routed through Control Tower). Anything learned by observation alone is drawn **dashed**, and a rule existing on an edge never makes it solid. An agent that edits its own `base_url` bypasses the LLM gateway; the MCP gateway's `tools/list` filtering is the stronger control, because a tool the agent cannot see needs no approval. Traffic reported through `/v1/observe` or OpenTelemetry is *seen*, never enforced, and is drawn dashed. An egress-proxy sidecar to close the `base_url` gap is on the roadmap. We would rather you know the boundary than believe in one that isn't there.
 
 ## Configuration
 

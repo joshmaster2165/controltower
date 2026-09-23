@@ -52,6 +52,7 @@ export class DemoFleet {
       this.schedule(agent);
       for (const tool of agent.tools ?? []) this.scheduleTool(agent, tool);
     }
+    this.scheduleObserved();
     this.log.info({ agents: DEMO_AGENTS.length }, 'demo fleet started');
   }
 
@@ -75,6 +76,61 @@ export class DemoFleet {
     }, Math.max(20, delay * 1000));
     t.unref?.();
     this.timers.add(t);
+  }
+
+  /**
+   * Calls the demo agents make *around* Control Tower — SaaS APIs, a database,
+   * and one agent calling a model provider directly — reported the way real
+   * agents would: the simple /v1/observe API, and OpenTelemetry spans.
+   */
+  private scheduleObserved(): void {
+    if (!this.running) return;
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      void this.reportObserved();
+      this.scheduleObserved();
+    }, 4000 / this.speed);
+    t.unref?.();
+    this.timers.add(t);
+  }
+
+  private async reportObserved(): Promise<void> {
+    const post = async (agentId: string, path: string, body: unknown) => {
+      const key = this.keys.get(agentId);
+      if (!key) return;
+      await fetch(`${this.baseUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify(body) }).catch(() => undefined);
+    };
+    const n = (mean: number) => Math.max(0, Math.round(mean * (0.5 + Math.random())));
+    await post('support-bot', '/v1/observe', { events: [{ target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'read', count: n(6) || 1 }, { target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'write', count: n(2) || 1 }] });
+    await post('sdr-agent', '/v1/observe', { events: [{ target: 'https://api.hubapi.com/crm/v3/objects/contacts', operation: 'write', count: n(3) || 1 }] });
+    await post('code-reviewer', '/v1/observe', { events: [{ target: 'https://api.github.com/repos/acme/ledger/pulls', operation: 'read', count: n(4) || 1, status: Math.random() < 0.05 ? 'error' : 'ok' }] });
+    // A direct model call that should have gone through the gateway.
+    if (Math.random() < 0.3) await post('researcher', '/v1/observe', { events: [{ target: 'https://api.openai.com/v1/chat/completions', operation: 'write', count: 1 }] });
+    // ops-agent reports through OpenTelemetry, like an instrumented service would.
+    const now = BigInt(Date.now()) * 1_000_000n;
+    const span = (name: string, attrs: Record<string, string>, ms: number) => ({
+      name,
+      kind: 3,
+      startTimeUnixNano: String(now - BigInt(ms) * 1_000_000n),
+      endTimeUnixNano: String(now),
+      attributes: Object.entries(attrs).map(([key, v]) => ({ key, value: { stringValue: v } })),
+      status: { code: 1 },
+    });
+    await post('ops-agent', '/v1/traces', {
+      resourceSpans: [
+        {
+          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'ops-agent' } }] },
+          scopeSpans: [
+            {
+              spans: [
+                span('SELECT orders', { 'db.system': 'postgresql', 'server.address': 'orders-db.internal', 'db.namespace': 'orders', 'db.operation.name': 'SELECT' }, 12),
+                span('GET', { 'http.request.method': 'GET', 'url.full': 'https://status.internal.acme.dev/api/health' }, 40),
+              ],
+            },
+          ],
+        },
+      ],
+    });
   }
 
   private scheduleTool(agent: DemoAgent, tool: NonNullable<DemoAgent['tools']>[number]): void {

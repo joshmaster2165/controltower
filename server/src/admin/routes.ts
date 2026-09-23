@@ -110,6 +110,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         demo: s.demo,
       })),
       edges,
+      observed: await ctx.observed.summary(since),
       lanes: lanes.map((l) => ({
         key_id: l.key_id,
         deployment_id: l.deployment_id,

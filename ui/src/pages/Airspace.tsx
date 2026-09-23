@@ -232,6 +232,21 @@ export function AirspacePage() {
   useEffect(() => {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const downloadMap = async () => {
+    setExportOpen(false);
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const now = new Date();
+    const t = useStore.getState().topology;
+    const sub = `${now.toLocaleString()} · ${t?.keys.length ?? 0} agents · ${t?.deployments.length ?? 0} models · ${t?.mcp_servers.length ?? 0} tool servers · ${policy?.rules.length ?? 0} gates`;
+    const blob = await scene.exportPng('Control Tower · agent data-flow map', sub);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `controltower-map-${now.toISOString().slice(0, 10)}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
   const showSimulation = useCallback((r: SimResult | null) => sceneRef.current?.setSimulation(r ? r.lanes : null), []);
   useEffect(() => {
     sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
@@ -309,6 +324,31 @@ export function AirspacePage() {
         <button className={`btn ${drawMode ? 'active' : ''}`} onClick={toggleDraw} title="Drag a lasso around stations to create a zone">
           Draw zone
         </button>
+        <div className="menu-wrap">
+          <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen}>
+            Export
+          </button>
+          {exportOpen && (
+            <div className="menu" role="menu" onMouseLeave={() => setExportOpen(false)}>
+              <button role="menuitem" onClick={() => void downloadMap()}>
+                <b>Map image</b>
+                <span>PNG of the whole map, for docs and reviews</span>
+              </button>
+              <a role="menuitem" href="#/report" onClick={() => setExportOpen(false)}>
+                <b>Data-flow inventory</b>
+                <span>Every path, its volume and the gates on it — printable</span>
+              </a>
+              <a role="menuitem" href="/admin/api/export/dataflow?format=md" download onClick={() => setExportOpen(false)}>
+                <b>Inventory as Markdown</b>
+                <span>For a wiki or a pull request</span>
+              </a>
+              <a role="menuitem" href="/admin/api/export/dataflow?format=csv" download onClick={() => setExportOpen(false)}>
+                <b>Paths as CSV</b>
+                <span>For a spreadsheet</span>
+              </a>
+            </div>
+          )}
+        </div>
         <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }}>
           Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>

@@ -71,6 +71,11 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 | **Ledger** | Cost, tokens, latency. |
 | **Flight Recorder** | Replay and *simulate* — what would this rule have done to yesterday's traffic? |
 
+## Document it
+
+- **Export → Map image**: the whole map (every node, not just what's on screen) as a 2× PNG with a title strip — for architecture docs and security reviews.
+- **Inventory** (nav) / **Export → Data-flow inventory**: every agent, model and MCP tool server, and every agent → model/tool path seen in the last 24 h / 7 d / 30 d, with requests, errors, blocked, held and spend — and, per path, what Control Tower does today: the access decision and the gate behind it, the inspect gates that scan it, and whether the agent's key even allows it. Printable, or download as Markdown (`/admin/api/export/dataflow?format=md`) or CSV (`?format=csv`).
+
 ## Simulate
 
 In the gate composer, **Simulate on last 24 h** replays recorded flights through the current gates and through the gates with your draft added, and reports only the flights whose outcome changes: how many would be blocked, held for approval or let through, by which agents, to which targets, and the spend that blocked requests accounted for. On an existing gate, **Impact in the last 24 h** compares the gates without it to the gates with it; after changing its effect, **Simulate this change** shows the difference. Affected paths are drawn dashed on the map with their counts until the panel closes.

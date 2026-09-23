@@ -12,12 +12,14 @@ import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
 import { LedgerPage } from './pages/Ledger';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
+import { ReportPage } from './pages/Report';
 import { api } from './api';
 
 const NAV: Array<{ id: Route; label: string }> = [
   { id: 'airspace', label: 'Airspace' },
   { id: 'tower', label: 'Tower' },
   { id: 'alerts', label: 'Alerts' },
+  { id: 'report', label: 'Inventory' },
   { id: 'ledger', label: 'Ledger' },
   { id: 'flights', label: 'Flights' },
   { id: 'keys', label: 'Keys' },
@@ -94,6 +96,7 @@ export function App() {
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
         {route === 'alerts' && <AlertsPage />}
+        {route === 'report' && <ReportPage />}
       </main>
       <AlertToasts />
     </div>

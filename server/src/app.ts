@@ -16,6 +16,7 @@ import { policyRoutes } from './admin/policy.js';
 import { mcpAdminRoutes } from './admin/mcp.js';
 import { alertRoutes } from './admin/alerts.js';
 import { importRoutes } from './admin/import.js';
+import { exportRoutes } from './admin/export.js';
 import { McpGateway } from './mcp/gateway.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 
@@ -75,6 +76,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await mcpAdminRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
+    await exportRoutes(a, full);
     await wsRoutes(a, full);
   });
 

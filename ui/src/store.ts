@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { FlightEvent } from '@controltower/shared';
 import { api, setCsrf, type AlertChannel, type AlertItem, type AlertRule, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
 
-export type Route = 'airspace' | 'tower' | 'alerts' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'playground' | 'ledger';
+export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'playground' | 'ledger';
 
 interface FeedItem {
   id: string;

@@ -559,6 +559,60 @@ export class AirspaceScene {
     this.zoomAt([(this.w - this.rightInset) / 2, this.h / 2], f);
     this.camCb?.({ ...this.cam });
   }
+  /**
+   * Render the whole map (every node, not just what is on screen) to a PNG at
+   * 2×, with a title strip — for architecture docs and security reviews.
+   */
+  async exportPng(title: string, subtitle: string): Promise<Blob> {
+    let x0 = this.hub[0] - this.holdR - 40;
+    let y0 = this.hub[1] - this.holdR - 30;
+    let x1 = this.hub[0] + this.holdR + 40;
+    let y1 = this.hub[1] + this.holdR + 50;
+    for (const s of this.stations.values()) {
+      x0 = Math.min(x0, s.x - 16);
+      y0 = Math.min(y0, s.y - 36);
+      x1 = Math.max(x1, s.x + s.w + 16);
+      y1 = Math.max(y1, s.y + s.h + 16);
+    }
+    const pad = 32;
+    const head = 64;
+    const scale = 2;
+    const W = Math.ceil(x1 - x0 + pad * 2);
+    const H = Math.ceil(y1 - y0 + pad * 2 + head);
+    const off = document.createElement('canvas');
+    off.width = W * scale;
+    off.height = H * scale;
+    const octx = off.getContext('2d')!;
+    const saved = { ctx: this.ctx, w: this.w, h: this.h, dpr: this.dpr, cam: this.cam, hovered: this.hovered, connect: this.connect, lasso: this.lasso };
+    try {
+      this.ctx = octx;
+      this.w = W;
+      this.h = H;
+      this.dpr = scale;
+      this.cam = { k: 1, x: pad - x0, y: pad + head - y0 };
+      this.hovered = null;
+      this.connect = null;
+      this.lasso = null;
+      this.draw();
+    } finally {
+      Object.assign(this, saved);
+      this.dirty = true;
+    }
+    octx.setTransform(scale, 0, 0, scale, 0, 0);
+    octx.fillStyle = '#ffffff';
+    octx.fillRect(0, 0, W, head);
+    octx.fillStyle = '#e3e8f0';
+    octx.fillRect(0, head - 1, W, 1);
+    octx.fillStyle = INK;
+    octx.font = `600 18px ${FONT}`;
+    octx.textBaseline = 'alphabetic';
+    octx.fillText(title, pad, 30);
+    octx.fillStyle = INK_DIM;
+    octx.font = `400 12px ${FONT}`;
+    octx.fillText(subtitle, pad, 50);
+    return new Promise((res, rej) => off.toBlob((b) => (b ? res(b) : rej(new Error('could not encode PNG'))), 'image/png'));
+  }
+
   /** Frame every node in the visible area (left of any right-hand panel). */
   fit(): void {
     const items = [...this.stations.values()];

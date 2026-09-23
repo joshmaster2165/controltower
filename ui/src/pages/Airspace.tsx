@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
@@ -6,6 +6,7 @@ import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type 
 import { hex } from '../airspace/colors';
 import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type InspectConfig, type Rule, type Topology, type Zone } from '../api';
 import { Icon } from '../components/Icon';
+import { CodeBlock } from '../components/CodeBlock';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from './Alerts';
 import { ApprovalCard } from './Tower';
 
@@ -22,7 +23,8 @@ type Popover =
   | { kind: 'compose'; draft: GateDraft; x: number; y: number }
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
-  | { kind: 'gate'; rule: Rule; x: number; y: number };
+  | { kind: 'gate'; rule: Rule; x: number; y: number }
+  | { kind: 'bringin'; stationId: string; rect: [number, number, number, number] };
 
 const STATE_LABEL: Record<LinkState, string> = {
   active: 'active',
@@ -44,6 +46,18 @@ function panelPos(x: number, y: number, h: number): CSSProperties {
   const room = window.innerHeight - 52;
   const top = Math.max(12, Math.min(y - 40, room - h));
   return { left: Math.max(12, Math.min(x, window.innerWidth - 740)), top, maxHeight: room - top - 12 };
+}
+
+/** Beside the clicked card (never on it), clear of the station inspector docked on the right. */
+function bringPos([l, t, r]: [number, number, number, number]): CSSProperties {
+  const host = document.querySelector('.airspace');
+  const w = host?.clientWidth ?? window.innerWidth;
+  const h = host?.clientHeight ?? window.innerHeight;
+  const width = 420;
+  const right = w - 372;
+  const left = r + 16 + width <= right ? r + 16 : l - 16 - width >= 12 ? l - 16 - width : Math.max(12, right - width);
+  const top = Math.max(76, Math.min(t - 140, h - 600));
+  return { left, top, maxHeight: h - top - 64 };
 }
 
 function alertedGates(rules: AlertRule[]): string[] {
@@ -138,6 +152,10 @@ export function AirspacePage() {
             scene.drawMode = false;
             if (c.stationIds.length) setPopover({ kind: 'lasso', stationIds: c.stationIds, x: c.x, y: c.y });
             else setPopover(null);
+          } else if (c.kind === 'station' && c.station.kind === 'observed') {
+            // Outside the gateway: show how to bring it in, and trace who calls it.
+            setPopover({ kind: 'bringin', stationId: c.station.id, rect: c.rect });
+            applyFocus(c.station.id);
           } else if (c.kind === 'station') {
             setPopover(null);
             applyFocus(focusRef.current === c.station.id ? null : c.station.id);
@@ -455,6 +473,17 @@ export function AirspacePage() {
           }}
         />
       )}
+      {popover?.kind === 'bringin' && topology && (
+        <BringInside
+          rect={popover.rect}
+          stationId={popover.stationId}
+          topology={topology}
+          onClose={() => {
+            setPopover(null);
+            applyFocus(null);
+          }}
+        />
+      )}
       {popover?.kind === 'lasso' && (
         <ZoneCreatePopover
           x={popover.x}
@@ -582,6 +611,150 @@ export function AirspacePage() {
         </span>
         {policy && !policy.enforcement && <span className="pill warn">enforcement off</span>}
       </div>
+    </div>
+  );
+}
+
+/** Which provider catalogue entry a directly-called model API corresponds to. */
+const PROVIDER_FOR_SYSTEM: Record<string, { id: string; kind: string; name: string }> = {
+  OpenAI: { id: 'openai', kind: 'openai', name: 'OpenAI' },
+  Anthropic: { id: 'anthropic', kind: 'anthropic', name: 'Anthropic' },
+  'Google Gemini': { id: 'gemini', kind: 'gemini', name: 'Google Gemini' },
+  'Vertex AI': { id: 'vertex', kind: 'vertex', name: 'Google Vertex AI' },
+  'AWS Bedrock': { id: 'bedrock', kind: 'bedrock', name: 'AWS Bedrock' },
+  'Azure OpenAI': { id: 'azure-openai', kind: 'azure-openai', name: 'Azure OpenAI' },
+  Mistral: { id: 'mistral', kind: 'openai-compatible', name: 'Mistral' },
+  Groq: { id: 'groq', kind: 'openai-compatible', name: 'Groq' },
+  'Together AI': { id: 'together', kind: 'openai-compatible', name: 'Together AI' },
+  DeepSeek: { id: 'deepseek', kind: 'openai-compatible', name: 'DeepSeek' },
+  xAI: { id: 'xai', kind: 'openai-compatible', name: 'xAI' },
+  OpenRouter: { id: 'openrouter', kind: 'openai-compatible', name: 'OpenRouter' },
+};
+
+/**
+ * "Why is this outside, and how do I bring it in?" for one observed system —
+ * the concrete steps depend on what it is.
+ */
+function BringInside({ rect, stationId, topology, onClose }: { rect: [number, number, number, number]; stationId: string; topology: Topology; onClose: () => void }) {
+  const setRoute = useStore((st) => st.setRoute);
+  const t = topology.observed?.targets.find((o) => o.id === stationId);
+  if (!t) return null;
+  const callers = (topology.observed?.edges ?? [])
+    .filter((e) => e.target_id === stationId)
+    .map((e) => ({ name: topology.keys.find((k) => k.id === e.key_id)?.name ?? e.key_id, calls: e.count_24h }))
+    .sort((a, b) => b.calls - a.calls);
+  const name = t.system ?? t.target;
+  const origin = location.origin;
+  const provider = t.system ? PROVIDER_FOR_SYSTEM[t.system] : undefined;
+  const connected = provider ? topology.providers.some((p) => (provider.kind === 'openai-compatible' ? p.slug === provider.id || p.name === provider.name : p.kind === provider.kind)) : false;
+
+  let body: ReactNode;
+  if (t.kind === 'model' || t.bypass) {
+    body = (
+      <>
+        <p className="bi-why">
+          These agents call <b>{name}</b> directly, so their prompts skip your gates, budgets, inspection and cost tracking.
+        </p>
+        <ol className="bi-steps">
+          <li className={connected ? 'done' : ''}>
+            {connected ? (
+              <>
+                <b>{provider?.name ?? name} is connected</b> in Control Tower.
+              </>
+            ) : (
+              <>
+                <b>Connect {provider?.name ?? name}</b> as a provider (the same API key the agents use today).
+                <button className="btn sm" onClick={() => setRoute('providers', provider?.id ?? null)}>
+                  Connect {provider?.name ?? 'provider'}
+                </button>
+              </>
+            )}
+          </li>
+          <li>
+            <b>Point each agent's SDK at Control Tower</b> and swap its provider key for its Control Tower key. The code is otherwise unchanged:
+            <CodeBlock title="OpenAI-compatible SDKs" code={`# each agent uses its own Control Tower key
+base_url = "${origin}/v1"
+api_key  = "ct_sk_…"`} />
+            <span className="bi-note">Anthropic SDKs and Claude Code: base URL <code>{origin}</code> with the key in <code>x-api-key</code>.</span>
+          </li>
+          <li>
+            <b>Close the side door</b> once traffic flows through the tower: revoke the old provider key, or block <code>{t.target}</code> at your network egress.
+          </li>
+        </ol>
+      </>
+    );
+  } else if (t.kind === 'database' || t.kind === 'saas' || t.kind === 'queue' || t.kind === 'tool') {
+    body = (
+      <>
+        <p className="bi-why">
+          Agents reach <b>{name}</b> with their own code, so Control Tower only sees what they report.
+        </p>
+        <ol className="bi-steps">
+          <li>
+            <b>Expose it as an MCP tool server.</b>{' '}
+            {t.kind === 'database'
+              ? 'Use a database MCP server — ideally read-only, or with separate read and write tools.'
+              : `Many vendors publish an MCP server for their API; otherwise wrap the calls the agent makes as tools.`}{' '}
+            Serve it over HTTP (stdio servers can sit behind a bridge such as <code>supergateway</code>).
+          </li>
+          <li>
+            <b>Register it in Control Tower</b> — it then appears on the map with each of its tools.
+            <button className="btn sm" onClick={() => setRoute('mcp', `new:${name}`)}>
+              Register an MCP server
+            </button>
+          </li>
+          <li>
+            <b>Switch the agents to the tools</b> via <code>{origin}/mcp</code> with their Control Tower key. Now you can block, require approval or inspect each call — for example, approval for writes.
+          </li>
+        </ol>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <p className="bi-why">
+          <b>{name}</b> is a plain HTTP API the agents call directly. Control Tower does not proxy arbitrary HTTP yet, so it can only be seen, not enforced.
+        </p>
+        <ol className="bi-steps">
+          <li>
+            <b>Wrap the calls as an MCP tool server</b> and register it — then each call can be gated like any other tool.
+            <button className="btn sm" onClick={() => setRoute('mcp', `new:${name}`)}>
+              Register an MCP server
+            </button>
+          </li>
+          <li>
+            <b>Or keep observing it</b> — it stays documented on the map and in the inventory under “Seen, not enforced”.
+          </li>
+        </ol>
+      </>
+    );
+  }
+
+  return (
+    <div className="popover composer bring-inside" style={bringPos(rect)}>
+      <div className="bi-h">
+        <span className={`bi-badge ${t.bypass ? 'bypass' : ''}`}>{t.bypass ? 'Bypasses the gateway' : 'Outside the gateway'}</span>
+        <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+      <div className="t" style={{ marginBottom: 2 }}>
+        Bring {name} inside
+      </div>
+      <div className="dim mono" style={{ marginBottom: 8 }}>
+        {t.target}
+      </div>
+      {callers.length > 0 && (
+        <div className="bi-callers">
+          {callers.map((c) => (
+            <span key={c.name} className="route-chip">
+              {c.name} · {c.calls.toLocaleString()}
+            </span>
+          ))}
+          <span className="dim">calls in 24 h</span>
+        </div>
+      )}
+      {body}
     </div>
   );
 }
@@ -714,7 +887,9 @@ function Tooltip({ hover }: { hover: HoverInfo }) {
             <b>{ago(s.obs.lastSeen)}</b>
           </div>
         )}
-        <div className="note">{s.obs?.bypass ? 'Agents call this model provider directly — bypassing gates, budgets and cost tracking. Route them through Control Tower.' : 'Seen, not enforced: agents report these calls; they do not pass through Control Tower.'}</div>
+        <div className="note">
+          {s.obs?.bypass ? 'Agents call this model provider directly — bypassing gates, budgets and cost tracking.' : 'Seen, not enforced: agents report these calls; they do not pass through Control Tower.'} <b>Click to bring it inside.</b>
+        </div>
       </div>
     );
   }

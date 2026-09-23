@@ -73,6 +73,15 @@ export function ProvidersPage() {
     setForm({ name: c.name, slug: c.id, base_url: c.baseUrl ?? '', api_version: (c.extra?.api_version as string) ?? '' });
   };
 
+  // Deep link #/providers/<catalog id> (e.g. from "Bring it inside" on the map) opens that form.
+  const routeParam = useStore((s) => s.routeParam);
+  useEffect(() => {
+    if (!routeParam || !catalog.length) return;
+    const c = catalog.find((x) => x.id === routeParam);
+    if (c && c.available) startAdd(c);
+    useStore.getState().setRoute('providers');
+  }, [routeParam, catalog]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!adding) return;

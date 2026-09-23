@@ -37,6 +37,16 @@ export function McpPage() {
     void load();
   }, []);
 
+  // Deep link #/mcp/new:<name> (from "Bring it inside" on the map) opens the form, pre-named.
+  const routeParam = useStore((s) => s.routeParam);
+  useEffect(() => {
+    if (!routeParam?.startsWith('new')) return;
+    const name = routeParam.slice(4);
+    setShowAdd(true);
+    if (name) setForm((f) => ({ ...f, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) }));
+    useStore.getState().setRoute('mcp');
+  }, [routeParam]);
+
   const add = async (e: FormEvent) => {
     e.preventDefault();
     setBusy('add');

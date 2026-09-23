@@ -116,7 +116,8 @@ export interface HoverInfo {
 }
 
 export type ClickInfo =
-  | { kind: 'station'; station: StationView; x: number; y: number }
+  /** `rect` is the card on screen (left, top, right, bottom), for anchoring panels beside it. */
+  | { kind: 'station'; station: StationView; x: number; y: number; rect: [number, number, number, number] }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
   | { kind: 'gate'; rule: Rule; x: number; y: number }
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
@@ -2093,7 +2094,11 @@ export class AirspaceScene {
       if (row) return { kind: 'tool', serverId: s.id, tool: row.name, x: sx, y: sy };
     }
     for (const s of this.stations.values()) {
-      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return { kind: 'station', station: this.view(s, now), x: sx, y: sy };
+      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) {
+        const { k, x: cx, y: cy } = this.cam;
+        const rect: [number, number, number, number] = [s.x * k + cx, s.y * k + cy, (s.x + s.w) * k + cx, (s.y + s.h) * k + cy];
+        return { kind: 'station', station: this.view(s, now), x: sx, y: sy, rect };
+      }
     }
     for (const g of this.hubGates) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) return { kind: 'gate', rule: g.rule, x: sx, y: sy };
     for (const sp of this.spokes.values()) {

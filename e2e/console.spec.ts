@@ -135,4 +135,36 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await page.getByRole('button', { name: 'Add alert', exact: true }).click();
   await expect(page.locator('.rule-list')).toContainText('Alert on any gate');
   await expect(page.locator('.rule-list')).toContainText('Notifies Console');
+
+  // Observed system → "Bring it inside" → MCP form pre-filled with its name.
+  await page.evaluate(async () => {
+    const me = await (await fetch('/admin/api/me')).json();
+    const k = await (
+      await fetch('/admin/api/keys', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'side-door-agent' }) })
+    ).json();
+    await fetch('/v1/observe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k.key },
+      body: JSON.stringify({ events: [{ target: 'https://api.github.com/repos', count: 3 }] }),
+    });
+  });
+  await page.getByRole('link', { name: 'Airspace' }).click();
+  await page.reload();
+  const cardAt = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene: any }).__ctScene;
+      s.fit();
+      const st = [...s.stations.values()].find((x: any) => x.label === 'GitHub');
+      if (!st) return null;
+      const c = s.getCamera();
+      const r = s.canvas.getBoundingClientRect();
+      return [(st.x + 40) * c.k + c.x + r.left, (st.y + 16) * c.k + c.y + r.top] as [number, number];
+    });
+  await expect.poll(cardAt).not.toBeNull();
+  const at = (await cardAt())!;
+  await page.mouse.click(at[0], at[1]);
+  await expect(page.locator('.bring-inside')).toContainText('Bring GitHub inside');
+  await page.locator('.bring-inside').getByRole('button', { name: 'Register an MCP server' }).click();
+  await expect(field(page, /^Name$/)).toHaveValue('GitHub');
+  await expect(page).toHaveURL(/#\/mcp$/);
 });

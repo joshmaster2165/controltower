@@ -8,10 +8,11 @@ Control Tower is an enforcement point for traffic that goes **through** it. This
 |---|---|---|
 | Agent → model via `/v1/chat/completions`, `/v1/messages`, `/v1/embeddings` | Policy runs before the upstream request is sent; a `deny` is a 403, a `require_approval` holds the request. | An agent that changes its own `base_url` never reaches the gateway. Treat the LLM gateway as a control against a *misbehaving model inside cooperative code*, not against a malicious developer with network access. |
 | Agent → tool via `/mcp` or `/mcp/<server>` | `tools/list` is filtered before the model ever sees a tool (deny-by-invisibility); `tools/call` runs the same policy and hold path. | Same `base_url` caveat; an agent configured to talk to the upstream MCP server directly bypasses the gate. Keep upstream MCP credentials in Control Tower only. |
+| Agent → REST API via `/http/<slug>/…` | Each request runs the same policy, hold and inspect path as a tool call (route and method are the target; `GET`/`HEAD` read, `POST`/`PUT`/`PATCH` write, `DELETE` destructive). The agent's Control Tower key is stripped and the API's stored credentials are added, so the agent never needs them. Paths are confined to the registered base URL: dot segments, encoded dots and backslashes are refused before anything is sent. | An agent that still holds the API's own credentials can call its host directly. Move those credentials into Control Tower and revoke the agent's copy. The admin chooses each base URL, so only register hosts agents should reach. |
 
 ## Observed only (drawn dashed on the Airspace)
 
-- Anything learned from SDK spans or logs rather than from a request that passed through the gateway (planned for v0.2).
+- Calls reported through `/v1/observe` or OpenTelemetry spans rather than made through the gateway. They are mapped and documented, and each comes with steps to bring it inside.
 - Browser-driven agents that are not wrapped by the Playwright fixture (planned for v0.3).
 
 A rule existing on an edge never makes it solid. A lane is solid only when a gateway path is actually carrying that traffic.
@@ -32,6 +33,6 @@ A rule existing on an edge never makes it solid. A lane is solid only when a gat
 
 ## Secrets
 
-- Provider credentials and MCP auth are encrypted at rest with AES-256-GCM under a master key (`CT_MASTER_KEY` or `/data/master.key`). Back the key up; without it the ciphertext is unreadable and providers must be re-connected.
+- Provider credentials, MCP auth and HTTP API credentials are encrypted at rest with AES-256-GCM under a master key (`CT_MASTER_KEY` or `/data/master.key`). Back the key up; without it the ciphertext is unreadable and providers must be re-connected.
 - Credentials are decrypted into memory only, never attached to a flight or an event, and never included in error messages. Upstream error bodies are scrubbed for common key formats before storage.
 - Control Tower API keys are stored as SHA-256 hashes. The `ct_sk_` prefix and CRC suffix make leaked keys detectable by secret scanners.

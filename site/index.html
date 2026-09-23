@@ -723,7 +723,7 @@ footer .sp { flex: 1; }
       <h3><span class="accent">Gates:</span> decide at the boundary, before the call runs.</h3>
       <p>Click a line or a tool on the map and set a gate. Because Control Tower is in the path, a gate is enforced, not a suggestion — and you can replay it against yesterday's traffic before you publish.</p>
       <ul class="checks">
-        <li><b>Allow, deny, require approval, allow with limits or inspect</b> — per agent, team, model or individual MCP tool.</li>
+        <li><b>Allow, deny, require approval, allow with limits or inspect</b> — per agent, team, model, MCP tool or HTTP route.</li>
         <li><b>Tools an agent may not use are never listed</b> to it, so there is nothing to talk its way around.</li>
         <li><b>Simulate on real traffic</b>: see what a draft gate would have blocked, held or saved in the last 24 hours.</li>
         <li><b>Inspection</b> scans prompts and tool arguments for PII, secrets and prompt injection, then flags, redacts or blocks.</li>
@@ -940,7 +940,7 @@ ct_approvals_pending 1</pre>
     <div class="hcard reveal" data-scroll="mid">
       <svg viewBox="0 0 480 26" aria-hidden="true" style="overflow:visible"><mask id="hm1" maskUnits="userSpaceOnUse" x="0" y="0" width="480" height="26"><rect class="hmask" width="480" height="26" fill="#fff"/></mask><g mask="url(#hm1)"><path d="M4 13 H476" stroke="#1f5eff" stroke-width="2.5" stroke-linecap="round"/><circle cx="240" cy="13" r="6" fill="#fff" stroke="#1f5eff" stroke-width="2"/></g><g class="hplane"><path d="M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z" fill="#1f5eff" transform="translate(10 13)"/></g></svg>
       <h4>Enforced — through the gateway</h4>
-      <p>Model calls to <code>/v1</code> and tool calls to <code>/mcp</code> pass through Control Tower. Gates, approvals, budgets and inspection apply to every one.</p>
+      <p>Model calls to <code>/v1</code>, tool calls to <code>/mcp</code> and API calls to <code>/http</code> pass through Control Tower. Gates, approvals, budgets and inspection apply to every one.</p>
     </div>
     <div class="hcard dash reveal" data-scroll="mid">
       <svg viewBox="0 0 480 26" aria-hidden="true" style="overflow:visible"><mask id="hm2" maskUnits="userSpaceOnUse" x="0" y="0" width="480" height="26"><rect class="hmask" width="480" height="26" fill="#fff"/></mask><g mask="url(#hm2)"><path d="M4 13 H476" stroke="#aab6c8" stroke-width="2.5" stroke-dasharray="6 6" stroke-linecap="round"/></g><g class="hplane"><path d="M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z" fill="#fff" stroke="#8a98ad" stroke-width="1.3" transform="translate(10 13)"/></g></svg>

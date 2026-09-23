@@ -67,6 +67,8 @@ export interface Station {
   denials: number[];
   lastAt: number;
   held: number;
+  /** Tool servers only: 'http' for a plain HTTP API (rows are routes), else MCP. */
+  protocol?: 'mcp' | 'http' | undefined;
   /** Observed systems only: reported by agents, not proxied, so never enforced. */
   obs?: { target: string; kind: string; bypass: boolean; lastSeen: number; count24h: number; errors24h: number } | undefined;
 }
@@ -89,6 +91,7 @@ export interface StationView {
   /** Calls reported by the agent (SDK / OpenTelemetry) that bypass Control Tower. */
   observed24h: number;
   obs?: Station['obs'];
+  protocol?: Station['protocol'];
 }
 
 export interface LaneView {
@@ -723,7 +726,10 @@ export class AirspaceScene {
       upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[providerLook(prov)] ?? 0x475569);
     }
     for (const m of t.mcp_servers ?? []) {
-      const s = upsert(m.id, 'mcp', m.name, `MCP server · ${m.tools.length} tool${m.tools.length === 1 ? '' : 's'}`, MCP_COLOR, m.slug);
+      const http = m.protocol === 'http';
+      const n = m.tools.length;
+      const s = upsert(m.id, 'mcp', m.name, http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`, MCP_COLOR, m.slug);
+      s.protocol = http ? 'http' : 'mcp';
       const prev = new Map(s.tools.map((r) => [r.name, r]));
       s.tools = m.tools.map((tool) => {
         const old = prev.get(tool.name);
@@ -1345,7 +1351,7 @@ export class AirspaceScene {
     }
     let observed24h = 0;
     for (const e of this.obsEdges) if ((s.kind === 'agent' && e.key_id === s.id) || (s.kind === 'observed' && e.target_id === s.id)) observed24h += e.count_24h;
-    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs };
+    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs, protocol: s.protocol };
   }
 
   // -------------------------------------------------------------------- draw
@@ -2042,6 +2048,18 @@ export class AirspaceScene {
         }
         break;
       case 'mcp':
+        if (s.protocol === 'http') {
+          // A globe: a plain web API.
+          ctx.beginPath();
+          ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, 3, 7, 0, 0, Math.PI * 2);
+          ctx.moveTo(cx - 7, cy);
+          ctx.lineTo(cx + 7, cy);
+          ctx.stroke();
+          break;
+        }
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = Math.PI / 6 + (i * Math.PI) / 3;

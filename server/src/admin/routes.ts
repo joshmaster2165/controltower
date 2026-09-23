@@ -6,6 +6,7 @@ import { requireAdmin, isSetupComplete } from './auth.js';
 import { generateApiKey } from '../crypto/apikeys.js';
 import { LAT_BUCKETS } from '../events/db-sink.js';
 import { classifyOperation } from '../mcp/gateway.js';
+import { recentRoutes } from './http.js';
 
 /**
  * Admin API. Read endpoints feed the console; write endpoints mutate the DB
@@ -36,6 +37,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const r = ctx.registry;
     const since = Date.now() - 24 * 3600 * 1000;
     const sinceBucket = new Date(since).toISOString().slice(0, 13);
+    const routes = await recentRoutes(ctx);
     const lanes = await ctx.db.read
       .selectFrom('usage_hourly')
       .select(['key_id', 'deployment_id', 'kind'])
@@ -100,7 +102,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         demo: d.demo,
       })),
       aliases: [...r.aliases.values()].map((a) => ({ id: a.id, name: a.name, strategy: a.strategy, targets: a.targets })),
-      mcp_servers: [...ctx.mcp.servers.values()].map((s) => ({
+      mcp_servers: [
+        ...[...ctx.mcp.servers.values()].map((s) => ({
         id: s.id,
         slug: s.slug,
         name: s.name,
@@ -108,7 +111,20 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         enabled: s.enabled,
         tools: s.tools.map((t) => ({ name: t.name, op: classifyOperation(t) })),
         demo: s.demo,
-      })),
+        protocol: 'mcp' as const,
+        })),
+        // HTTP APIs are tool servers too: one row per route they have served.
+        ...[...ctx.http.apis.values()].map((a) => ({
+          id: a.id,
+          slug: a.slug,
+          name: a.name,
+          health: a.health,
+          enabled: a.enabled,
+          tools: (routes.get(a.id) ?? []).map((t) => ({ name: t.name, op: t.op })),
+          demo: a.demo,
+          protocol: 'http' as const,
+        })),
+      ],
       edges,
       observed: await ctx.observed.summary(since),
       lanes: lanes.map((l) => ({
@@ -375,6 +391,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     await ctx.db.write.deleteFrom('zones').where('demo', '=', 1).execute();
     await ctx.db.write.deleteFrom('approvals').where('demo', '=', 1).execute();
     await ctx.db.write.deleteFrom('mcp_servers').where('demo', '=', 1).execute();
+    await ctx.db.write.deleteFrom('http_apis').where('demo', '=', 1).execute();
     await ctx.mcp.reload();
     await sql`DELETE FROM flights WHERE key_id LIKE 'key_demo_%'`.execute(ctx.db.write);
     await sql`DELETE FROM flight_events WHERE flight_id NOT IN (SELECT id FROM flights)`.execute(ctx.db.write);

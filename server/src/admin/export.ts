@@ -5,6 +5,7 @@ import { requireAdmin } from './auth.js';
 import type { PolicyService, RuleRecord } from '../policy/policy.js';
 import type { PolicyTarget } from '../policy/engine.js';
 import { classifyOperation } from '../mcp/gateway.js';
+import { routeOperation } from '../http/route.js';
 import { globMatch } from '../registry.js';
 
 /**
@@ -95,15 +96,17 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
   for (const r of rows) {
     const key = ctx.registry.keysById.get(r.key_id);
     if (!key) continue;
-    const isTool = r.kind === 'mcp.tool';
+    const isHttp = r.kind === 'http.request';
+    const isTool = r.kind === 'mcp.tool' || isHttp;
     let target: PolicyTarget;
     let row: Pick<PathRow, 'kind' | 'target' | 'target_id' | 'provider' | 'tool' | 'operation'>;
     if (isTool) {
       const server = r.mcp_server_id ? ctx.mcp.servers.get(r.mcp_server_id) : undefined;
+      const api = isHttp && r.mcp_server_id ? ctx.http.apis.get(r.mcp_server_id) : undefined;
       const tool = server?.tools.find((t) => t.name === r.tool);
-      const op = tool ? classifyOperation(tool) : 'unknown';
+      const op = isHttp ? routeOperation(r.tool) : tool ? classifyOperation(tool) : 'unknown';
       target = { kind: 'tool', name: r.model_requested, mcpServerId: r.mcp_server_id ?? undefined, operation: op };
-      row = { kind: 'tool', target: server?.name ?? r.model_requested, target_id: r.mcp_server_id ?? '', provider: 'MCP', tool: r.tool, operation: op };
+      row = { kind: 'tool', target: api?.name ?? server?.name ?? r.model_requested, target_id: r.mcp_server_id ?? '', provider: isHttp ? 'HTTP' : 'MCP', tool: r.tool, operation: op };
     } else {
       const dep = r.deployment_id ? ctx.registry.deployments.get(r.deployment_id) : undefined;
       const prov = dep ? ctx.registry.providers.get(dep.providerId) : undefined;

@@ -21,7 +21,9 @@ import { seedDemo, seedDemoPolicy } from './demo/seed.js';
 import { DemoFleet } from './demo/fleet.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
+import { HttpApiRegistry } from './http/registry.js';
 import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
+import { seedDemoHttp } from './demo/http-apis.js';
 import { AlertService } from './alerts/alerts.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
@@ -48,6 +50,8 @@ async function main(): Promise<void> {
 
   const mcp = new McpRegistry(db.write, secrets);
   await mcp.reload();
+  const http = new HttpApiRegistry(db.write, secrets);
+  await http.reload();
   const policy = new PolicyService(db.read, registry, () => config.mode === 'on');
   await policy.reload();
   const approvalsVersion = new Versioned();
@@ -68,7 +72,7 @@ async function main(): Promise<void> {
     },
     names: (kind, id) => {
       if (kind === 'key') return registry.keysById.get(id)?.name;
-      if (kind === 'mcp') return mcp.servers.get(id)?.name;
+      if (kind === 'mcp') return mcp.servers.get(id)?.name ?? http.apis.get(id)?.name;
       const d = registry.deployments.get(id);
       return d ? (d.publicName ?? d.upstreamModel) : undefined;
     },
@@ -95,13 +99,13 @@ async function main(): Promise<void> {
       return d ? (d.publicName ?? d.upstreamModel) : undefined;
     },
     providerKind: (id) => (id ? registry.providers.get(id)?.kind : undefined),
-    mcpName: (id) => (id ? mcp.servers.get(id)?.slug : undefined),
+    mcpName: (id) => (id ? (mcp.servers.get(id)?.slug ?? http.apis.get(id)?.slug) : undefined),
     gateName: (id) => policy.rules.find((r) => r.id === id)?.name,
     heldRequests: () => approvals.heldCount,
     pendingEvents: () => dbSink.pendingCount,
     deployments: () =>
       [...registry.deployments.values()].map((d) => ({ model: d.publicName ?? d.upstreamModel, provider: registry.providers.get(d.providerId)?.kind ?? '', coolingDown: (d.coolingUntil ?? 0) > Date.now() })),
-    mcpServers: () => [...mcp.servers.values()].map((s) => ({ server: s.slug, up: s.health === 'ok' })),
+    mcpServers: () => [...[...mcp.servers.values()].map((s) => ({ server: s.slug, up: s.health === 'ok' })), ...[...http.apis.values()].map((a) => ({ server: a.slug, up: a.health === 'ok' }))],
     budgets: () =>
       budgets.snapshot().map((b) => {
         const [type, id] = [b.scope.slice(0, b.scope.indexOf(':')), b.scope.slice(b.scope.indexOf(':') + 1)];
@@ -130,6 +134,7 @@ async function main(): Promise<void> {
     approvals,
     approvalsVersion,
     mcp,
+    http,
     alerts,
     alertsVersion,
     metrics,
@@ -163,7 +168,9 @@ async function main(): Promise<void> {
     await seedDemoMcpPolicy(db.write);
     await seedDemoInspectGates(db.write);
     await seedDemoAlerts(db.write);
+    await seedDemoHttp(db.write, secrets, `http://127.0.0.1:${config.port}`);
     await mcp.reload();
+    await http.reload();
     await registry.reload();
     await policy.reload();
     await alerts.reload();
@@ -181,6 +188,7 @@ async function main(): Promise<void> {
   }
 
   mcp.startHealthLoop();
+  http.startHealthLoop();
 
   const checkpoint = setInterval(() => {
     try {
@@ -203,6 +211,7 @@ async function main(): Promise<void> {
     alerts.stop();
     observed.stop();
     mcp.stop();
+    http.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);
     dbSink.flush();

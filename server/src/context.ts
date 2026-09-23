@@ -15,6 +15,7 @@ import type { SecretBox } from './crypto/secrets.js';
 import type { Versioned } from './util/versioned.js';
 import type { DemoFleet } from './demo/fleet.js';
 import type { McpRegistry } from './mcp/registry.js';
+import type { HttpApiRegistry } from './http/registry.js';
 import type { AlertService } from './alerts/alerts.js';
 import type { Metrics } from './metrics/metrics.js';
 import type { ObservedStore } from './observe/observe.js';
@@ -38,6 +39,8 @@ export interface AppContext {
   /** Bumped whenever the approvals queue changes; the console re-fetches. */
   approvalsVersion: Versioned;
   mcp: McpRegistry;
+  /** Plain HTTP APIs proxied at /http/<slug>/…; treated as tool servers everywhere else. */
+  http: HttpApiRegistry;
   alerts: AlertService;
   /** Bumped when an alert fires or alert configuration changes. */
   alertsVersion: Versioned;

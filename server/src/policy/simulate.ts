@@ -5,6 +5,7 @@ import type { McpRegistry } from '../mcp/registry.js';
 import type { PolicyTarget } from './engine.js';
 import type { PolicyService, RuleRecord } from './policy.js';
 import { classifyOperation } from '../mcp/gateway.js';
+import { routeOperation } from '../http/route.js';
 
 /**
  * "What would this gate have done?" Replays recorded flights through the
@@ -97,7 +98,11 @@ export async function simulate(
     let target: PolicyTarget;
     let targetId: string;
     let destName: string;
-    if (f.kind === 'mcp.tool') {
+    if (f.kind === 'http.request') {
+      target = { kind: 'tool', name: f.model_requested, mcpServerId: f.mcp_server_id ?? undefined, operation: routeOperation(f.tool) };
+      targetId = f.mcp_server_id ?? f.model_requested;
+      destName = f.model_requested;
+    } else if (f.kind === 'mcp.tool') {
       const server = f.mcp_server_id ? deps.mcp.servers.get(f.mcp_server_id) : undefined;
       const tool = server?.tools.find((t) => t.name === f.tool);
       target = { kind: 'tool', name: f.model_requested, mcpServerId: f.mcp_server_id ?? undefined, operation: tool ? classifyOperation(tool) : 'unknown' };

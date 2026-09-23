@@ -32,7 +32,7 @@ export async function mcpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const url = (b.url ?? '').trim();
     if (!name || !slug) return reply.status(400).send({ error: { code: 'invalid', message: 'name and slug are required' } });
     if (!/^https?:\/\//.test(url)) return reply.status(400).send({ error: { code: 'invalid', message: 'url must be an http(s) MCP endpoint' } });
-    if (ctx.mcp.bySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `slug "${slug}" is already used` } });
+    if (ctx.mcp.bySlug.has(slug) || ctx.http.bySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `slug "${slug}" is already used` } });
     const id = `mcp_${ulid()}`;
     const now = Date.now();
     const auth: McpAuth = b.auth && b.auth.type !== 'none' ? b.auth : { type: 'none' };

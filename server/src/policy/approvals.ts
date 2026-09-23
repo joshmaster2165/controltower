@@ -120,7 +120,7 @@ export class ApprovalService implements Approvals {
           rule_id: d.ruleId ?? null,
           rule_revision: rule?.revision ?? null,
           summary: d.summary ?? `${key.name} → ${flight.modelRequested}`,
-          target: JSON.stringify({ kind: flight.kind === 'mcp.tool' ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo }),
+          target: JSON.stringify({ kind: flight.kind === 'mcp.tool' || flight.kind === 'http.request' ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo }),
           args_preview: JSON.stringify(previewArgs(flight)),
           arg_hash: argHash || null,
           scope_hash: sh,

@@ -11,10 +11,10 @@ import { z } from 'zod';
  * 64-bit DB integers.
  */
 
-export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'mcp.tool']);
+export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'mcp.tool', 'http.request']);
 export type FlightKind = z.infer<typeof FlightKind>;
 
-export const Dialect = z.enum(['openai-chat', 'anthropic-messages', 'mcp']);
+export const Dialect = z.enum(['openai-chat', 'anthropic-messages', 'mcp', 'http']);
 export type Dialect = z.infer<typeof Dialect>;
 
 export const ProviderKind = z.enum([

@@ -252,6 +252,22 @@ export interface GrantsTable {
   created_at: number;
 }
 
+export interface HttpApisTable {
+  id: string;
+  slug: string;
+  name: string;
+  base_url: string;
+  auth_enc: string | null;
+  timeout_ms: number;
+  enabled: number;
+  health: string;
+  health_detail: string | null;
+  last_checked_at: number | null;
+  demo: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface McpServersTable {
   id: string;
   slug: string;
@@ -364,6 +380,7 @@ export interface Database {
   tickets: TicketsTable;
   grants: GrantsTable;
   mcp_servers: McpServersTable;
+  http_apis: HttpApisTable;
   alert_channels: AlertChannelsTable;
   alert_rules: AlertRulesTable;
   alerts: AlertsTable;

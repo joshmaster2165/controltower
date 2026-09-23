@@ -10,6 +10,7 @@ import { ModelsPage } from './pages/Models';
 import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
+import { HttpApisPage } from './pages/HttpApis';
 import { LedgerPage } from './pages/Ledger';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -40,6 +41,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'models', label: 'Models', icon: 'cpu', hint: 'Deployments and aliases' },
       { id: 'keys', label: 'Keys', icon: 'key', hint: 'One API key per agent' },
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
+      { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
     ],
   },
   { group: 'Try', items: [{ id: 'playground', label: 'Playground', icon: 'play', hint: 'Send a test request' }] },
@@ -173,6 +175,7 @@ export function App() {
         {route === 'providers' && <ProvidersPage />}
         {route === 'models' && <ModelsPage />}
         {route === 'mcp' && <McpPage />}
+        {route === 'http' && <HttpApisPage />}
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
         {route === 'alerts' && <AlertsPage />}

@@ -13,6 +13,7 @@ export type IconName =
   | 'cpu'
   | 'key'
   | 'tool'
+  | 'globe'
   | 'play'
   | 'logout'
   | 'chevrons-left'
@@ -39,6 +40,7 @@ const PATHS: Record<IconName, string> = {
   cpu: 'M7 7h10v10H7zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3',
   key: 'M15.5 7.5a3.5 3.5 0 1 1-3.3 4.7L4 20.4V22h2.5v-2H9v-2.5h2.3l.9-.9a3.5 3.5 0 0 1 3.3-9.1ZM16.5 6.5h.01',
   tool: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5Z',
+  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 0c2.5 2.4 3.8 5.4 3.8 9s-1.3 6.6-3.8 9m0-18C9.5 5.4 8.2 8.4 8.2 12s1.3 6.6 3.8 9M3.5 9h17M3.5 15h17',
   play: 'M6 4v16l14-8L6 4Z',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9',
   'chevrons-left': 'M11 17l-5-5 5-5m7 10-5-5 5-5',

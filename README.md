@@ -17,7 +17,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat and embeddings, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, `/metrics`, a LiteLLM config importer, the MCP tool gateway and demo mode. Not yet: Flight Recorder replay, YAML policy import/export, email approvals, an egress proxy for plain HTTP APIs, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat and embeddings, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, YAML policy import/export, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -132,6 +132,22 @@ scrape_configs:
 
 Counters: `controltower_requests_total{agent,team,kind,model,provider,status}`, `controltower_tokens_total{agent,model,type}`, `controltower_spend_usd_total{agent,team,model}`, `controltower_upstream_failures_total{model,code}`, `controltower_fallbacks_total{model}`, `controltower_gate_decisions_total{gate,decision}`, `controltower_approvals_total{outcome}`. Histograms (5 ms … 600 s): `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, plus `controltower_gateway_overhead_seconds`. Gauges: requests in flight, held requests, event backlog, `controltower_deployment_state` (0 healthy, 1 cooling down), `controltower_mcp_server_up`, budget limit / spent / remaining per scope, build info and uptime. Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will.
 
+## HTTP APIs
+
+Plain REST APIs — a status page, an internal service, a SaaS API without an MCP server — can go through Control Tower too. Register one under **HTTP APIs** (name, base URL, and its credentials, stored encrypted), then point the agent at `/http/<slug>` instead of the API's own host:
+
+```bash
+curl http://localhost:4000/http/statuspage/api/v1/components -H "x-ct-key: $CT_KEY"
+```
+
+- The agent sends only its **own Control Tower key** (`x-ct-key`, or `Authorization: Bearer ct_sk_…`). Control Tower strips it, adds the API's stored credentials and forwards the request, so the agent never holds the API's secret.
+- Every call is a flight named by route — `statuspage › POST /api/v1/incidents`, with record ids folded (`GET /v2/users/:id`) — and each route is a row under the API on the map.
+- Gates work exactly as they do for MCP tools: match an API, a route glob (`statuspage__DELETE *`), or an operation — `GET`/`HEAD` are *read*, `POST`/`PUT`/`PATCH` *write*, `DELETE` *destructive*. Approvals, inspect gates on request and response bodies, rate limits, alerts and the inventory all apply.
+- A held call answers `403` with `x-ct-status: approval_required` and a ticket; retry the same request with `x-ct-approval: <ticket>` once a human approves.
+- Agents can reach only paths under the registered base URL: dot segments and encoded dots are refused before anything is sent. Bodies up to 10 MB each way are relayed; streaming responses are buffered.
+
+On the map, **Bring it inside** on an observed SaaS or HTTP system pre-fills this form with its name and host.
+
 ## Traffic that doesn't go through Control Tower
 
 Agents also call databases, SaaS APIs and internal services directly. Report those calls and they appear on the map as **dashed lines straight from the agent to the system — not through the tower** — and in the inventory under *Seen, not enforced*. A model provider called directly (OpenAI, Anthropic, Bedrock, …) is drawn **red**: that traffic is skipping the gateway, its gates and its budgets.
@@ -156,7 +172,7 @@ Only a target name is kept: URLs lose their path and query string, connection st
 
 ## What is actually enforced
 
-Control Tower only enforces traffic that goes through it. A lane is drawn **solid** only when the gateway is in the path for that hop (LLM calls and MCP tool calls routed through Control Tower). Anything learned by observation alone is drawn **dashed**, and a rule existing on an edge never makes it solid. An agent that edits its own `base_url` bypasses the LLM gateway; the MCP gateway's `tools/list` filtering is the stronger control, because a tool the agent cannot see needs no approval. Traffic reported through `/v1/observe` or OpenTelemetry is *seen*, never enforced, and is drawn dashed. An egress-proxy sidecar to close the `base_url` gap is on the roadmap. We would rather you know the boundary than believe in one that isn't there.
+Control Tower only enforces traffic that goes through it. A lane is drawn **solid** only when the gateway is in the path for that hop (LLM calls, MCP tool calls and HTTP API calls routed through Control Tower). Anything learned by observation alone is drawn **dashed**, and a rule existing on an edge never makes it solid. An agent that edits its own `base_url` bypasses the LLM gateway; the MCP gateway's `tools/list` filtering is the stronger control, because a tool the agent cannot see needs no approval. Traffic reported through `/v1/observe` or OpenTelemetry is *seen*, never enforced, and is drawn dashed. An agent can likewise call an HTTP API's own host instead of `/http/<slug>` if it still holds that API's credentials — revoke them once traffic flows through the tower. An egress-proxy sidecar to close these gaps at the network level is on the roadmap. We would rather you know the boundary than believe in one that isn't there.
 
 ## Configuration
 

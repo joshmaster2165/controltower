@@ -361,7 +361,7 @@ export class AlertService {
     switch (e.t) {
       case 'flight.started': {
         if (this.flights.size >= MAX_TRACKED) this.flights.delete(this.flights.keys().next().value!);
-        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: e.kind === 'mcp.tool' });
+        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: e.kind === 'mcp.tool' || e.kind === 'http.request' });
         return;
       }
       case 'flight.decision': {
@@ -417,7 +417,7 @@ export class AlertService {
   }
 
   private onUpstream(e: Extract<FlightEvent, { t: 'flight.upstream' }>): void {
-    const isMcp = e.deployment_id === e.provider_id; // MCP flights use the server id for both
+    const isMcp = e.deployment_id === e.provider_id; // tool flights (MCP and HTTP) use the server id for both
     const subject: Hit['subject'] = { kind: isMcp ? 'mcp' : 'deployment', id: e.deployment_id };
     if (e.outcome === 'ok') {
       for (const r of this.rules) {

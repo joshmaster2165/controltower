@@ -18,7 +18,10 @@ import { alertRoutes } from './admin/alerts.js';
 import { importRoutes } from './admin/import.js';
 import { exportRoutes } from './admin/export.js';
 import { McpGateway } from './mcp/gateway.js';
+import { HttpGateway } from './http/gateway.js';
+import { httpAdminRoutes } from './admin/http.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
+import { mountDemoHttpApis } from './demo/http-apis.js';
 
 export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: string | undefined; logger?: boolean | object } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -66,7 +69,9 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
 
   await app.register(async (g) => gatewayRoutes(g, full));
   await app.register(async (g) => new McpGateway(full).register(g));
+  await app.register(async (g) => new HttpGateway(full).register(g));
   if (full.config.demo) await app.register(async (g) => mountDemoMcpServers(g));
+  if (full.config.demo) await app.register(async (g) => mountDemoHttpApis(g));
   await app.register(async (a) => {
     await authRoutes(a, full);
     await adminRoutes(a, full);
@@ -74,6 +79,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await playgroundRoutes(a, full);
     await policyRoutes(a, full);
     await mcpAdminRoutes(a, full);
+    await httpAdminRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
     await exportRoutes(a, full);
@@ -101,7 +107,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     });
     app.setNotFoundHandler(async (req, reply) => {
       const url = req.raw.url ?? '/';
-      if (req.method === "GET" && !url.startsWith("/v1") && !url.startsWith('/admin/api') && !url.startsWith('/mcp')) {
+      if (req.method === "GET" && !url.startsWith("/v1") && !url.startsWith('/admin/api') && !url.startsWith('/mcp') && !url.startsWith('/http/')) {
         reply.header('cache-control', 'no-store');
         return reply.sendFile('index.html');
       }

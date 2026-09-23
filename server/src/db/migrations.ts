@@ -403,3 +403,28 @@ CREATE TABLE observed_hourly (
 CREATE INDEX observed_hourly_bucket ON observed_hourly(bucket);
 `,
 });
+
+// Plain HTTP APIs proxied at /http/<slug>/…. Their flights reuse the tool
+// columns: flights.mcp_server_id holds the API id and flights.tool the route
+// ("GET /v1/items/:id"), so maps, gates and rollups treat them like tool servers.
+migrations.push({
+  version: 7,
+  name: 'http_apis',
+  sqlite: `
+CREATE TABLE http_apis (
+  id              TEXT PRIMARY KEY,
+  slug            TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL,
+  base_url        TEXT NOT NULL,
+  auth_enc        TEXT,
+  timeout_ms      INTEGER NOT NULL DEFAULT 30000,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  health          TEXT NOT NULL DEFAULT 'unknown',
+  health_detail   TEXT,
+  last_checked_at INTEGER,
+  demo            INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+`,
+});

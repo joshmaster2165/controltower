@@ -35,6 +35,7 @@ const STATE_LABEL: Record<LinkState, string> = {
 };
 
 const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', observed: 'observed system', unknown: 'unrouted' } as const;
+const kindLabel = (s: { kind: keyof typeof KIND_LABEL; protocol?: 'mcp' | 'http' | undefined }) => (s.protocol === 'http' ? 'HTTP API' : KIND_LABEL[s.kind]);
 
 function ago(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -683,7 +684,7 @@ api_key  = "ct_sk_…"`} />
         </ol>
       </>
     );
-  } else if (t.kind === 'database' || t.kind === 'saas' || t.kind === 'queue' || t.kind === 'tool') {
+  } else if (t.kind === 'database' || t.kind === 'queue') {
     body = (
       <>
         <p className="bi-why">
@@ -692,10 +693,7 @@ api_key  = "ct_sk_…"`} />
         <ol className="bi-steps">
           <li>
             <b>Expose it as an MCP tool server.</b>{' '}
-            {t.kind === 'database'
-              ? 'Use a database MCP server — ideally read-only, or with separate read and write tools.'
-              : `Many vendors publish an MCP server for their API; otherwise wrap the calls the agent makes as tools.`}{' '}
-            Serve it over HTTP (stdio servers can sit behind a bridge such as <code>supergateway</code>).
+            {t.kind === 'database' ? 'Use a database MCP server — ideally read-only, or with separate read and write tools.' : 'Wrap publishing and consuming as tools.'} Serve it over HTTP (stdio servers can sit behind a bridge such as <code>supergateway</code>).
           </li>
           <li>
             <b>Register it in Control Tower</b> — it then appears on the map with each of its tools.
@@ -710,22 +708,32 @@ api_key  = "ct_sk_…"`} />
       </>
     );
   } else {
+    // SaaS and plain HTTP services: route their REST API through /http/<slug>.
+    const base = /^https?:\/\//.test(t.target) ? t.target : `https://${t.target}`;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'api';
     body = (
       <>
         <p className="bi-why">
-          <b>{name}</b> is a plain HTTP API the agents call directly. Control Tower does not proxy arbitrary HTTP yet, so it can only be seen, not enforced.
+          Agents call <b>{name}</b>'s API with their own code and credentials, so Control Tower only sees what they report.
         </p>
         <ol className="bi-steps">
           <li>
-            <b>Wrap the calls as an MCP tool server</b> and register it — then each call can be gated like any other tool.
-            <button className="btn sm" onClick={() => setRoute('mcp', `new:${name}`)}>
-              Register an MCP server
+            <b>Register it as an HTTP API</b> with its base URL and credentials (stored encrypted — the agents stop needing them).
+            <button className="btn sm" onClick={() => setRoute('http', `new:${encodeURIComponent(name)}|${encodeURIComponent(base)}`)}>
+              Register {name}
             </button>
           </li>
           <li>
-            <b>Or keep observing it</b> — it stays documented on the map and in the inventory under “Seen, not enforced”.
+            <b>Point the agents at Control Tower</b>: same paths, a new base URL, and their Control Tower key.
+            <CodeBlock title="Base URL" code={`- ${base}
++ ${origin}/http/${slug}
+  x-ct-key: ct_sk_…   # the agent's own key`} />
+          </li>
+          <li>
+            <b>Gate it.</b> Reads, writes and deletes show up as separate routes on the map — for example, require approval for <code>DELETE</code>. Then revoke the credentials the agents used to hold.
           </li>
         </ol>
+        {t.kind === 'saas' && <p className="bi-note">Prefer tools? If {name} publishes an MCP server, register that under MCP servers instead.</p>}
       </>
     );
   }
@@ -901,7 +909,7 @@ function Tooltip({ hover }: { hover: HoverInfo }) {
           {s.label}
         </div>
         <div className="r">
-          <span>{KIND_LABEL[s.kind]}</span>
+          <span>{kindLabel(s)}</span>
           <b>{STATE_LABEL[s.state]}</b>
         </div>
         <div className="r">
@@ -1056,7 +1064,7 @@ function FocusPanel({ summary, onClose, onPick }: { summary: FocusSummary; onClo
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="hint" style={{ textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 11, fontWeight: 600 }}>
-              {KIND_LABEL[s.kind]} · {STATE_LABEL[s.state]}
+              {kindLabel(s)} · {STATE_LABEL[s.state]}
             </div>
             <div style={{ fontWeight: 600, fontSize: 16, marginTop: 2 }}>{s.label}</div>
             <div className="hint">{s.sub}</div>
@@ -1683,7 +1691,7 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
             ))}
           </optgroup>
           {topology.mcp_servers.length > 0 && (
-            <optgroup label="MCP servers">
+            <optgroup label="Tool servers and APIs">
               {topology.mcp_servers.map((m) => (
                 <option key={m.id} value={`mcp:${m.id}`}>
                   {m.name}

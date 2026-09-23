@@ -127,6 +127,8 @@ export interface TopologyMcpServer {
   enabled: boolean;
   tools: TopologyMcpTool[];
   demo: boolean;
+  /** 'http': a plain HTTP API proxied at /http/<slug>/…, its rows are routes rather than tools. */
+  protocol?: 'mcp' | 'http';
 }
 /** Who talked to what in the last 24h: agent → model deployment or tool server (and tool). */
 export interface TopologyEdge {

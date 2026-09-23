@@ -34,6 +34,13 @@ function pad(n: number): string {
   return out.join(' ');
 }
 
+const HTTP_CALLS: Array<{ agent: string; method: string; path: string; rate: number; body?: () => Record<string, unknown> }> = [
+  { agent: 'incident-copilot', method: 'GET', path: 'statuspage/api/v1/components', rate: 0.25 },
+  { agent: 'incident-copilot', method: 'GET', path: 'statuspage/api/v1/incidents', rate: 0.1 },
+  // Opening a public incident is a write: the demo gate holds it for a human.
+  { agent: 'incident-copilot', method: 'POST', path: 'statuspage/api/v1/incidents', rate: 0.04, body: () => ({ name: pick(['Elevated webhook latency', 'Checkout errors in eu-west', 'Delayed payouts']), status: 'investigating' }) },
+];
+
 export class DemoFleet {
   private running = false;
   private timers = new Set<NodeJS.Timeout>();
@@ -55,6 +62,7 @@ export class DemoFleet {
       for (const tool of agent.tools ?? []) this.scheduleTool(agent, tool);
     }
     this.scheduleObserved();
+    for (const call of HTTP_CALLS) this.scheduleHttp(call);
     this.log.info({ agents: DEMO_AGENTS.length }, 'demo fleet started');
   }
 
@@ -133,6 +141,40 @@ export class DemoFleet {
         },
       ],
     });
+  }
+
+  /** REST calls through the /http gateway, with the agent's Control Tower key only. */
+  private scheduleHttp(call: (typeof HTTP_CALLS)[number]): void {
+    if (!this.running) return;
+    const delay = -Math.log(1 - Math.random()) / (call.rate * this.speed);
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      void this.fireHttp(call);
+      this.scheduleHttp(call);
+    }, Math.max(50, delay * 1000));
+    t.unref?.();
+    this.timers.add(t);
+  }
+
+  private async fireHttp(call: (typeof HTTP_CALLS)[number]): Promise<void> {
+    const key = this.keys.get(call.agent);
+    if (!key) return;
+    const ctrl = new AbortController();
+    this.inflight.add(ctrl);
+    try {
+      this.sent++;
+      const res = await fetch(`${this.baseUrl}/http/${call.path}`, {
+        method: call.method,
+        headers: { 'x-ct-key': key, ...(call.body ? { 'content-type': 'application/json' } : {}) },
+        ...(call.body ? { body: JSON.stringify(call.body()) } : {}),
+        signal: ctrl.signal,
+      });
+      await res.arrayBuffer();
+    } catch (err) {
+      if (!ctrl.signal.aborted) this.log.debug({ err: (err as Error).message, agent: call.agent }, 'demo http call failed');
+    } finally {
+      this.inflight.delete(ctrl);
+    }
   }
 
   private scheduleTool(agent: DemoAgent, tool: NonNullable<DemoAgent['tools']>[number]): void {

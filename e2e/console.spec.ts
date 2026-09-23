@@ -1,5 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 
 /**
@@ -136,7 +138,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await expect(page.locator('.rule-list')).toContainText('Alert on any gate');
   await expect(page.locator('.rule-list')).toContainText('Notifies Console');
 
-  // Observed system → "Bring it inside" → MCP form pre-filled with its name.
+  // Observed system → "Bring it inside" → HTTP API form pre-filled with its name and base URL.
   await page.evaluate(async () => {
     const me = await (await fetch('/admin/api/me')).json();
     const k = await (
@@ -164,7 +166,88 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   const at = (await cardAt())!;
   await page.mouse.click(at[0], at[1]);
   await expect(page.locator('.bring-inside')).toContainText('Bring GitHub inside');
-  await page.locator('.bring-inside').getByRole('button', { name: 'Register an MCP server' }).click();
+  await page.locator('.bring-inside').getByRole('button', { name: 'Register GitHub' }).click();
   await expect(field(page, /^Name$/)).toHaveValue('GitHub');
-  await expect(page).toHaveURL(/#\/mcp$/);
+  await expect(field(page, /^Base URL$/)).toHaveValue('https://api.github.com');
+  await expect(page).toHaveURL(/#\/http$/);
+});
+
+/** GET without URL normalisation, so `..` reaches the server exactly as written. */
+function rawGet(path: string, headers: Record<string, string>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port: 4400, path, method: 'GET', headers }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode ?? 0));
+    });
+    r.on('error', reject);
+    r.end();
+  });
+}
+
+test('HTTP APIs: register, call through the gateway, gate deletes', async ({ page }) => {
+  // A tiny upstream that records exactly what reaches it.
+  const seen: Array<{ method: string; url: string; auth: string | undefined; ctKey: string | undefined }> = [];
+  const upstream = http.createServer((req, res) => {
+    seen.push({ method: req.method ?? '', url: req.url ?? '', auth: req.headers.authorization, ctKey: req.headers['x-ct-key'] as string | undefined });
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true, path: req.url }));
+  });
+  await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
+  const port = (upstream.address() as AddressInfo).port;
+  try {
+    await signIn(page);
+    await page.getByRole('link', { name: 'HTTP APIs' }).click();
+    await page.getByRole('button', { name: 'Add API' }).click();
+    await field(page, /^Name$/).fill('Orders API');
+    await field(page, /^Base URL$/).fill(`http://127.0.0.1:${port}/v1`);
+    await field(page, /^Credentials$/).selectOption('bearer');
+    await field(page, /^Token/).fill('upstream-secret');
+    await page.getByRole('button', { name: 'Add & test' }).click();
+    await expect(page.locator('.provider-card', { hasText: 'Orders API' })).toContainText('reachable');
+
+    const { key, csrf } = await page.evaluate(async () => {
+      const me = await (await fetch('/admin/api/me')).json();
+      const k = await (await fetch('/admin/api/keys', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'orders-agent', team: 'ops' }) })).json();
+      return { key: k.key as string, csrf: me.csrf as string };
+    });
+    const base = 'http://127.0.0.1:4400/http/orders-api';
+
+    // A read goes through with the API's stored credentials — never the agent's own key.
+    const r1 = await fetch(`${base}/orders/8812?expand=items`, { headers: { authorization: `Bearer ${key}` } });
+    expect(r1.status).toBe(200);
+    expect(await r1.json()).toEqual({ ok: true, path: '/v1/orders/8812?expand=items' });
+    expect(seen.at(-1)).toMatchObject({ method: 'GET', auth: 'Bearer upstream-secret', ctKey: undefined });
+    expect(JSON.stringify(seen)).not.toContain(key);
+
+    // Climbing out of the base URL is refused before anything is sent.
+    const before = seen.length;
+    expect(await rawGet('/http/orders-api/../../admin/api/keys', { 'x-ct-key': key })).toBe(400);
+    expect(await rawGet('/http/orders-api/%2e%2e/admin', { 'x-ct-key': key })).toBe(400);
+    expect(seen.length).toBe(before);
+
+    // A deny gate on deletes applies to the very next call.
+    const rule = await page.evaluate(
+      async (c) =>
+        (
+          await fetch('/admin/api/rules', {
+            method: 'POST',
+            headers: { 'x-ct-csrf': c, 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'Agents never delete orders', target_kind: 'tool', match: { tools: ['orders-api__DELETE *'] }, effect: 'deny', config: { reason: 'Orders are never deleted by agents' }, priority: 5 }),
+          })
+        ).status,
+      csrf,
+    );
+    expect(rule).toBe(201);
+    const r3 = await fetch(`${base}/orders/8812`, { method: 'DELETE', headers: { 'x-ct-key': key } });
+    expect(r3.status).toBe(403);
+    expect((await r3.json()).error.code).toBe('policy_denied');
+    expect(seen.length).toBe(before);
+
+    // Both calls are flights, named by route.
+    await page.getByRole('link', { name: 'Flights' }).click();
+    await expect(page.locator('table').first()).toContainText('GET /orders/:id');
+    await expect(page.locator('table').first()).toContainText('DELETE /orders/:id');
+  } finally {
+    upstream.close();
+  }
 });

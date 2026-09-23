@@ -78,7 +78,7 @@ export function FlightsPage() {
       <PageHeader
         title="Flights"
         meta={`latest ${num(rows.length)}`}
-        description="Every request through the gateway — LLM calls and MCP tool calls — with its outcome, tokens, cost and latency."
+        description="Every request through the gateway — LLM calls, MCP tool calls and HTTP API calls — with its outcome, tokens, cost and latency."
         actions={
           <>
             <button className={`btn sm ${live ? 'active' : ''}`} onClick={() => setLive((v) => !v)} title={live ? 'Pause auto-refresh' : 'Follow new flights'}>

@@ -426,7 +426,7 @@ footer .sp { flex: 1; }
       <a href="#gates">Gates</a>
       <a href="#approvals">Approvals</a>
       <a href="#monitor">Monitoring</a>
-      <a href="#install">Docs</a>
+      <a href="https://github.com/joshmaster2165/controltower#readme">Docs</a>
     </nav>
     <div class="nav-right">
       <a class="btn ghost" href="https://github.com/joshmaster2165/controltower">
@@ -1068,7 +1068,7 @@ ct_approvals_pending 1</pre>
   }
 
   /* ---------------------------------------------------------- terminal */
-  const cmd = 'docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/joshmaster2165/controltower:main';
+  const cmd = 'docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/joshmaster2165/controltower';
   const out = $('#termOut');
   const lines = [
     ['dim', 'controltower v0.1.0 · node 24 · sqlite /data/controltower.db'],

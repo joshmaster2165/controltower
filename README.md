@@ -1,6 +1,7 @@
 <p align="center">
   <img src="ui/public/logo-wordmark.svg" alt="Control Tower" width="320"><br/>
-  The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.
+  The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.<br/>
+  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 ---
@@ -22,7 +23,7 @@
 ## Quickstart
 
 ```bash
-docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/joshmaster2165/controltower:main
+docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/joshmaster2165/controltower
 ```
 
 Open <http://localhost:4000>, set your admin password, and you're in. With `CT_DEMO=1` a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models and Salesforce/GitHub tool servers — flies through the real pipeline so the Airspace is alive in seconds. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. Clear it from the console when you connect real providers.

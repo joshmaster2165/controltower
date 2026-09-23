@@ -2,7 +2,7 @@
 # set CT_DEMO=0 (or clear demo data in the console) when you connect real providers.
 services:
   controltower:
-    image: ghcr.io/joshmaster2165/controltower:main
+    image: ghcr.io/joshmaster2165/controltower:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile

@@ -51,7 +51,7 @@ const json = (res: http.ServerResponse, status: number, v: unknown) => {
 };
 
 /** OpenAI Chat Completions, as api.openai.com speaks it. `rateLimited` answers every chat call with 429. */
-export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLimited?: boolean } = {}): Promise<Upstream> {
+export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLimited?: boolean; failing?: boolean } = {}): Promise<Upstream> {
   const models = opts.models ?? ['gpt-4.1-mini', 'text-embedding-3-small'];
   const reply = opts.reply ?? 'Hello from the OpenAI-compatible upstream';
   return serve((req, res, body) => {
@@ -59,6 +59,7 @@ export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLi
     if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { object: 'list', data: models.map((id) => ({ id, object: 'model', owned_by: 'test' })) });
     if (path.endsWith('/embeddings')) return json(res, 200, { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] }], model: 'text-embedding-3-small', usage: { prompt_tokens: 3, total_tokens: 3 } });
     if (!path.endsWith('/chat/completions')) return json(res, 404, { error: { message: 'not found' } });
+    if (opts.failing) return json(res, 500, { error: { message: 'The server had an error while processing your request.', type: 'server_error' } });
     if (opts.rateLimited) {
       res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' });
       return void res.end(JSON.stringify({ error: { message: 'Rate limit reached', type: 'requests', code: 'rate_limit_exceeded' } }));
@@ -86,6 +87,7 @@ export function anthropicUpstream(opts: { reply?: string } = {}): Promise<Upstre
   return serve((req, res, body) => {
     const path = (req.url ?? '').replace(/\?.*$/, '');
     if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { data: [{ id: 'claude-sonnet-4-5', type: 'model', display_name: 'Claude Sonnet 4.5' }], has_more: false });
+    if (path.endsWith('/messages/count_tokens')) return json(res, 200, { input_tokens: 42 });
     if (!path.endsWith('/messages')) return json(res, 404, { type: 'error', error: { type: 'not_found_error', message: 'not found' } });
     const b = JSON.parse(body || '{}') as { model: string; stream?: boolean };
     const id = `msg_${crypto.randomUUID().replace(/-/g, '')}`;

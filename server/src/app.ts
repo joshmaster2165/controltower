@@ -6,6 +6,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import type { AppContext } from './context.js';
 import { gatewayRoutes } from './gateway/routes.js';
+import { compatRoutes } from './gateway/compat.js';
 import { authRoutes, loadSession } from './admin/auth.js';
 import { timingSafeEqual } from 'node:crypto';
 import { adminRoutes } from './admin/routes.js';
@@ -20,6 +21,7 @@ import { exportRoutes } from './admin/export.js';
 import { McpGateway } from './mcp/gateway.js';
 import { HttpGateway } from './http/gateway.js';
 import { httpAdminRoutes } from './admin/http.js';
+import { litellmApiRoutes } from './admin/litellm-api.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 import { mountDemoHttpApis } from './demo/http-apis.js';
 
@@ -68,6 +70,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   });
 
   await app.register(async (g) => gatewayRoutes(g, full));
+  await app.register(async (g) => compatRoutes(g, full));
   await app.register(async (g) => new McpGateway(full).register(g));
   await app.register(async (g) => new HttpGateway(full).register(g));
   // Demo upstreams are always mounted but answer only while demo mode is on (it can be started from the console).
@@ -86,6 +89,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await policyRoutes(a, full);
     await mcpAdminRoutes(a, full);
     await httpAdminRoutes(a, full);
+    await litellmApiRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
     await exportRoutes(a, full);

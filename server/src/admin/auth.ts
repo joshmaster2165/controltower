@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
+import { timingSafeEqual } from 'node:crypto';
 import { hashPassword, verifyPassword, randomToken } from '../crypto/secrets.js';
 
 export const SESSION_COOKIE = 'ct_session';
@@ -58,12 +59,40 @@ export async function loadSession(ctx: AppContext, req: FastifyRequest): Promise
   return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at };
 }
 
-/** preHandler: requires a valid session; mutations also require the CSRF header. */
+/** A bearer token (Authorization or LiteLLM's x-litellm-api-key header), without the "Bearer " prefix. */
+export function bearerToken(req: FastifyRequest): string | undefined {
+  for (const h of [req.headers.authorization, req.headers['x-litellm-api-key']]) {
+    if (typeof h !== 'string' || !h.trim()) continue;
+    const v = h.trim();
+    return /^bearer\s+/i.test(v) ? v.replace(/^bearer\s+/i, '').trim() : v;
+  }
+  return undefined;
+}
+
+/** True when the request carries the admin key (LiteLLM's master key). */
+export function hasAdminKey(ctx: AppContext, req: FastifyRequest): boolean {
+  const key = ctx.config.adminKey;
+  const presented = bearerToken(req);
+  if (!key || !presented) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(key);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * preHandler: requires a valid session (mutations also need the CSRF header),
+ * or the admin key as a bearer token — the way scripts and LiteLLM tooling
+ * call admin routes. Browsers never attach a bearer header on their own, so it needs no CSRF check.
+ */
 export function requireAdmin(ctx: AppContext) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (hasAdminKey(ctx, req)) {
+      req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER };
+      return;
+    }
     const s = await loadSession(ctx, req);
     if (!s) {
-      reply.status(401).send({ error: { code: 'unauthenticated', message: 'Sign in required.' } });
+      reply.status(401).send({ error: { code: 'unauthenticated', message: 'Sign in required (or send the admin key as a bearer token).' } });
       return;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {

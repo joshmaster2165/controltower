@@ -8,9 +8,24 @@ import { parseObserveBody, parseOtlpTraces } from '../observe/observe.js';
 export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const runner = new FlightRunner(ctx);
 
-  app.post('/v1/chat/completions', async (req, reply) => {
-    await runner.runChat(req, reply, 'openai-chat');
-  });
+  // Served with and without /v1: SDKs pointed at the bare origin (the LiteLLM convention) call /chat/completions.
+  for (const prefix of ['/v1', '']) {
+    app.post(`${prefix}/chat/completions`, async (req, reply) => {
+      await runner.runChat(req, reply, 'openai-chat');
+    });
+    app.post(`${prefix}/embeddings`, async (req, reply) => {
+      await runner.runChat(req, reply, 'openai-chat', { kind: 'embeddings' });
+    });
+  }
+  // Azure OpenAI style (LlamaIndex's AzureOpenAI, Cursor's Azure mode): the model is in the path.
+  const azure = (kind: 'chat' | 'embeddings') => async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof body.model !== 'string' || !body.model) body.model = (req.params as { model: string }).model;
+    req.body = body;
+    await runner.runChat(req, reply, 'openai-chat', kind === 'embeddings' ? { kind: 'embeddings' } : {});
+  };
+  app.post('/openai/deployments/:model/chat/completions', azure('chat'));
+  app.post('/openai/deployments/:model/embeddings', azure('embeddings'));
 
   // Anthropic-native dialect. The AnthropicAdapter (build step 4) makes this a
   // byte passthrough; until then it runs through the same pipeline and the
@@ -29,9 +44,6 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     await runner.runChat(req, reply, 'anthropic-messages');
   });
 
-  app.post('/v1/embeddings', async (req, reply) => {
-    await runner.runChat(req, reply, 'openai-chat', { kind: 'embeddings' });
-  });
 
   // ---- observed traffic: calls that do not pass through Control Tower ----
   const selfHosts = new Set([`localhost:${ctx.config.port}`, `127.0.0.1:${ctx.config.port}`, `[::1]:${ctx.config.port}`]);
@@ -68,7 +80,7 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     return reply.send({});
   });
 
-  app.get('/v1/models', async (req, reply) => {
+  const listModels = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const presented = extractApiKey(req);
     const key = presented ? ctx.registry.authenticate(presented) : undefined;
     if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
@@ -80,9 +92,8 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
       owned_by: m.provider ?? 'controltower',
     }));
     return reply.send({ object: 'list', data });
-  });
-
-  app.get('/v1/models/:id', async (req, reply) => {
+  };
+  const getModel = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const presented = extractApiKey(req);
     const key = presented ? ctx.registry.authenticate(presented) : undefined;
     if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
@@ -90,5 +101,9 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     const m = ctx.registry.visibleModels(key).find((x) => x.id === id);
     if (!m) return reply.status(404).send(errorBody('openai-chat', E.modelNotFound(id)));
     return reply.send({ id: m.id, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: m.provider ?? 'controltower' });
-  });
+  };
+  for (const prefix of ['/v1', '']) {
+    app.get(`${prefix}/models`, listModels);
+    app.get(`${prefix}/models/:id`, getModel);
+  }
 }

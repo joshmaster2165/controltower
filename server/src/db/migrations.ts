@@ -428,3 +428,18 @@ CREATE TABLE http_apis (
 );
 `,
 });
+
+// Rows declared in a config file (`--config config.yaml`, LiteLLM format) carry
+// source='config': each boot replaces them, so the file stays the source of truth.
+migrations.push({
+  version: 8,
+  name: 'config_source',
+  sqlite: `
+ALTER TABLE providers ADD COLUMN source TEXT;
+ALTER TABLE deployments ADD COLUMN source TEXT;
+ALTER TABLE aliases ADD COLUMN source TEXT;
+ALTER TABLE mcp_servers ADD COLUMN source TEXT;
+ALTER TABLE alert_channels ADD COLUMN source TEXT;
+ALTER TABLE alert_rules ADD COLUMN source TEXT;
+`,
+});

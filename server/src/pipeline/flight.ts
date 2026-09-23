@@ -136,11 +136,17 @@ export function estimateInputTokens(body: Record<string, unknown>): number {
   return Math.max(1, Math.round(chars / 4));
 }
 
+/**
+ * The agent's key: Authorization: Bearer, Anthropic's x-api-key, LiteLLM's
+ * x-litellm-api-key (with or without "Bearer "), or Azure's api-key header.
+ */
 export function extractApiKey(req: FastifyRequest): string | undefined {
   const auth = req.headers.authorization;
   if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
-  const xk = req.headers['x-api-key'];
-  if (typeof xk === 'string' && xk) return xk.trim();
+  for (const h of ['x-api-key', 'x-litellm-api-key', 'api-key'] as const) {
+    const v = req.headers[h];
+    if (typeof v === 'string' && v.trim()) return v.trim().replace(/^bearer\s+/i, '');
+  }
   return undefined;
 }
 

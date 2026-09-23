@@ -56,6 +56,10 @@ export interface PlannedProvider {
   creds: CredSource[];
   /** Resolved values, never sent to the browser. */
   values: Record<string, string>;
+  /** Stable identity (endpoint + credential source): config imports keep ids across restarts. */
+  sig: string;
+  /** From a wildcard entry (`openai/*`, `"*"`): no deployments; models are added on first use. */
+  wildcard?: boolean;
 }
 
 export interface PlannedDeployment {
@@ -68,6 +72,8 @@ export interface PlannedDeployment {
   weight: number;
   order: number;
   pricing: { input: number; output: number; mode: 'chat' | 'embedding' } | null;
+  /** Stable identity within the file. */
+  sig: string;
 }
 
 export interface PlannedAlias {
@@ -80,9 +86,20 @@ export interface PlannedMcp {
   name: string;
   slug: string;
   url: string;
+  /** From auth_type/auth_value and static_headers; never sent to the browser. */
+  auth?: { type: 'bearer'; token: string } | { type: 'headers'; headers: Record<string, string> } | undefined;
+}
+
+/** Settings honoured when the file is loaded at boot with --config. */
+export interface PlannedSettings {
+  /** general_settings.master_key: the admin bearer token. */
+  masterKey?: string;
+  /** general_settings.alerting: ["slack"] with SLACK_WEBHOOK_URL. */
+  slack?: { webhook: string; alertTypes: string[] };
 }
 
 export interface ImportPlan {
+  settings: PlannedSettings;
   providers: PlannedProvider[];
   deployments: PlannedDeployment[];
   aliases: PlannedAlias[];
@@ -158,7 +175,7 @@ const STRATEGY: Record<string, PlannedAlias['strategy']> = {
   'cost-based-routing': 'least-cost',
 };
 
-const IGNORED_GENERAL = ['master_key', 'database_url', 'alerting', 'alerting_threshold', 'custom_auth', 'enable_jwt_auth', 'litellm_jwtauth', 'ui_access_mode', 'disable_spend_logs'];
+const IGNORED_GENERAL = ['database_url', 'alerting_threshold', 'custom_auth', 'enable_jwt_auth', 'litellm_jwtauth', 'ui_access_mode', 'disable_spend_logs'];
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -188,6 +205,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
   if (!isObj(doc)) throw new ImportError('Expected a LiteLLM config.yaml with a model_list.');
   const warnings: string[] = [];
   const skipped: ImportPlan['skipped'] = [];
+  const settings: PlannedSettings = {};
 
   // `environment_variables` in the file take part in os.environ resolution, like LiteLLM.
   const fileEnv: Record<string, string> = {};
@@ -204,6 +222,14 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
     if (ignored.length) warnings.push(`general_settings ignored (Control Tower has its own): ${ignored.join(', ')}.`);
     if (gs.store_model_in_db === true) warnings.push('store_model_in_db is on: models added through the LiteLLM UI live in its database, not in this file, and are not imported.');
     if (gs.key_management_system) warnings.push(`Secrets come from ${String(gs.key_management_system)} in LiteLLM; here they are read from the environment or entered below.`);
+    const mk = str(gs.master_key);
+    const mkValue = mk?.startsWith('os.environ/') ? lookupEnv(mk.slice('os.environ/'.length)) : mk;
+    if (mkValue) settings.masterKey = mkValue;
+    if (Array.isArray(gs.alerting) && gs.alerting.map(String).includes('slack')) {
+      const webhook = lookupEnv('SLACK_WEBHOOK_URL');
+      if (webhook) settings.slack = { webhook, alertTypes: Array.isArray(gs.alert_types) ? gs.alert_types.map(String) : [] };
+      else warnings.push('alerting: ["slack"] needs SLACK_WEBHOOK_URL in the environment — Slack alerts skipped.');
+    }
   }
   for (const k of ['guardrails', 'callback_settings', 'mcp_tools', 'prompts', 'policies', 'vector_store_registry']) if (k in doc) warnings.push(`\`${k}\` is not imported.`);
   if (isObj(doc.litellm_settings) && (doc.litellm_settings.callbacks || doc.litellm_settings.success_callback)) warnings.push('Logging callbacks are not imported — Control Tower records every flight itself; use /metrics or alert webhooks for export.');
@@ -215,7 +241,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
   }
 
   const models = Array.isArray(doc.model_list) ? doc.model_list : [];
-  if (!models.length && !isObj(doc.mcp_servers)) throw new ImportError('No model_list found in this file.');
+  if (!models.length && !isObj(doc.mcp_servers) && !isObj(doc.general_settings)) throw new ImportError('No model_list found in this file.');
 
   const providers = new Map<string, PlannedProvider>();
   const providerSlugs = new Set(existing.providerSlugs);
@@ -246,7 +272,8 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
     return { field, label, secret, required, from: 'missing' };
   };
 
-  models.forEach((m, i) => {
+  const keepProviders = new Set<string>();
+  const handle = (m: unknown, i: number): void => {
     if (!isObj(m) || !isObj(m.litellm_params)) {
       skipped.push({ name: `model_list[${i}]`, reason: 'missing litellm_params' });
       return;
@@ -259,8 +286,21 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
       skipped.push({ name: group || `model_list[${i}]`, reason: 'model_name and litellm_params.model are required' });
       return;
     }
-    if (group.includes('*') || model.includes('*')) {
-      skipped.push({ name: group, reason: 'wildcard routes are not imported — add the models you use explicitly' });
+    const wildcard = group.includes('*') || model.includes('*');
+    if (wildcard && model === '*') {
+      // `model: "*"` passes any provider/model through with credentials from the environment:
+      // connect every provider whose standard API key variable is set.
+      let found = 0;
+      for (const [prefix, info] of Object.entries(PREFIXES)) {
+        if (!info.defaultKeyEnv || info.catalogId === 'custom' || info.catalogId === 'azure-openai' || !lookupEnv(info.defaultKeyEnv)) continue;
+        found++;
+        handle({ model_name: `${prefix}/*`, litellm_params: { model: `${prefix}/*` } }, i);
+      }
+      if (!found) skipped.push({ name: group, reason: 'model "*" connects the providers whose API keys are in the environment — none were found' });
+      return;
+    }
+    if (wildcard && !/^[a-z_]+\/\*$/.test(model)) {
+      skipped.push({ name: group, reason: 'only provider/* wildcards are supported — add other patterns as explicit models' });
       return;
     }
     const mode = str(info.mode) ?? 'chat';
@@ -344,14 +384,21 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
       const credName = str(m.litellm_params.litellm_credential_name);
       const sameKind = [...providers.values()].filter((x) => x.catalogId === catalogId).length;
       const name = credName ?? (catalogId === 'azure-openai' && baseUrl ? `Azure ${hostOf(baseUrl).split('.')[0]}` : sameKind ? `${label} ${sameKind + 1}` : label);
-      prov = { ref: `p${providers.size + 1}`, catalogId, name, slug: uniqueSlug(name, providerSlugs), baseUrl, extra, creds, values };
+      prov = { ref: `p${providers.size + 1}`, catalogId, name, slug: uniqueSlug(name, providerSlugs), baseUrl, extra, creds, values, sig: idKey };
       providers.set(idKey, prov);
+    }
+    if (wildcard) {
+      prov.wildcard = true;
+      keepProviders.add(prov.ref);
+      warnings.push(`${group}: ${label} is connected; its models are added the first time an agent asks for one.`);
+      return;
     }
 
     const inCost = num(lp.input_cost_per_token) ?? num(info.input_cost_per_token);
     const outCost = num(lp.output_cost_per_token) ?? num(info.output_cost_per_token);
     nameCount.set(group, (nameCount.get(group) ?? 0) + 1);
     deployments.push({
+      sig: `${group}|${prov.sig}|${upstream}|${nameCount.get(group)}`,
       ref: `d${deployments.length + 1}`,
       providerRef: prov.ref,
       upstreamModel: upstream,
@@ -361,7 +408,8 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
       order: num(lp.order) ?? 0,
       pricing: inCost !== undefined && outCost !== undefined ? { input: inCost * 1e6, output: outCost * 1e6, mode: mode === 'embedding' ? 'embedding' : 'chat' } : null,
     });
-  });
+  };
+  models.forEach((m, i) => handle(m, i));
 
   // ---- routing: strategy, fallbacks, group aliases ----
   const rs = isObj(doc.router_settings) ? doc.router_settings : {};
@@ -449,13 +497,32 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
         continue;
       }
       if (transport === 'sse') warnings.push(`MCP ${name}: SSE transport — Control Tower connects with streamable HTTP; check the server supports it.`);
-      if (v.auth_type || v.authentication_token || v.static_headers) warnings.push(`MCP ${name}: authentication is not imported — set it on the MCP page.`);
-      mcpServers.push({ name, slug: uniqueSlug(name, mcpSlugs), url });
+      // auth_type + auth_value (bearer_token, api_key, basic) and static_headers, with os.environ/ references.
+      const resolve = (raw: unknown): string | undefined => {
+        const s = str(raw);
+        return s?.startsWith('os.environ/') ? lookupEnv(s.slice('os.environ/'.length)) : s;
+      };
+      let auth: PlannedMcp['auth'];
+      const authType = str(v.auth_type);
+      const authValue = resolve(v.auth_value ?? v.authentication_token);
+      const headers: Record<string, string> = {};
+      if (isObj(v.static_headers)) for (const [k, hv] of Object.entries(v.static_headers)) {
+        const r = resolve(hv);
+        if (r) headers[k] = r;
+      }
+      if (authType && !authValue) warnings.push(`MCP ${name}: auth_value for ${authType} is not set — add credentials on the MCP page.`);
+      else if (authType === 'bearer_token' || (!authType && authValue)) auth = { type: 'bearer', token: authValue! };
+      else if (authType === 'api_key') headers['x-api-key'] = authValue!;
+      else if (authType === 'basic') headers.authorization = `Basic ${authValue!.includes(':') ? Buffer.from(authValue!).toString('base64') : authValue!}`;
+      else if (authType) warnings.push(`MCP ${name}: auth_type ${authType} is not supported — add credentials on the MCP page.`);
+      if (!auth && Object.keys(headers).length) auth = { type: 'headers', headers };
+      else if (auth && Object.keys(headers).length) warnings.push(`MCP ${name}: static_headers alongside a bearer token — only the token is used.`);
+      mcpServers.push({ name, slug: uniqueSlug(name, mcpSlugs), url, auth });
     }
   }
 
-  const usedProviders = new Set(deployments.map((d) => d.providerRef));
-  return { providers: [...providers.values()].filter((p) => usedProviders.has(p.ref)), deployments, aliases, mcpServers, warnings, skipped };
+  const usedProviders = new Set([...deployments.map((d) => d.providerRef), ...keepProviders]);
+  return { settings, providers: [...providers.values()].filter((p) => usedProviders.has(p.ref)), deployments, aliases, mcpServers, warnings, skipped };
 }
 
 function hostOf(url: string): string {
@@ -472,7 +539,7 @@ export function publicPlan(p: ImportPlan): Record<string, unknown> {
     providers: p.providers.map((x) => ({ ref: x.ref, catalog_id: x.catalogId, name: x.name, slug: x.slug, base_url: x.baseUrl ?? null, creds: x.creds })),
     deployments: p.deployments.map((d) => ({ ref: d.ref, provider_ref: d.providerRef, upstream_model: d.upstreamModel, public_name: d.publicName, group: d.group, weight: d.weight, priced: !!d.pricing })),
     aliases: p.aliases.map((a) => ({ name: a.name, strategy: a.strategy, targets: a.targets.map((t) => ({ deployment_ref: t.deploymentRef, priority: t.priority, weight: t.weight, via_fallback: t.viaFallback ?? null })) })),
-    mcp_servers: p.mcpServers,
+    mcp_servers: p.mcpServers.map((m) => ({ name: m.name, slug: m.slug, url: m.url, auth: m.auth?.type ?? 'none' })),
     warnings: p.warnings,
     skipped: p.skipped,
     missing: p.providers.flatMap((x) => x.creds.filter((c) => c.from === 'missing' && c.required).map((c) => ({ provider_ref: x.ref, provider: x.name, field: c.field, label: c.label, env: c.env ?? null }))),

@@ -351,7 +351,7 @@ test('A human approves in the console, following the link in the alert', async (
 
   await page.goto(`${CT}/`);
   const field = (label: RegExp) => page.locator('.field', { has: page.locator('label', { hasText: label }) }).first().locator('input').first();
-  await field(/^Email$/).fill(EMAIL);
+  await field(/^Email/).fill(EMAIL);
   await field(/^Password/).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.goto(link.replace(/^https?:\/\/[^/#]+/, CT));

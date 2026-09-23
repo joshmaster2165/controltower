@@ -2,7 +2,7 @@ import type { ProviderKind } from '@controltower/shared';
 import type { Kysely } from 'kysely';
 import type { Database } from './db/schema.js';
 import type { SecretBox } from './crypto/secrets.js';
-import { hashApiKey, looksLikeApiKey } from './crypto/apikeys.js';
+import { hashApiKey } from './crypto/apikeys.js';
 
 /**
  * Everything the hot path needs lives in memory and is reloaded on admin
@@ -256,8 +256,12 @@ export class Registry {
   }
 
   /** Resolve a presented API key (plaintext) to its record, or undefined. */
+  /**
+   * Generated keys (ct_sk_…) plus keys brought over from LiteLLM (sk-…) and the
+   * admin key: anything of a plausible length is looked up by its hash.
+   */
   authenticate(plaintext: string): KeyRecord | undefined {
-    if (!looksLikeApiKey(plaintext)) return undefined;
+    if (plaintext.length < 16 || plaintext.length > 512) return undefined;
     return this.keysByHash.get(hashApiKey(plaintext));
   }
 

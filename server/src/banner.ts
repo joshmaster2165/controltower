@@ -3,13 +3,14 @@
  * console and how to point agents at the gateway. Plain text on stdout,
  * separate from the structured logs.
  */
-export function startupBanner(o: { version: string; url: string; setupDone: boolean; dataDir: string; masterKey: string; demo: boolean; inContainer: boolean }): string {
+export function startupBanner(o: { version: string; url: string; setupDone: boolean; dataDir: string; masterKey: string; demo: boolean; inContainer: boolean; signIn?: string | undefined }): string {
   const row = (label: string, value: string) => `     ${label.padEnd(12)}${value}`;
   const lines = [
     '',
     `  Control Tower ${o.version} is running`,
     '',
     row('Open', `${o.url}  → ${o.setupDone ? 'sign in' : 'create your admin account'}${o.inContainer ? '  (or the host port you published)' : ''}`),
+    ...(o.signIn ? [row('Sign in', `${o.signIn}   (admin API: Authorization: Bearer <admin key>)`)] : []),
     row('Models', `OPENAI_BASE_URL=${o.url}/v1       (OpenAI SDKs)`),
     row('', `ANTHROPIC_BASE_URL=${o.url}      (Claude Code, Anthropic SDKs)`),
     row('Tools', `${o.url}/mcp    ·    REST APIs: ${o.url}/http/<name>`),

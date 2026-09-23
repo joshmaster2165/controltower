@@ -43,6 +43,8 @@ export interface ProvidersTable {
   demo: Bool;
   created_at: number;
   updated_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface DeploymentsTable {
@@ -59,6 +61,8 @@ export interface DeploymentsTable {
   demo: Bool;
   created_at: number;
   updated_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface AliasesTable {
@@ -68,6 +72,8 @@ export interface AliasesTable {
   fallback_on: Json;
   demo: Bool;
   created_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface AliasTargetsTable {
@@ -285,6 +291,8 @@ export interface McpServersTable {
   demo: Bool;
   created_at: number;
   updated_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface AlertChannelsTable {
@@ -299,6 +307,8 @@ export interface AlertChannelsTable {
   last_sent_at: number | null;
   created_at: number;
   updated_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface AlertRulesTable {
@@ -317,6 +327,8 @@ export interface AlertRulesTable {
   last_fired_at: number | null;
   created_at: number;
   updated_at: number;
+  /** 'config' when declared in a --config file (replaced on every boot). */
+  source?: string | null;
 }
 
 export interface AlertsTable {

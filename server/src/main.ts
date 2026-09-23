@@ -17,6 +17,8 @@ import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
 import { buildApp } from './app.js';
 import { startDemo } from './demo/control.js';
+import { BootConfigError, loadBootConfig } from './importers/boot.js';
+import { applyAdminKey } from './admin/admin-key.js';
 import { startupBanner } from './banner.js';
 import { isSetupComplete } from './admin/auth.js';
 import type { AppContext } from './context.js';
@@ -29,8 +31,31 @@ import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 
+const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
+
+Usage: controltower [options]            (docker: pass the same options after the image name)
+
+  --config, -c <file>   load a LiteLLM-format config.yaml at startup (models, fallbacks,
+                        aliases, MCP servers, master_key, Slack alerting)
+  --model <p/model>     serve one model with credentials from the environment
+  --port <n>            listen port (default 4000; also CT_PORT or PORT)
+  --host <addr>         listen address (default 0.0.0.0)
+  --detailed_debug      verbose logs (also --debug, LITELLM_LOG=DEBUG)
+  --version             print the version
+
+Environment: CT_ADMIN_KEY or LITELLM_MASTER_KEY sets the admin key; see the README for every CT_* setting.`;
+
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`${USAGE}\n`);
+    process.exit(0);
+  }
   const config = loadConfig();
+  if (argv.includes('--version') || argv.includes('-v')) {
+    process.stdout.write(`${config.version}\n`);
+    process.exit(0);
+  }
   const here = path.dirname(fileURLToPath(import.meta.url));
   const uiDir = config.uiDir ?? [path.resolve(here, '../../ui/dist'), path.resolve(here, '../ui')].find((p) => fs.existsSync(path.join(p, 'index.html')));
 
@@ -153,6 +178,18 @@ async function main(): Promise<void> {
   const app = await buildApp(ctx, { uiDir });
   const full = ctx as AppContext;
   logRef = app.log;
+  // A LiteLLM-format config (--config / --model), then the admin key it or the environment sets.
+  try {
+    await loadBootConfig(full);
+  } catch (err) {
+    if (err instanceof BootConfigError) {
+      app.log.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+  await applyAdminKey(full);
+  for (const n of config.notices) app.log.warn(n);
   approvals.start();
   alerts.start();
   observed.start();
@@ -183,6 +220,7 @@ async function main(): Promise<void> {
       masterKey: mk.source === 'env' ? 'CT_MASTER_KEY' : (mk.file ?? `${config.dataDir}/master.key`),
       demo: full.demo !== undefined,
       inContainer: fs.existsSync('/.dockerenv'),
+      signIn: config.adminKey ? `${config.uiUsername} / ${config.uiPassword ? 'UI_PASSWORD' : 'the admin key'}` : undefined,
     }),
   );
 

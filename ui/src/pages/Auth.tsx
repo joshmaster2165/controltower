@@ -106,12 +106,12 @@ export function LoginPage() {
         <h1>Sign in</h1>
         <p>Welcome back. Sign in to the Airspace, approvals and settings.</p>
         <div className="field">
-          <label>Email</label>
-          <input className="input" type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <label>Email or username</label>
+          <input className="input" type="text" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
         </div>
         <div className="field">
           <label>Password</label>
-          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </div>
         {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
         <button className="btn primary auth-submit" disabled={busy} type="submit">

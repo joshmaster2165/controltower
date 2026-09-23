@@ -39,13 +39,15 @@ general_settings: {master_key: sk-1234, database_url: postgres://x}
     expect(plan.deployments[2]!.pricing).toEqual({ input: 0.02, output: 0, mode: 'embedding' });
     // Different `order` tiers: a priority alias, Azure first.
     expect(plan.aliases).toEqual([{ name: 'gpt-4o', strategy: 'priority', targets: [{ deploymentRef: 'd1', priority: 0, weight: 900 }, { deploymentRef: 'd2', priority: 1, weight: 300 }] }]);
-    expect(plan.warnings.join('\n')).toContain('master_key, database_url');
+    expect(plan.warnings.join('\n')).toContain('ignored (Control Tower has its own): database_url');
+    // The master key is honoured when the file is loaded with --config.
+    expect(plan.settings.masterKey).toBe('sk-1234');
     expect(publicPlan(plan).missing).toEqual([{ provider_ref: 'p2', provider: 'OpenAI', field: 'api_key', label: 'API key', env: 'OPENAI_API_KEY' }]);
     // Resolved secrets never appear in the public plan.
     expect(JSON.stringify(publicPlan(plan))).not.toContain('az-secret');
   });
 
-  it('maps Bedrock and Vertex, and skips wildcards', () => {
+  it('maps Bedrock and Vertex, and connects a provider for a wildcard', () => {
     const plan = planLiteLLMImport(
       `
 model_list:
@@ -62,11 +64,31 @@ model_list:
     expect(plan.providers.map((p) => [p.catalogId, p.values, p.extra])).toEqual([
       ['bedrock', { access_key_id: 'AKIAEXAMPLE', secret_access_key: 'shh', region: 'us-west-2' }, {}],
       ['vertex', {}, { project: 'acme-ml', location: 'us-east5' }],
+      ['gemini', {}, {}],
     ]);
+    // gemini/* connects Gemini with no deployments: its models are added on first use.
+    expect(plan.providers[2]!.wildcard).toBe(true);
     expect(plan.providers[1]!.creds[0]!.label).toContain('/secrets/sa.json');
     expect(plan.deployments.map((d) => d.upstreamModel)).toEqual(['anthropic.claude-sonnet-4-v1:0', 'claude-sonnet-4']);
     expect(plan.aliases[0]).toMatchObject({ name: 'claude-sonnet', strategy: 'weighted' });
-    expect(plan.skipped).toEqual([{ name: 'gemini/*', reason: 'wildcard routes are not imported — add the models you use explicitly' }]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.warnings.join('\n')).toContain('models are added the first time an agent asks for one');
+  });
+
+  it('turns model "*" into every provider whose key is in the environment, and reads Slack alerting', () => {
+    const plan = planLiteLLMImport(
+      `
+model_list:
+  - model_name: "*"
+    litellm_params: {model: "*"}
+general_settings: {master_key: os.environ/LITELLM_MASTER_KEY, alerting: ["slack"], alert_types: ["llm_exceptions", "budget_alerts"]}
+`,
+      { OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a', LITELLM_MASTER_KEY: 'sk-master', SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/T/B/x' },
+      none(),
+    );
+    expect(plan.providers.map((p) => p.catalogId).sort()).toEqual(['anthropic', 'openai']);
+    expect(plan.deployments).toEqual([]);
+    expect(plan.settings).toEqual({ masterKey: 'sk-master', slack: { webhook: 'https://hooks.slack.com/services/T/B/x', alertTypes: ['llm_exceptions', 'budget_alerts'] } });
   });
 
   it('adds fallbacks after the group, recognises OpenAI-compatible hosts and keyless local servers', () => {

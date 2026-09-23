@@ -346,3 +346,21 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .inspect-fields .check { flex-wrap: wrap; row-gap: 0; }
 .inspect-fields .check .dim { flex-basis: 100%; padding-left: 22px; font-size: 11.5px; }
 .alert-lines { margin-top: 6px; font-size: 12.5px; color: var(--text-dim); display: grid; gap: 2px; }
+
+/* LiteLLM import */
+.import-card { margin-bottom: 16px; max-width: 980px; }
+.import-card textarea { width: 100%; resize: vertical; font-size: 12.5px; line-height: 1.5; }
+.import-card h3 { font-size: 13.5px; margin: 18px 0 8px; }
+.import-summary { display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 12px; background: #f8fafd; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text-dim); }
+.import-summary b { color: var(--text); font-size: 15px; margin-right: 3px; }
+.warn-text b, .warn-text { color: var(--warn) !important; }
+.cred-row { display: flex; align-items: center; gap: 10px; padding: 2px 0; font-size: 12.5px; }
+.cred-row > span:first-child { min-width: 150px; color: var(--text-dim); }
+.cred-row .input.sm { padding: 4px 8px; font-size: 12px; flex: 1; min-width: 200px; }
+.src { font-size: 11.5px; padding: 1px 7px; border-radius: 6px; }
+.src.literal, .src.env, .src.default_env { background: #e7f6ef; color: var(--ok); }
+.src.missing { background: #eef2f8; color: var(--text-dim); }
+ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
+ul.plain li { margin: 3px 0; }
+ul.notes li { color: var(--text-dim); }
+.import-done { padding: 10px 12px; border-radius: 8px; background: #e7f6ef; color: #11704b; border: 1px solid rgba(26, 158, 107, 0.3); font-size: 13px; }

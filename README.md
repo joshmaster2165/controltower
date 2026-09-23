@@ -70,6 +70,15 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 | **Ledger** | Cost, tokens, latency. |
 | **Flight Recorder** | Replay and *simulate* — what would this rule have done to yesterday's traffic? |
 
+## Coming from LiteLLM
+
+**Models → Import from LiteLLM**: paste (or upload) your proxy `config.yaml`, review what it becomes, press Import.
+
+- `model_list` entries become providers (one per distinct endpoint + credential; `credential_list` names are kept) and deployments. Groups with several entries, `order` tiers and `fallbacks` become aliases — `order` maps to priority, `weight`/`rpm`/`tpm` to weight, and `routing_strategy` to weighted, fastest-first or cheapest-first. `input_cost_per_token`/`output_cost_per_token` become per-deployment pricing. `mcp_servers` with an HTTP URL become MCP servers.
+- Providers: OpenAI, Azure OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, Groq, Mistral, Together, Fireworks, DeepSeek, xAI, OpenRouter, Perplexity, Cerebras, DeepInfra, Ollama, vLLM, LM Studio and any `openai/` + `api_base` endpoint.
+- Secrets: values in the file are used as-is; `os.environ/NAME` (and LiteLLM's default variables such as `OPENAI_API_KEY`) are read from Control Tower's environment; anything missing is asked for in the preview. `CT_*` variables are never read.
+- Not imported, and listed in the preview: wildcard routes, `include` files, context-window and content-policy fallbacks, callbacks, guardrails, `general_settings` (Control Tower has its own admin, keys and database), and models stored only in LiteLLM's database. Keys live in LiteLLM's database, not the config — create new ones here.
+
 ## Inspect gates (guardrails)
 
 Pick **Inspect** when adding a gate. A gate with no agent or destination covers everything and sits on the tower itself.

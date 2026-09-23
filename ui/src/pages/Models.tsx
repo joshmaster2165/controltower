@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { ImportLiteLLM } from './ImportLiteLLM';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
 
@@ -40,6 +41,7 @@ export function ModelsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ provider_id: '', upstream_model: '', public_name: '', input: '', output: '' });
   const [showAlias, setShowAlias] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [aliasForm, setAliasForm] = useState<{ name: string; strategy: string; targets: string[] }>({ name: '', strategy: 'priority', targets: [] });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
@@ -123,6 +125,9 @@ export function ModelsPage() {
           <h1>Models</h1>
           <p className="sub">Deployments are concrete models on a provider. Aliases group deployments under one name with ordered fallbacks — agents ask for <code>smart</code>, you decide what that means.</p>
         </div>
+        <button className="btn" onClick={() => setShowImport(true)}>
+          Import from LiteLLM
+        </button>
         <button className="btn" onClick={() => setShowAlias(true)}>
           + Alias
         </button>
@@ -132,6 +137,16 @@ export function ModelsPage() {
       </div>
 
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {showImport && (
+        <ImportLiteLLM
+          onClose={() => setShowImport(false)}
+          onImported={() => {
+            void load();
+            void refreshTopology();
+          }}
+        />
+      )}
 
       {showAdd && (
         <form className="card" style={{ marginBottom: 16, maxWidth: 620 }} onSubmit={addDeployment}>

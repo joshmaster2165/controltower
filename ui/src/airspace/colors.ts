@@ -30,6 +30,12 @@ export const PROVIDER_COLORS: Record<string, number> = {
   mock: 0x6d28d9,
 };
 
+/** Demo providers run on the mock adapter but stand in for a real vendor, named by their slug. */
+export function providerLook(p: { kind: string; slug?: string } | undefined): string {
+  if (!p) return '';
+  return p.kind === 'mock' && p.slug ? p.slug.replace(/-demo$/, '') : p.kind;
+}
+
 export const MCP_COLOR = 0x0e7490;
 
 export const CANVAS = {

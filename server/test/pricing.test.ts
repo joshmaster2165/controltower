@@ -44,4 +44,11 @@ describe('pricing', () => {
     t.setAdminOverride('openai/gpt-4o', null);
     expect(t.resolve('openai', 'gpt-4o').source).toBe('bundled');
   });
+
+  it('prices demo (mock) models like the real vendor model, whatever the slug', () => {
+    const real = t.resolve('anthropic', 'claude-sonnet-4-5').entry;
+    expect(t.resolve('mock', 'claude-sonnet-4-5', undefined, 'anthropic-demo').entry).toEqual(real);
+    expect(t.resolve('mock', 'gemini-2.5-flash', undefined, 'gemini').entry).toBeDefined();
+    expect(t.resolve('mock', 'mock-smart').key).toBe('mock/mock-smart');
+  });
 });

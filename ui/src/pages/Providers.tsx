@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { Monogram } from '../components/Monogram';
 import { Icon } from '../components/Icon';
+import { providerLook } from '../airspace/colors';
 
 const GROUPS: Array<{ title: string; hint: string; ids: string[] }> = [
   { title: 'Model providers', hint: 'Hosted APIs, including cloud platforms', ids: ['openai', 'azure-openai', 'anthropic', 'gemini', 'vertex', 'bedrock'] },
@@ -219,7 +220,7 @@ export function ProvidersPage() {
             return (
               <div className="card provider-card" key={p.id}>
                 <div className="provider-head">
-                  <Monogram name={p.name} kind={p.kind} />
+                  <Monogram name={p.name} kind={providerLook(p)} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="provider-name">
                       {p.name}

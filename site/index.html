@@ -210,7 +210,7 @@ img { display: block; }
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .tbl .sub { display: block; font: 400 10.5px/1.3 var(--mono); color: var(--faint); }
-.who { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.who { display: flex; align-items: center; gap: 8px; font-weight: 500; white-space: nowrap; }
 .who i { width: 8px; height: 8px; border-radius: 3px; flex: none; }
 .chip { display: inline-block; font: 500 10.5px/1 var(--mono); border-radius: 6px; padding: 4px 6px; border: 1px solid var(--line); color: #33435a; background: #f7f9fc; white-space: nowrap; }
 .chip.ok { color: #0f7a51; background: #eaf8f1; border-color: #bfe7d4; }
@@ -460,7 +460,7 @@ footer .sp { flex: 1; }
             <div class="dst">
               <div class="grp" data-dst="0">
                 <div class="cap">Models</div>
-                <div class="tiles"><span>gpt-4o</span><span>claude</span><span>gemini</span><span>llama</span><span>mistral</span><span>bedrock</span></div>
+                <div class="tiles"><span>gpt-4.1</span><span>claude</span><span>gemini</span><span>llama</span><span>mistral</span><span>bedrock</span></div>
               </div>
               <div class="grp" data-dst="1">
                 <div class="cap">MCP tools</div>
@@ -534,21 +534,21 @@ footer .sp { flex: 1; }
               </defs>
               <rect width="520" height="330" fill="url(#g)"/>
               <g class="r" style="--i:0" fill="none" stroke-width="1.6">
-                <path d="M118 42 C180 42 190 120 244 120" stroke="#9db8ff"/>
-                <path d="M118 92 C170 92 200 120 244 124" stroke="#9db8ff"/>
-                <path d="M118 142 C170 142 200 130 244 128" stroke="#f0b75a"/>
-                <path d="M118 192 C180 192 200 136 244 132" stroke="#e58a99"/>
+                <path d="M130 42 C180 42 190 120 244 120" stroke="#9db8ff"/>
+                <path d="M130 92 C170 92 200 120 244 124" stroke="#9db8ff"/>
+                <path d="M130 142 C170 142 200 130 244 128" stroke="#f0b75a"/>
+                <path d="M130 192 C180 192 200 136 244 132" stroke="#e58a99"/>
                 <path d="M296 124 C350 124 350 52 402 52" stroke="#9db8ff"/>
                 <path d="M296 126 C350 126 350 116 402 116" stroke="#9db8ff"/>
                 <path d="M296 128 C350 128 350 180 402 180" stroke="#f0b75a"/>
-                <path d="M118 196 L136 196 Q142 196 142 202 L142 269 Q142 275 148 275 L232 275" stroke="#d3374e" stroke-dasharray="4 4"/>
-                <path d="M118 46 L128 46 Q134 46 134 52 L134 295 Q134 301 140 301 L352 301" stroke="#aab6c8" stroke-dasharray="4 4"/>
+                <path d="M130 196 L136 196 Q142 196 142 202 L142 269 Q142 275 148 275 L232 275" stroke="#d3374e" stroke-dasharray="4 4"/>
+                <path d="M130 46 Q134 46 134 52 L134 295 Q134 301 140 301 L352 301" stroke="#aab6c8" stroke-dasharray="4 4"/>
               </g>
               <g class="r" style="--i:1" font-size="10.5">
-                <g><rect x="12" y="28" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="36" width="14" height="14" rx="4" fill="#1f5eff"/><text x="40" y="47" fill="#0f1b2d" font-weight="600">support-bot</text></g>
-                <g><rect x="12" y="78" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="86" width="14" height="14" rx="4" fill="#7c5cff"/><text x="40" y="97" fill="#0f1b2d" font-weight="600">code-reviewer</text></g>
-                <g><rect x="12" y="128" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="136" width="14" height="14" rx="4" fill="#0fa3a3"/><text x="40" y="147" fill="#0f1b2d" font-weight="600">ops-agent</text></g>
-                <g><rect x="12" y="178" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="186" width="14" height="14" rx="4" fill="#e0662f"/><text x="40" y="197" fill="#0f1b2d" font-weight="600">researcher</text></g>
+                <g><rect x="12" y="28" width="118" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="19" y="37" width="12" height="12" rx="3.5" fill="#1f5eff"/><text x="37" y="47" fill="#0f1b2d" font-weight="600" font-size="10">support-triage</text></g>
+                <g><rect x="12" y="78" width="118" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="19" y="87" width="12" height="12" rx="3.5" fill="#7c5cff"/><text x="37" y="97" fill="#0f1b2d" font-weight="600" font-size="10">pr-reviewer</text></g>
+                <g><rect x="12" y="128" width="118" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="19" y="137" width="12" height="12" rx="3.5" fill="#0fa3a3"/><text x="37" y="147" fill="#0f1b2d" font-weight="600" font-size="10">incident-copilot</text></g>
+                <g><rect x="12" y="178" width="118" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="19" y="187" width="12" height="12" rx="3.5" fill="#e0662f"/><text x="37" y="197" fill="#0f1b2d" font-weight="600" font-size="10">market-research</text></g>
               </g>
               <g class="r" style="--i:2">
                 <circle cx="270" cy="126" r="34" fill="#e8efff" opacity=".6"/>
@@ -559,9 +559,9 @@ footer .sp { flex: 1; }
                 <circle cx="236" cy="136" r="5" fill="#fff" stroke="#d3374e" stroke-width="1.8" opacity="0"/>
               </g>
               <g class="r" style="--i:3" font-size="10.5">
-                <g><rect x="402" y="38" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="57" fill="#0f1b2d" font-weight="600">claude-sonnet</text></g>
-                <g><rect x="402" y="102" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="121" fill="#0f1b2d" font-weight="600">gpt-4o-mini</text></g>
-                <g><rect x="402" y="166" width="108" height="46" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="184" fill="#0f1b2d" font-weight="600">crm</text><text x="412" y="201" fill="#8a5300" font-size="9.5" font-family="Geist Mono, monospace">delete_contact ◆</text></g>
+                <g><rect x="402" y="38" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="411" y="57" fill="#0f1b2d" font-weight="600" font-size="10">claude-sonnet-4-5</text></g>
+                <g><rect x="402" y="102" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="411" y="121" fill="#0f1b2d" font-weight="600" font-size="10">gpt-4.1-mini</text></g>
+                <g><rect x="402" y="166" width="108" height="46" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="411" y="184" fill="#0f1b2d" font-weight="600" font-size="10">salesforce</text><text x="412" y="201" fill="#8a5300" font-size="9.5" font-family="Geist Mono, monospace">delete_contact ◆</text></g>
               </g>
               <g class="r" style="--i:4" font-size="10">
                 <rect x="150" y="232" width="358" height="90" rx="10" fill="none" stroke="#b6c2d3" stroke-dasharray="4 4"/>
@@ -578,12 +578,12 @@ footer .sp { flex: 1; }
             <table class="tbl">
               <thead><tr><th>Agent</th><th>Reaches</th><th class="hide-sm">Via</th><th>Policy</th><th class="num hide-sm">Calls</th></tr></thead>
               <tbody>
-                <tr class="r" style="--i:0"><td><span class="who"><i style="background:#1f5eff"></i>support-bot</span></td><td class="mono">crm › delete_contact</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip warn">approval</span></td><td class="num hide-sm">412</td></tr>
-                <tr class="r" style="--i:1"><td><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span></td><td class="mono">claude-sonnet</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">allow</span></td><td class="num hide-sm">2,081</td></tr>
-                <tr class="r" style="--i:2"><td><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span></td><td class="mono">repo › merge_pr</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip deny">deny</span></td><td class="num hide-sm">9</td></tr>
-                <tr class="r" style="--i:3"><td><span class="who"><i style="background:#0fa3a3"></i>ops-agent</span></td><td class="mono">orders (postgres)</td><td class="hide-sm"><span class="chip">observed</span></td><td><span class="chip dash">not enforced</span></td><td class="num hide-sm">164</td></tr>
-                <tr class="r" style="--i:4"><td><span class="who"><i style="background:#e0662f"></i>researcher</span></td><td class="mono">api.openai.com</td><td class="hide-sm"><span class="chip">direct</span></td><td><span class="chip dash">bypasses</span></td><td class="num hide-sm">57</td></tr>
-                <tr class="r" style="--i:5"><td><span class="who"><i style="background:#1f5eff"></i>support-bot</span></td><td class="mono">gpt-4o-mini</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">inspect</span></td><td class="num hide-sm">3,420</td></tr>
+                <tr class="r" style="--i:0"><td><span class="who"><i style="background:#1f5eff"></i>support-triage</span></td><td class="mono">salesforce › delete_contact</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip warn">approval</span></td><td class="num hide-sm">412</td></tr>
+                <tr class="r" style="--i:1"><td><span class="who"><i style="background:#7c5cff"></i>pr-reviewer</span></td><td class="mono">claude-sonnet-4-5</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">allow</span></td><td class="num hide-sm">2,081</td></tr>
+                <tr class="r" style="--i:2"><td><span class="who"><i style="background:#7c5cff"></i>pr-reviewer</span></td><td class="mono">github › merge_pr</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip deny">deny</span></td><td class="num hide-sm">9</td></tr>
+                <tr class="r" style="--i:3"><td><span class="who"><i style="background:#0fa3a3"></i>incident-copilot</span></td><td class="mono">orders (postgres)</td><td class="hide-sm"><span class="chip">observed</span></td><td><span class="chip dash">not enforced</span></td><td class="num hide-sm">164</td></tr>
+                <tr class="r" style="--i:4"><td><span class="who"><i style="background:#e0662f"></i>market-research</span></td><td class="mono">api.openai.com</td><td class="hide-sm"><span class="chip">direct</span></td><td><span class="chip dash">bypasses</span></td><td class="num hide-sm">57</td></tr>
+                <tr class="r" style="--i:5"><td><span class="who"><i style="background:#1f5eff"></i>support-triage</span></td><td class="mono">gpt-4.1-mini</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">inspect</span></td><td class="num hide-sm">3,420</td></tr>
               </tbody>
             </table>
           </div>
@@ -594,10 +594,10 @@ footer .sp { flex: 1; }
             <table class="tbl">
               <thead><tr><th>System</th><th>Called by</th><th>Status</th><th class="num hide-sm"></th></tr></thead>
               <tbody>
-                <tr class="r" style="--i:0"><td>OpenAI<span class="sub">api.openai.com</span></td><td>researcher</td><td><span class="chip dash">bypasses gateway</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
-                <tr class="r" style="--i:1"><td>GitHub<span class="sub">api.github.com</span></td><td>code-reviewer, ops-agent</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
-                <tr class="r" style="--i:2"><td>orders<span class="sub">postgresql · orders-db</span></td><td>ops-agent</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
-                <tr class="r" style="--i:3"><td>HubSpot<span class="sub">api.hubapi.com</span></td><td>sdr-agent, support-bot</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:0"><td>OpenAI<span class="sub">api.openai.com</span></td><td>market-research</td><td><span class="chip dash">bypasses gateway</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:1"><td>GitHub<span class="sub">api.github.com</span></td><td>pr-reviewer, incident-copilot</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:2"><td>orders<span class="sub">postgresql · orders-db</span></td><td>incident-copilot</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:3"><td>HubSpot<span class="sub">api.hubapi.com</span></td><td>outbound-sdr, support-triage</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
               </tbody>
             </table>
             <p class="hint r" style="--i:4; margin: 16px 8px 0">Reported with one call to /v1/observe, or any OpenTelemetry exporter pointed at /v1/traces.</p>
@@ -631,10 +631,10 @@ footer .sp { flex: 1; }
       </div>
       <div class="window">
         <div class="pane on">
-          <div class="whead">Gate · support-bot → crm<span class="sp"></span><span class="wbtn">YAML</span></div>
+          <div class="whead">Gate · support-triage → salesforce<span class="sp"></span><span class="wbtn">YAML</span></div>
           <div class="wbody form">
-            <div class="frow r" style="--i:0"><label>From</label><span class="input">support-bot · team support</span></div>
-            <div class="frow r" style="--i:1"><label>To</label><span class="input">crm › delete_contact</span></div>
+            <div class="frow r" style="--i:0"><label>From</label><span class="input">support-triage · team customer-support</span></div>
+            <div class="frow r" style="--i:1"><label>To</label><span class="input">salesforce › delete_contact</span></div>
             <div class="frow r" style="--i:2"><label>Effect</label><span class="seg"><span>Allow</span><span>Deny</span><span class="on">Require approval</span><span>Limits</span><span>Inspect</span></span></div>
             <div class="frow r" style="--i:3"><label>Hold for</label><span class="input">20 s, then issue a ticket</span></div>
             <div class="frow r" style="--i:4"><label>Approval binds to</label><span class="input">contact_id — this exact contact</span></div>
@@ -683,7 +683,7 @@ footer .sp { flex: 1; }
       <h3><span class="accent">Tower:</span> a human in the loop, without breaking the agent.</h3>
       <p>A gated call holds at the gate while someone decides. Approve it in the console or straight from the alert in Slack; the agent carries on. If nobody answers in time, the agent gets a ticket it can redeem once approved.</p>
       <ul class="checks">
-        <li><b>See the real arguments</b> and a plain-language scope — "this one contact", not "all CRM writes".</li>
+        <li><b>See the real arguments</b> and a plain-language scope — "this one contact", not "all Salesforce writes".</li>
         <li><b>Approvals bind to what was approved</b>, so an agent can't swap the arguments after you say yes.</li>
         <li><b>Retries collapse into one card</b> instead of forty, and each approval is redeemed at most once.</li>
         <li><b>Alerts deep-link to the card</b> from Slack or any signed webhook.</li>
@@ -701,10 +701,10 @@ footer .sp { flex: 1; }
           <div class="whead">Tower <span class="chip warn">1 holding</span><span class="sp"></span><span class="wbtn">History</span></div>
           <div class="wbody">
             <div class="card-hold r" style="--i:0">
-              <div class="top"><span class="chip warn">Holding</span><span>gate: support → CRM writes</span><span class="sp"></span><span class="mono" style="font-size:11.5px;color:#8a5300">20 s</span></div>
+              <div class="top"><span class="chip warn">Holding</span><span>gate: support → Salesforce writes</span><span class="sp"></span><span class="mono" style="font-size:11.5px;color:#8a5300">20 s</span></div>
               <div class="timer"><i></i></div>
               <div class="in">
-                <div class="ttl r" style="--i:1"><b>support-bot</b> wants to call <b class="mono" style="font-weight:500">crm › delete_contact</b></div>
+                <div class="ttl r" style="--i:1"><b>support-triage</b> wants to call <b class="mono" style="font-weight:500">salesforce › delete_contact</b></div>
                 <pre class="args r" style="--i:2">{ <span class="k">"contact_id"</span>: <span class="s">"c_8812"</span>,
   <span class="k">"reason"</span>: <span class="s">"duplicate of c_8790"</span> }</pre>
                 <div class="scope r" style="--i:3">Approving allows <b>this one call</b> for contact <span class="mono">c_8812</span>. Any other contact asks again.</div>
@@ -721,8 +721,8 @@ footer .sp { flex: 1; }
               <div>
                 <div class="meta"><b>Control Tower</b><span>14:02</span></div>
                 <div class="bub">
-                  <div><b>Held for approval:</b> support-bot → crm › delete_contact</div>
-                  <div class="hint" style="color:#5b6b82">gate “support → CRM writes” · 1 waiting · expires in 20 s</div>
+                  <div><b>Held for approval:</b> support-triage → salesforce › delete_contact</div>
+                  <div class="hint" style="color:#5b6b82">gate “support → Salesforce writes” · 1 waiting · expires in 20 s</div>
                   <div class="btnrow"><span class="p">Review &amp; approve</span><span>Open map</span></div>
                 </div>
               </div>
@@ -746,8 +746,8 @@ footer .sp { flex: 1; }
         <div class="pane">
           <div class="whead">Flight 01J9…Q4ZK<span class="sp"></span><span class="wbtn">Export</span></div>
           <div class="wbody log">
-            <div class="r" style="--i:0"><time>14:02:11</time><i class="a"></i><span><b>Started</b> · support-bot → crm › delete_contact</span></div>
-            <div class="r" style="--i:1"><time>14:02:11</time><i class="w"></i><span><b>Held</b> by gate “support → CRM writes” · Slack alert sent</span></div>
+            <div class="r" style="--i:0"><time>14:02:11</time><i class="a"></i><span><b>Started</b> · support-triage → salesforce › delete_contact</span></div>
+            <div class="r" style="--i:1"><time>14:02:11</time><i class="w"></i><span><b>Held</b> by gate “support → Salesforce writes” · Slack alert sent</span></div>
             <div class="r" style="--i:2"><time>14:02:19</time><i class="o"></i><span><b>Approved</b> by dana · scope: contact_id = c_8812</span></div>
             <div class="r" style="--i:3"><time>14:02:19</time><i class="o"></i><span><b>Completed</b> · 184 ms · upstream ok</span></div>
             <div class="r" style="--i:4"><time>14:05:40</time><i class="w"></i><span><b>Held</b> · same agent, contact c_9101 — a new approval is needed</span></div>
@@ -783,12 +783,12 @@ footer .sp { flex: 1; }
         <div class="pane on">
           <div class="whead">Spend by agent <span class="chip">this month</span><span class="sp"></span><span class="wbtn">By team</span><span class="wbtn">Export</span></div>
           <div class="wbody bars">
-            <div class="brow r" style="--i:0"><span class="who"><i style="background:#1f5eff"></i>support-bot</span><span class="tr"><i style="width:82%;--i:0"></i></span><span class="num">$412.08</span></div>
-            <div class="brow r" style="--i:1"><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span><span class="tr"><i style="width:64%;--i:1"></i></span><span class="num">$318.40</span></div>
-            <div class="brow r" style="--i:2"><span class="who"><i style="background:#e0662f"></i>researcher</span><span class="tr"><i style="width:47%;--i:2;background:linear-gradient(90deg,#f08a9a,#d3374e)"></i></span><span class="num over">$236.90</span></div>
-            <div class="brow r" style="--i:3"><span class="who"><i style="background:#0fa3a3"></i>ops-agent</span><span class="tr"><i style="width:29%;--i:3"></i></span><span class="num">$145.12</span></div>
-            <div class="brow r" style="--i:4"><span class="who"><i style="background:#c23fb0"></i>sdr-agent</span><span class="tr"><i style="width:14%;--i:4"></i></span><span class="num">$70.33</span></div>
-            <p class="hint r" style="--i:5;margin:6px 0 0">researcher is at 95% of its $250 monthly budget — new calls will be refused at the cap.</p>
+            <div class="brow r" style="--i:0"><span class="who"><i style="background:#1f5eff"></i>support-triage</span><span class="tr"><i style="width:82%;--i:0"></i></span><span class="num">$412.08</span></div>
+            <div class="brow r" style="--i:1"><span class="who"><i style="background:#7c5cff"></i>pr-reviewer</span><span class="tr"><i style="width:64%;--i:1"></i></span><span class="num">$318.40</span></div>
+            <div class="brow r" style="--i:2"><span class="who"><i style="background:#e0662f"></i>market-research</span><span class="tr"><i style="width:47%;--i:2;background:linear-gradient(90deg,#f08a9a,#d3374e)"></i></span><span class="num over">$236.90</span></div>
+            <div class="brow r" style="--i:3"><span class="who"><i style="background:#0fa3a3"></i>incident-copilot</span><span class="tr"><i style="width:29%;--i:3"></i></span><span class="num">$145.12</span></div>
+            <div class="brow r" style="--i:4"><span class="who"><i style="background:#c23fb0"></i>outbound-sdr</span><span class="tr"><i style="width:14%;--i:4"></i></span><span class="num">$70.33</span></div>
+            <p class="hint r" style="--i:5;margin:6px 0 0">market-research is at 95% of its $250 monthly budget — new calls will be refused at the cap.</p>
           </div>
         </div>
         <div class="pane">

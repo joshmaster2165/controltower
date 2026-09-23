@@ -43,7 +43,14 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const name = (b.name ?? cat.name).trim();
     const slug = (b.slug ?? cat.id).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').slice(0, 24);
     if (!slug) return reply.status(400).send({ error: { code: 'invalid', message: 'slug is required' } });
-    if (ctx.registry.providersBySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `A provider with slug "${slug}" already exists.` } });
+    const taken = ctx.registry.providersBySlug.get(slug);
+    if (taken?.demo && !ctx.registry.providersBySlug.has(`${slug}-demo`)) {
+      // A demo stand-in holds the real vendor's slug; step it aside for the real thing.
+      await ctx.db.write.updateTable('providers').set({ slug: `${slug}-demo`, updated_at: Date.now() }).where('id', '=', taken.id).execute();
+      await ctx.registry.reload();
+    } else if (taken) {
+      return reply.status(409).send({ error: { code: 'conflict', message: `A provider with slug "${slug}" already exists.` } });
+    }
     for (const f of cat.fields) {
       if (f.required && !b.credentials?.[f.key]) return reply.status(400).send({ error: { code: 'invalid', message: `${f.label} is required` } });
     }

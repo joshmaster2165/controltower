@@ -1,24 +1,26 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { DEMO_AGENTS, type DemoAgent } from './seed.js';
+import { DEMO_AGENTS, DEMO_LEAKY_AGENT, type DemoAgent } from './seed.js';
 
 /**
  * Synthetic agent fleet. Calls the gateway over loopback HTTP with real demo
  * keys, so every demo flight traverses the real pipeline and the real event
  * bus. Poisson arrivals per agent; a fraction of calls stream.
  */
-const PROMPTS = [
-  'Summarize the customer ticket and propose a reply.',
-  'Review this diff for security issues and style problems.',
-  'Find three recent papers on retrieval-augmented generation and compare them.',
-  'Check the deploy logs and tell me whether the rollout is healthy.',
-  'Draft a short outbound email for a VP of Engineering at a fintech.',
-  'What is the fastest way to delete all contacts in the CRM?',
-  'Explain this stack trace and suggest a fix.',
-  'Translate the release notes into Spanish and German.',
-];
+const PROMPTS: Record<string, string[]> = {
+  'support-triage': ['Classify this Zendesk ticket (billing, bug, how-to) and draft a first reply.', 'Summarize the customer thread and suggest the next action.'],
+  'pr-reviewer': ['Review this diff for security issues and style problems.', 'Explain this stack trace from CI and suggest a fix.'],
+  'market-research': ['Summarize this quarter\'s competitor pricing changes.', 'Compare three recent papers on retrieval-augmented generation.'],
+  'incident-copilot': ['Check the deploy logs and tell me whether the rollout is healthy.', 'Summarize the last hour of PagerDuty alerts for the payments service.'],
+  'outbound-sdr': ['Draft a short outbound email for a VP of Engineering at a fintech.', 'Personalize this sequence step for the account notes below.'],
+  'labs-prototype': ['What is the fastest way to delete all contacts in Salesforce?', 'Translate the release notes into Spanish and German.'],
+};
 
 /** AWS's own documentation example credentials — not real, but shaped like real ones. */
 const LEAKY_PROMPT = 'Deploy the staging stack with these credentials: AKIAIOSFODNN7EXAMPLE / aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+
+function pick<T>(xs: T[]): T {
+  return xs[Math.floor(Math.random() * xs.length)]!;
+}
 
 function pad(n: number): string {
   const words = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon'.split(' ');
@@ -101,12 +103,12 @@ export class DemoFleet {
       await fetch(`${this.baseUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify(body) }).catch(() => undefined);
     };
     const n = (mean: number) => Math.max(0, Math.round(mean * (0.5 + Math.random())));
-    await post('support-bot', '/v1/observe', { events: [{ target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'read', count: n(6) || 1 }, { target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'write', count: n(2) || 1 }] });
-    await post('sdr-agent', '/v1/observe', { events: [{ target: 'https://api.hubapi.com/crm/v3/objects/contacts', operation: 'write', count: n(3) || 1 }] });
-    await post('code-reviewer', '/v1/observe', { events: [{ target: 'https://api.github.com/repos/acme/ledger/pulls', operation: 'read', count: n(4) || 1, status: Math.random() < 0.05 ? 'error' : 'ok' }] });
+    await post('support-triage', '/v1/observe', { events: [{ target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'read', count: n(6) || 1 }, { target: 'https://acme.zendesk.com/api/v2/tickets', operation: 'write', count: n(2) || 1 }] });
+    await post('outbound-sdr', '/v1/observe', { events: [{ target: 'https://api.hubapi.com/crm/v3/objects/contacts', operation: 'write', count: n(3) || 1 }] });
+    await post('pr-reviewer', '/v1/observe', { events: [{ target: 'https://sentry.io/api/0/projects/acme/payments-api/issues/', operation: 'read', count: n(4) || 1, status: Math.random() < 0.05 ? 'error' : 'ok' }] });
     // A direct model call that should have gone through the gateway.
-    if (Math.random() < 0.3) await post('researcher', '/v1/observe', { events: [{ target: 'https://api.openai.com/v1/chat/completions', operation: 'write', count: 1 }] });
-    // ops-agent reports through OpenTelemetry, like an instrumented service would.
+    if (Math.random() < 0.3) await post('market-research', '/v1/observe', { events: [{ target: 'https://api.openai.com/v1/chat/completions', operation: 'write', count: 1 }] });
+    // incident-copilot reports through OpenTelemetry, like an instrumented service would.
     const now = BigInt(Date.now()) * 1_000_000n;
     const span = (name: string, attrs: Record<string, string>, ms: number) => ({
       name,
@@ -116,10 +118,10 @@ export class DemoFleet {
       attributes: Object.entries(attrs).map(([key, v]) => ({ key, value: { stringValue: v } })),
       status: { code: 1 },
     });
-    await post('ops-agent', '/v1/traces', {
+    await post('incident-copilot', '/v1/traces', {
       resourceSpans: [
         {
-          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'ops-agent' } }] },
+          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'incident-copilot' } }] },
           scopeSpans: [
             {
               spans: [
@@ -180,7 +182,7 @@ export class DemoFleet {
       max_tokens: Math.max(16, Math.round(agent.maxTokens * (0.5 + Math.random()))),
       messages: [
         { role: 'system', content: `You are ${agent.name}, an automated agent for the ${agent.team} team.` },
-        { role: 'user', content: `${agent.id === 'rogue-intern' && Math.random() < 0.15 ? LEAKY_PROMPT : PROMPTS[Math.floor(Math.random() * PROMPTS.length)]}\n\n${pad(chars)}` },
+        { role: 'user', content: `${agent.id === DEMO_LEAKY_AGENT && Math.random() < 0.15 ? LEAKY_PROMPT : pick(PROMPTS[agent.id] ?? PROMPTS['support-triage']!)}\n\n${pad(chars)}` },
       ],
       ...(stream ? { stream_options: { include_usage: true } } : {}),
     };

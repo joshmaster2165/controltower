@@ -1,5 +1,6 @@
 import type { Usage } from '@controltower/shared';
 import type { AdapterResult, ProviderAdapter, SendOptions, UpstreamCtx, UpstreamEvent } from './adapter.js';
+import type { ProviderRecord } from '../registry.js';
 
 /**
  * In-process provider used by CT_DEMO and by tests. Streams generated tokens
@@ -171,7 +172,10 @@ export class MockAdapter implements ProviderAdapter {
     yield { t: 'done' };
   }
 
-  async listModels(): Promise<Array<{ id: string; context?: number }>> {
+  async listModels(provider?: ProviderRecord): Promise<Array<{ id: string; context?: number }>> {
+    // Demo providers stand in for a real vendor and list that vendor's models.
+    const models = provider?.extra.models;
+    if (Array.isArray(models)) return models.filter((m): m is string => typeof m === 'string').map((id) => ({ id }));
     return [
       { id: 'mock-smart', context: 200000 },
       { id: 'mock-fast', context: 128000 },

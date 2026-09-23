@@ -43,6 +43,8 @@ const KIND_TO_NAMESPACE: Record<ProviderKind, string> = {
   mock: 'mock',
 };
 
+const MOCK_PRICE_AS = ['anthropic', 'openai', 'gemini'];
+
 export class PricingTable {
   private admin = new Map<string, PriceEntry>();
   private remote = new Map<string, PriceEntry>();
@@ -69,6 +71,8 @@ export class PricingTable {
     const ns = KIND_TO_NAMESPACE[kind];
     // OpenAI-compatible providers (groq, together, …) have their own price namespaces keyed by slug.
     const keys = providerSlug && providerSlug !== ns ? [...candidateKeys(providerSlug, upstreamModel), ...candidateKeys(ns, upstreamModel)] : candidateKeys(ns, upstreamModel);
+    // The mock provider stands in for real models in demos; price them like the real thing.
+    if (kind === 'mock') for (const real of MOCK_PRICE_AS) keys.push(...candidateKeys(real, upstreamModel));
     for (const key of keys) {
       const a = this.admin.get(key);
       if (a) return { source: 'admin', key, entry: a };

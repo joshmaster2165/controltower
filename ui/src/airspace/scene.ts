@@ -1,6 +1,6 @@
 import type { FlightEvent } from '@controltower/shared';
 import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, Zone } from '../api';
-import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, STATUS_COLORS } from './colors';
+import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, providerLook, STATUS_COLORS } from './colors';
 
 /**
  * The Airspace — a live map of the agentic ecosystem (Canvas 2D).
@@ -720,7 +720,7 @@ export class AirspaceScene {
     const provById = new Map(t.providers.map((p) => [p.id, p]));
     for (const d of t.deployments) {
       const prov = provById.get(d.provider_id);
-      upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[prov?.kind ?? ''] ?? 0x475569);
+      upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[providerLook(prov)] ?? 0x475569);
     }
     for (const m of t.mcp_servers ?? []) {
       const s = upsert(m.id, 'mcp', m.name, `MCP server · ${m.tools.length} tool${m.tools.length === 1 ? '' : 's'}`, MCP_COLOR, m.slug);

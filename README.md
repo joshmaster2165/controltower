@@ -25,7 +25,7 @@
 docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/controltower-ai/controltower
 ```
 
-Open <http://localhost:4000>, set your admin password, and you're in. With `CT_DEMO=1` a synthetic agent fleet flies through the real pipeline so the Airspace is alive in seconds; clear it from the console when you connect real providers.
+Open <http://localhost:4000>, set your admin password, and you're in. With `CT_DEMO=1` a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models and Salesforce/GitHub tool servers — flies through the real pipeline so the Airspace is alive in seconds. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. Clear it from the console when you connect real providers.
 
 Then, in the browser:
 
@@ -167,7 +167,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_PORT` | `4000` | Listen port |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
-| `CT_DEMO` | `0` | Seed a mock provider and run a synthetic agent fleet |
+| `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe |

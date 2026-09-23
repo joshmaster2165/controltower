@@ -70,8 +70,14 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   await app.register(async (g) => gatewayRoutes(g, full));
   await app.register(async (g) => new McpGateway(full).register(g));
   await app.register(async (g) => new HttpGateway(full).register(g));
-  if (full.config.demo) await app.register(async (g) => mountDemoMcpServers(g));
-  if (full.config.demo) await app.register(async (g) => mountDemoHttpApis(g));
+  // Demo upstreams are always mounted but answer only while demo mode is on (it can be started from the console).
+  await app.register(async (g) => {
+    g.addHook('onRequest', async (_req, reply) => {
+      if (!full.demo) return reply.status(404).send({ error: { code: 'not_found', message: 'demo mode is off' } });
+    });
+    await mountDemoMcpServers(g);
+    await mountDemoHttpApis(g);
+  });
   await app.register(async (a) => {
     await authRoutes(a, full);
     await adminRoutes(a, full);

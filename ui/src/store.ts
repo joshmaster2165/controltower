@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { FlightEvent } from '@controltower/shared';
 import { api, setCsrf, type AlertChannel, type AlertItem, type AlertRule, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
 
-export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'http' | 'playground' | 'ledger';
+export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'http' | 'playground' | 'welcome' | 'ledger';
 
 interface FeedItem {
   id: string;
@@ -36,6 +36,8 @@ interface State {
   setMe(me: Me | null): void;
   setRoute(r: Route, param?: string | null): void;
   refreshTopology(): Promise<void>;
+  /** Start the demo fleet, or stop it and remove everything it added. */
+  setDemo(on: boolean): Promise<void>;
   refreshPolicy(): Promise<void>;
   refreshApprovals(): Promise<void>;
   refreshAlerts(): Promise<void>;
@@ -86,6 +88,14 @@ export const useStore = create<State>((set, get) => ({
   setRoute(route, param = null) {
     location.hash = param ? `#/${route}/${encodeURIComponent(param)}` : `#/${route}`;
     set({ route, routeParam: param });
+  },
+
+  async setDemo(on) {
+    if (on) await api.post('/admin/api/demo');
+    else await api.del('/admin/api/demo');
+    const status = await api.get<Status>('/admin/api/status');
+    set({ status });
+    await Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
 
   async refreshTopology() {

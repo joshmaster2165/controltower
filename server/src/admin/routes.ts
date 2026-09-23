@@ -7,6 +7,7 @@ import { generateApiKey } from '../crypto/apikeys.js';
 import { LAT_BUCKETS } from '../events/db-sink.js';
 import { classifyOperation } from '../mcp/gateway.js';
 import { recentRoutes } from './http.js';
+import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 
 /**
  * Admin API. Read endpoints feed the console; write endpoints mutate the DB
@@ -21,7 +22,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     return {
       version: ctx.config.version,
       setup_complete: await isSetupComplete(ctx),
-      demo: ctx.config.demo,
+      demo: ctx.demo !== undefined,
       mode: ctx.config.mode,
       uptime_s: Math.round((Date.now() - ctx.startedAt) / 1000),
       shutting_down: ctx.shuttingDown,
@@ -387,24 +388,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     };
   });
 
-  // ---- demo data ----
+  // ---- demo mode: start it from the console, or stop it and remove everything it added ----
+  app.post('/admin/api/demo', { preHandler: guard }, async (_req, reply) => {
+    try {
+      await startDemo(ctx);
+    } catch (err) {
+      if (err instanceof DemoConflict) return reply.status(409).send({ error: { code: 'demo_conflict', message: err.message, names: err.names } });
+      throw err;
+    }
+    return { ok: true, active: true };
+  });
   app.delete('/admin/api/demo', { preHandler: guard }, async () => {
-    await ctx.db.write.deleteFrom('api_keys').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('aliases').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('deployments').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('providers').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('rules').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('zones').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('approvals').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('mcp_servers').where('demo', '=', 1).execute();
-    await ctx.db.write.deleteFrom('http_apis').where('demo', '=', 1).execute();
-    await ctx.mcp.reload();
-    await sql`DELETE FROM flights WHERE key_id LIKE 'key_demo_%'`.execute(ctx.db.write);
-    await sql`DELETE FROM flight_events WHERE flight_id NOT IN (SELECT id FROM flights)`.execute(ctx.db.write);
-    await sql`DELETE FROM usage_hourly WHERE key_id LIKE 'key_demo_%'`.execute(ctx.db.write);
-    await sql`DELETE FROM usage_daily WHERE key_id LIKE 'key_demo_%'`.execute(ctx.db.write);
-    ctx.demo?.stop();
-    await ctx.registry.reload();
-    return { ok: true };
+    await stopDemo(ctx);
+    return { ok: true, active: false };
   });
 }

@@ -16,17 +16,14 @@ import { PolicyService } from './policy/policy.js';
 import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
 import { buildApp } from './app.js';
+import { startDemo } from './demo/control.js';
 import { startupBanner } from './banner.js';
 import { isSetupComplete } from './admin/auth.js';
 import type { AppContext } from './context.js';
-import { seedDemo, seedDemoPolicy } from './demo/seed.js';
-import { DemoFleet } from './demo/fleet.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
 import { HttpApiRegistry } from './http/registry.js';
 import { AutoModels } from './models/auto.js';
-import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
-import { seedDemoHttp } from './demo/http-apis.js';
 import { AlertService } from './alerts/alerts.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
@@ -168,6 +165,15 @@ async function main(): Promise<void> {
   await app.listen({ port: config.port, host: config.host });
   const url = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`;
   app.log.info(`Control Tower ${config.version} listening on ${url}  (ui: ${uiDir ?? 'not built'})`);
+
+  if (config.demo) {
+    try {
+      await startDemo(full);
+    } catch (err) {
+      app.log.warn(`CT_DEMO=1 ignored: ${(err as Error).message}`);
+    }
+  }
+
   process.stdout.write(
     startupBanner({
       version: config.version,
@@ -175,36 +181,10 @@ async function main(): Promise<void> {
       setupDone: await isSetupComplete(full),
       dataDir: config.dataDir,
       masterKey: mk.source === 'env' ? 'CT_MASTER_KEY' : (mk.file ?? `${config.dataDir}/master.key`),
-      demo: config.demo,
+      demo: full.demo !== undefined,
       inContainer: fs.existsSync('/.dockerenv'),
     }),
   );
-
-  if (config.demo) {
-    const keys = await seedDemo(db.write, secrets);
-    await seedDemoPolicy(db.write);
-    await seedDemoMcp(db.write, `http://127.0.0.1:${config.port}`);
-    await seedDemoMcpPolicy(db.write);
-    await seedDemoInspectGates(db.write);
-    await seedDemoAlerts(db.write);
-    await seedDemoHttp(db.write, secrets, `http://127.0.0.1:${config.port}`);
-    await mcp.reload();
-    await http.reload();
-    await registry.reload();
-    await policy.reload();
-    await alerts.reload();
-    // Demo approver: answers held flights after ~8–12 s unless a human got there first.
-    bus.subscribe((e) => {
-      if (e.t !== 'flight.held' || e.budget_ms === 0) return;
-      const t = setTimeout(() => {
-        void approvals.decide(e.approval_id, 'demo-approver', Math.random() < 0.85 ? 'approve' : 'deny', { note: 'auto-decided by the demo approver' }).catch(() => undefined);
-      }, 8000 + Math.random() * 4000);
-      t.unref?.();
-    });
-    const fleet = new DemoFleet(`http://127.0.0.1:${config.port}`, keys, app.log);
-    full.demo = fleet;
-    fleet.start();
-  }
 
   mcp.startHealthLoop();
   http.startHealthLoop();

@@ -23,10 +23,12 @@
 ## Quickstart
 
 ```bash
-docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/joshmaster2165/controltower
+docker run -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/controltower
 ```
 
-Open <http://localhost:4000>, set your admin password, and you're in. With `CT_DEMO=1` a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models and Salesforce/GitHub tool servers — flies through the real pipeline so the Airspace is alive in seconds. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. Clear it from the console when you connect real providers.
+Open <http://localhost:4000> and set your admin password. The **Get started** guide takes you from there: connect a provider, create a key for your agent (with copy-paste setup and a live "connected" check), and see it on the map — about five minutes, and no code changes for most agents. The terminal prints the same URLs when the server starts.
+
+Just exploring? `CT_DEMO=1` (or *Start the demo fleet* on the Get started page) fills the map with a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models, Salesforce/GitHub tool servers and a Statuspage API — through the real pipeline. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. *Stop demo and clear it* removes every demo row and its traffic, and leaves your own setup alone; demo mode refuses to start if your setup already uses one of its model or tool names, so demo traffic can never reach real providers.
 
 Then, in the browser:
 

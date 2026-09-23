@@ -107,7 +107,25 @@ export function AirspacePage() {
   const [drawMode, setDrawMode] = useState(false);
   const [gateMode, setGateMode] = useState(false);
   const [popover, setPopover] = useState<Popover | null>(null);
-  const [showTower, setShowTower] = useState(true);
+  // The approvals drawer starts closed (the toolbar shows the count); the choice is remembered.
+  const demoOn = useStore((st) => st.status?.demo ?? false);
+  const [showTower, setShowTowerState] = useState(() => {
+    try {
+      return localStorage.getItem('ct.airspace.tower') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setShowTower = (v: boolean | ((x: boolean) => boolean)) =>
+    setShowTowerState((prev) => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      try {
+        localStorage.setItem('ct.airspace.tower', next ? '1' : '0');
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
   const [error, setError] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -574,7 +592,7 @@ export function AirspacePage() {
         {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
       </div>
 
-      {topology && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} />}
+      {topology && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
       <div className={`legend ${legendOpen ? '' : 'closed'}`}>
         <button className="legend-toggle" onClick={toggleLegend} aria-expanded={legendOpen} title={legendOpen ? 'Hide legend' : 'Show legend'}>
           Legend
@@ -768,7 +786,7 @@ api_key  = "ct_sk_…"`} />
 }
 
 /** First-run checklist: each step ticks itself off from real data. */
-function GettingStarted({ topology, rules, onGate }: { topology: Topology; rules: number; onGate: () => void }) {
+function GettingStarted({ topology, rules, onGate, demo }: { topology: Topology; rules: number; onGate: () => void; demo: boolean }) {
   const [hidden, setHidden] = useState(() => {
     try {
       return localStorage.getItem('ct.onboarding.dismissed') === '1';
@@ -776,17 +794,17 @@ function GettingStarted({ topology, rules, onGate }: { topology: Topology; rules
       return false;
     }
   });
-  const agents = topology.keys.filter((k) => k.name !== 'playground').length;
+  const agents = topology.keys.filter((k) => k.name !== 'playground' && !k.demo).length;
   const steps: Array<{ label: string; hint: string; done: boolean; href?: string; action?: () => void }> = [
-    { label: 'Connect a provider', hint: 'OpenAI, Anthropic, Bedrock, a local model…', done: topology.providers.length > 0, href: '#/providers' },
-    { label: 'Add a model', hint: 'Pick from the models the provider offers', done: topology.deployments.length > 0, href: '#/models' },
-    { label: 'Create an agent key', hint: 'One per agent, so it shows up here by name', done: agents > 0, href: '#/keys' },
-    { label: 'Send a first request', hint: 'From the Playground, or point an SDK at /v1', done: (topology.edges ?? []).length > 0, href: '#/playground' },
+    { label: 'Connect a provider', hint: 'OpenAI, Anthropic, Bedrock, a local model…', done: topology.providers.some((p) => !p.demo), href: '#/welcome' },
+    { label: 'Create an agent key', hint: 'One per agent, so it shows up here by name', done: agents > 0, href: '#/welcome' },
+    { label: 'Point the agent here', hint: 'Two environment variables — models are added on first use', done: (topology.edges ?? []).some((e) => topology.keys.some((k) => k.id === e.key_id && !k.demo && k.name !== 'playground')), href: '#/welcome' },
     { label: 'Put a gate on a path', hint: 'Block, require approval or inspect', done: rules > 0, action: onGate },
   ];
   const done = steps.filter((x) => x.done).length;
   // Once most of it is done, it shrinks to a pill so it does not sit on the map.
-  const [open, setOpen] = useState(done < 3);
+  // While the demo fleet is flying the user is exploring: start as a pill.
+  const [open, setOpen] = useState(done < 3 && !demo);
   if (hidden || done === steps.length) return null;
   if (!open) {
     return (

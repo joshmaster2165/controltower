@@ -47,6 +47,8 @@ export function SetupPage() {
     try {
       const r = await api.post<{ ok: boolean; email: string; csrf: string }>('/admin/api/setup', { email, password });
       setMe({ setup_complete: true, email: r.email, csrf: r.csrf } satisfies Me);
+      // A brand-new install starts on the setup guide, not an empty map.
+      useStore.getState().setRoute('welcome');
       await useStore.getState().boot();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));

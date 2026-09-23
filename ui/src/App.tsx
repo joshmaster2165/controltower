@@ -11,6 +11,7 @@ import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
 import { HttpApisPage } from './pages/HttpApis';
+import { WelcomePage } from './pages/Welcome';
 import { LedgerPage } from './pages/Ledger';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -44,7 +45,13 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
     ],
   },
-  { group: 'Try', items: [{ id: 'playground', label: 'Playground', icon: 'play', hint: 'Send a test request' }] },
+  {
+    group: 'Start',
+    items: [
+      { id: 'welcome', label: 'Get started', icon: 'check', hint: 'Connect a provider and your first agent' },
+      { id: 'playground', label: 'Playground', icon: 'play', hint: 'Send a test request' },
+    ],
+  },
 ];
 
 function readCollapsed(): boolean {
@@ -144,9 +151,9 @@ export function App() {
               </span>
             )}
             {status.demo && (
-              <span className="pill demo nav-label" title="Synthetic agents are generating traffic (CT_DEMO=1)">
+              <button type="button" className="pill demo nav-label" title="Synthetic agents are generating traffic — click to manage" onClick={() => setRoute('welcome')}>
                 demo traffic
-              </span>
+              </button>
             )}
           </div>
           <div className="side-user">
@@ -176,6 +183,7 @@ export function App() {
         {route === 'models' && <ModelsPage />}
         {route === 'mcp' && <McpPage />}
         {route === 'http' && <HttpApisPage />}
+        {route === 'welcome' && <WelcomePage />}
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
         {route === 'alerts' && <AlertsPage />}

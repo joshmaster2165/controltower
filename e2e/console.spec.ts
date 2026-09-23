@@ -46,11 +46,11 @@ async function signIn(page: Page) {
   await field(page, /^Password/).fill(PASSWORD);
   if (await setup.isVisible()) await page.getByRole('button', { name: /Create admin/ }).click();
   else await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('link', { name: 'Airspace' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Airspace', exact: true })).toBeVisible();
 }
 
 async function connectProvider(page: Page, card: string, fill: (form: Locator) => Promise<void>) {
-  await page.getByRole('link', { name: 'Providers' }).click();
+  await page.getByRole('link', { name: 'Providers', exact: true }).click();
   await page.locator('button.card', { hasText: card }).click();
   const form = page.locator('form.card');
   await expect(form).toContainText(`Connect ${card}`);
@@ -58,6 +58,32 @@ async function connectProvider(page: Page, card: string, fill: (form: Locator) =
   await form.getByRole('button', { name: /Connect & test/ }).click();
   await expect(page.getByText(/Connected in \d+ ms/).first()).toBeVisible({ timeout: 20_000 });
 }
+
+// Runs first, on a brand-new install.
+test('first run: the setup guide, and a demo fleet that starts and stops without touching your own setup', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Get started' })).toBeVisible();
+  // Something of your own, made before the demo starts.
+  await page.getByLabel('Agent name').fill('keep-me');
+  await page.getByRole('button', { name: 'Create key', exact: true }).click();
+  await expect(page.locator('.connect-agent')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start the demo fleet' }).click();
+  await expect(page.getByRole('button', { name: 'Stop demo and clear it' })).toBeVisible({ timeout: 30_000 });
+  const topo = async () => page.evaluate(async () => (await fetch('/admin/api/topology')).json());
+  expect((await topo()).keys.map((k: { name: string }) => k.name)).toContain('support-triage');
+
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Stop demo and clear it' }).click();
+  await expect(page.getByRole('button', { name: 'Start the demo fleet' })).toBeVisible({ timeout: 30_000 });
+  const after = await topo();
+  const names = after.keys.map((k: { name: string }) => k.name);
+  expect(names).not.toContain('support-triage');
+  expect(names).toContain('keep-me');
+  expect(after.providers).toHaveLength(0);
+  expect(after.mcp_servers).toHaveLength(0);
+});
 
 test('first boot, three cloud providers, playground round-trips, keys, flights, Airspace', async ({ page }) => {
   test.setTimeout(180_000);
@@ -91,7 +117,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
     await field(f, /^Location$/).fill('us-central1');
     await field(f, /Endpoint override/).fill(urls.vertex);
   });
-  await page.getByRole('link', { name: 'Models' }).click();
+  await page.getByRole('link', { name: 'Models', exact: true }).click();
   await page.getByRole('button', { name: 'Model', exact: true }).click();
   const modelForm = page.locator('form.card');
   await field(modelForm, /^Provider$/).selectOption({ label: 'Google Vertex AI (vertex)' });
@@ -102,7 +128,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
 
   // ---- Playground through each provider ----
   const ask = async (model: string, expected: RegExp) => {
-    await page.getByRole('link', { name: 'Playground' }).click();
+    await page.getByRole('link', { name: 'Playground', exact: true }).click();
     await field(page, /^Model$/).selectOption(model);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.locator('pre').first()).toContainText(expected, { timeout: 20_000 });
@@ -113,7 +139,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await ask('vertex-gemini', /Hello from Vertex/);
 
   // ---- Keys ----
-  await page.getByRole('link', { name: 'Keys' }).click();
+  await page.getByRole('link', { name: 'Keys', exact: true }).click();
   await page.getByRole('button', { name: 'Create key', exact: true }).click();
   await field(page, /Name \(agent\)/).fill('e2e-agent');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -140,23 +166,32 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await expect(page.locator('.connect-status')).toContainText('Connected', { timeout: 15_000 });
 
   // ---- Flights recorded with provider usage ----
-  await page.getByRole('link', { name: 'Flights' }).click();
+  await page.getByRole('link', { name: 'Flights', exact: true }).click();
   await expect(page.locator('table.table')).toContainText('playground');
   await expect(page.locator('table.table')).toContainText('gemini-2.5-flash');
   await expect(page.locator('table.table')).toContainText('vertex-gemini');
 
   // ---- Airspace renders a WebGL canvas, live socket ----
-  await page.getByRole('link', { name: 'Airspace' }).click();
+  await page.getByRole('link', { name: 'Airspace', exact: true }).click();
   await expect(page.locator('.airspace canvas')).toBeVisible();
   await expect(page.locator('.legend .pill.live')).toBeVisible({ timeout: 15_000 });
 
   // ---- Alerts: a rule on every gate, notifying the console ----
-  await page.getByRole('link', { name: 'Alerts' }).click();
+  await page.getByRole('link', { name: 'Alerts', exact: true }).click();
   await page.getByRole('button', { name: 'New alert' }).click();
   await field(page, /^Gate$/).selectOption({ label: 'Any gate' });
   await page.getByRole('button', { name: 'Add alert', exact: true }).click();
   await expect(page.locator('.rule-list')).toContainText('Alert on any gate');
   await expect(page.locator('.rule-list')).toContainText('Notifies Console');
+
+  // Demo mode refuses to start once real models share its names: demo traffic must never reach them.
+  const demo = await page.evaluate(async () => {
+    const me = await (await fetch('/admin/api/me')).json();
+    const r = await fetch('/admin/api/demo', { method: 'POST', headers: { 'x-ct-csrf': me.csrf } });
+    return { status: r.status, body: await r.json() };
+  });
+  expect(demo.status).toBe(409);
+  expect(demo.body.error.names).toContain('gemini-2.5-flash');
 
   // Observed system → "Bring it inside" → HTTP API form pre-filled with its name and base URL.
   await page.evaluate(async () => {
@@ -170,7 +205,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
       body: JSON.stringify({ events: [{ target: 'https://api.github.com/repos', count: 3 }] }),
     });
   });
-  await page.getByRole('link', { name: 'Airspace' }).click();
+  await page.getByRole('link', { name: 'Airspace', exact: true }).click();
   await page.reload();
   const cardAt = () =>
     page.evaluate(() => {
@@ -217,7 +252,7 @@ test('HTTP APIs: register, call through the gateway, gate deletes', async ({ pag
   const port = (upstream.address() as AddressInfo).port;
   try {
     await signIn(page);
-    await page.getByRole('link', { name: 'HTTP APIs' }).click();
+    await page.getByRole('link', { name: 'HTTP APIs', exact: true }).click();
     await page.getByRole('button', { name: 'Add API' }).click();
     await field(page, /^Name$/).fill('Orders API');
     await field(page, /^Base URL$/).fill(`http://127.0.0.1:${port}/v1`);
@@ -265,7 +300,7 @@ test('HTTP APIs: register, call through the gateway, gate deletes', async ({ pag
     expect(seen.length).toBe(before);
 
     // Both calls are flights, named by route.
-    await page.getByRole('link', { name: 'Flights' }).click();
+    await page.getByRole('link', { name: 'Flights', exact: true }).click();
     await expect(page.locator('table').first()).toContainText('GET /orders/:id');
     await expect(page.locator('table').first()).toContainText('DELETE /orders/:id');
   } finally {

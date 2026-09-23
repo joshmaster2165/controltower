@@ -673,3 +673,28 @@ li.done .step-label { color: var(--text-faint); text-decoration: line-through; f
 .connect-status .btn { margin-left: auto; }
 @keyframes connectPulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .connect-status i { animation: none; } }
+
+/* ---------------------------------------------------------------- get started */
+.welcome-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.welcome-steps > li { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow); opacity: 0.7; }
+.welcome-steps > li.current { opacity: 1; border-color: #b9ccff; box-shadow: 0 0 0 3px rgba(31, 94, 255, 0.08), var(--shadow); }
+.welcome-steps > li.done { opacity: 1; }
+.welcome-steps p { margin: 6px 0 12px 36px; color: var(--text-dim); font-size: 13.5px; max-width: 70ch; }
+.welcome-steps > li > :not(.ws-head):not(p) { margin-left: 36px; }
+.ws-head { display: flex; align-items: center; gap: 12px; }
+.ws-head h2 { margin: 0; font-size: 15.5px; font-weight: 600; }
+.ws-dot { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 700; background: var(--accent-soft); color: var(--accent-deep); }
+.done .ws-dot { background: var(--ok); color: #fff; }
+.ws-done { margin-left: auto; font-size: 12px; color: var(--ok); font-weight: 600; }
+.starter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.starter { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; font: inherit; font-size: 13.5px; font-weight: 500; color: var(--text); cursor: pointer; text-align: left; }
+.starter:hover { border-color: #b9ccff; background: #f7faff; }
+.ws-more { margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.ws-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ws-form .input { max-width: 260px; }
+.welcome-demo { display: grid; gap: 8px; position: sticky; top: 16px; }
+.welcome-demo p { margin: 0; font-size: 13px; color: var(--text-dim); }
+.welcome-demo .btn { justify-self: start; }
+button.pill.demo { cursor: pointer; font: inherit; }
+@media (max-width: 1000px) { .welcome-grid { grid-template-columns: minmax(0, 1fr); } .welcome-demo { position: static; } }

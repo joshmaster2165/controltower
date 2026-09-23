@@ -235,6 +235,15 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     };
   });
 
+  app.get('/admin/api/approvals/:id', { preHandler: guard }, async (req, reply) => {
+    const a = await ctx.db.read.selectFrom('approvals').selectAll().where('id', '=', (req.params as { id: string }).id).executeTakeFirst();
+    if (!a) return reply.status(404).send({ error: { code: 'not_found', message: 'approval not found' } });
+    return {
+      approval: { ...a, target: JSON.parse(a.target) as unknown, args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null, demo: a.demo === 1 },
+      server_time: Date.now(),
+    };
+  });
+
   app.post('/admin/api/approvals/:id/decide', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const b = (req.body ?? {}) as { action?: 'approve' | 'deny'; note?: string; window?: { uses?: number; ttl_ms?: number } };

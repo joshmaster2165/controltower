@@ -324,6 +324,7 @@ export interface AlertItem {
     kind?: AlertKind;
     subject?: { kind: string; id: string; name: string } | null;
     lines?: string[];
+    approval?: { id: string; scope: string; url: string | null } | null;
     gate: { id: string; name: string; effect: string } | null;
     agents: Array<{ name: string; count: number }>;
     destinations: Array<{ name: string; count: number }>;

@@ -63,6 +63,7 @@ function flight(s: Setup, agent: string, dest: string, decision: 'deny' | 'hold'
     { t: 'flight.started', flight_id: id, ts, key_id: agent, key_name: agent, kind: 'mcp.tool', dialect: 'mcp', stream: false, model_requested: dest, tool: dest, est_input_tokens: 1, projected_nanousd: 0 },
     { t: 'flight.decision', flight_id: id, ts, decision, rule_id: gate, reason: decision === 'deny' ? 'Sandbox agents may not merge pull requests' : undefined },
   ];
+  if (decision === 'hold') ev.push({ t: 'flight.held', flight_id: id, ts, approval_id: `appr_${id}`, budget_ms: 20000, summary: `${agent} wants ${dest}` });
   if (resolved) ev.push({ t: 'flight.resolved', flight_id: id, ts, approval_id: 'a', outcome: resolved, by: 'dana@example.com' });
   ev.push({ t: 'flight.completed', flight_id: id, ts, status: decision === 'allow' || resolved === 'approved' ? 'ok' : 'denied', http_status: 200, usage_source: 'unknown', cost_nanousd: null, cost_confidence: 'unknown', duration_ms: 1, gateway_overhead_ms: 0 });
   for (const e of ev) s.svc.push(e);
@@ -223,6 +224,22 @@ function completed(s: Setup, over: { status?: 'ok' | 'error'; duration_ms?: numb
   s.svc.push({ t: 'flight.started', flight_id: id, ts: s.clock.t, key_id: over.key ?? 'k_team', key_name: 'team-bot', team: over.team, kind: 'chat', dialect: 'openai-chat', stream: false, model_requested: 'fast', deployment_id: over.dep ?? 'dep_a', est_input_tokens: 1, projected_nanousd: 0 });
   s.svc.push({ t: 'flight.completed', flight_id: id, ts: s.clock.t, status: over.status ?? 'ok', http_status: 200, usage_source: 'provider', cost_nanousd: over.cost ?? 0, cost_confidence: 'exact', duration_ms: over.duration_ms ?? 100, gateway_overhead_ms: 1, error: over.code ? { code: over.code, message: 'x' } : undefined });
 }
+
+describe('approval links', () => {
+  it('links a single held request to its approval card, and Slack gets a Review & approve button', async () => {
+    const s = await setup();
+    addChannel(s, 'slack', 'slack', 'https://hooks.slack.com/services/T0/B0/xyz');
+    addRule(s.db, 'held', { rule_id: 'rule_hold', triggers: ['held'], channels: ['slack'] });
+    await s.svc.reload();
+    const id = flight(s, 'sdr-agent', 'crm__delete_contact', 'hold', 'rule_hold');
+    await s.svc.settle();
+    const detail = JSON.parse(fired(s)[0]!.detail);
+    expect(detail.approval).toEqual({ id: `appr_${id}`, scope: 'Approve ONE call to crm__delete_contact from sdr-agent', url: `https://tower.example.com/#/tower/appr_${id}` });
+    const slack = JSON.parse(s.sent[0]!.body);
+    expect(slack.blocks[0].text.text).toContain('*Decision needed:* Approve ONE call to crm__delete_contact from sdr-agent');
+    expect(slack.blocks[2].elements[0]).toMatchObject({ text: { text: 'Review & approve' }, url: `https://tower.example.com/#/tower/appr_${id}`, style: 'primary' });
+  });
+});
 
 describe('operational alerts', () => {
   it('detects an outage per deployment from 5xx/timeouts only, then its recovery', async () => {

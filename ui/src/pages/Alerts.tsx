@@ -406,8 +406,8 @@ function AlertRow({ a, fresh }: { a: AlertItem; fresh: boolean }) {
         )}
       </div>
       {a.trigger === 'held' && (
-        <button className="btn sm" onClick={() => setRoute('tower')}>
-          Open Tower
+        <button className="btn sm" onClick={() => setRoute('tower', d.approval?.id ?? null)}>
+          {d.approval ? 'Review' : 'Open Tower'}
         </button>
       )}
     </div>
@@ -719,10 +719,11 @@ export function AlertToasts() {
                 className="btn sm"
                 onClick={() => {
                   dismiss(t.id);
-                  setRoute(t.trigger === 'held' ? 'tower' : 'alerts');
+                  if (t.trigger === 'held') setRoute('tower', t.detail.approval?.id ?? null);
+                  else setRoute('alerts');
                 }}
               >
-                {t.trigger === 'held' ? 'Open Tower' : 'View alerts'}
+                {t.trigger === 'held' ? (t.detail.approval ? 'Review & approve' : 'Open Tower') : 'View alerts'}
               </button>
             </div>
           </div>

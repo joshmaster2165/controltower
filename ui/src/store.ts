@@ -17,6 +17,8 @@ interface State {
   status: Status | null;
   me: Me | null;
   route: Route;
+  /** Second hash segment, e.g. the approval id in #/tower/<id>. */
+  routeParam: string | null;
   topology: Topology | null;
   policy: PolicyBundle | null;
   approvals: Approval[];
@@ -32,7 +34,7 @@ interface State {
   counters: { flights: number; ok: number; errors: number; denied: number; cost_nanousd: number; tokens: number };
   boot(): Promise<void>;
   setMe(me: Me | null): void;
-  setRoute(r: Route): void;
+  setRoute(r: Route, param?: string | null): void;
   refreshTopology(): Promise<void>;
   refreshPolicy(): Promise<void>;
   refreshApprovals(): Promise<void>;
@@ -48,7 +50,7 @@ export const useStore = create<State>((set, get) => ({
   booted: false,
   status: null,
   me: null,
-  route: (location.hash.replace('#/', '') as Route) || 'airspace',
+  ...parseHash(),
   topology: null,
   policy: null,
   approvals: [],
@@ -81,9 +83,9 @@ export const useStore = create<State>((set, get) => ({
     if (me?.email) void Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
 
-  setRoute(route) {
-    location.hash = `#/${route}`;
-    set({ route });
+  setRoute(route, param = null) {
+    location.hash = param ? `#/${route}/${encodeURIComponent(param)}` : `#/${route}`;
+    set({ route, routeParam: param });
   },
 
   async refreshTopology() {
@@ -186,7 +188,9 @@ export const useStore = create<State>((set, get) => ({
   },
 }));
 
-window.addEventListener('hashchange', () => {
-  const r = (location.hash.replace('#/', '') as Route) || 'airspace';
-  useStore.setState({ route: r });
-});
+function parseHash(): { route: Route; routeParam: string | null } {
+  const [r, p] = location.hash.replace(/^#\/?/, '').split('/');
+  return { route: (r as Route) || 'airspace', routeParam: p ? decodeURIComponent(p) : null };
+}
+
+window.addEventListener('hashchange', () => useStore.setState(parseHash()));

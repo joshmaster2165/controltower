@@ -135,6 +135,9 @@ interface Hit {
   agent: string;
   dest: string;
   reason: string | undefined;
+  /** Set for `held`: the approval a human can act on. */
+  approvalId?: string | undefined;
+  isTool?: boolean | undefined;
 }
 
 interface RuleState {
@@ -176,6 +179,8 @@ export interface AlertPayload {
   /** Extra facts, one per line (budget figures, digest contents). */
   lines: string[];
   flights: string[];
+  /** For a single held request: the approval to review. Approving always happens signed in, in the console. */
+  approval: { id: string; scope: string; url: string | null } | null;
   console_url: string | null;
   test?: boolean;
 }
@@ -256,6 +261,7 @@ interface FlightInfo {
   project: string | undefined;
   dest: string;
   targetId: string | undefined;
+  isTool: boolean;
   gateId?: string | undefined;
 }
 
@@ -355,16 +361,22 @@ export class AlertService {
     switch (e.t) {
       case 'flight.started': {
         if (this.flights.size >= MAX_TRACKED) this.flights.delete(this.flights.keys().next().value!);
-        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id });
+        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: e.kind === 'mcp.tool' });
         return;
       }
       case 'flight.decision': {
         if (!e.rule_id) return;
         const f = this.flights.get(e.flight_id);
         if (f && (e.decision === 'deny' || e.decision === 'hold' || e.decision === 'allow')) f.gateId = e.rule_id;
+        // `held` is raised on flight.held, which carries the approval to link to.
         const trigger: AlertTrigger | null =
-          e.decision === 'deny' ? (e.reason === 'scope_mismatch' ? 'scope_mismatch' : 'blocked') : e.decision === 'hold' ? 'held' : e.decision === 'allow' ? 'allowed' : e.decision === 'mutate' ? 'masked' : e.decision === 'flagged' ? 'flagged' : null;
+          e.decision === 'deny' ? (e.reason === 'scope_mismatch' ? 'scope_mismatch' : 'blocked') : e.decision === 'allow' ? 'allowed' : e.decision === 'mutate' ? 'masked' : e.decision === 'flagged' ? 'flagged' : null;
         if (trigger) this.gateHit(e.flight_id, e.rule_id, trigger, e.ts, e.reason);
+        return;
+      }
+      case 'flight.held': {
+        const f = this.flights.get(e.flight_id);
+        if (f?.gateId) this.gateHit(e.flight_id, f.gateId, 'held', e.ts, e.summary, e.approval_id);
         return;
       }
       case 'flight.resolved': {
@@ -388,11 +400,11 @@ export class AlertService {
 
   private hitFor(flightId: string, subject: Hit['subject'], trigger: AlertTrigger, ts: number, reason: string | undefined): Hit {
     const f = this.flights.get(flightId);
-    return { ts, flightId, subject, trigger, agent: f?.agent ?? 'unknown agent', dest: f?.dest ?? 'unknown', reason };
+    return { ts, flightId, subject, trigger, agent: f?.agent ?? 'unknown agent', dest: f?.dest ?? 'unknown', reason, isTool: f?.isTool };
   }
 
-  private gateHit(flightId: string, gateId: string, trigger: AlertTrigger, ts: number, reason: string | undefined): void {
-    const h = this.hitFor(flightId, { kind: 'gate', id: gateId }, trigger, ts, reason);
+  private gateHit(flightId: string, gateId: string, trigger: AlertTrigger, ts: number, reason: string | undefined, approvalId?: string): void {
+    const h = { ...this.hitFor(flightId, { kind: 'gate', id: gateId }, trigger, ts, reason), approvalId };
     for (const r of this.rules) {
       if (r.kind !== 'gate' || !r.enabled || (r.ruleId && r.ruleId !== gateId) || !r.triggers.includes(trigger)) continue;
       this.count(r, '', h);
@@ -633,7 +645,10 @@ export class AlertService {
       title = `${r.name}: ${n} events`;
     }
     const gate = last.subject.kind === 'gate' ? this.opts.gate(last.subject.id) : undefined;
-    const route = trigger === 'held' ? 'tower' : r.kind === 'budget' ? 'keys' : r.kind === 'health' ? 'models' : 'alerts';
+    const base = this.opts.publicUrl ? this.opts.publicUrl.replace(/\/+$/, '') : null;
+    // One held request: link to its approval card. Several: to the Tower queue.
+    const single = trigger === 'held' && n === 1 && last.approvalId ? last.approvalId : null;
+    const route = single ? `tower/${single}` : trigger === 'held' ? 'tower' : r.kind === 'budget' ? 'keys' : r.kind === 'health' ? 'models' : 'alerts';
     const agentHits = hits.filter((h) => h.agent);
     return {
       type: 'controltower.alert',
@@ -654,7 +669,8 @@ export class AlertService {
       reason: [...hits].reverse().find((h) => h.reason)?.reason ?? null,
       lines,
       flights: hits.filter((h) => h.flightId).slice(-5).map((h) => h.flightId),
-      console_url: this.opts.publicUrl ? `${this.opts.publicUrl.replace(/\/+$/, '')}/#/${route}` : null,
+      approval: single ? { id: single, scope: `Approve ONE ${last.isTool ? 'call to' : 'request to'} ${last.dest} from ${last.agent}`, url: base ? `${base}/#/tower/${single}` : null } : null,
+      console_url: base ? `${base}/#/${route}` : null,
     };
   }
 
@@ -672,7 +688,7 @@ export class AlertService {
           rule_id: p.gate?.id ?? null,
           trigger: p.trigger,
           title: p.title,
-          detail: JSON.stringify({ kind: r.kind, subject: p.subject, gate: p.gate, agents: p.agents, destinations: p.destinations, reason: p.reason, lines: p.lines, flights: p.flights, digest, window_s: r.windowS }),
+          detail: JSON.stringify({ kind: r.kind, subject: p.subject, gate: p.gate, agents: p.agents, destinations: p.destinations, reason: p.reason, lines: p.lines, flights: p.flights, approval: p.approval, digest, window_s: r.windowS }),
           count: p.count,
           first_at: hits[0]!.ts,
           last_at: hits[hits.length - 1]!.ts,
@@ -765,6 +781,7 @@ export class AlertService {
       reason: 'Sent from the Alerts page',
       lines: [],
       flights: [],
+      approval: null,
       console_url: this.opts.publicUrl ? `${this.opts.publicUrl.replace(/\/+$/, '')}/#/alerts` : null,
       test: true,
     };
@@ -792,12 +809,15 @@ export function slackMessage(p: AlertPayload): Record<string, unknown> {
   if (p.destinations?.length) lines.push(`*Target:* ${list(p.destinations)}`);
   if (p.reason) lines.push(`*Reason:* ${esc(p.reason)}`);
   for (const l of p.lines ?? []) lines.push(esc(l));
+  if (p.approval) lines.push(`*Decision needed:* ${esc(p.approval.scope)}. Approving happens in Control Tower, signed in.`);
   const blocks: Array<Record<string, unknown>> = [
     { type: 'section', text: { type: 'mrkdwn', text: `*${esc(p.title)}*${lines.length ? `\n${lines.join('\n')}` : ''}` } },
     { type: 'context', elements: [{ type: 'mrkdwn', text: `Control Tower · ${esc(p.alert_rule.name)}${p.gate ? ` · gate: ${esc(p.gate.name)}` : ''}` }] },
   ];
   if (p.console_url) {
-    blocks.push({ type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: p.trigger === 'held' ? 'Review in the Tower' : 'Open Control Tower' }, url: p.console_url }] });
+    const button: Record<string, unknown> = { type: 'button', text: { type: 'plain_text', text: p.approval ? 'Review & approve' : p.trigger === 'held' ? 'Review in the Tower' : 'Open Control Tower' }, url: p.approval?.url ?? p.console_url };
+    if (p.approval) button.style = 'primary';
+    blocks.push({ type: 'actions', elements: [button] });
   }
   return { text: p.title, blocks };
 }

@@ -74,9 +74,46 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
   );
 }
 
+/** The approval an alert linked to (#/tower/<id>), shown first whatever its state. */
+function LinkedApproval({ id, version }: { id: string; version: number }) {
+  const [a, setA] = useState<Approval | null | 'missing'>(null);
+  const setRoute = useStore((s) => s.setRoute);
+  useEffect(() => {
+    api
+      .get<{ approval: Approval }>(`/admin/api/approvals/${encodeURIComponent(id)}`)
+      .then((r) => setA(r.approval))
+      .catch(() => setA('missing'));
+  }, [id, version]);
+  return (
+    <div className="linked-approval">
+      <div className="section-h">
+        <h2 style={{ fontSize: 15, margin: 0 }}>Request from your alert</h2>
+        <button className="btn sm ghost" onClick={() => setRoute('tower')}>
+          Show all
+        </button>
+      </div>
+      {a === null && <div className="card hint">Loading…</div>}
+      {a === 'missing' && <div className="card hint">This approval no longer exists.</div>}
+      {a && a !== 'missing' && (
+        <>
+          <ApprovalCard a={a} onDecided={() => void useStore.getState().refreshApprovals()} />
+          {a.status !== 'pending' && (
+            <div className="hint" style={{ marginTop: 6 }}>
+              Already {a.status}
+              {a.resolved_by ? ` by ${a.resolved_by}` : ''}
+              {a.resolved_at ? ` at ${new Date(a.resolved_at).toLocaleTimeString()}` : ''}. Nothing left to do.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TowerPage() {
   const pending = useStore((s) => s.approvals);
   const refresh = useStore((s) => s.refreshApprovals);
+  const linkedId = useStore((s) => s.routeParam);
   const [history, setHistory] = useState<Approval[]>([]);
   const load = async () => {
     const r = await api.get<{ approvals: Approval[] }>('/admin/api/approvals?status=all&limit=100');
@@ -91,14 +128,17 @@ export function TowerPage() {
     <div className="page">
       <h1>Tower</h1>
       <p className="sub">Flights holding at a checkpoint gate wait here for a human. Approve and the flight continues transparently; ignore it and the agent receives a resumable ticket instead of a silent timeout.</p>
+      {linkedId && <LinkedApproval id={linkedId} version={pending.length + history.length} />}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 420px) minmax(0, 1fr)', gap: 20 }}>
         <div>
           <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Pending ({pending.length})</h2>
           {pending.length === 0 && <div className="card hint">Nothing is waiting. Put a “require approval” gate on a boundary and the next crossing will appear here.</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {pending.map((a) => (
-              <ApprovalCard key={a.id} a={a} onDecided={() => void refresh()} />
-            ))}
+            {pending
+              .filter((a) => a.id !== linkedId)
+              .map((a) => (
+                <ApprovalCard key={a.id} a={a} onDecided={() => void refresh()} />
+              ))}
           </div>
         </div>
         <div>

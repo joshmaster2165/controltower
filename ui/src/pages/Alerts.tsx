@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, ALERT_TRIGGERS, type AlertChannel, type AlertItem, type AlertKind, type AlertParams, type AlertRule, type AlertTrigger, type Rule } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { Icon } from '../components/Icon';
 
 export function timeAgo(ts: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));
@@ -583,8 +585,11 @@ export function AlertsPage() {
 
   return (
     <div className="page alerts-page">
-      <h1>Alerts</h1>
-      <p className="sub">Get told when a gate does its job, when a provider goes down, when agents start failing or slowing down, or when a budget runs low — plus a daily summary. Gate alerts can also be set by clicking a gate on the Airspace. Alerts always land in this inbox, can also go to Slack or any webhook, and carry names and counts, never request contents.</p>
+      <PageHeader
+        title="Alerts"
+        meta={unreadCount ? `${unreadCount} new` : undefined}
+        description="Hear about gates doing their job, providers going down, agents failing or slowing, and budgets running low — in this inbox, Slack or any webhook. Alerts carry names and counts, never request contents."
+      />
       <div className="alerts-grid">
         <section>
           <div className="section-h">

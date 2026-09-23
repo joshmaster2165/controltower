@@ -1,5 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ImportLiteLLM } from './ImportLiteLLM';
+import { PageHeader } from '../components/PageHeader';
+import { Icon } from '../components/Icon';
+
+const STRATEGY: Record<string, string> = { priority: 'in order', weighted: 'weighted', 'least-latency': 'fastest first', 'least-cost': 'cheapest first' };
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
 
@@ -120,21 +124,27 @@ export function ModelsPage() {
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <h1>Models</h1>
-          <p className="sub">Deployments are concrete models on a provider. Aliases group deployments under one name with ordered fallbacks — agents ask for <code>smart</code>, you decide what that means.</p>
-        </div>
-        <button className="btn" onClick={() => setShowImport(true)}>
-          Import from LiteLLM
-        </button>
-        <button className="btn" onClick={() => setShowAlias(true)}>
-          + Alias
-        </button>
-        <button className="btn primary" onClick={() => setShowAdd(true)}>
-          + Model
-        </button>
-      </div>
+      <PageHeader
+        title="Models"
+        description={
+          <>
+            Agents ask for a name like <code>smart</code>; you decide what it means. A <b>deployment</b> is one model on one provider; an <b>alias</b> routes a name across deployments with fallbacks.
+          </>
+        }
+        actions={
+          <>
+            <button className="btn" onClick={() => setShowImport(true)}>
+              <Icon name="upload" size={15} /> Import from LiteLLM
+            </button>
+            <button className="btn" onClick={() => setShowAlias(true)}>
+              <Icon name="plus" size={15} /> Alias
+            </button>
+            <button className="btn primary" onClick={() => setShowAdd(true)}>
+              <Icon name="plus" size={15} /> Model
+            </button>
+          </>
+        }
+      />
 
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
 
@@ -241,52 +251,52 @@ export function ModelsPage() {
         </form>
       )}
 
-      <div className="card" style={{ padding: 0, marginBottom: 20 }}>
+      <div className="section-title">
+        <h2>Aliases</h2>
+        <span className="count">{aliases.length}</span>
+      </div>
+      <div className="card" style={{ padding: 0, marginBottom: 8 }}>
         <table className="table">
           <thead>
             <tr>
-              <th>Public name</th>
-              <th>Provider</th>
-              <th>Upstream model</th>
-              <th>Price in / out ($/M)</th>
-              <th>TTFT</th>
-              <th>Status</th>
-              <th></th>
+              <th>Name agents use</th>
+              <th>Routing</th>
+              <th>Tries, in order</th>
+              <th />
             </tr>
           </thead>
           <tbody>
-            {deployments.map((d) => (
-              <tr key={d.id}>
-                <td className="mono">
-                  {d.public_name ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}
-                  {d.demo && <span className="tag" style={{ marginLeft: 6 }}>demo</span>}
-                </td>
-                <td>{d.provider_slug}</td>
-                <td className="mono">{d.upstream_model}</td>
-                <td className="mono">
-                  {d.price ? `${d.price.input} / ${d.price.output}` : <span style={{ color: 'var(--warn)' }}>unpriced</span>}
-                  {d.price && <span style={{ color: 'var(--text-faint)' }}> · {d.price_source}</span>}
-                </td>
-                <td className="mono">{d.ewma_ttft_ms ? `${Math.round(d.ewma_ttft_ms)} ms` : '—'}</td>
+            {aliases.map((a) => (
+              <tr key={a.id}>
                 <td>
-                  <span className={`status ${d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'ticketed' : 'ok') : 'error'}`}>
-                    {d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'cooling' : 'enabled') : 'disabled'}
-                  </span>
+                  <span className="mono strong">{a.name}</span>
+                  {a.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
                 </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button className="btn sm ghost" onClick={() => void toggle(d)}>
-                    {d.enabled ? 'Disable' : 'Enable'}
-                  </button>{' '}
-                  <button className="btn sm danger" onClick={() => void removeDeployment(d)}>
-                    Delete
-                  </button>
+                <td className="muted">{STRATEGY[a.strategy] ?? a.strategy}</td>
+                <td>
+                  <div className="route-chain">
+                    {a.targets.map((t, i) => (
+                      <span key={t.deploymentId} className="route-step">
+                        {i > 0 && <span className="route-arrow">→</span>}
+                        <span className="route-chip">{depLabel(t.deploymentId)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <button className="btn sm danger" onClick={() => void removeAlias(a)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
-            {deployments.length === 0 && (
+            {aliases.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--text-dim)', padding: 24, textAlign: 'center' }}>
-                  No models yet. Connect a provider, then add models from its discovered list.
+                <td colSpan={4} className="table-empty">
+                  <b>No aliases yet</b>
+                  An alias lets agents ask for <code>fast</code> or <code>smart</code> while you choose — and change — the models behind it.
                 </td>
               </tr>
             )}
@@ -294,43 +304,65 @@ export function ModelsPage() {
         </table>
       </div>
 
-      <h2 style={{ fontSize: 15, margin: '6px 0 10px' }}>Aliases</h2>
+      <div className="section-title">
+        <h2>Deployments</h2>
+        <span className="count">{deployments.length}</span>
+      </div>
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
           <thead>
             <tr>
-              <th>Alias</th>
-              <th>Strategy</th>
-              <th>Targets (fallback order)</th>
-              <th></th>
+              <th>Model</th>
+              <th>Provider</th>
+              <th className="num">Price in / out ($/M)</th>
+              <th className="num">Time to first token</th>
+              <th>Status</th>
+              <th />
             </tr>
           </thead>
           <tbody>
-            {aliases.map((a) => (
-              <tr key={a.id}>
-                <td className="mono">
-                  {a.name}
-                  {a.demo && <span className="tag" style={{ marginLeft: 6 }}>demo</span>}
+            {deployments.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  <span className="mono strong">{d.public_name ?? d.upstream_model}</span>
+                  {d.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
+                  <span className="sub mono">{d.public_name && d.public_name !== d.upstream_model ? d.upstream_model : d.public_name ? '' : 'only reachable through an alias'}</span>
                 </td>
-                <td>{a.strategy}</td>
-                <td style={{ fontSize: 12.5 }}>{a.targets.map((t, i) => `${i + 1}. ${depLabel(t.deploymentId)}`).join('  →  ')}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <button className="btn sm danger" onClick={() => void removeAlias(a)}>
-                    Delete
-                  </button>
+                <td>{d.provider_slug}</td>
+                <td className="num mono">
+                  {d.price ? `${d.price.input} / ${d.price.output}` : <span style={{ color: 'var(--warn)' }}>unpriced</span>}
+                  {d.price && <span className="sub">{d.price_source}</span>}
+                </td>
+                <td className={`num mono ${d.ewma_ttft_ms ? '' : 'muted'}`}>{d.ewma_ttft_ms ? `${Math.round(d.ewma_ttft_ms)} ms` : '—'}</td>
+                <td>
+                  <span className={`status ${d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'ticketed' : 'ok') : 'error'}`}>
+                    {d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'cooling' : 'enabled') : 'disabled'}
+                  </span>
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <button className="btn sm" onClick={() => void toggle(d)}>
+                      {d.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button className="btn sm danger" onClick={() => void removeDeployment(d)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
-            {aliases.length === 0 && (
+            {deployments.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ color: 'var(--text-dim)', padding: 24, textAlign: 'center' }}>
-                  No aliases yet.
+                <td colSpan={6} className="table-empty">
+                  <b>No models yet</b>
+                  Connect a provider, then add models from its discovered list — or import a LiteLLM config.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
     </div>
   );
 }

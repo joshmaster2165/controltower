@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
+import { usd } from '../format';
 import { api } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { Icon } from '../components/Icon';
 
 /**
  * Ledger: what the gateway cost and how much it moved. Forms follow the job —
@@ -198,6 +201,14 @@ function Meter({ label, spent, limit, hard }: { label: string; spent: number; li
   );
 }
 
+/** Dollars for bar labels: none, dust, cents, or whole amounts. */
+function usdValue(v: number): string {
+  if (!v) return '—';
+  if (v < 0.001) return '<$0.001';
+  if (v < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
+}
+
 export function LedgerPage() {
   const [win, setWin] = useState<Window>('24h');
   const [data, setData] = useState<Summary | null>(null);
@@ -239,19 +250,19 @@ export function LedgerPage() {
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <h1>Ledger</h1>
-          <p className="sub">Spend, tokens and latency per agent and per model, computed once per flight from the price pinned at routing time. Estimated usage is marked in the Flights table.</p>
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['1h', '24h', '7d', '30d'] as Window[]).map((w) => (
-            <button key={w} className={`btn sm ${win === w ? 'active' : 'ghost'}`} onClick={() => setWin(w)}>
-              {w}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Ledger"
+        description="Spend, tokens and latency per agent and per model — each flight priced once, at the rate pinned when it was routed. Estimated usage is marked in Flights."
+        actions={
+          <div className="seg" role="tablist" aria-label="Time window">
+            {(['1h', '24h', '7d', '30d'] as Window[]).map((w) => (
+              <button key={w} role="tab" aria-selected={win === w} className={win === w ? 'on' : ''} onClick={() => setWin(w)}>
+                {w}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
         <StatTile label={`Spend · ${win}`} value={formatUsd(totals.spend)} trend={trend((s) => s.cost_nanousd)} />
@@ -266,12 +277,12 @@ export function LedgerPage() {
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', marginBottom: 14 }}>
-        <HBars title="Spend by agent" unit="USD" rows={(data?.by_key ?? []).map((r) => ({ name: keyName.get(r.key_id) ?? r.key_id, value: r.cost_nanousd / 1e9 }))} format={(v) => (v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(4)}`)} />
+        <HBars title="Spend by agent" unit="USD" rows={(data?.by_key ?? []).map((r) => ({ name: keyName.get(r.key_id) ?? r.key_id, value: r.cost_nanousd / 1e9 }))} format={usdValue} />
         <HBars
           title="Spend by model / tool server"
           unit="USD"
           rows={(data?.by_deployment ?? []).map((r) => ({ name: depName.get(r.deployment_id) ?? mcpName.get(r.deployment_id) ?? (r.deployment_id || 'unrouted'), value: r.cost_nanousd / 1e9 }))}
-          format={(v) => (v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(4)}`)}
+          format={usdValue}
         />
       </div>
 
@@ -301,7 +312,7 @@ export function LedgerPage() {
                     </td>
                     <td className="mono">{r.denied}</td>
                     <td className="mono">{r.errors}</td>
-                    <td className="mono">{formatUsd(r.cost_nanousd)}</td>
+                    <td className="mono num">{usd(r.cost_nanousd)}</td>
                   </tr>
                 ))}
               {(data?.by_key ?? []).length === 0 && (
@@ -349,7 +360,7 @@ export function LedgerPage() {
                     {compact(r.in_tokens)} / {compact(r.out_tokens)}
                   </td>
                   <td className="mono">{r.avg_ms == null ? '—' : `${Math.round(r.avg_ms)} ms`}</td>
-                  <td className="mono">{formatUsd(r.cost_nanousd)}</td>
+                  <td className="mono num">{usd(r.cost_nanousd)}</td>
                 </tr>
               ))}
           </tbody>

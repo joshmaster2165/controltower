@@ -1,6 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { Monogram } from '../components/Monogram';
+import { Icon } from '../components/Icon';
+
+const GROUPS: Array<{ title: string; hint: string; ids: string[] }> = [
+  { title: 'Model providers', hint: 'Hosted APIs, including cloud platforms', ids: ['openai', 'azure-openai', 'anthropic', 'gemini', 'vertex', 'bedrock'] },
+  { title: 'OpenAI-compatible APIs', hint: 'Same wire format, different host', ids: ['groq', 'together', 'fireworks', 'mistral', 'deepseek', 'xai', 'openrouter', 'perplexity'] },
+  { title: 'Self-hosted', hint: 'Models running on your own machines', ids: ['ollama', 'vllm', 'lmstudio', 'custom'] },
+];
 
 interface CatalogEntry {
   id: string;
@@ -126,12 +135,18 @@ export function ProvidersPage() {
 
   return (
     <div className="page">
-      <h1>Providers</h1>
-      <p className="sub">Connect the LLM providers your agents may reach. Credentials are encrypted at rest with the master key and never leave this server.</p>
+      <PageHeader
+        title="Providers"
+        meta={providers.length ? `${providers.length} connected` : undefined}
+        description="Connect the model providers your agents may reach. Credentials are encrypted at rest with the master key and never leave this server."
+      />
 
       {adding && (
         <form className="card" style={{ marginBottom: 18, maxWidth: 560 }} onSubmit={submit}>
-          <div style={{ fontWeight: 600, marginBottom: 10 }}>Connect {adding.name}</div>
+          <div className="form-title">
+            <Monogram name={adding.name} kind={adding.kind} size={28} />
+            <span>Connect {adding.name}</span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="field">
               <label>Display name</label>
@@ -184,34 +199,44 @@ export function ProvidersPage() {
       )}
 
       {providers.length > 0 && (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', marginBottom: 24 }}>
+        <div className="section-title" style={{ marginTop: 0 }}>
+          <h2>Connected</h2>
+        </div>
+      )}
+      {providers.length > 0 && (
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', marginBottom: 8 }}>
           {providers.map((p) => {
             const t = tests[p.id];
             return (
-              <div className="card" key={p.id}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className={`status ${p.health === 'ok' ? 'ok' : p.health === 'down' ? 'error' : ''}`} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>
-                      {p.name} {p.demo && <span className="tag">demo</span>}
+              <div className="card provider-card" key={p.id}>
+                <div className="provider-head">
+                  <Monogram name={p.name} kind={p.kind} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="provider-name">
+                      {p.name}
+                      {p.demo && <span className="tag muted">demo</span>}
                     </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-dim)' }} className="mono">
+                    <div className="provider-meta mono">
                       {p.slug} · {p.kind}
-                      {p.base_url ? ` · ${p.base_url}` : ''}
                     </div>
                   </div>
+                  <span className={`status ${p.health === 'ok' ? 'ok' : p.health === 'down' ? 'error' : ''}`}>{p.health === 'ok' ? 'healthy' : p.health === 'down' ? 'down' : 'not tested'}</span>
+                </div>
+                {p.base_url && <div className="provider-url mono">{p.base_url}</div>}
+                <div className="provider-foot">
+                  <span className="dim">
+                    {p.deployments} model deployment{p.deployments === 1 ? '' : 's'}
+                    {p.health_detail ? ` · ${p.health_detail}` : ''}
+                  </span>
+                  <span className="spacer" />
                   <button className="btn sm" onClick={() => void test(p.id)} disabled={t === 'running'}>
-                    {t === 'running' ? 'Testing…' : 'Test connect'}
+                    <Icon name="refresh" size={13} /> {t === 'running' ? 'Testing…' : 'Test connection'}
                   </button>
                   {!p.demo && (
-                    <button className="btn sm danger" onClick={() => void remove(p)}>
+                    <button className="btn sm ghost danger-text" onClick={() => void remove(p)}>
                       Delete
                     </button>
                   )}
-                </div>
-                <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-dim)' }}>
-                  {p.deployments} model deployment{p.deployments === 1 ? '' : 's'}
-                  {p.health_detail ? ` · ${p.health_detail}` : ''}
                 </div>
                 {t && t !== 'running' && (
                   <div style={{ marginTop: 10 }}>
@@ -249,15 +274,47 @@ export function ProvidersPage() {
         </div>
       )}
 
-      <h2 style={{ fontSize: 15, margin: '6px 0 10px' }}>Add a provider</h2>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
-        {catalog.map((c) => (
-          <button key={c.id} className="card" disabled={!c.available} onClick={() => startAdd(c)} style={{ textAlign: 'left', cursor: c.available ? 'pointer' : 'default', opacity: c.available ? 1 : 0.5 }}>
-            <div style={{ fontWeight: 600 }}>{c.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{c.available ? c.kind : 'coming soon'}</div>
-          </button>
-        ))}
+      <div className="section-title">
+        <h2>Add a provider</h2>
       </div>
+      {GROUPS.map((g) => {
+        const items = catalog.filter((c) => g.ids.includes(c.id));
+        if (!items.length) return null;
+        return (
+          <div key={g.title} className="catalog-group">
+            <div className="catalog-label">
+              {g.title} <span>{g.hint}</span>
+            </div>
+            <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10 }}>
+              {items.map((c) => (
+                <button key={c.id} className="card catalog-tile" disabled={!c.available} onClick={() => startAdd(c)}>
+                  <Monogram name={c.name} kind={c.kind} size={30} />
+                  <span>
+                    <span className="catalog-name">{c.name}</span>
+                    <span className="catalog-kind">{c.available ? (c.kind === 'openai-compatible' ? 'OpenAI-compatible' : c.kind) : 'coming soon'}</span>
+                  </span>
+                  <Icon name="plus" size={15} className="catalog-plus" />
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {catalog.filter((c) => !GROUPS.some((g) => g.ids.includes(c.id))).length > 0 && (
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10 }}>
+          {catalog
+            .filter((c) => !GROUPS.some((g) => g.ids.includes(c.id)))
+            .map((c) => (
+              <button key={c.id} className="card catalog-tile" disabled={!c.available} onClick={() => startAdd(c)}>
+                <Monogram name={c.name} kind={c.kind} size={30} />
+                <span>
+                  <span className="catalog-name">{c.name}</span>
+                  <span className="catalog-kind">{c.kind}</span>
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

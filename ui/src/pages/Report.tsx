@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { api } from '../api';
+import { PageHeader } from '../components/PageHeader';
+import { Icon } from '../components/Icon';
 
 interface PathRow {
   agent: string;
@@ -60,11 +62,10 @@ export function ReportPage() {
 
   return (
     <div className="page report">
-      <div className="report-h">
-        <div style={{ flex: 1 }}>
-          <h1>Data-flow inventory</h1>
-          <p className="sub">Every agent, every model and tool server, and every path between them — with what Control Tower does on each path today. Download it for architecture docs and security reviews, or print it.</p>
-        </div>
+      <PageHeader
+        title="Data-flow inventory"
+        description="Every agent, model and tool server, and every path between them — with what Control Tower does on each path today. For architecture docs and security reviews."
+        actions={
         <div className="row no-print">
           <select className="input" value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="Window">
             <option value={24}>Last 24 hours</option>
@@ -72,16 +73,17 @@ export function ReportPage() {
             <option value={720}>Last 30 days</option>
           </select>
           <a className="btn" href={`/admin/api/export/dataflow?hours=${hours}&format=md`} download>
-            Markdown
+            <Icon name="download" size={15} /> Markdown
           </a>
           <a className="btn" href={`/admin/api/export/dataflow?hours=${hours}&format=csv`} download>
-            CSV
+            <Icon name="download" size={15} /> CSV
           </a>
           <button className="btn primary" onClick={() => window.print()}>
-            Print / PDF
+            <Icon name="download" size={15} /> Print / PDF
           </button>
         </div>
-      </div>
+        }
+      />
       {!inv && <div className="card hint">Building the inventory…</div>}
       {inv && (
         <>

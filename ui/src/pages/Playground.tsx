@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { getCsrf } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { CodeBlock } from '../components/CodeBlock';
+import { Icon } from '../components/Icon';
 
 interface Result {
   text: string;
@@ -125,8 +128,14 @@ const r = await client.chat.completions.create({ model: "${model}", messages: [{
 
   return (
     <div className="page">
-      <h1>Playground</h1>
-      <p className="sub">Send a request through the real pipeline. It shows up on the Airspace as the <code>playground</code> agent.</p>
+      <PageHeader
+        title="Playground"
+        description={
+          <>
+            Send a request through the real pipeline — gates, budgets and all. It shows up on the Airspace as the <code>playground</code> agent.
+          </>
+        }
+      />
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
         <div className="card">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
@@ -191,20 +200,16 @@ const r = await client.chat.completions.create({ model: "${model}", messages: [{
           <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'var(--font)', fontSize: 14, flex: 1 }}>{result?.text || <span style={{ color: 'var(--text-faint)' }}>Response will appear here.</span>}</pre>
         </div>
       </div>
-      <h2 style={{ fontSize: 15, margin: '20px 0 10px' }}>Use it from code</h2>
-      <div className="grid cols-3">
-        {[
-          ['curl', curl],
-          ['Python', py],
-          ['TypeScript', ts],
-        ].map(([name, code]) => (
-          <div className="card" key={name}>
-            <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>{name}</div>
-            <pre className="mono" style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{code}</pre>
-          </div>
-        ))}
+      <div className="section-title">
+        <h2>Use it from code</h2>
+        <span className="count">point any OpenAI SDK at this gateway with an agent key</span>
       </div>
-      <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--text-dim)' }}>Spend shown in the Ledger is computed per flight; the playground key is a system key and cannot be used from outside the console.</div>
+      <div className="grid cols-3">
+        <CodeBlock title="curl" code={curl} />
+        <CodeBlock title="Python" code={py} />
+        <CodeBlock title="TypeScript" code={ts} />
+      </div>
+      <div className="hint" style={{ marginTop: 10 }}>The playground uses a system key that only works from inside the console; create an agent key on the Keys page for your own code.</div>
       <div style={{ display: 'none' }}>{formatUsd(0)}</div>
     </div>
   );

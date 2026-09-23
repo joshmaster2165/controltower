@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError, type KeyRow } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { Icon } from '../components/Icon';
+import { ago, globList } from '../format';
+import { agentColor, hex } from '../airspace/colors';
 
 export function KeysPage() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
@@ -56,15 +60,16 @@ export function KeysPage() {
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <h1>API keys</h1>
-          <p className="sub">One key per agent. Keys carry team/project labels for the map and the ledger, model allow-lists, rate limits and budgets.</p>
-        </div>
-        <button className="btn primary" onClick={() => setShowNew(true)}>
-          + Create key
-        </button>
-      </div>
+      <PageHeader
+        title="API keys"
+        meta={`${keys.length} agent${keys.length === 1 ? '' : 's'}`}
+        description="One key per agent. A key names the agent on the map and in the ledger, and carries its team and project, allowed models, rate limit and budget."
+        actions={
+          <button className="btn primary" onClick={() => setShowNew(true)}>
+            <Icon name="plus" size={15} /> Create key
+          </button>
+        }
+      />
 
       {created && (
         <div className="card" style={{ marginBottom: 16, borderColor: 'rgba(61,220,151,0.4)' }}>
@@ -131,45 +136,54 @@ export function KeysPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Agent</th>
               <th>Key</th>
-              <th>Team / project</th>
               <th>Models</th>
-              <th>Limits</th>
+              <th>Rate limit</th>
+              <th>Last used</th>
               <th>Status</th>
-              <th></th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {keys.map((k) => (
               <tr key={k.id}>
                 <td>
-                  {k.name}
-                  {k.demo && <span className="tag" style={{ marginLeft: 6 }}>demo</span>}
+                  <div className="agent-cell">
+                    <i className="agent-dot" style={{ background: hex(agentColor(k.agent_id ?? k.id)) }} />
+                    <div>
+                      <span className="strong">{k.name}</span>
+                      {k.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
+                      <span className="sub">{[k.team, k.project].filter(Boolean).join(' · ') || 'no team'}</span>
+                    </div>
+                  </div>
                 </td>
-                <td className="mono">
+                <td className="mono muted">
                   {k.prefix}…{k.last4}
                 </td>
-                <td>{[k.team, k.project].filter(Boolean).join(' / ') || <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
-                <td className="mono">{k.allowed_models.join(', ')}</td>
-                <td className="mono">{k.limits.rpm ? `${k.limits.rpm} rpm` : '—'}</td>
+                <td>{globList(k.allowed_models)}</td>
+                <td className={k.limits.rpm ? '' : 'muted'}>{k.limits.rpm ? `${k.limits.rpm}/min` : 'none'}</td>
+                <td className="muted">{ago(k.last_used_at)}</td>
                 <td>
-                  <span className={`status ${k.enabled ? 'ok' : 'error'}`}>{k.enabled ? 'enabled' : 'disabled'}</span>
+                  <span className={`status ${k.enabled ? 'ok' : 'error'}`}>{k.enabled ? 'active' : 'disabled'}</span>
                 </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button className="btn sm ghost" onClick={() => void toggle(k)}>
-                    {k.enabled ? 'Disable' : 'Enable'}
-                  </button>{' '}
-                  <button className="btn sm danger" onClick={() => void remove(k)}>
-                    Delete
-                  </button>
+                <td>
+                  <div className="row-actions">
+                    <button className="btn sm" onClick={() => void toggle(k)}>
+                      {k.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button className="btn sm danger" onClick={() => void remove(k)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {keys.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--text-dim)', padding: 24, textAlign: 'center' }}>
-                  No keys yet.
+                <td colSpan={7} className="table-empty">
+                  <b>No keys yet</b>
+                  Create one key per agent so it shows up on the map with its own name, limits and budget.
                 </td>
               </tr>
             )}

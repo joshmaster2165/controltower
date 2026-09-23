@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { CodeBlock } from '../components/CodeBlock';
+import { Monogram } from '../components/Monogram';
+import { Icon } from '../components/Icon';
 
 interface McpServer {
   id: string;
@@ -80,17 +84,20 @@ export function McpPage() {
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <h1>MCP servers</h1>
-          <p className="sub">
-            Register the tool servers your agents may reach. Agents connect to <code>{origin}/mcp</code> (all servers, tools named <code>server__tool</code>) or <code>{origin}/mcp/&lt;slug&gt;</code> with their Control Tower key. Tools a key may not use are simply not listed.
-          </p>
-        </div>
-        <button className="btn primary" onClick={() => setShowAdd(true)}>
-          + Add server
-        </button>
-      </div>
+      <PageHeader
+        title="MCP servers"
+        meta={servers.length ? `${servers.length} registered` : undefined}
+        description={
+          <>
+            Tool servers your agents may reach. Agents connect to <code>{origin}/mcp</code> (every server, tools named <code>server__tool</code>) or <code>{origin}/mcp/&lt;slug&gt;</code> with their own key. Tools a key may not use are simply not listed.
+          </>
+        }
+        actions={
+          <button className="btn primary" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" size={15} /> Add server
+          </button>
+        }
+      />
 
       {showAdd && (
         <form className="card" style={{ marginBottom: 16, maxWidth: 620 }} onSubmit={add}>
@@ -140,76 +147,94 @@ export function McpPage() {
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' }}>
         {servers.map((s) => (
-          <div className="card" key={s.id}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className={`status ${s.health === 'ok' ? 'ok' : s.health === 'down' ? 'error' : ''}`} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600 }}>
-                  {s.name} {s.demo && <span className="tag">demo</span>} {!s.enabled && <span className="tag">disabled</span>}
+          <div className={`card provider-card ${s.enabled ? '' : 'is-off'}`} key={s.id}>
+            <div className="provider-head">
+              <Monogram name={s.name} kind="mcp" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="provider-name">
+                  {s.name}
+                  {s.demo && <span className="tag muted">demo</span>}
+                  {!s.enabled && <span className="tag muted">disabled</span>}
                 </div>
-                <div className="mono" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-                  {s.slug} · {s.url}
+                <div className="provider-meta mono">
+                  {s.slug} · {s.tools.length} tool{s.tools.length === 1 ? '' : 's'}
                 </div>
               </div>
+              <span className={`status ${s.health === 'ok' ? 'ok' : s.health === 'down' ? 'error' : ''}`}>{s.health === 'ok' ? 'healthy' : s.health === 'down' ? 'down' : 'not checked'}</span>
+            </div>
+            <div className="provider-url mono">{s.url}</div>
+            {s.tools.length > 0 && (
+              <div className="tool-list">
+                {s.tools.map((t) => {
+                  const a = (t.annotations ?? {}) as { readOnlyHint?: boolean; destructiveHint?: boolean };
+                  const op = a.destructiveHint ? 'destructive' : a.readOnlyHint ? 'read' : 'write';
+                  return (
+                    <div key={t.name} className="tool-row" title={t.description}>
+                      <span className="mono">{t.name}</span>
+                      <span className={`op ${op === 'destructive' ? 'admin' : op}`}>{op}</span>
+                      {t.description && <span className="tool-desc">{t.description}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="provider-foot">
+              <span className="dim">{s.health_detail ?? 'not checked yet'}</span>
+              <span className="spacer" />
               <button className="btn sm" onClick={() => void test(s)} disabled={busy === s.id}>
-                {busy === s.id ? 'Testing…' : 'Test'}
+                <Icon name="refresh" size={13} /> {busy === s.id ? 'Testing…' : 'Test'}
               </button>
               <button className="btn sm ghost" onClick={() => void toggle(s)}>
                 {s.enabled ? 'Disable' : 'Enable'}
               </button>
               {!s.demo && (
-                <button className="btn sm danger" onClick={() => void remove(s)}>
+                <button className="btn sm ghost danger-text" onClick={() => void remove(s)}>
                   Remove
                 </button>
               )}
             </div>
-            <div className="hint" style={{ marginTop: 6 }}>{s.health_detail ?? 'not checked yet'}</div>
-            {s.tools.length > 0 && (
-              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {s.tools.map((t) => {
-                  const a = (t.annotations ?? {}) as { readOnlyHint?: boolean; destructiveHint?: boolean };
-                  return (
-                    <span key={t.name} className="tag" title={t.description} style={{ background: a.destructiveHint ? 'rgba(255,92,122,0.15)' : a.readOnlyHint ? 'rgba(61,220,151,0.12)' : undefined, color: a.destructiveHint ? '#ffb3c1' : a.readOnlyHint ? '#9ef0c9' : undefined }}>
-                      {s.slug}__{t.name}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
           </div>
         ))}
-        {servers.length === 0 && <div className="card hint">No MCP servers yet.</div>}
+        {servers.length === 0 && (
+          <div className="card empty-card">
+            <Icon name="tool" size={20} />
+            <b>No tool servers yet</b>
+            <span>Register an MCP server and its tools appear on the Airspace, where you can gate each one.</span>
+          </div>
+        )}
       </div>
 
-      <h2 style={{ fontSize: 15, margin: '20px 0 10px' }}>Connect a client</h2>
+      <div className="section-title">
+        <h2>Connect a client</h2>
+      </div>
       <div className="grid cols-3">
-        <div className="card">
-          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>Claude Desktop / Claude Code / Cursor (mcp.json)</div>
-          <pre className="mono" style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{`{
+        <CodeBlock
+          title="Claude Desktop / Claude Code / Cursor — mcp.json"
+          code={`{
   "mcpServers": {
     "controltower": {
       "url": "${origin}/mcp",
       "headers": { "Authorization": "Bearer ct_sk_..." }
     }
   }
-}`}</pre>
-        </div>
-        <div className="card">
-          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>curl</div>
-          <pre className="mono" style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{`curl ${origin}/mcp \\
+}`}
+        />
+        <CodeBlock
+          title="curl"
+          code={`curl ${origin}/mcp \\
   -H "Authorization: Bearer ct_sk_..." \\
   -H "Content-Type: application/json" \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</pre>
-        </div>
-        <div className="card">
-          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>How gating shows up to the model</div>
-          <pre className="mono" style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{`tools/call → { isError: true,
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}
+        />
+        <CodeBlock
+          title="What a gated call looks like to the model"
+          code={`tools/call → { isError: true,
   content: [{ type: "text", text:
    "... {\\"ct_status\\":\\"pending\\",\\"ticket\\":\\"ct_tkt_…\\"}" }] }
 
 Retry with _meta.ct_approval = ticket
-once a human approves in the Tower.`}</pre>
-        </div>
+once a human approves in the Tower.`}
+        />
       </div>
     </div>
   );

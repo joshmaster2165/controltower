@@ -5,6 +5,7 @@ import { onFlightEvent } from '../ws';
 import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type LinkState } from '../airspace/scene';
 import { hex } from '../airspace/colors';
 import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type InspectConfig, type Rule, type Topology, type Zone } from '../api';
+import { Icon } from '../components/Icon';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from './Alerts';
 import { ApprovalCard } from './Tower';
 
@@ -238,6 +239,22 @@ export function AirspacePage() {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(() => {
+    try {
+      return localStorage.getItem('ct.airspace.legend') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleLegend = () =>
+    setLegendOpen((v) => {
+      try {
+        localStorage.setItem('ct.airspace.legend', v ? '0' : '1');
+      } catch {
+        /* private mode */
+      }
+      return !v;
+    });
   const downloadMap = async () => {
     setExportOpen(false);
     const scene = sceneRef.current;
@@ -323,15 +340,17 @@ export function AirspacePage() {
             </div>
           </div>
         </div>
-        <button className={`btn ${gateMode ? 'active' : ''}`} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path">
-          Add gate
-        </button>
-        <button className={`btn ${drawMode ? 'active' : ''}`} onClick={toggleDraw} title="Drag a lasso around stations to create a zone">
-          Draw zone
-        </button>
+        <div className="toolgroup" role="toolbar" aria-label="Map tools">
+          <button className={gateMode ? 'on' : ''} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path" aria-pressed={gateMode}>
+            <Icon name="shield" size={15} /> Add gate
+          </button>
+          <button className={drawMode ? 'on' : ''} onClick={toggleDraw} title="Drag a lasso around stations to create a zone" aria-pressed={drawMode}>
+            <Icon name="map" size={15} /> Draw zone
+          </button>
+        </div>
         <div className="menu-wrap">
           <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen}>
-            Export
+            <Icon name="download" size={15} /> Export
           </button>
           {exportOpen && (
             <div className="menu" role="menu" onMouseLeave={() => setExportOpen(false)}>
@@ -355,11 +374,8 @@ export function AirspacePage() {
           )}
         </div>
         <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }}>
-          Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
+          <Icon name="tower" size={15} /> Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
-      </div>
-      <div className="airspace-caption">
-        <b>Airspace</b> · drag nodes to arrange · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace it
       </div>
       {initError && (
         <div className="card" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%,-50%)', maxWidth: 440, zIndex: 6 }}>
@@ -381,7 +397,9 @@ export function AirspacePage() {
         showTower && (
           <div className="tower-drawer">
             {pendingHere.length === 0 ? (
-              <div className="card hint">No flights holding. Click a gate to make it a checkpoint, or draw a zone first.</div>
+              <div className="drawer-empty">
+                <Icon name="check" size={14} /> Nothing waiting for approval
+              </div>
             ) : (
               pendingHere.map((a) => <ApprovalCard key={a.id} a={a} onDecided={() => void refreshApprovals()} />)
             )}
@@ -469,9 +487,17 @@ export function AirspacePage() {
           +
         </button>
         <span className="sep" />
-        <button className="btn sm ghost" onClick={fitView}>
+        <button className="btn sm ghost" onClick={fitView} title="Fit every node on screen">
           Fit
         </button>
+        <span
+          className="map-help"
+          tabIndex={0}
+          title="Drag nodes to arrange (saved for everyone) · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace what it connects to · right-click a node to gate it"
+          aria-label="Map controls help"
+        >
+          ?
+        </span>
         {customLayout && (
           <button className="btn sm ghost" onClick={resetLayout}>
             Reset layout
@@ -480,7 +506,11 @@ export function AirspacePage() {
         {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
       </div>
 
-      <div className="legend">
+      {topology && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} />}
+      <div className={`legend ${legendOpen ? '' : 'closed'}`}>
+        <button className="legend-toggle" onClick={toggleLegend} aria-expanded={legendOpen} title={legendOpen ? 'Hide legend' : 'Show legend'}>
+          Legend
+        </button>
         <span>
           <em className="ln active" /> active (last min)
         </span>
@@ -514,6 +544,69 @@ export function AirspacePage() {
         </span>
         {policy && !policy.enforcement && <span className="pill warn">enforcement off</span>}
       </div>
+    </div>
+  );
+}
+
+/** First-run checklist: each step ticks itself off from real data. */
+function GettingStarted({ topology, rules, onGate }: { topology: Topology; rules: number; onGate: () => void }) {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem('ct.onboarding.dismissed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const agents = topology.keys.filter((k) => k.name !== 'playground').length;
+  const steps: Array<{ label: string; hint: string; done: boolean; href?: string; action?: () => void }> = [
+    { label: 'Connect a provider', hint: 'OpenAI, Anthropic, Bedrock, a local model…', done: topology.providers.length > 0, href: '#/providers' },
+    { label: 'Add a model', hint: 'Pick from the models the provider offers', done: topology.deployments.length > 0, href: '#/models' },
+    { label: 'Create an agent key', hint: 'One per agent, so it shows up here by name', done: agents > 0, href: '#/keys' },
+    { label: 'Send a first request', hint: 'From the Playground, or point an SDK at /v1', done: (topology.edges ?? []).length > 0, href: '#/playground' },
+    { label: 'Put a gate on a path', hint: 'Block, require approval or inspect', done: rules > 0, action: onGate },
+  ];
+  const done = steps.filter((x) => x.done).length;
+  if (hidden || done === steps.length) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem('ct.onboarding.dismissed', '1');
+    } catch {
+      /* private mode */
+    }
+    setHidden(true);
+  };
+  return (
+    <div className="onboarding card" role="region" aria-label="Get started">
+      <div className="onboarding-h">
+        <b>Get started</b>
+        <span className="dim">
+          {done} of {steps.length}
+        </span>
+        <button className="icon-btn" onClick={dismiss} aria-label="Dismiss" title="Dismiss">
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+      <div className="onboarding-bar">
+        <div style={{ width: `${(done / steps.length) * 100}%` }} />
+      </div>
+      <ol>
+        {steps.map((x) => {
+          const body = (
+            <>
+              <span className={`step-dot ${x.done ? 'done' : ''}`}>{x.done && <Icon name="check" size={11} />}</span>
+              <span className="step-text">
+                <span className="step-label">{x.label}</span>
+                {!x.done && <span className="step-hint">{x.hint}</span>}
+              </span>
+            </>
+          );
+          return (
+            <li key={x.label} className={x.done ? 'done' : ''}>
+              {x.done ? <div className="step">{body}</div> : x.href ? <a className="step" href={x.href}>{body}</a> : <button className="step" onClick={x.action}>{body}</button>}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

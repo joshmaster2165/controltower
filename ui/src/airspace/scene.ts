@@ -267,6 +267,8 @@ export class AirspaceScene {
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private obsEdges: ObservedEdge[] = [];
+  /** The region below the tower holding observed systems (world coordinates). */
+  private obsBand: { x: number; y: number; w: number; h: number } | null = null;
   /** Agent → observed system, drawn straight across (not through the tower). */
   private obsLines: Array<{ edge: ObservedEdge; agent: Station; target: Station; bez: Bez }> = [];
   private hub: Pt = [0, 0];
@@ -887,8 +889,38 @@ export class AirspaceScene {
         y += s.h;
       });
     };
+    // Observed systems get their own region below the tower: "outside the gateway" made literal.
+    const observed = [...this.stations.values()].filter((s) => s.kind === 'observed').sort((a, b) => Number(!!b.obs?.bypass) - Number(!!a.obs?.bypass) || a.label.localeCompare(b.label));
+    this.obsBand = null;
+    if (observed.length) {
+      const left = 28 + cardW + 56;
+      const right = W - 28 - cardW - 56;
+      const bw = Math.max(260, right - left);
+      const ow = Math.min(196, Math.max(150, (bw - 24) / Math.min(3, observed.length) - 10));
+      const perRow = Math.max(1, Math.floor((bw - 24 + 10) / (ow + 10)));
+      const rows = Math.ceil(observed.length / perRow);
+      const oh = 40;
+      const bandH = 34 + rows * (oh + 10) + 4;
+      const bandTop = padTop + avail - bandH;
+      this.hub = [Math.round(W / 2), Math.round(padTop + Math.max(this.holdR + 20, (avail - bandH - 40) / 2))];
+      const rowW = Math.min(observed.length, perRow) * (ow + 10) - 10;
+      const x0 = Math.round(W / 2 - rowW / 2);
+      observed.forEach((s, i) => {
+        const r = Math.floor(i / perRow);
+        const c = i % perRow;
+        s.expanded = false;
+        s.w = Math.round(ow);
+        s.headH = oh;
+        s.h = oh;
+        s.x = x0 + c * (ow + 10);
+        s.y = bandTop + 30 + r * (oh + 10);
+        s.px = s.x;
+        s.py = s.y + oh / 2;
+      });
+      this.obsBand = { x: x0 - 12, y: bandTop, w: rowW + 24, h: bandH };
+    }
     place([...this.stations.values()].filter((s) => s.kind === 'agent'), 28, 'left');
-    place([...this.stations.values()].filter((s) => s.kind !== 'agent'), W - 28 - cardW, 'right');
+    place([...this.stations.values()].filter((s) => s.kind !== 'agent' && s.kind !== 'observed'), W - 28 - cardW, 'right');
 
     // User arrangement wins over the automatic columns; ports always face the tower.
     const hubPos = this.positions.get('__hub');
@@ -899,8 +931,13 @@ export class AirspaceScene {
         s.x = p[0];
         s.y = p[1];
       }
-      s.px = s.x + s.w / 2 < this.hub[0] ? s.x + s.w : s.x;
-      s.py = s.y + s.headH / 2;
+      if (s.kind === 'observed') {
+        s.px = s.x + s.w / 2;
+        s.py = s.y;
+      } else {
+        s.px = s.x + s.w / 2 < this.hub[0] ? s.x + s.w : s.x;
+        s.py = s.y + s.headH / 2;
+      }
       s.tools.forEach((r, j) => (r.y = s.y + s.headH + 4 + j * TOOL_ROW));
     }
 
@@ -914,9 +951,8 @@ export class AirspaceScene {
       const from: Pt = [a.px, a.py];
       const to: Pt = [o.px, o.py];
       const span = to[0] - from[0];
-      // Bow away from the tower: this traffic does not pass through it.
-      const bow = Math.max(40, Math.abs(span) * 0.12);
-      this.obsLines.push({ edge: e, agent: a, target: o, bez: { p0: from, p1: [from[0] + span * 0.35, from[1] + bow], p2: [to[0] - span * 0.35, to[1] + bow], p3: to } });
+      // Leave the agent heading right, arrive at the system from above: never through the tower.
+      this.obsLines.push({ edge: e, agent: a, target: o, bez: { p0: from, p1: [from[0] + Math.max(60, span * 0.45), from[1]], p2: [to[0], to[1] - Math.max(40, Math.abs(to[1] - from[1]) * 0.45)], p3: to } });
     }
     for (const s of this.stations.values()) {
       if (s.kind === 'observed') continue;
@@ -1342,6 +1378,23 @@ export class AirspaceScene {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
+    }
+
+    // The "outside the gateway" region.
+    if (this.obsBand) {
+      const b = this.obsBand;
+      roundRect(ctx, b.x, b.y, b.w, b.h, 14);
+      ctx.fillStyle = 'rgba(100,116,139,0.04)';
+      ctx.fill();
+      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = 'rgba(100,116,139,0.45)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = `600 10.5px ${FONT}`;
+      ctx.fillStyle = '#64748b';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('OUTSIDE THE GATEWAY · SEEN, NOT ENFORCED', b.x + 14, b.y + 15);
     }
 
     // Observed traffic: dashed, straight from agent to system, never through the tower.

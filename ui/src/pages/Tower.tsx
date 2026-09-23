@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Approval } from '../api';
 import { useStore } from '../store';
+import { PageHeader } from '../components/PageHeader';
+import { ago } from '../format';
+import { Icon } from '../components/Icon';
 
 export function scopeStatement(a: Approval): string {
   const t = a.target;
@@ -126,13 +129,25 @@ export function TowerPage() {
 
   return (
     <div className="page">
-      <h1>Tower</h1>
-      <p className="sub">Flights holding at a checkpoint gate wait here for a human. Approve and the flight continues transparently; ignore it and the agent receives a resumable ticket instead of a silent timeout.</p>
+      <PageHeader
+        title="Tower"
+        meta={pending.length ? `${pending.length} waiting` : 'nothing waiting'}
+        description="Requests held at an approval gate wait here for a human. Approve and the request continues as if nothing happened; let it expire and the agent gets a ticket it can retry with — never a silent timeout."
+      />
       {linkedId && <LinkedApproval id={linkedId} version={pending.length + history.length} />}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 420px) minmax(0, 1fr)', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 400px) minmax(0, 1fr)', gap: 24 }}>
         <div>
-          <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>Pending ({pending.length})</h2>
-          {pending.length === 0 && <div className="card hint">Nothing is waiting. Put a “require approval” gate on a boundary and the next crossing will appear here.</div>}
+          <div className="section-title" style={{ marginTop: 0 }}>
+            <h2>Waiting for you</h2>
+            <span className="count">{pending.length}</span>
+          </div>
+          {pending.length === 0 && (
+            <div className="card empty-card">
+              <Icon name="check" size={20} />
+              <b>All clear</b>
+              <span>Put a “require approval” gate on a path and the next request across it will wait here.</span>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {pending
               .filter((a) => a.id !== linkedId)
@@ -142,36 +157,44 @@ export function TowerPage() {
           </div>
         </div>
         <div>
-          <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>History</h2>
+          <div className="section-title" style={{ marginTop: 0 }}>
+            <h2>Recent decisions</h2>
+          </div>
           <div className="card" style={{ padding: 0 }}>
             <table className="table">
               <thead>
                 <tr>
                   <th>When</th>
-                  <th>Agent → target</th>
+                  <th>Request</th>
                   <th>Outcome</th>
-                  <th>By</th>
-                  <th>Note</th>
+                  <th>Decided by</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((a) => (
                   <tr key={a.id}>
-                    <td className="mono">{new Date(a.requested_at).toLocaleTimeString([], { hour12: false })}</td>
+                    <td title={new Date(a.requested_at).toLocaleString()}>
+                      <span className="mono">{new Date(a.requested_at).toLocaleTimeString([], { hour12: false })}</span>
+                      <span className="sub">{ago(a.requested_at)}</span>
+                    </td>
                     <td>
-                      {a.key_name} → {a.target.name}
+                      <span className="strong">{a.key_name}</span>
+                      <span className="sub mono ellipsis">{a.target.name}</span>
                     </td>
                     <td>
                       <span className={`status ${a.status === 'approved' ? 'ok' : a.status === 'denied' ? 'denied' : 'ticketed'}`}>{a.status}</span>
                     </td>
-                    <td>{a.resolved_by ?? '—'}</td>
-                    <td style={{ color: 'var(--text-dim)' }}>{a.note ?? ''}</td>
+                    <td>
+                      {a.resolved_by ?? <span className="muted">nobody</span>}
+                      {a.note && <span className="sub ellipsis">{a.note}</span>}
+                    </td>
                   </tr>
                 ))}
                 {history.length === 0 && (
                   <tr>
-                    <td colSpan={5} style={{ color: 'var(--text-dim)', padding: 24, textAlign: 'center' }}>
-                      No decisions yet.
+                    <td colSpan={4} className="table-empty">
+                      <b>No decisions yet</b>
+                      Approvals and denials show up here with who made them.
                     </td>
                   </tr>
                 )}

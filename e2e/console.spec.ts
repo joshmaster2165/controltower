@@ -90,13 +90,13 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
     await field(f, /Endpoint override/).fill(urls.vertex);
   });
   await page.getByRole('link', { name: 'Models' }).click();
-  await page.getByRole('button', { name: '+ Model' }).click();
+  await page.getByRole('button', { name: 'Model', exact: true }).click();
   const modelForm = page.locator('form.card');
   await field(modelForm, /^Provider$/).selectOption({ label: 'Google Vertex AI (vertex)' });
   await field(modelForm, /Upstream model id/).fill('gemini-2.5-pro');
   await field(modelForm, /Public name/).fill('vertex-gemini');
   await modelForm.getByRole('button', { name: 'Add model', exact: true }).click();
-  await expect(page.locator('table.table').first()).toContainText('vertex-gemini');
+  await expect(page.locator('table.table').last()).toContainText('vertex-gemini'); // deployments (aliases come first)
 
   // ---- Playground through each provider ----
   const ask = async (model: string, expected: RegExp) => {
@@ -112,7 +112,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
 
   // ---- Keys ----
   await page.getByRole('link', { name: 'Keys' }).click();
-  await page.getByRole('button', { name: '+ Create key' }).click();
+  await page.getByRole('button', { name: 'Create key', exact: true }).click();
   await field(page, /Name \(agent\)/).fill('e2e-agent');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.locator('.keybox')).toContainText(/ct_sk_[0-9A-Za-z]{32}_[0-9A-Za-z]{6}/);

@@ -130,6 +130,10 @@ export class PolicyService implements PolicyEngine {
     private readonly enforcement: () => boolean,
   ) {}
 
+  enforcementOn(): boolean {
+    return this.enforcement();
+  }
+
   onChange(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -237,10 +241,19 @@ export class PolicyService implements PolicyEngine {
 
   evaluate(input: PolicyInput): PolicyDecisionFull {
     if (!this.enforcement()) return { effect: 'allow', reason: 'enforcement off' };
+    return this.evaluateWith(this.rules, input);
+  }
+
+  /**
+   * First-match evaluation over an explicit rule list (sorted by priority).
+   * Used live with `this.rules`, and by the simulator with a draft rule set.
+   * With `args` undefined, rules that need arguments do not match.
+   */
+  evaluateWith(rules: RuleRecord[], input: PolicyInput): PolicyDecisionFull {
     const src = new Set(this.sourceZones(input.key).map((z) => z.id));
     const dstZones = this.targetZones(input.target);
     const dst = new Set(dstZones.map((z) => z.id));
-    for (const r of this.rules) {
+    for (const r of rules) {
       if (r.effect === 'inspect') continue;
       const m = this.matchRule(r, input.key, input.target, src, dst, input.args);
       if (m !== 'match') continue;

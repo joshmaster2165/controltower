@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
@@ -232,6 +232,7 @@ export function AirspacePage() {
   useEffect(() => {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
+  const showSimulation = useCallback((r: SimResult | null) => sceneRef.current?.setSimulation(r ? r.lanes : null), []);
   useEffect(() => {
     sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
   }, [showTower, focusId, topology, policy]);
@@ -360,6 +361,7 @@ export function AirspacePage() {
           topology={topology}
           zones={policy?.zones ?? []}
           channels={alertChannels}
+          onSimulate={showSimulation}
           onClose={() => setPopover(null)}
           onCreated={() => {
             setPopover(null);
@@ -397,6 +399,7 @@ export function AirspacePage() {
           stats={policy.rule_stats[popover.rule.id]}
           alerts={alertRules.filter((a) => a.rule_id === popover.rule.id)}
           channels={alertChannels}
+          onSimulate={showSimulation}
           onClose={() => setPopover(null)}
           onChanged={() => void refreshPolicy()}
         />
@@ -802,8 +805,11 @@ function ZonePopover({ x, y, zone, zones, rules, onClose, onChanged }: { x: numb
   );
 }
 
-function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onChanged }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; alerts: AlertRule[]; channels: AlertChannel[]; onClose: () => void; onChanged: () => void }) {
+function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onChanged, onSimulate }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; alerts: AlertRule[]; channels: AlertChannel[]; onClose: () => void; onChanged: () => void; onSimulate: (r: SimResult | null) => void }) {
   const [alertForm, setAlertForm] = useState<AlertRule | 'new' | null>(null);
+  const [sim, setSim] = useState<SimResult | null>(null);
+  const [simBusy, setSimBusy] = useState(false);
+  const [simErr, setSimErr] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both' } : DEFAULT_INSPECT);
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
@@ -818,6 +824,26 @@ function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onCha
   const toggle = async () => {
     await api.patch(`/admin/api/rules/${rule.id}`, { enabled: !rule.enabled });
     onChanged();
+  };
+  const changed = effect !== rule.effect;
+  useEffect(() => () => onSimulate(null), [onSimulate]);
+  useEffect(() => {
+    setSim(null);
+    onSimulate(null);
+  }, [effect, onSimulate]);
+  const runSimulation = async () => {
+    setSimBusy(true);
+    setSimErr(null);
+    try {
+      const body = changed ? { rule: { effect, config: { hold_ms: Math.max(0, Number(hold)) * 1000 } }, replace_rule_id: rule.id, hours: 24 } : { impact_of_rule_id: rule.id, hours: 24 };
+      const r = await api.post<SimResult>('/admin/api/policy/simulate', body);
+      setSim(r);
+      onSimulate(r);
+    } catch (e) {
+      setSimErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSimBusy(false);
+    }
   };
   const remove = async () => {
     if (!confirm(`Delete gate "${rule.name}"?`)) return;
@@ -852,6 +878,15 @@ function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onCha
         <label>Reason shown to the agent</label>
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
       </div>
+      {effect !== 'inspect' && (
+        <div className="gate-sim">
+          <button className="btn sm" disabled={simBusy} onClick={() => void runSimulation()}>
+            {simBusy ? 'Replaying…' : changed ? 'Simulate this change on last 24 h' : 'Impact in the last 24 h'}
+          </button>
+          {sim && <SimulationView r={sim} mode={changed ? 'draft' : 'impact'} />}
+          {simErr && <div className="error">{simErr}</div>}
+        </div>
+      )}
       <GateAlerts rule={{ ...rule, effect }} alerts={alerts} channels={channels} form={alertForm} setForm={setAlertForm} />
       {rate != null && (
         <div className="hint" style={{ marginBottom: 8, color: rate >= 95 && total >= 20 ? 'var(--warn)' : undefined }}>
@@ -918,6 +953,57 @@ function GateAlerts({ rule, alerts, channels, form, setForm }: { rule: Rule; ale
         </button>
       )}
       {form !== null && <AlertRuleForm compact gate={rule} gates={[]} channels={channels} existing={form === 'new' ? undefined : form} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
+    </div>
+  );
+}
+
+export interface SimResult {
+  window_hours: number;
+  considered: number;
+  changed: { to_deny: number; to_hold: number; to_allow: number };
+  cost_avoided_nanousd: number;
+  agents: Array<{ key_id: string; name: string; deny: number; hold: number; allow: number }>;
+  destinations: Array<{ id: string; name: string; deny: number; hold: number; allow: number }>;
+  lanes: Array<{ key_id: string; target_id: string; deny: number; hold: number; allow: number }>;
+  samples: Array<{ ts: number; agent: string; destination: string; before: string; after: string }>;
+  notes: string[];
+}
+
+/** What a draft gate would have done — or what an existing gate did — to recorded traffic. */
+function SimulationView({ r, mode = 'draft' }: { r: SimResult; mode?: 'draft' | 'impact' }) {
+  const { to_deny, to_hold, to_allow } = r.changed;
+  const none = to_deny + to_hold + to_allow === 0;
+  const would = mode === 'draft';
+  const list = (xs: Array<{ name: string; deny: number; hold: number; allow: number }>) =>
+    xs
+      .slice(0, 4)
+      .map((x) => `${x.name} ${x.deny + x.hold + x.allow}`)
+      .join(' · ');
+  return (
+    <div className="sim">
+      <div className="sim-h">
+        {would ? 'Replayed' : 'In'} the last {r.window_hours} h · {r.considered.toLocaleString('en-US')} requests{would ? '' : ' checked'}
+      </div>
+      {none ? (
+        <div className="sim-none">{would ? 'No recorded request would have been treated differently.' : 'This gate did not change the outcome of any recorded request — a broader gate or no traffic covers this path.'}</div>
+      ) : (
+        <>
+          <div className="sim-big">
+            {to_deny > 0 && <span className="d">{to_deny.toLocaleString('en-US')} {would ? 'would be blocked' : 'blocked'}</span>}
+            {to_hold > 0 && <span className="h">{to_hold.toLocaleString('en-US')} {would ? 'would wait for approval' : 'held for approval'}</span>}
+            {to_allow > 0 && <span className="a">{to_allow.toLocaleString('en-US')} {would ? 'would be let through' : 'let through'}</span>}
+          </div>
+          {r.cost_avoided_nanousd > 0 && <div className="dim">{formatUsd(r.cost_avoided_nanousd)} of spend {would ? 'would not have happened' : 'was stopped'}.</div>}
+          {r.agents.length > 0 && <div className="dim">Agents: {list(r.agents)}</div>}
+          {r.destinations.length > 0 && <div className="dim">Targets: {list(r.destinations)}</div>}
+          <div className="dim">Affected paths are highlighted on the map.</div>
+        </>
+      )}
+      {r.notes.map((n, i) => (
+        <div key={i} className="hint">
+          {n}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1022,7 +1108,7 @@ const EFFECTS: Array<{ id: Rule['effect']; label: string; hint: string; cls: str
   { id: 'allow', label: 'Allow', hint: 'Explicitly allow this path (takes precedence over broader gates below it).', cls: 'allow' },
 ];
 
-function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreated }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; channels: AlertChannel[]; onClose: () => void; onCreated: () => void }) {
+function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreated, onSimulate }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; channels: AlertChannel[]; onClose: () => void; onCreated: () => void; onSimulate: (r: SimResult | null) => void }) {
   const [notify, setNotify] = useState(false);
   const [inspect, setInspect] = useState<InspectConfig>(DEFAULT_INSPECT);
   const [notifyChannels, setNotifyChannels] = useState<string[]>(channels.filter((c) => c.enabled).map((c) => c.id));
@@ -1048,13 +1134,17 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
   const verb = effect === 'deny' ? 'Block' : effect === 'require_approval' ? 'Require approval for' : effect === 'inspect' ? 'Inspect' : 'Allow';
   const sentence = effect === 'inspect' ? `Inspect ${agentLabel} → ${destLabel}: ${inspectSummary(inspect)}` : `${verb} ${agentLabel} → ${destLabel}`;
 
-  const create = async () => {
-    if (from === 'all' && !to && effect !== 'inspect') {
-      setErr('Pick an agent or a destination — a gate on everything would stop all traffic.');
-      return;
-    }
-    setBusy(true);
-    setErr(null);
+  const [sim, setSim] = useState<SimResult | null>(null);
+  const [simBusy, setSimBusy] = useState(false);
+  useEffect(() => () => onSimulate(null), [onSimulate]);
+  // Any change to the draft makes a shown simulation stale.
+  useEffect(() => {
+    setSim(null);
+    onSimulate(null);
+  }, [from, to, tool, effect, onSimulate]);
+
+  const buildBody = (): { body?: Record<string, unknown>; error?: string } => {
+    if (from === 'all' && !to && effect !== 'inspect') return { error: 'Pick an agent or a destination — a gate on everything would stop all traffic.' };
     const match: Record<string, unknown> = {};
     const body: Record<string, unknown> = { name: sentence, effect, priority: 5, target_kind: 'any' };
     if (from.startsWith('key:')) match.keys = [from.slice(4)];
@@ -1073,14 +1163,40 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
     if (reason.trim()) config.reason = reason.trim();
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
     if (effect === 'inspect') {
-      if (!(inspect.detectors?.length || inspect.keywords?.length)) {
-        setErr('Pick at least one thing to look for.');
-        setBusy(false);
-        return;
-      }
+      if (!(inspect.detectors?.length || inspect.keywords?.length)) return { error: 'Pick at least one thing to look for.' };
       Object.assign(config, inspect);
     }
     body.config = config;
+    return { body };
+  };
+
+  const runSimulation = async () => {
+    const { body, error } = buildBody();
+    if (!body) {
+      setErr(error ?? null);
+      return;
+    }
+    setSimBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<SimResult>('/admin/api/policy/simulate', { rule: body, hours: 24 });
+      setSim(r);
+      onSimulate(r);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSimBusy(false);
+    }
+  };
+
+  const create = async () => {
+    const { body, error } = buildBody();
+    if (!body) {
+      setErr(error ?? null);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
     try {
       const created = await api.post<{ id: string }>('/admin/api/rules', body);
       if (notify) {
@@ -1198,11 +1314,17 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
         {notify && <div className="hint">Console inbox{channels.length ? ' plus the channels ticked above' : ''}; at most one alert per 5 min, the rest summarised. Fine-tune it by clicking the gate later.</div>}
       </div>
       <div className="summary">{sentence}</div>
+      {sim && <SimulationView r={sim} />}
       {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
       <div className="row">
         <button className="btn sm primary" disabled={busy} onClick={() => void create()}>
           {busy ? 'Adding…' : 'Add gate'}
         </button>
+        {effect !== 'inspect' && (
+          <button className="btn sm" disabled={simBusy} onClick={() => void runSimulation()} title="Replay the last 24 hours of traffic through this gate">
+            {simBusy ? 'Simulating…' : sim ? 'Simulate again' : 'Simulate on last 24 h'}
+          </button>
+        )}
         <button className="btn sm ghost" onClick={onClose}>
           Cancel
         </button>

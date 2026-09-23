@@ -251,6 +251,8 @@ export class AirspaceScene {
   private topology: Topology | null = null;
   private policy: PolicyBundle | null = null;
   private alerted = new Set<string>();
+  /** A simulated gate's effect per station (agents and destinations), drawn over the map until cleared. */
+  private sim: Map<string, { deny: number; hold: number; allow: number }> | null = null;
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private hub: Pt = [0, 0];
@@ -663,6 +665,26 @@ export class AirspaceScene {
   setPolicy(p: PolicyBundle): void {
     this.policy = p;
     this.layout();
+  }
+
+  /** Highlight the paths a simulated gate would change; null clears it. */
+  setSimulation(lanes: Array<{ key_id: string; target_id: string; deny: number; hold: number; allow: number }> | null): void {
+    if (!lanes) {
+      this.sim = null;
+    } else {
+      const m = new Map<string, { deny: number; hold: number; allow: number }>();
+      for (const l of lanes) {
+        for (const id of [l.key_id, l.target_id]) {
+          const c = m.get(id) ?? { deny: 0, hold: 0, allow: 0 };
+          c.deny += l.deny;
+          c.hold += l.hold;
+          c.allow += l.allow;
+          m.set(id, c);
+        }
+      }
+      this.sim = m;
+    }
+    this.dirty = true;
   }
 
   /** Gates that have an alert rule get a bell on their marker. */
@@ -1191,7 +1213,18 @@ export class AirspaceScene {
         dash = [];
         if (st === 'idle' || st === 'unused') color = '#8ea1bb';
       }
-      ctx.globalAlpha = dim(s.id);
+      let alpha = dim(s.id);
+      if (this.sim) {
+        const c = this.sim.get(s.id);
+        if (c) {
+          color = hex(c.deny >= c.hold && c.deny >= c.allow ? STATUS_COLORS.denied : c.hold >= c.allow ? STATUS_COLORS.held : STATUS_COLORS.ok);
+          width = 2.5;
+          dash = [7, 5];
+        } else {
+          alpha *= 0.25;
+        }
+      }
+      ctx.globalAlpha = alpha;
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
       ctx.setLineDash(dash);
@@ -1199,6 +1232,31 @@ export class AirspaceScene {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
+    }
+
+    // Simulation: a count on each affected line.
+    if (this.sim) {
+      for (const sp of this.spokes.values()) {
+        const c = this.sim.get(sp.station.id);
+        if (!c) continue;
+        const parts = [c.deny ? `${c.deny} blocked` : '', c.hold ? `${c.hold} held` : '', c.allow ? `${c.allow} freed` : ''].filter(Boolean);
+        const tone = c.deny >= c.hold && c.deny >= c.allow ? STATUS_COLORS.denied : c.hold >= c.allow ? STATUS_COLORS.held : STATUS_COLORS.ok;
+        const [x, y] = bezAt(sp.bez, 0.5);
+        const label = parts.join(' · ');
+        ctx.font = `600 10.5px ${FONT}`;
+        const tw = ctx.measureText(label).width + 14;
+        roundRect(ctx, x - tw / 2, y - 9, tw, 18, 9);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = hex(tone);
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+        ctx.fillStyle = hex(tone);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x, y + 0.5);
+        ctx.textAlign = 'left';
+      }
     }
 
     // Holding ring (static): amber when anything is waiting on a human.

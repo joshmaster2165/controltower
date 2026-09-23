@@ -6,6 +6,8 @@ import type { PolicyService } from '../policy/policy.js';
 import type { ApprovalService } from '../policy/approvals.js';
 import { validatePattern, type InspectConfig } from '../guardrails/scan.js';
 import { detectorCatalog } from '../guardrails/detectors.js';
+import { simulate } from '../policy/simulate.js';
+import type { RuleRecord } from '../policy/policy.js';
 
 const EFFECTS = ['allow', 'deny', 'require_approval', 'allow_with_limits', 'inspect'];
 
@@ -50,6 +52,46 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
   });
 
   app.get('/admin/api/guardrails/detectors', { preHandler: guard }, async () => ({ detectors: detectorCatalog() }));
+
+  // ---- simulate a draft gate against recorded traffic ----
+  app.post('/admin/api/policy/simulate', { preHandler: guard }, async (req, reply) => {
+    const b = (req.body ?? {}) as {
+      rule?: { name?: string; from_zone?: string | null; to_zone?: string | null; target_kind?: string; match?: Record<string, unknown>; effect?: string; config?: Record<string, unknown>; priority?: number };
+      replace_rule_id?: string;
+      /** Measure what an existing gate does instead of simulating a draft. */
+      impact_of_rule_id?: string;
+      hours?: number;
+    };
+    if (b.impact_of_rule_id) {
+      const g = policy.rules.find((x) => x.id === b.impact_of_rule_id);
+      if (!g) return reply.status(404).send({ error: { code: 'not_found', message: 'rule not found' } });
+      if (g.effect === 'inspect') return reply.status(400).send({ error: { code: 'unsupported', message: 'Inspect gates cannot be simulated: request and response contents are not stored.' } });
+      return simulate({ db: ctx.db.read, policy, registry: ctx.registry, mcp: ctx.mcp }, null, { impactOfRuleId: g.id, windowHours: b.hours });
+    }
+    const r = b.rule ?? {};
+    const effect = r.effect;
+    if (effect === 'inspect') return reply.status(400).send({ error: { code: 'unsupported', message: 'Inspect gates cannot be simulated: request and response contents are not stored.' } });
+    if (!effect || !['allow', 'deny', 'require_approval'].includes(effect)) return reply.status(400).send({ error: { code: 'invalid', message: 'effect must be allow | deny | require_approval' } });
+    if (r.from_zone && !policy.zones.has(r.from_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'from_zone not found' } });
+    if (r.to_zone && !policy.zones.has(r.to_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'to_zone not found' } });
+    const existing = b.replace_rule_id ? policy.rules.find((x) => x.id === b.replace_rule_id) : undefined;
+    if (b.replace_rule_id && !existing) return reply.status(404).send({ error: { code: 'not_found', message: 'rule not found' } });
+    const draft: RuleRecord = {
+      id: existing?.id ?? 'draft',
+      name: r.name ?? existing?.name ?? 'Draft gate',
+      fromZone: r.from_zone !== undefined ? r.from_zone : (existing?.fromZone ?? null),
+      toZone: r.to_zone !== undefined ? r.to_zone : (existing?.toZone ?? null),
+      targetKind: ((r.target_kind ?? existing?.targetKind ?? 'any') as RuleRecord['targetKind']),
+      match: (r.match as RuleRecord['match'] | undefined) ?? existing?.match ?? {},
+      effect: effect as RuleRecord['effect'],
+      config: { ...(existing?.config ?? {}), ...((r.config as RuleRecord['config'] | undefined) ?? {}) },
+      priority: r.priority ?? existing?.priority ?? 100,
+      enabled: true,
+      revision: (existing?.revision ?? 0) + 1,
+      demo: false,
+    };
+    return simulate({ db: ctx.db.read, policy, registry: ctx.registry, mcp: ctx.mcp }, draft, { replaceRuleId: existing?.id, windowHours: b.hours });
+  });
 
   // ---- zones ----
   app.post('/admin/api/zones', { preHandler: guard }, async (req, reply) => {

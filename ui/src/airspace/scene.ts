@@ -181,6 +181,17 @@ function gateable(kind: StationKind): boolean {
   return kind !== 'unknown' && kind !== 'observed';
 }
 
+/** Squared distance from a point to a segment. */
+function segDist2(p: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0;
+  const x = a[0] + t * dx - p[0];
+  const y = a[1] + t * dy - p[1];
+  return x * x + y * y;
+}
+
 function gateColor(rule: Rule): number {
   return rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : rule.effect === 'inspect' ? STATUS_COLORS.info : STATUS_COLORS.ok;
 }
@@ -268,9 +279,11 @@ export class AirspaceScene {
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private obsEdges: ObservedEdge[] = [];
   /** The region below the tower holding observed systems (world coordinates). */
-  private obsBand: { x: number; y: number; w: number; h: number } | null = null;
+  private obsBand: { x: number; y: number; w: number; h: number; left: number } | null = null;
   /** Agent → observed system, drawn straight across (not through the tower). */
-  private obsLines: Array<{ edge: ObservedEdge; agent: Station; target: Station; bez: Bez }> = [];
+  private obsLines: Array<{ edge: ObservedEdge; agent: Station; target: Station; pts: Pt[] }> = [];
+  /** Which connections to show: everything, only live ones, only gateway traffic, or only traffic outside it. */
+  private layer: 'all' | 'active' | 'gateway' | 'outside' = 'all';
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
@@ -893,18 +906,21 @@ export class AirspaceScene {
     const observed = [...this.stations.values()].filter((s) => s.kind === 'observed').sort((a, b) => Number(!!b.obs?.bypass) - Number(!!a.obs?.bypass) || a.label.localeCompare(b.label));
     this.obsBand = null;
     if (observed.length) {
-      const left = 28 + cardW + 56;
-      const right = W - 28 - cardW - 56;
-      const bw = Math.max(260, right - left);
-      const ow = Math.min(196, Math.max(150, (bw - 24) / Math.min(3, observed.length) - 10));
-      const perRow = Math.max(1, Math.floor((bw - 24 + 10) / (ow + 10)));
+      // Between the columns, leaving room for the routing channel beside the agents.
+      const left = 28 + cardW + 64;
+      const right = W - 28 - cardW - 24;
+      const bw = Math.max(300, right - left);
+      const cols = Math.max(Math.min(2, observed.length), Math.min(3, observed.length, Math.floor((bw + 10) / 170)));
+      const ow = Math.min(196, Math.max(140, (bw - 24) / cols - 10));
+      const perRow = cols;
       const rows = Math.ceil(observed.length / perRow);
       const oh = 40;
-      const bandH = 34 + rows * (oh + 10) + 4;
+      const gutter = 18; // room for routed lines between rows and columns
+      const bandH = 44 + rows * (oh + gutter) + 4;
       const bandTop = padTop + avail - bandH;
       this.hub = [Math.round(W / 2), Math.round(padTop + Math.max(this.holdR + 20, (avail - bandH - 40) / 2))];
-      const rowW = Math.min(observed.length, perRow) * (ow + 10) - 10;
-      const x0 = Math.round(W / 2 - rowW / 2);
+      const rowW = Math.min(observed.length, perRow) * (ow + gutter) - gutter;
+      const x0 = Math.round(Math.max(left, Math.min(W / 2 - rowW / 2, right - rowW)));
       observed.forEach((s, i) => {
         const r = Math.floor(i / perRow);
         const c = i % perRow;
@@ -912,12 +928,12 @@ export class AirspaceScene {
         s.w = Math.round(ow);
         s.headH = oh;
         s.h = oh;
-        s.x = x0 + c * (ow + 10);
-        s.y = bandTop + 30 + r * (oh + 10);
+        s.x = x0 + c * (ow + gutter);
+        s.y = bandTop + 42 + r * (oh + gutter);
         s.px = s.x;
         s.py = s.y + oh / 2;
       });
-      this.obsBand = { x: x0 - 12, y: bandTop, w: rowW + 24, h: bandH };
+      this.obsBand = { x: x0 - 12, y: bandTop, w: rowW + 24, h: bandH, left: x0 };
     }
     place([...this.stations.values()].filter((s) => s.kind === 'agent'), 28, 'left');
     place([...this.stations.values()].filter((s) => s.kind !== 'agent' && s.kind !== 'observed'), W - 28 - cardW, 'right');
@@ -943,17 +959,7 @@ export class AirspaceScene {
 
     this.spokes.clear();
     const [hx, hy] = this.hub;
-    this.obsLines = [];
-    for (const e of this.obsEdges) {
-      const a = this.stations.get(e.key_id);
-      const o = this.stations.get(e.target_id);
-      if (!a || !o) continue;
-      const from: Pt = [a.px, a.py];
-      const to: Pt = [o.px, o.py];
-      const span = to[0] - from[0];
-      // Leave the agent heading right, arrive at the system from above: never through the tower.
-      this.obsLines.push({ edge: e, agent: a, target: o, bez: { p0: from, p1: [from[0] + Math.max(60, span * 0.45), from[1]], p2: [to[0], to[1] - Math.max(40, Math.abs(to[1] - from[1]) * 0.45)], p3: to } });
-    }
+    this.obsLines = this.routeObserved();
     for (const s of this.stations.values()) {
       if (s.kind === 'observed') continue;
       const dx = s.px - hx;
@@ -1021,6 +1027,107 @@ export class AirspaceScene {
         this.zoneBoxes.push({ zone: z, x, y, w: x2 - x, h: y2 - y, chip: { x: x + 8, y: y + 6, w: cw, h: 18 } });
       }
     }
+  }
+
+  /**
+   * Transit-map routing for observed traffic. Each line leaves its agent from a
+   * second port just below the gateway port, drops down a shared channel beside
+   * the agents (one lane per line), runs along a rail above the "outside" region,
+   * then enters its system from the side. Lines never pass through the tower,
+   * never overlap each other, and cross gateway lines only at right angles.
+   *
+   * Lane order is chosen so the bundle itself has no crossings: the highest
+   * agent takes the outermost lane and turns first.
+   */
+  private routeObserved(): Array<{ edge: ObservedEdge; agent: Station; target: Station; pts: Pt[] }> {
+    const items = this.obsEdges
+      .map((edge) => ({ edge, agent: this.stations.get(edge.key_id), target: this.stations.get(edge.target_id) }))
+      .filter((x): x is { edge: ObservedEdge; agent: Station; target: Station } => !!x.agent && !!x.target && x.target.kind === 'observed');
+    if (!items.length) return [];
+    const lane = 4;
+    const agents = [...this.stations.values()].filter((s) => s.kind === 'agent');
+    const agentsRight = Math.max(...agents.map((s) => s.x + s.w), ...items.map((i) => i.agent.x + i.agent.w));
+    const trunk0 = agentsRight + 18;
+    // Each line: out of the agent at y=a, down (or up) a lane at x, into the system's side at y=t.
+    const perTarget = new Map<string, number>();
+    const geo = items.map((it) => {
+      const slot = perTarget.get(it.target.id) ?? 0;
+      perTarget.set(it.target.id, slot + 1);
+      return { ...it, a: it.agent.py + 9, t: it.target.y + it.target.h / 2 + slot * lane, slot };
+    });
+    // Z-routes cross when one line's horizontal passes through another's vertical.
+    // Try a few natural lane orders and keep the one with the fewest crossings.
+    const crossings = (order: typeof geo): number => {
+      let c = 0;
+      order.forEach((p, i) => {
+        order.forEach((q, j) => {
+          if (i === j) return;
+          const lo = Math.min(q.a, q.t);
+          const hi = Math.max(q.a, q.t);
+          // p's first horizontal (y=p.a) spans lanes < i's... it runs from the agents to lane i.
+          if (j < i && p.a > lo && p.a < hi) c++;
+          // p's last horizontal (y=p.t) runs from lane i to the systems.
+          if (j > i && p.t > lo && p.t < hi) c++;
+        });
+      });
+      return c;
+    };
+    const candidates = [
+      [...geo].sort((p, q) => p.a - q.a || p.t - q.t),
+      [...geo].sort((p, q) => q.a - p.a || q.t - p.t),
+      [...geo].sort((p, q) => p.t - q.t || p.a - q.a),
+      [...geo].sort((p, q) => q.t - p.t || q.a - p.a),
+      [...geo].sort((p, q) => Math.abs(p.t - p.a) - Math.abs(q.t - q.a)),
+      [...geo].sort((p, q) => Math.abs(q.t - q.a) - Math.abs(p.t - p.a)),
+    ];
+    let best = candidates[0]!;
+    let bestC = Infinity;
+    for (const c of candidates) {
+      const n = crossings(c);
+      if (n < bestC) {
+        bestC = n;
+        best = c;
+      }
+    }
+    // Lines into a system that has other cards to its left travel along the gutter
+    // above its row, then down the gutter beside it — never across another card.
+    const leftCol = this.obsBand?.left ?? Infinity;
+    const rowUse = new Map<number, number>();
+    return best.map((g, i) => {
+      const { agent: a, target: o } = g;
+      const start: Pt = [a.x + a.w, g.a];
+      const cy = Math.max(o.y + 8, Math.min(o.y + o.h - 8, o.y + o.h / 2 + (g.slot % 3) * lane - lane));
+      if (a.x + a.w >= o.x) return { edge: g.edge, agent: a, target: o, pts: [start, [start[0] + 16, start[1]], [start[0] + 16, cy], [o.x + o.w, cy]] };
+      const tx = Math.min(trunk0 + i * lane, o.x - 12);
+      if (o.x <= leftCol + 1) return { edge: g.edge, agent: a, target: o, pts: [start, [tx, start[1]], [tx, cy], [o.x, cy]] };
+      const k = rowUse.get(o.y) ?? 0;
+      rowUse.set(o.y, k + 1);
+      const gapY = o.y - 6 - (k % 3) * 3;
+      const dropX = o.x - 6 - (g.slot % 3) * 3;
+      return { edge: g.edge, agent: a, target: o, pts: [start, [tx, start[1]], [tx, gapY], [dropX, gapY], [dropX, cy], [o.x, cy]] };
+    });
+  }
+
+  /** Stroke a polyline with rounded corners. */
+  private roundedPath(pts: Pt[], r = 9): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.moveTo(pts[0]![0], pts[0]![1]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i - 1]!;
+      const [x1, y1] = pts[i]!;
+      const [x2, y2] = pts[i + 1]!;
+      const rr = Math.min(r, Math.hypot(x1 - x0, y1 - y0) / 2, Math.hypot(x2 - x1, y2 - y1) / 2);
+      ctx.arcTo(x1, y1, x2, y2, rr);
+    }
+    const last = pts[pts.length - 1]!;
+    ctx.lineTo(last[0], last[1]);
+  }
+
+  /** Show all connections, only live ones, only gateway traffic, or only traffic outside it. */
+  setLayer(layer: 'all' | 'active' | 'gateway' | 'outside'): void {
+    this.layer = layer;
+    this.dirty = true;
   }
 
   private addGate(stationId: string, rule: Rule, baseT: number): void {
@@ -1136,11 +1243,21 @@ export class AirspaceScene {
     return n;
   }
 
+  /**
+   * What to highlight: the clicked (pinned) node, else whatever is hovered —
+   * a node traces all its connections, an observed line just its two ends.
+   */
   private related(): Set<string> | null {
-    if (!this.focusId) return null;
-    if (this.relatedCache?.id === this.focusId) return this.relatedCache.set;
-    const f = this.stations.get(this.focusId);
-    if (!f) return null;
+    const h = this.hovered;
+    const hoverId = h?.startsWith('station:') ? h.slice(8) : h?.startsWith('spoke:') ? h.slice(6) : null;
+    const fid = this.focusId ?? hoverId;
+    if (!fid) {
+      if (this.hovered?.startsWith('obs:')) return new Set(this.hovered.slice(4).split('>'));
+      return null;
+    }
+    if (this.relatedCache?.id === fid) return this.relatedCache.set;
+    const f = this.stations.get(fid);
+    if (!f || f.kind === 'unknown') return null;
     const set = new Set<string>([f.id]);
     const add = (a: string, d: string) => {
       if (f.kind === 'agent' && a === f.id) set.add(d);
@@ -1360,6 +1477,8 @@ export class AirspaceScene {
         if (st === 'idle' || st === 'unused') color = '#8ea1bb';
       }
       let alpha = dim(s.id);
+      if (this.layer === 'outside') alpha *= 0.15;
+      else if (this.layer === 'active' && (st === 'idle' || st === 'unused')) alpha *= 0.1;
       if (this.sim) {
         const c = this.sim.get(s.id);
         if (c) {
@@ -1392,28 +1511,40 @@ export class AirspaceScene {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.font = `600 10.5px ${FONT}`;
-      ctx.fillStyle = '#64748b';
       ctx.textBaseline = 'middle';
-      ctx.fillText('OUTSIDE THE GATEWAY · SEEN, NOT ENFORCED', b.x + 14, b.y + 15);
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(246,248,251,0.95)';
+      ctx.lineWidth = 5;
+      ctx.strokeText('OUTSIDE THE GATEWAY · SEEN, NOT ENFORCED', b.x + 14, b.y + 14);
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('OUTSIDE THE GATEWAY · SEEN, NOT ENFORCED', b.x + 14, b.y + 14);
     }
 
     // Observed traffic: dashed, straight from agent to system, never through the tower.
     for (const l of this.obsLines) {
-      const { p0, p1, p2, p3 } = l.bez;
       const live = now - l.edge.last_seen < WINDOW_MS;
+      if (this.layer === 'gateway' || (this.layer === 'active' && !live)) continue;
       const bypass = !!l.target.obs?.bypass;
       const pulse = 0.5 + 0.5 * Math.sin(now / 650 + l.agent.py * 0.031);
       const base = bypass ? STATUS_COLORS.denied : 0x64748b;
       const hot = this.hovered === `obs:${l.agent.id}>${l.target.id}`;
-      ctx.beginPath();
-      ctx.moveTo(p0[0], p0[1]);
-      ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
-      ctx.strokeStyle = rgba(base, live ? 0.35 + 0.5 * pulse : bypass ? 0.55 : 0.35);
-      ctx.lineWidth = hot ? 2.5 : live ? 1.5 : 1.1;
-      ctx.setLineDash([5, 5]);
+      const focused = rel && rel.has(l.agent.id) && rel.has(l.target.id);
+      this.roundedPath(l.pts);
+      ctx.strokeStyle = rgba(base, hot || focused ? 0.95 : live ? 0.35 + 0.45 * pulse : bypass ? 0.6 : 0.42);
+      ctx.lineWidth = hot || focused ? 2.2 : live ? 1.5 : 1.2;
+      ctx.setLineDash([5, 4]);
       ctx.globalAlpha = Math.min(dim(l.agent.id), dim(l.target.id)) * (this.sim ? 0.25 : 1);
       ctx.stroke();
       ctx.setLineDash([]);
+      // The agent's "direct" port: a small hollow dot under its gateway port.
+      const [px, py] = l.pts[0]!;
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = rgba(base, 0.8);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
 
@@ -1669,12 +1800,20 @@ export class AirspaceScene {
     const active = this.activePairs(now);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
+    // A white halo keeps the labels legible where lines pass underneath.
+    const halo = (text: string, x: number, y: number) => {
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(246,248,251,0.95)';
+      ctx.lineWidth = 5;
+      ctx.strokeText(text, x, y);
+      ctx.fillText(text, x, y);
+    };
     ctx.font = `700 10px ${FONT}`;
     ctx.fillStyle = '#334155';
-    ctx.fillText('CONTROL TOWER', hx, hy + this.holdR + 22);
+    halo('CONTROL TOWER', hx, hy + this.holdR + 22);
     ctx.font = `500 11px ${FONT}`;
     ctx.fillStyle = INK_FAINT;
-    ctx.fillText(`${active} active link${active === 1 ? '' : 's'} · ${rpm}/min${held ? ` · ${held} holding` : ''}`, hx, hy + this.holdR + 37);
+    halo(`${active} active link${active === 1 ? '' : 's'} · ${rpm}/min${held ? ` · ${held} holding` : ''}`, hx, hy + this.holdR + 37);
     ctx.textAlign = 'left';
   }
 
@@ -1767,7 +1906,8 @@ export class AirspaceScene {
       ctx.stroke();
     }
 
-    // Port.
+    // Port (observed systems have none: their lines enter from the side).
+    if (s.kind === 'observed') return;
     ctx.beginPath();
     ctx.arc(s.px, s.py, 3.5, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
@@ -2018,14 +2158,9 @@ export class AirspaceScene {
       return;
     }
     for (const l of this.obsLines) {
-      // Sample every ~5px along the curve: these lines are long.
-      const { p0, p3 } = l.bez;
-      const step = Math.min(0.04, 5 / Math.max(1, Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 1.3));
+      if (this.layer === 'gateway') break;
       let near = false;
-      for (let t = step; t < 1 && !near; t += step) {
-        const [px, py] = bezAt(l.bez, t);
-        near = (px - x) ** 2 + (py - y) ** 2 < 49;
-      }
+      for (let i = 1; i < l.pts.length && !near; i++) near = segDist2([x, y], l.pts[i - 1]!, l.pts[i]!) < 25;
       if (!near) continue;
       this.setHovered(`obs:${l.agent.id}>${l.target.id}`);
       this.canvas.style.cursor = 'default';

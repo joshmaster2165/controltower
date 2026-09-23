@@ -160,6 +160,12 @@ export function AirspacePage() {
         if (st.topology) scene.setTopology(st.topology);
         if (st.policy) scene.setPolicy(st.policy);
         scene.setAlertedGates(alertedGates(st.alertRules));
+        try {
+          const v = localStorage.getItem('ct.airspace.layer');
+          if (v === 'active' || v === 'gateway' || v === 'outside') scene.setLayer(v);
+        } catch {
+          /* private mode */
+        }
         unsub = onFlightEvent((e) => scene.handle(e));
 
         // Arrangement is shared (server); camera is per viewer (localStorage).
@@ -239,6 +245,23 @@ export function AirspacePage() {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [layer, setLayerState] = useState<'all' | 'active' | 'gateway' | 'outside'>(() => {
+    try {
+      const v = localStorage.getItem('ct.airspace.layer');
+      return v === 'active' || v === 'gateway' || v === 'outside' ? v : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const setLayer = (v: typeof layer) => {
+    setLayerState(v);
+    sceneRef.current?.setLayer(v);
+    try {
+      localStorage.setItem('ct.airspace.layer', v);
+    } catch {
+      /* private mode */
+    }
+  };
   const [legendOpen, setLegendOpen] = useState(() => {
     try {
       return localStorage.getItem('ct.airspace.legend') !== '0';
@@ -479,6 +502,21 @@ export function AirspacePage() {
       {hover && !popover && <Tooltip hover={hover} />}
 
       <div className="map-controls" style={{ right: showTower || focusId ? 388 : 16 }}>
+        <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
+          {(
+            [
+              ['all', 'All', 'Every connection'],
+              ['active', 'Active', 'Only connections with traffic in the last minute'],
+              ['gateway', 'Gateway', 'Only traffic through Control Tower'],
+              ['outside', 'Outside', 'Only traffic that bypasses Control Tower'],
+            ] as const
+          ).map(([id, label, hint]) => (
+            <button key={id} role="radio" aria-checked={layer === id} className={layer === id ? 'on' : ''} title={hint} onClick={() => setLayer(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="sep" />
         <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1 / 1.2)} aria-label="Zoom out">
           −
         </button>
@@ -566,7 +604,16 @@ function GettingStarted({ topology, rules, onGate }: { topology: Topology; rules
     { label: 'Put a gate on a path', hint: 'Block, require approval or inspect', done: rules > 0, action: onGate },
   ];
   const done = steps.filter((x) => x.done).length;
+  // Once most of it is done, it shrinks to a pill so it does not sit on the map.
+  const [open, setOpen] = useState(done < 3);
   if (hidden || done === steps.length) return null;
+  if (!open) {
+    return (
+      <button className="onboarding-pill" onClick={() => setOpen(true)} title="Show the getting-started checklist">
+        <span className="ring" style={{ ['--p' as string]: `${(done / steps.length) * 100}%` }} /> Get started · {done} of {steps.length}
+      </button>
+    );
+  }
   const dismiss = () => {
     try {
       localStorage.setItem('ct.onboarding.dismissed', '1');
@@ -582,7 +629,10 @@ function GettingStarted({ topology, rules, onGate }: { topology: Topology; rules
         <span className="dim">
           {done} of {steps.length}
         </span>
-        <button className="icon-btn" onClick={dismiss} aria-label="Dismiss" title="Dismiss">
+        <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Minimise" title="Minimise">
+          <Icon name="chevrons-left" size={14} className="rot-down" />
+        </button>
+        <button className="icon-btn" onClick={dismiss} aria-label="Dismiss" title="Don't show again">
           <Icon name="x" size={14} />
         </button>
       </div>

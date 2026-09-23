@@ -637,3 +637,10 @@ li.done .step-label { color: var(--text-faint); text-decoration: line-through; f
 .table td { line-height: 1.35; padding-top: 10px; padding-bottom: 10px; }
 .table td.num, .table td .sub { white-space: nowrap; }
 .table td .sub { margin-top: 2px; }
+.layer-seg { border-color: var(--border); }
+.layer-seg button { padding: 3px 9px; font-size: 12px; }
+.onboarding { bottom: 58px; left: auto; right: 16px; }
+.onboarding-pill { position: absolute; right: 16px; bottom: 58px; z-index: 4; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; border-radius: 999px; border: 1px solid var(--border-strong); background: #fff; box-shadow: var(--shadow); font-size: 12.5px; font-weight: 600; color: var(--text); cursor: pointer; }
+.onboarding-pill:hover { border-color: rgba(31, 94, 255, 0.5); }
+.onboarding-pill .ring { width: 16px; height: 16px; border-radius: 50%; background: conic-gradient(var(--accent) var(--p), #e3e8f0 0); mask: radial-gradient(circle, transparent 4.5px, #000 5px); }
+.rot-down { transform: rotate(-90deg); }

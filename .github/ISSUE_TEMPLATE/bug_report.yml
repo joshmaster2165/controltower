@@ -1,0 +1,42 @@
+name: Bug report
+description: Something doesn't work the way the docs say it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Security issues:** please use [private vulnerability reporting](https://github.com/joshmaster2165/controltower/security/advisories/new) instead.
+        Please remove API keys, provider credentials and prompt contents from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Requests, config or steps. A curl command against demo mode (`CT_DEMO=1`) is ideal.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Image tag, release, or commit.
+      placeholder: v0.1.0, or ghcr.io/joshmaster2165/controltower:main
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [LLM gateway, MCP gateway, Gates / approvals, Inspect gates, Airspace map, Alerts / metrics, Console UI, Install / Docker, Other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server log lines (redacted).
+      render: text

@@ -154,7 +154,8 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await page.reload();
   const cardAt = () =>
     page.evaluate(() => {
-      const s = (window as unknown as { __ctScene: any }).__ctScene;
+      const s = (window as unknown as { __ctScene?: any }).__ctScene;
+      if (!s) return null; // the map is still starting after the reload
       s.fit();
       const st = [...s.stations.values()].find((x: any) => x.label === 'GitHub');
       if (!st) return null;

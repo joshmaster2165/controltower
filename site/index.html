@@ -106,54 +106,89 @@ img { display: block; }
 .cta { display: flex; gap: 10px; flex-wrap: wrap; }
 .note { font: 400 12.5px/1.4 var(--mono); color: var(--faint); margin-top: 18px; }
 
-/* hero diagram */
-.flow { position: relative; }
-.flow-inner { position: relative; width: 580px; transform-origin: top left; }
-.flow-cols { position: relative; z-index: 1; display: grid; grid-template-columns: 112px 1fr 150px; column-gap: 58px; align-items: center; }
-.cap { font: 500 9.5px/1 var(--mono); letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; margin-bottom: 10px; }
-.src { display: grid; gap: 16px; }
-.node { background: rgba(255, 255, 255, 0.92); border: 1.5px solid #cbd7f3; border-radius: 12px; padding: 10px 8px 9px; display: grid; justify-items: center; gap: 6px; font-size: 11.5px; color: #33435a; box-shadow: 0 4px 14px rgba(31, 94, 255, 0.08); transition: border-color 0.3s, box-shadow 0.3s; }
-.node.hot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1), 0 6px 18px rgba(31, 94, 255, 0.14); }
-.glyph { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(165deg, #1f5eff 25%, #9fbaff 125%); box-shadow: 0 3px 8px rgba(31, 94, 255, 0.3); }
-.glyph svg { width: 17px; height: 17px; }
-.mid { display: grid; gap: 14px; }
-.tower { background: linear-gradient(185deg, #f1f4f9 35%, #fff 105%); border: 1.5px solid #cbd7f3; border-radius: 16px; padding: 14px 14px 12px; box-shadow: 0 10px 30px rgba(15, 27, 45, 0.08); text-align: center; }
-.tower-head { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-weight: 600; font-size: 13px; box-shadow: 0 2px 8px rgba(15, 27, 45, 0.07); }
-.tower-head img { width: 18px; height: 18px; }
-.tower .cap { margin: 9px 0 10px; color: var(--faint); }
-.pill { display: flex; align-items: center; justify-content: center; gap: 6px; height: 27px; margin-top: 6px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: 11.5px; color: #33435a; transition: background 0.25s, border-color 0.25s, color 0.25s; }
-.pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: background 0.25s; }
-.pill.hit { border-color: #a9c1ff; background: var(--soft); color: var(--deep); }
-.pill.hit i { background: var(--accent); }
-.pill.hit-warn { border-color: #f2c77e; background: #fff7e8; color: #8a5300; }
-.pill.hit-warn i { background: var(--warn); }
-.pill.hit-deny { border-color: #f1a9b4; background: #fff1f3; color: #9b1c30; }
-.pill.hit-deny i { background: var(--danger); }
-.outside { border: 1.5px dashed #b6c2d3; border-radius: 12px; padding: 9px 10px; background: rgba(255, 255, 255, 0.55); }
-.outside { transition: border-color 0.3s; }
-.outside.hot { border-color: var(--danger); }
-.outside .cap { color: var(--faint); margin-bottom: 7px; font-size: 8.5px; }
-.obs { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: 400 10.5px/1 var(--mono); color: var(--dim); }
-.obs b { font: 500 9px/1 var(--mono); color: var(--danger); border: 1px dashed rgba(211, 55, 78, 0.55); border-radius: 5px; padding: 3px 5px; text-transform: uppercase; letter-spacing: 0.05em; }
-.dst { display: grid; gap: 12px; }
-.grp { background: rgba(255, 255, 255, 0.92); border: 1.5px solid #cbd7f3; border-radius: 12px; padding: 9px 9px 10px; box-shadow: 0 4px 14px rgba(31, 94, 255, 0.07); transition: border-color 0.3s, box-shadow 0.3s; }
-.grp.hot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1); }
-.grp .cap { text-align: center; color: #33435a; letter-spacing: 0.1em; margin-bottom: 8px; }
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
-.tiles span { font: 500 9px/1 var(--mono); color: #33435a; background: #f5f7fb; border: 1px solid var(--line); border-radius: 6px; padding: 6px 0; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; overflow: visible; pointer-events: none; }
-.wires .w { fill: none; stroke: #b9c8e6; stroke-width: 1.5; }
-.wires .w.dash { stroke: #b6c2d3; stroke-dasharray: 4 4; }
-.wires .gate { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
-.wires .ring { fill: none; stroke: var(--warn); stroke-width: 2; animation: ring 1.1s ease-out infinite; }
-.wires .burst { fill: none; stroke: var(--danger); stroke-width: 2; animation: burst 0.6s ease-out forwards; }
-.flow-hud { display: flex; gap: 0; margin-top: 22px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.85); overflow: hidden; width: fit-content; }
+/* hero radar */
+.hero-copy { transform: translateY(calc(var(--p, 0) * -56px)); opacity: calc(1 - var(--p, 0) * 0.8); }
+.hero .hero-bars { transform: translateY(calc(var(--p, 0) * 90px)); }
+.radar-wrap { transform: translateY(calc(var(--p, 0) * 40px)) scale(calc(1 - var(--p, 0) * 0.08)); opacity: calc(1 - var(--p, 0) * 0.5); transform-origin: 50% 30%; }
+.radar-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.radar-svg text { font-family: var(--sans); }
+.rs-glow { pointer-events: none; }
+.rs-ring { fill: none; stroke: #b9c8e6; stroke-width: 1; stroke-dasharray: 2 5; }
+.rs-cross { stroke: #d8e1f1; stroke-width: 1; }
+.rs-ringtext { font: 500 7.5px var(--mono); letter-spacing: 0.24em; fill: #8aa0c6; }
+.rs-sweep { transform-origin: 300px 215px; animation: sweep 7s linear infinite; }
+@keyframes sweep { to { transform: rotate(360deg); } }
+.rs-gate { fill: none; stroke: #9db8ff; stroke-width: 1.5; transition: stroke 0.3s; }
+.rs-gate.holding { stroke: var(--warn); stroke-dasharray: 6 5; animation: dashmove 0.9s linear infinite; }
+@keyframes dashmove { to { stroke-dashoffset: -22; } }
+.rs-wire { fill: none; stroke: #bccbe8; stroke-width: 1.5; }
+.rs-wire.dash { stroke: #b6c2d3; stroke-dasharray: 4 4; }
+.rs-gatept { fill: #fff; stroke: var(--accent); stroke-width: 1.5; transition: fill 0.2s, stroke 0.2s; }
+.rs-gatept.deny { fill: var(--danger); stroke: var(--danger); }
+.rs-gatept.hold { fill: var(--warn); stroke: var(--warn); }
+.rs-gatept.ok { fill: var(--accent); }
+.rs-card .bg { fill: rgba(255, 255, 255, 0.95); stroke: #cbd7f3; stroke-width: 1.5; transition: stroke 0.3s, filter 0.3s; }
+.rs-card.hot .bg { stroke: var(--accent); filter: drop-shadow(0 0 6px rgba(31, 94, 255, 0.35)); }
+.rs-card.hot-out .bg { stroke: var(--danger); }
+.rs-card .t { font-size: 12.5px; font-weight: 600; fill: var(--ink); }
+.rs-card .s { font: 400 8.5px var(--mono); fill: var(--faint); }
+.rs-cap { font: 500 8.5px var(--mono); letter-spacing: 0.14em; fill: var(--accent); }
+.rs-cap.dark { fill: #33435a; }
+.rs-cap.faint { fill: var(--faint); font-size: 7.5px; }
+.rs-chip rect { fill: #f5f7fb; stroke: var(--line); }
+.rs-chip text { font: 500 7.6px var(--mono); fill: #33435a; }
+.rs-label { font: 600 8px var(--mono); letter-spacing: 0.18em; fill: #33435a; transition: opacity 0.3s; }
+.rs-status { opacity: 0; transition: opacity 0.3s; }
+.rs-status.on { opacity: 1; }
+.rs-status text { font: 600 8px var(--mono); letter-spacing: 0.12em; fill: #8a5300; }
+.beacon { animation: beacon 1.6s steps(1) infinite; }
+@keyframes beacon { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.2; } }
+.beacon-glow { transform-box: fill-box; transform-origin: center; animation: beaconGlow 1.6s ease-out infinite; }
+@keyframes beaconGlow { 0% { opacity: 0.6; transform: scale(0.6); } 55% { opacity: 0; transform: scale(2); } 100% { opacity: 0; } }
+.wave { fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; opacity: 0; animation: wave 2.4s ease-out infinite; }
+.wave.w2 { animation-delay: 0.3s; }
+.wave.w3 { animation-delay: 0.6s; }
+@keyframes wave { 0% { opacity: 0; } 20% { opacity: 0.85; } 70%, 100% { opacity: 0; } }
+.trail { fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.3; }
+.rs-burst { fill: none; stroke: var(--danger); stroke-width: 2; animation: burst 0.6s ease-out forwards; }
+.rs-okpulse { fill: none; stroke: var(--ok); stroke-width: 2; animation: okPulse 0.9s ease-out forwards; }
+@keyframes okPulse { from { r: 40; opacity: 0.7; } to { r: 74; opacity: 0; } }
+.rs-blocked { font: 700 8px var(--mono); letter-spacing: 0.14em; fill: var(--danger); animation: blockedFlash 1.2s ease-out forwards; }
+@keyframes blockedFlash { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.flow-hud { display: flex; gap: 0; margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.85); overflow: hidden; width: fit-content; }
 .flow-hud div { padding: 9px 16px; border-right: 1px solid var(--line); }
 .flow-hud div:last-child { border-right: 0; }
 .flow-hud small { display: block; font: 500 9.5px/1 var(--mono); letter-spacing: 0.12em; color: var(--faint); text-transform: uppercase; margin-bottom: 5px; }
 .flow-hud b { font: 500 16px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .flow-hud .w b { color: var(--warn); }
 .flow-hud .d b { color: var(--danger); }
+.radio { margin-top: 12px; display: flex; align-items: center; gap: 10px; font: 400 11.5px/1.3 var(--mono); color: var(--dim); min-height: 18px; white-space: nowrap; overflow: hidden; }
+.radio > i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(26, 158, 107, 0.16); flex: none; animation: blink 2s steps(1) infinite; }
+.radio .msg { display: inline-block; animation: rowIn 0.45s var(--ease) both; overflow: hidden; text-overflow: ellipsis; }
+.radio .t { color: var(--faint); }
+.radio .k { font-weight: 500; letter-spacing: 0.06em; }
+.radio .k.ok { color: var(--ok); }
+.radio .k.hold { color: var(--warn); }
+.radio .k.deny { color: var(--danger); }
+.radio .k.obs { color: var(--faint); }
+
+/* scroll-driven motion (JS sets --p per element, 0 → 1 as it scrolls into place) */
+.scrollbar { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; pointer-events: none; }
+.scrollbar i { display: block; height: 100%; background: linear-gradient(90deg, #4b7dff, #1f5eff); transform: scaleX(0); transform-origin: 0 50%; }
+.tilt { transform: perspective(1400px) translateY(calc((1 - var(--p, 1)) * 56px)) rotateX(calc((1 - var(--p, 1)) * 12deg)) scale(calc(0.95 + var(--p, 1) * 0.05)); opacity: calc(0.15 + var(--p, 1) * 0.85); transform-origin: 50% 100%; will-change: transform, opacity; }
+.wd { opacity: 0.18; transition: opacity 0.35s ease; }
+.wd.lit { opacity: 1; }
+.journey { position: relative; }
+.route { position: absolute; top: 0; bottom: 0; left: max(0px, calc(50% - 600px)); width: 0; z-index: 3; pointer-events: none; }
+.route-fill { position: absolute; left: -1px; top: 0; width: 2px; height: calc(var(--rp, 0) * 100%); border-radius: 2px; background: linear-gradient(#9db8ff, #1f5eff); box-shadow: 0 0 10px rgba(31, 94, 255, 0.45); }
+.route-plane { position: absolute; left: -10px; top: calc(var(--rp, 0) * 100%); width: 20px; height: 20px; margin-top: -10px; color: var(--accent); filter: drop-shadow(0 3px 6px rgba(31, 94, 255, 0.4)); opacity: calc(var(--rp, 0) * 40); }
+.route-plane svg { width: 100%; height: 100%; transform: rotate(90deg); }
+.hcard .hmask { transform: scaleX(var(--p, 1)); transform-origin: 0 0; }
+.hcard .hplane { transform: translateX(calc(var(--p, 1) * 456px)); }
+.closing-art { width: 300px; max-width: 78%; margin: 0 auto 6px; }
+.closing-art svg { display: block; width: 100%; height: auto; overflow: visible; }
+.closing-art .c-rings { transform-origin: 150px 100px; transform: scale(calc(0.55 + var(--p, 1) * 0.45)); opacity: var(--p, 1); }
+.closing-art .c-tower { transform: translateY(calc((1 - var(--p, 1)) * 70px)); opacity: calc(0.2 + var(--p, 1) * 0.8); }
 
 /* ------------------------------------------------------------ marquee */
 .works { border-top: 1px solid var(--line); padding: 26px 0 30px; background: rgba(255, 255, 255, 0.5); }
@@ -175,8 +210,10 @@ img { display: block; }
 .feature-grid { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); gap: 64px; align-items: start; }
 .feature.flip .feature-grid { grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); }
 .feature.flip .copy { order: 2; }
-.rail { position: absolute; left: -27px; top: 104px; display: flex; align-items: center; gap: 9px; font: 500 11px/1 var(--mono); color: var(--accent); }
-.rail::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.14); }
+.rail { position: absolute; left: -28px; top: 104px; display: flex; align-items: center; gap: 9px; font: 500 11px/1 var(--mono); color: var(--faint); transition: color 0.3s; }
+.rail.lit { color: var(--accent); }
+.rail::after { content: ''; box-sizing: border-box; width: 9px; height: 9px; border-radius: 50%; background: #fff; border: 2px solid var(--line-2); transition: background 0.3s, border-color 0.3s, box-shadow 0.3s; }
+.rail.lit::after { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.16); }
 .copy { position: static; padding-top: 4px; }
 .copy h3 { font-size: 30px; line-height: 1.2; font-weight: 450; letter-spacing: -0.02em; margin: 0 0 16px; }
 .copy > p { color: var(--dim); margin: 0 0 26px; max-width: 34em; }
@@ -301,7 +338,7 @@ pre.args .s { color: #9fe0bf; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .hcard { border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: var(--bg); }
 .hcard.dash { border-style: dashed; border-color: #b6c2d3; background: #fff; }
-.hcard svg { width: 100%; height: 26px; margin-bottom: 12px; }
+.hcard svg { display: block; width: 100%; height: auto; margin-bottom: 12px; }
 .hcard h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
 .hcard p { margin: 0; color: var(--dim); font-size: 14px; }
 .hcard code { font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
@@ -330,7 +367,7 @@ pre.args .s { color: #9fe0bf; }
 /* ------------------------------------------------------------ closing */
 .closing { position: relative; overflow: hidden; background: #fff; }
 .closing .hero-bars { inset: 0 -10% -40px; opacity: 0.8; -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 90%); mask-image: linear-gradient(to top, #000 0%, transparent 90%); }
-.closing .frame { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); text-align: center; padding-top: 110px; padding-bottom: 110px; }
+.closing .frame { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); text-align: center; padding-top: 64px; padding-bottom: 110px; }
 .closing h2 { font-size: 48px; line-height: 1.08; font-weight: 450; letter-spacing: -0.03em; margin: 18px 0 16px; }
 .closing p { color: var(--dim); font-size: 16px; margin: 0 auto 30px; max-width: 32em; }
 .closing .cta { justify-content: center; }
@@ -343,7 +380,7 @@ footer a:hover { color: #fff; }
 footer .sp { flex: 1; }
 
 /* ------------------------------------------------------------ responsive */
-@media (max-width: 1280px) { .rail { display: none; } }
+@media (max-width: 1280px) { .rail, .route { display: none; } }
 @media (max-width: 1080px) {
   .hero-grid, .feature-grid, .feature.flip .feature-grid { grid-template-columns: minmax(0, 1fr); gap: 48px; }
   .feature.flip .copy { order: 0; }
@@ -370,6 +407,7 @@ footer .sp { flex: 1; }
   .brow { grid-template-columns: 84px 1fr 62px; gap: 8px; }
   .tbl .hide-sm { display: none; }
   .flow-hud div { padding: 8px 11px; }
+  .radio { font-size: 10.5px; }
   .topbar { font-size: 11px; }
   .tag.hide-sm { display: none; }
 }
@@ -399,16 +437,17 @@ footer .sp { flex: 1; }
       <a class="btn primary" href="#install">Get started</a>
     </div>
   </div>
+  <div class="scrollbar" aria-hidden="true"><i id="scrollFill"></i></div>
 </header>
 
 <main id="top">
 
 <!-- ================================================================ HERO -->
-<section class="hero">
+<section class="hero" data-scroll="out">
   <div class="hero-bars" aria-hidden="true"></div>
   <div class="frame pad">
     <div class="hero-grid">
-      <div>
+      <div class="hero-copy">
         <span class="eyebrow rise" style="--d: 0ms">The AI gateway you can see</span>
         <h1 class="rise" style="--d: 60ms">Air traffic control <span class="accent">for your AI agents</span></h1>
         <p class="lede rise" style="--d: 140ms">Map every agent, model and tool call across your environment. Gate the risky ones, hold them for a human, and see what each agent costs — enforced at the gateway, not just observed.</p>
@@ -421,64 +460,129 @@ footer .sp { flex: 1; }
         <p class="note rise" style="--d: 300ms">Self-hosted · one Docker command · Apache-2.0</p>
       </div>
 
-      <div class="flow rise" style="--d: 180ms" id="flow" aria-label="Diagram: agents send model and tool calls through Control Tower, which checks gates, holds calls for approval, inspects them and records cost. One agent calls a model directly, outside the gateway.">
-        <div class="flow-inner" id="flowInner">
-          <svg class="wires" id="wires" aria-hidden="true"></svg>
-          <div class="flow-cols">
-            <div class="src">
-              <div class="cap">Your agents</div>
-              <div class="node" data-src="0">
-                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><rect x="4.5" y="8" width="15" height="11" rx="3"/><path d="M12 4.5V8"/><circle cx="9.5" cy="13.5" r="1" fill="#fff"/><circle cx="14.5" cy="13.5" r="1" fill="#fff"/></svg></span>
-                Agents
-              </div>
-              <div class="node" data-src="1">
-                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7.5 10l3 2.5-3 2.5M12.5 15h4"/></svg></span>
-                Copilots
-              </div>
-              <div class="node" data-src="2">
-                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.3"/><circle cx="6" cy="17" r="2.3"/><circle cx="18" cy="12" r="2.3"/><path d="M8.2 7.8l7.6 3.4M8.2 16.2l7.6-3.4"/></svg></span>
-                Pipelines
-              </div>
-            </div>
+<div class="radar-wrap">
+        <div class="radar rise" style="--d: 160ms" id="radar" role="img" aria-label="Radar view: agents fly model and tool calls into Control Tower's gate ring. Allowed calls circle the tower and head on to models, tools and data; risky ones hold in a pattern until a human approves; blocked ones stop at the gate. One pipeline calls a model directly, outside the gateway.">
+          <svg class="radar-svg" id="rs" viewBox="0 0 600 452" aria-hidden="true">
+            <defs>
+              <radialGradient id="rsGlowG" cx="50%" cy="50%" r="50%">
+                <stop offset="0" stop-color="#dbe6ff" stop-opacity="0.95" />
+                <stop offset="0.62" stop-color="#eef3ff" stop-opacity="0.55" />
+                <stop offset="1" stop-color="#eef3ff" stop-opacity="0" />
+              </radialGradient>
+              <linearGradient id="rsGlass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eaf1ff" /><stop offset="1" stop-color="#86a8ff" /></linearGradient>
+              <linearGradient id="rsShaft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3b74ff" /><stop offset="0.55" stop-color="#1f5eff" /><stop offset="1" stop-color="#0b3d91" /></linearGradient>
+              <linearGradient id="rsGlyph" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#1f5eff" /><stop offset="1" stop-color="#8fb0ff" /></linearGradient>
+              <path id="rsRingText" d="M183.5 172.6 A124 124 0 0 1 416.5 172.6" fill="none" />
+            </defs>
 
-            <div class="mid">
-              <div class="cap" style="text-align:center;visibility:hidden">·</div>
-              <div class="tower" id="tower">
-                <span class="tower-head"><img src="logo.svg" alt="" />Control Tower</span>
-                <div class="cap">Gateway · LLM + MCP</div>
-                <div class="pill" data-pill="gates"><i></i>Gates</div>
-                <div class="pill" data-pill="approvals"><i></i>Approvals</div>
-                <div class="pill" data-pill="inspect"><i></i>Inspection</div>
-                <div class="pill" data-pill="ledger"><i></i>Ledger</div>
-              </div>
-              <div class="outside" id="outside">
-                <div class="cap">Outside · seen, not enforced</div>
-                <div class="obs">api.openai.com <b>direct</b></div>
-              </div>
-            </div>
+            <!-- radar scope -->
+            <circle class="rs-glow" cx="300" cy="215" r="156" fill="url(#rsGlowG)" />
+            <circle class="rs-ring" cx="300" cy="215" r="146" />
+            <circle class="rs-ring" cx="300" cy="215" r="112" />
+            <path class="rs-cross" d="M154 215 H446 M300 69 V361" />
+            <text class="rs-ringtext"><textPath href="#rsRingText" startOffset="50%" text-anchor="middle">GATES · APPROVALS · INSPECTION · LEDGER</textPath></text>
+            <g class="rs-sweep" id="rsSweep"></g>
+            <circle class="rs-gate" id="rsGateRing" cx="300" cy="215" r="78" />
+            <g id="rsWires"></g>
+            <g id="rsGates"></g>
+            <g id="rsGhost" fill="none" stroke="none"></g>
 
-            <div class="dst">
-              <div class="grp" data-dst="0">
-                <div class="cap">Models</div>
-                <div class="tiles"><span>gpt-4.1</span><span>claude</span><span>gemini</span><span>llama</span><span>mistral</span><span>bedrock</span></div>
-              </div>
-              <div class="grp" data-dst="1">
-                <div class="cap">MCP tools</div>
-                <div class="tiles"><span>github</span><span>crm</span><span>jira</span></div>
-              </div>
-              <div class="grp" data-dst="2">
-                <div class="cap">Data & SaaS</div>
-                <div class="tiles"><span>postgres</span><span>s3</span><span>slack</span></div>
-              </div>
-            </div>
-          </div>
+            <!-- the tower -->
+            <g transform="translate(254 136) scale(0.77)">
+              <g id="rsTowerArt">
+                <ellipse cx="60" cy="177" rx="44" ry="4.5" fill="#0b3d91" opacity="0.14" />
+                <path class="wave w1" d="M63.8 15.84 A9 9 0 0 1 68.69 21.67 M56.2 15.84 A9 9 0 0 0 51.31 21.67" />
+                <path class="wave w2" d="M66.76 9.5 A16 16 0 0 1 75.45 19.86 M53.24 9.5 A16 16 0 0 0 44.55 19.86" />
+                <path class="wave w3" d="M69.72 3.16 A23 23 0 0 1 82.22 18.05 M50.28 3.16 A23 23 0 0 0 37.78 18.05" />
+                <rect x="58.6" y="24" width="2.8" height="27" rx="1.4" fill="#0b3d91" />
+                <circle class="beacon-glow" cx="60" cy="24" r="5" fill="#ff4d5e" />
+                <circle class="beacon" cx="60" cy="24" r="3.2" fill="#ff4d5e" />
+                <path d="M33 50 H87 L83 57 H37 Z" fill="#0b3d91" />
+                <path d="M29 57 H91 L83 82 H37 Z" fill="url(#rsGlass)" stroke="#1f5eff" stroke-width="1.6" stroke-linejoin="round" />
+                <path d="M44 57 L46.5 82 M56 57 L56.8 82 M64 57 L63.2 82 M76 57 L73.5 82" stroke="#fff" stroke-width="1.6" opacity="0.75" />
+                <path d="M34 59 H41 L37.5 80 H36 Z" fill="#fff" opacity="0.5" />
+                <rect x="33" y="82" width="54" height="6" rx="2.5" fill="#0b3d91" />
+                <path d="M46 88 H74 L79 166 H41 Z" fill="url(#rsShaft)" />
+                <path d="M49 88 H53 L50 166 H45 Z" fill="#fff" opacity="0.13" />
+                <rect x="56.5" y="104" width="7" height="9" rx="2" fill="#fff" opacity="0.3" />
+                <rect x="56.5" y="122" width="7" height="9" rx="2" fill="#fff" opacity="0.3" />
+                <rect x="56.5" y="140" width="7" height="9" rx="2" fill="#fff" opacity="0.3" />
+                <rect x="31" y="165" width="58" height="9" rx="3" fill="#0b3d91" />
+              </g>
+            </g>
+            <text class="rs-label" id="rsLabel" x="300" y="309" text-anchor="middle">CONTROL TOWER</text>
+            <g class="rs-status" id="rsStatus">
+              <rect x="236" y="298" width="128" height="18" rx="9" fill="#fff7e8" stroke="#f2c77e" />
+              <text x="300" y="310" text-anchor="middle">HOLDING · AWAITING APPROVAL</text>
+            </g>
+
+            <!-- agents -->
+            <text class="rs-cap" x="0" y="80">YOUR AGENTS</text>
+            <g class="rs-card" data-src="0">
+              <rect class="bg" x="0" y="92" width="118" height="62" rx="12" />
+              <rect x="12" y="110" width="26" height="26" rx="8" fill="url(#rsGlyph)" />
+              <g transform="translate(17 115) scale(0.667)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><rect x="4.5" y="8" width="15" height="11" rx="3" /><path d="M12 4.5V8" /><circle cx="9.5" cy="13.5" r="1" fill="#fff" /><circle cx="14.5" cy="13.5" r="1" fill="#fff" /></g>
+              <text class="t" x="46" y="120">Agents</text>
+              <text class="s" x="46" y="134">6 API keys</text>
+            </g>
+            <g class="rs-card" data-src="1">
+              <rect class="bg" x="0" y="184" width="118" height="62" rx="12" />
+              <rect x="12" y="202" width="26" height="26" rx="8" fill="url(#rsGlyph)" />
+              <g transform="translate(17 207) scale(0.667)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><path d="M7.5 10l3 2.5-3 2.5M12.5 15h4" /></g>
+              <text class="t" x="46" y="212">Copilots</text>
+              <text class="s" x="46" y="226">claude-code</text>
+            </g>
+            <g class="rs-card" data-src="2">
+              <rect class="bg" x="0" y="276" width="118" height="62" rx="12" />
+              <rect x="12" y="294" width="26" height="26" rx="8" fill="url(#rsGlyph)" />
+              <g transform="translate(17 299) scale(0.667)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.3" /><circle cx="6" cy="17" r="2.3" /><circle cx="18" cy="12" r="2.3" /><path d="M8.2 7.8l7.6 3.4M8.2 16.2l7.6-3.4" /></g>
+              <text class="t" x="46" y="304">Pipelines</text>
+              <text class="s" x="46" y="318">nightly-etl</text>
+            </g>
+
+            <!-- destinations -->
+            <text class="rs-cap" x="600" y="65" text-anchor="end">DESTINATIONS</text>
+            <g class="rs-card" data-dst="0">
+              <rect class="bg" x="470" y="77" width="130" height="62" rx="12" />
+              <text class="rs-cap dark" x="535" y="97" text-anchor="middle">MODELS</text>
+              <g class="rs-chip"><rect x="476" y="107" width="36" height="20" rx="6" /><text x="494" y="120" text-anchor="middle">claude</text></g>
+              <g class="rs-chip"><rect x="517" y="107" width="36" height="20" rx="6" /><text x="535" y="120" text-anchor="middle">gpt-4.1</text></g>
+              <g class="rs-chip"><rect x="558" y="107" width="36" height="20" rx="6" /><text x="576" y="120" text-anchor="middle">gemini</text></g>
+            </g>
+            <g class="rs-card" data-dst="1">
+              <rect class="bg" x="470" y="184" width="130" height="62" rx="12" />
+              <text class="rs-cap dark" x="535" y="204" text-anchor="middle">MCP TOOLS</text>
+              <g class="rs-chip"><rect x="476" y="214" width="36" height="20" rx="6" /><text x="494" y="227" text-anchor="middle">github</text></g>
+              <g class="rs-chip"><rect x="517" y="214" width="36" height="20" rx="6" /><text x="535" y="227" text-anchor="middle">sfdc</text></g>
+              <g class="rs-chip"><rect x="558" y="214" width="36" height="20" rx="6" /><text x="576" y="227" text-anchor="middle">jira</text></g>
+            </g>
+            <g class="rs-card" data-dst="2">
+              <rect class="bg" x="470" y="291" width="130" height="62" rx="12" />
+              <text class="rs-cap dark" x="535" y="311" text-anchor="middle">DATA &amp; SAAS</text>
+              <g class="rs-chip"><rect x="476" y="321" width="36" height="20" rx="6" /><text x="494" y="334" text-anchor="middle">pg</text></g>
+              <g class="rs-chip"><rect x="517" y="321" width="36" height="20" rx="6" /><text x="535" y="334" text-anchor="middle">s3</text></g>
+              <g class="rs-chip"><rect x="558" y="321" width="36" height="20" rx="6" /><text x="576" y="334" text-anchor="middle">slack</text></g>
+            </g>
+
+            <!-- outside the gateway -->
+            <g class="rs-card" id="rsOut">
+              <rect class="bg" x="170" y="392" width="260" height="48" rx="12" style="stroke-dasharray: 4 4; fill: rgba(255,255,255,0.6)" />
+              <text class="rs-cap faint" x="184" y="410">OUTSIDE · SEEN, NOT ENFORCED</text>
+              <text x="184" y="428" style="font: 400 10.5px var(--mono); fill: #5b6b82">api.openai.com</text>
+              <rect x="370" y="416" width="48" height="16" rx="5" fill="#fff" stroke="#d3374e" stroke-opacity="0.6" stroke-dasharray="3 2" />
+              <text x="394" y="427.5" text-anchor="middle" style="font: 600 8px var(--mono); letter-spacing: 0.08em; fill: #d3374e">DIRECT</text>
+            </g>
+
+            <g id="rsPlanes"></g>
+          </svg>
         </div>
-        <div class="flow-hud" aria-hidden="true">
+        <div class="flow-hud rise" style="--d: 260ms" aria-hidden="true">
           <div><small>Flights</small><b id="hFlights">1,204</b></div>
           <div class="w"><small>Holding</small><b id="hHeld">0</b></div>
           <div class="d"><small>Blocked</small><b id="hBlocked">17</b></div>
           <div><small>Outside</small><b id="hOutside">42</b></div>
         </div>
+        <div class="radio rise" style="--d: 320ms" aria-live="off"><i></i><span id="radio"><span class="msg"><span class="k ok">TOWER ONLINE</span> listening on /v1 and /mcp</span></span></div>
       </div>
     </div>
   </div>
@@ -499,15 +603,18 @@ footer .sp { flex: 1; }
 <section class="dots">
   <div class="frame pad statement">
     <span class="eyebrow reveal">Why Control Tower</span>
-    <h2 class="reveal">Agents now hop between models, tool servers and your data. Control Tower puts every hop <span class="accent">on one live map</span>, then lets you <span class="accent">gate, approve and account for</span> each call before it runs.</h2>
+    <h2 data-words>Agents now hop between models, tool servers and your data. Control Tower puts every hop <span class="accent">on one live map</span>, then lets you <span class="accent">gate, approve and account for</span> each call before it runs.</h2>
   </div>
 </section>
 
+<div class="journey" id="journey">
+<div class="route" aria-hidden="true"><i class="route-fill"></i><span class="route-plane"><svg viewBox="-9 -9 18 18"><path fill="currentColor" d="M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z"/></svg></span></div>
+
 <!-- ================================================================ 01 MAP -->
 <section class="frame pad feature" id="map">
+  <span class="rail">01</span>
   <div class="feature-grid">
     <div class="copy reveal">
-      <span class="rail">01</span>
       <h3><span class="accent">Airspace:</span> every agentic data flow, on one map.</h3>
       <p>Each API key is an agent. Each model, MCP server and outside system it touches is a station. Lines show who talks to whom right now, and the map documents itself as traffic flows.</p>
       <ul class="checks">
@@ -518,7 +625,7 @@ footer .sp { flex: 1; }
       </ul>
     </div>
 
-    <div class="mock reveal auto" data-mock>
+    <div class="mock auto tilt" data-mock data-scroll>
       <div class="mtabs" role="tablist">
         <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 3.5l4-1.5 5 2 4-1.5v10l-4 1.5-5-2-4 1.5z M5.5 2v10 M10.5 4v10"/></svg>Airspace<i class="bar"></i></button>
         <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>Inventory<i class="bar"></i></button>
@@ -610,9 +717,9 @@ footer .sp { flex: 1; }
 
 <!-- ================================================================ 02 GATES -->
 <section class="frame pad feature flip" id="gates">
+  <span class="rail">02</span>
   <div class="feature-grid">
     <div class="copy reveal">
-      <span class="rail">02</span>
       <h3><span class="accent">Gates:</span> decide at the boundary, before the call runs.</h3>
       <p>Click a line or a tool on the map and set a gate. Because Control Tower is in the path, a gate is enforced, not a suggestion — and you can replay it against yesterday's traffic before you publish.</p>
       <ul class="checks">
@@ -623,7 +730,7 @@ footer .sp { flex: 1; }
       </ul>
     </div>
 
-    <div class="mock reveal auto" data-mock>
+    <div class="mock auto tilt" data-mock data-scroll>
       <div class="mtabs" role="tablist">
         <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.5l5.5 2v4.2c0 3.2-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.6-5.5-6.8V3.5z"/></svg>New gate<i class="bar"></i></button>
         <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12.5l3.5-4 3 2.5L14 4"/></svg>Simulate<i class="bar"></i></button>
@@ -677,9 +784,9 @@ footer .sp { flex: 1; }
 
 <!-- ================================================================ 03 APPROVALS -->
 <section class="frame pad feature" id="approvals">
+  <span class="rail">03</span>
   <div class="feature-grid">
     <div class="copy reveal">
-      <span class="rail">03</span>
       <h3><span class="accent">Tower:</span> a human in the loop, without breaking the agent.</h3>
       <p>A gated call holds at the gate while someone decides. Approve it in the console or straight from the alert in Slack; the agent carries on. If nobody answers in time, the agent gets a ticket it can redeem once approved.</p>
       <ul class="checks">
@@ -690,7 +797,7 @@ footer .sp { flex: 1; }
       </ul>
     </div>
 
-    <div class="mock reveal auto" data-mock>
+    <div class="mock auto tilt" data-mock data-scroll>
       <div class="mtabs" role="tablist">
         <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.4" stroke-linecap="round"/></svg>Holding<i class="bar"></i></button>
         <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>Slack alert<i class="bar"></i></button>
@@ -760,9 +867,9 @@ footer .sp { flex: 1; }
 
 <!-- ================================================================ 04 MONITOR -->
 <section class="frame pad feature flip" id="monitor">
+  <span class="rail">04</span>
   <div class="feature-grid">
     <div class="copy reveal">
-      <span class="rail">04</span>
       <h3><span class="accent">Monitor:</span> spend, errors and latency, by agent.</h3>
       <p>Every flight is recorded with tokens, cost, latency and outcome. Budgets and rate limits live on each agent's key, and alerts tell you when a gate fires or something drifts.</p>
       <ul class="checks">
@@ -773,7 +880,7 @@ footer .sp { flex: 1; }
       </ul>
     </div>
 
-    <div class="mock reveal auto" data-mock>
+    <div class="mock auto tilt" data-mock data-scroll>
       <div class="mtabs" role="tablist">
         <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 13V8M8 13V3M13 13V6"/></svg>Ledger<i class="bar"></i></button>
         <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z M6.5 14h3"/></svg>Alerts<i class="bar"></i></button>
@@ -830,13 +937,13 @@ ct_approvals_pending 1</pre>
   <h3 class="reveal">Solid lines are enforced. Dashed lines are only seen.</h3>
   <p class="reveal">A security map is only useful if it doesn't overstate what it controls. Control Tower draws the difference, so you always know which calls a gate can actually stop.</p>
   <div class="two">
-    <div class="hcard reveal">
-      <svg viewBox="0 0 300 26" aria-hidden="true"><path d="M4 13 H296" stroke="#1f5eff" stroke-width="2.5" stroke-linecap="round"/><circle cx="150" cy="13" r="6" fill="#fff" stroke="#1f5eff" stroke-width="2"/></svg>
+    <div class="hcard reveal" data-scroll="mid">
+      <svg viewBox="0 0 480 26" aria-hidden="true" style="overflow:visible"><mask id="hm1" maskUnits="userSpaceOnUse" x="0" y="0" width="480" height="26"><rect class="hmask" width="480" height="26" fill="#fff"/></mask><g mask="url(#hm1)"><path d="M4 13 H476" stroke="#1f5eff" stroke-width="2.5" stroke-linecap="round"/><circle cx="240" cy="13" r="6" fill="#fff" stroke="#1f5eff" stroke-width="2"/></g><g class="hplane"><path d="M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z" fill="#1f5eff" transform="translate(10 13)"/></g></svg>
       <h4>Enforced — through the gateway</h4>
       <p>Model calls to <code>/v1</code> and tool calls to <code>/mcp</code> pass through Control Tower. Gates, approvals, budgets and inspection apply to every one.</p>
     </div>
-    <div class="hcard dash reveal">
-      <svg viewBox="0 0 300 26" aria-hidden="true"><path d="M4 13 H296" stroke="#aab6c8" stroke-width="2.5" stroke-dasharray="6 6" stroke-linecap="round"/></svg>
+    <div class="hcard dash reveal" data-scroll="mid">
+      <svg viewBox="0 0 480 26" aria-hidden="true" style="overflow:visible"><mask id="hm2" maskUnits="userSpaceOnUse" x="0" y="0" width="480" height="26"><rect class="hmask" width="480" height="26" fill="#fff"/></mask><g mask="url(#hm2)"><path d="M4 13 H476" stroke="#aab6c8" stroke-width="2.5" stroke-dasharray="6 6" stroke-linecap="round"/></g><g class="hplane"><path d="M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z" fill="#fff" stroke="#8a98ad" stroke-width="1.3" transform="translate(10 13)"/></g></svg>
       <h4>Observed — reported, not controlled</h4>
       <p>Calls your agents make directly, reported by SDK or OpenTelemetry. They are mapped and documented, and each one comes with steps to bring it inside.</p>
     </div>
@@ -845,9 +952,9 @@ ct_approvals_pending 1</pre>
 
 <!-- ================================================================ INSTALL -->
 <section class="frame pad install" id="install">
+  <span class="rail">05</span>
   <div class="feature-grid">
     <div class="copy reveal">
-      <span class="rail">05</span>
       <span class="eyebrow">Get started</span>
       <h3 style="margin-top:14px">Up and running in <span class="accent">one command.</span></h3>
       <p>One container, SQLite by default, everything configured in the browser. Demo mode starts a synthetic agent fleet so the map is alive in seconds.</p>
@@ -857,7 +964,7 @@ ct_approvals_pending 1</pre>
         <li><b>Point your agents at Control Tower</b><code>base_url = …/v1</code> for models, <code>…/mcp</code> for tools.</li>
       </ol>
     </div>
-    <div class="reveal">
+    <div class="tilt" data-scroll>
       <div class="term">
         <div class="term-h"><i></i><i></i><i></i><span>~/controltower</span><button class="copybtn" id="copy" type="button">Copy</button></div>
         <pre id="termOut" aria-live="off"></pre>
@@ -866,10 +973,24 @@ ct_approvals_pending 1</pre>
   </div>
 </section>
 
+</div>
+
 <!-- ================================================================ CLOSING -->
-<section class="closing">
+<section class="closing" data-scroll>
   <div class="hero-bars" aria-hidden="true"></div>
   <div class="frame pad">
+    <div class="closing-art" aria-hidden="true">
+      <svg viewBox="0 0 300 214">
+        <g class="c-rings">
+          <circle cx="150" cy="100" r="150" fill="url(#rsGlowG)" />
+          <circle class="rs-ring" cx="150" cy="100" r="62" />
+          <circle class="rs-ring" cx="150" cy="100" r="98" />
+          <circle class="rs-ring" cx="150" cy="100" r="134" />
+          <g id="closingSweep" transform="translate(150 100) scale(0.92) translate(-300 -215)"></g>
+        </g>
+        <g class="c-tower"><g id="closingTower" transform="translate(90 26)"></g></g>
+      </svg>
+    </div>
     <span class="eyebrow reveal">Open source · Apache-2.0</span>
     <h2 class="reveal">Put every agent<br /><span class="accent">on the map.</span></h2>
     <p class="reveal">Self-host it today. Your prompts, keys and traffic never leave your infrastructure.</p>
@@ -987,51 +1108,87 @@ ct_approvals_pending 1</pre>
     setTimeout(() => (b.textContent = 'Copy'), 1600);
   });
 
-  /* ---------------------------------------------------------- hero flow: wires + flights */
-  const flow = $('#flow');
-  const inner = $('#flowInner');
-  const svg = $('#wires');
+  /* ---------------------------------------------------------- hero radar: tower, gate ring, flights */
   const NS = 'http://www.w3.org/2000/svg';
-  const mk = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
-  const srcs = $$('[data-src]', inner);
-  const dsts = $$('[data-dst]', inner);
-  const tower = $('#tower');
-  const outside = $('#outside');
-  const pills = Object.fromEntries($$('[data-pill]', inner).map((p) => [p.dataset.pill, p]));
-  const inW = srcs.map(() => mk('path', { class: 'w' }));
-  const outW = dsts.map(() => mk('path', { class: 'w' }));
-  const stub = mk('path', { class: 'w' });
-  const bypass = mk('path', { class: 'w dash' });
-  const gate = mk('rect', { class: 'gate', width: 10, height: 10, rx: 2 });
-  const dots = mk('g', {});
-  let scale = 1, G = { x: 0, y: 0 }, T = { l: 0, r: 0 };
-
-  const box = (el) => {
-    const r = el.getBoundingClientRect(), ir = inner.getBoundingClientRect();
-    return { l: (r.left - ir.left) / scale, t: (r.top - ir.top) / scale, r: (r.right - ir.left) / scale, b: (r.bottom - ir.top) / scale, get cy() { return (this.t + this.b) / 2; } };
+  const mk = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
   };
-  const curve = (x1, y1, x2, y2) => { const m = (x2 - x1) * 0.5; return `M${x1},${y1} C${x1 + m},${y1} ${x2 - m},${y2} ${x2},${y2}`; };
+  const rs = $('#rs');
+  const C = { x: 300, y: 215 };
+  const R = 78;
+  const at = (deg, r = R) => { const a = (deg * Math.PI) / 180; return [+(C.x + r * Math.cos(a)).toFixed(2), +(C.y + r * Math.sin(a)).toFixed(2)]; };
+  const ENTRY = [205, 180, 155];
+  const EXIT = [335, 360, 25];
+  const SRC_Y = [123, 215, 307];
+  const DST_Y = [108, 215, 322];
 
-  const layout = () => {
-    const w = flow.clientWidth;
-    if (!w) return;
-    scale = Math.min(1, w / 580);
-    inner.style.transform = `scale(${scale})`;
-    inner.style.marginBottom = `${inner.offsetHeight * (scale - 1)}px`;
-    const tb = box(tower);
-    T = { l: tb.l, r: tb.r, y: tb.cy };
-    G = { x: tb.l - 22, y: T.y };
-    srcs.forEach((s, i) => { const b = box(s); inW[i].setAttribute('d', curve(b.r, b.cy, G.x, G.y)); });
-    dsts.forEach((d, i) => { const b = box(d); outW[i].setAttribute('d', curve(T.r, T.y, b.l, b.cy)); });
-    stub.setAttribute('d', `M${G.x},${G.y} L${T.l},${T.y}`);
-    gate.setAttribute('x', G.x - 5); gate.setAttribute('y', G.y - 5);
-    gate.setAttribute('transform', `rotate(45 ${G.x} ${G.y})`);
-    const s2 = box(srcs[2]), ob = box(outside);
-    bypass.setAttribute('d', `M${s2.r},${s2.cy + 10} C${s2.r + 30},${s2.cy + 10} ${ob.l - 34},${ob.cy} ${ob.l},${ob.cy}`);
+  // Radar sweep: thin slices fading behind a leading edge.
+  const sweep = $('#rsSweep');
+  for (let k = 0; k < 12; k++) {
+    const a1 = -k * 3.5, a0 = a1 - 3.5;
+    const [x0, y0] = at(a0, 146), [x1, y1] = at(a1, 146);
+    mk('path', { d: `M${C.x},${C.y} L${x0},${y0} A146,146 0 0 1 ${x1},${y1} Z`, fill: '#1f5eff', opacity: (0.12 * (1 - k / 12)).toFixed(3) }, sweep);
+  }
+  mk('line', { x1: C.x, y1: C.y, x2: C.x + 146, y2: C.y, stroke: '#1f5eff', 'stroke-opacity': 0.35, 'stroke-width': 1.2 }, sweep);
+
+  const wires = $('#rsWires'), gates = $('#rsGates'), ghost = $('#rsGhost'), planes = $('#rsPlanes');
+  const inbound = SRC_Y.map((y, i) => { const [ex, ey] = at(ENTRY[i]); return mk('path', { class: 'rs-wire', d: `M118,${y} C168,${y} 190,${ey} ${ex},${ey}` }, wires); });
+  const outbound = DST_Y.map((y, j) => { const [x0, y0] = at(EXIT[j]); return mk('path', { class: 'rs-wire', d: `M${x0},${y0} C418,${y0} 436,${y} 470,${y}` }, wires); });
+  const bypass = mk('path', { class: 'rs-wire dash', d: 'M118,326 C152,326 136,416 170,416' }, wires);
+  const gatePts = ENTRY.map((a) => { const [x, y] = at(a); return mk('rect', { class: 'rs-gatept', x: x - 4, y: y - 4, width: 8, height: 8, rx: 1.5, transform: `rotate(45 ${x} ${y})` }, gates); });
+  EXIT.forEach((a) => { const [x, y] = at(a); mk('circle', { cx: x, cy: y, r: 2.6, fill: '#9db8ff' }, gates); });
+  const arc = (a0, a1, cw) => { const [x0, y0] = at(a0), [x1, y1] = at(a1); return `M${x0},${y0} A${R},${R} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} ${cw ? 1 : 0} ${x1},${y1}`; };
+  // Cleared flights swing round the tower: over the top to the upper exits, under it to the lower one.
+  const transit = ENTRY.map((a0) => EXIT.map((a1, j) => mk('path', { d: j < 2 ? arc(a0, a1, true) : arc(a0, a1, false) }, ghost)));
+  const holding = ENTRY.map((a0) => { const [x0, y0] = at(a0), [x1, y1] = at(a0 + 180); return mk('path', { d: `M${x0},${y0} A${R},${R} 0 1 1 ${x1},${y1} A${R},${R} 0 1 1 ${x0},${y0}` }, ghost); });
+
+  // The closing section reuses the tower and the sweep.
+  const art = $('#rsTowerArt').cloneNode(true);
+  art.removeAttribute('id');
+  $('#closingTower').appendChild(art);
+  const sw = sweep.cloneNode(true);
+  sw.removeAttribute('id');
+  $('#closingSweep').appendChild(sw);
+
+  const srcCards = $$('[data-src]', rs), dstCards = $$('[data-dst]', rs), outCard = $('#rsOut');
+  const gateRing = $('#rsGateRing'), status = $('#rsStatus'), label = $('#rsLabel');
+  const PLANE = 'M8 0 L2 -1.3 L-1.5 -6.5 L-3 -6.5 L-1 -1.3 L-5 -1.1 L-6.6 -3.2 L-7.6 -3.2 L-6.4 0 L-7.6 3.2 L-6.6 3.2 L-5 1.1 L-1 1.3 L-3 6.5 L-1.5 6.5 L2 1.3 Z';
+  const BLUE = '#1f5eff', AMBER = '#d9860b', RED = '#d3374e', GREEN = '#1a9e6b', GREY = '#8a98ad';
+
+  const makePlane = (color, hollow = false) => {
+    const trail = mk('polyline', { class: 'trail', stroke: color, points: '' }, planes);
+    const g = mk('g', {}, planes);
+    const body = mk('path', { transform: 'scale(1.35)', d: PLANE, fill: hollow ? '#fff' : color, stroke: hollow ? color : 'rgba(255,255,255,0.9)', 'stroke-width': hollow ? 1.3 : 0.7 }, g);
+    return {
+      g, trail, pts: [],
+      paint(c) { trail.setAttribute('stroke', c); body.setAttribute(hollow ? 'stroke' : 'fill', c); },
+      remove() { g.remove(); trail.remove(); },
+    };
   };
-  layout();
-  new ResizeObserver(layout).observe(flow);
-  document.fonts?.ready.then(layout);
+  const EASE = { inOut: (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2), lin: (k) => k, out: (k) => 1 - (1 - k) ** 2, in: (k) => k * k };
+  const fly = (pl, path, dur, fn = EASE.inOut) => new Promise((res) => {
+    const L = path.getTotalLength();
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const l = fn(k) * L;
+      const p = path.getPointAtLength(l);
+      const a = path.getPointAtLength(Math.max(0, l - 0.8)), b = path.getPointAtLength(Math.min(L, l + 0.8));
+      const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      pl.g.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${deg.toFixed(1)})`);
+      pl.pts.push(`${p.x.toFixed(1)},${p.y.toFixed(1)}`);
+      if (pl.pts.length > 16) pl.pts.shift();
+      pl.trail.setAttribute('points', pl.pts.join(' '));
+      k < 1 ? requestAnimationFrame(step) : res();
+    };
+    requestAnimationFrame(step);
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const flash = (el, cls, ms = 700) => { el.classList.add(cls); setTimeout(() => el.classList.remove(cls), ms); };
+  const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
 
   const count = { flights: 1204, held: 0, blocked: 17, outside: 42 };
   const hud = () => {
@@ -1040,91 +1197,156 @@ ct_approvals_pending 1</pre>
     $('#hBlocked').textContent = fmt(count.blocked);
     $('#hOutside').textContent = fmt(count.outside);
   };
-  const flash = (el, cls, ms = 650) => { el.classList.add(cls); setTimeout(() => el.classList.remove(cls), ms); };
-  const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  const makeDot = (color, hollow) => {
-    const g = mk('g', {}, dots);
-    mk('circle', { r: 10, fill: color, opacity: hollow ? 0 : 0.18 }, g);
-    mk('circle', { r: 4.6, fill: hollow ? '#fff' : color, stroke: color, 'stroke-width': hollow ? 1.6 : 0 }, g);
-    return g;
+  const radio = $('#radio');
+  const clock = () => new Date().toLocaleTimeString([], { hour12: false });
+  const say = (cls, word, text) => {
+    const m = document.createElement('span');
+    m.className = 'msg';
+    m.innerHTML = `<span class="t">${clock()}</span>  <span class="k ${cls}">${word}</span>  ${text}`;
+    radio.replaceChildren(m);
   };
-  const paint = (g, color) => { const [h, c] = g.children; h.setAttribute('fill', color); c.setAttribute('fill', color); c.setAttribute('stroke', color); };
-  const travel = (g, path, dur) => new Promise((res) => {
-    const L = path.getTotalLength();
-    const t0 = performance.now();
-    const step = (now) => {
-      const k = Math.min(1, (now - t0) / dur);
-      const p = path.getPointAtLength(ease(k) * L);
-      g.setAttribute('transform', `translate(${p.x},${p.y})`);
-      k < 1 ? requestAnimationFrame(step) : res();
-    };
-    requestAnimationFrame(step);
-  });
 
-  const BLUE = '#1f5eff', AMBER = '#d9860b', RED = '#d3374e', GREEN = '#1a9e6b', GREY = '#8a98ad';
+  // Who flies where — the same cast as the product's demo mode.
+  const SRC = [['support-triage', 'pr-reviewer', 'market-research', 'incident-copilot', 'outbound-sdr'], ['claude-code · dana', 'cursor · mchen', 'claude-code · priya'], ['nightly-etl', 'invoice-sync', 'lead-scoring']];
+  const DST = [['claude-sonnet-4-5', 'gpt-4.1-mini', 'gemini-2.5-flash', 'claude-haiku-4-5'], ['github › list_prs', 'salesforce › search_contacts', 'jira › create_issue'], ['postgres › orders', 's3 › exports', 'slack › post_message']];
+  const HOLD = [null, ['salesforce › delete_contact', 'github › merge_pr'], ['postgres › orders (write)', 'slack › post_message #general']];
+  const DENY = [['claude-sonnet-4-5', 'AWS key in the prompt'], ['github › merge_pr', 'sandbox may not merge'], ['s3 › delete_object', 'no deletes from pipelines']];
+
+  let holds = 0;
   async function flight() {
-    const i = Math.floor(Math.random() * srcs.length);
-    const j = Math.random() < 0.5 ? 0 : 1 + Math.floor(Math.random() * 2);
     const roll = Math.random();
     const kind = roll < 0.12 ? 'deny' : roll < 0.3 ? 'hold' : 'allow';
-    const dot = makeDot(BLUE);
-    srcs[i].classList.add('hot');
-    await travel(dot, inW[i], 900);
-    srcs[i].classList.remove('hot');
-    await travel(dot, stub, 160);
+    const i = Math.floor(Math.random() * 3);
+    const j = kind === 'hold' ? 1 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 3);
+    const who = pick(SRC[i]);
+    const pl = makePlane(BLUE);
+    flash(srcCards[i], 'hot', 900);
+    await fly(pl, inbound[i], 1150, EASE.inOut);
+    const [gx, gy] = at(ENTRY[i]);
+
     if (kind === 'deny') {
-      paint(dot, RED);
-      flash(pills.gates, 'hit-deny', 900);
-      mk('circle', { class: 'burst', cx: G.x, cy: G.y, r: 4 });
+      const [target, why] = DENY[j];
+      pl.paint(RED);
+      flash(gatePts[i], 'deny', 900);
+      mk('circle', { class: 'rs-burst', cx: gx, cy: gy, r: 4 }, planes);
+      const t = mk('text', { class: 'rs-blocked', x: gx - 12, y: gy - 10, 'text-anchor': 'end' }, planes);
+      t.textContent = 'BLOCKED';
+      say('deny', 'BLOCKED ', `${who} → ${target} · ${why}`);
       count.blocked++; count.flights++; hud();
-      await wait(250);
-      dot.remove();
-      setTimeout(() => $$('.burst', svg).forEach((b) => b.remove()), 700);
+      await wait(320);
+      pl.remove();
+      setTimeout(() => { t.remove(); $$('.rs-burst', planes).forEach((b) => b.remove()); }, 1300);
       return;
     }
+
+    let target = pick(DST[j]);
     if (kind === 'hold') {
-      paint(dot, AMBER);
-      const ring = mk('circle', { class: 'ring', cx: G.x, cy: G.y, r: 5 });
-      pills.approvals.classList.add('hit-warn');
+      target = pick(HOLD[j]);
+      pl.paint(AMBER);
+      gatePts[i].classList.add('hold');
+      holds++; gateRing.classList.add('holding'); status.classList.add('on'); label.style.opacity = '0';
       count.held++; hud();
-      await wait(1800);
-      ring.remove();
-      pills.approvals.classList.remove('hit-warn');
-      flash(pills.approvals, 'hit');
-      paint(dot, GREEN);
+      say('hold', 'HOLDING ', `${who} → ${target} · waiting for a human`);
+      await fly(pl, holding[i], 3000, EASE.lin);
+      gatePts[i].classList.remove('hold');
+      holds--;
+      if (!holds) { gateRing.classList.remove('holding'); status.classList.remove('on'); label.style.opacity = ''; }
+      pl.paint(GREEN);
+      mk('circle', { class: 'rs-okpulse', cx: C.x, cy: C.y, r: 40 }, planes);
+      setTimeout(() => $$('.rs-okpulse', planes).forEach((b) => b.remove()), 1000);
       count.held--; hud();
+      say('ok', 'APPROVED', `${who} → ${target} · approved by dana`);
     } else {
-      flash(pills.gates, 'hit');
+      flash(gatePts[i], 'ok', 500);
+      say('ok', 'CLEARED ', `${who} → ${target}`);
     }
-    dot.style.opacity = '0';
-    if (Math.random() < 0.4) flash(pills.inspect, 'hit');
-    await wait(260);
-    const start = outW[j].getPointAtLength(0);
-    dot.setAttribute('transform', `translate(${start.x},${start.y})`);
-    dot.style.opacity = '';
-    await travel(dot, outW[j], 1000);
-    flash(dsts[j], 'hot', 500);
-    flash(pills.ledger, 'hit', 500);
+    const span = Math.abs((j < 2 ? EXIT[j] : EXIT[j]) - ENTRY[i]);
+    await fly(pl, transit[i][j], 380 + span * 4, EASE.lin);
+    await fly(pl, outbound[j], 950, EASE.out);
+    flash(dstCards[j], 'hot', 600);
     count.flights++; hud();
-    dot.remove();
+    pl.remove();
   }
+
+  let sideCount = 0;
   async function sideDoor() {
-    const dot = makeDot(GREY, true);
-    await travel(dot, bypass, 1300);
-    flash(outside, 'hot', 500);
+    const pl = makePlane(GREY, true);
+    await fly(pl, bypass, 1400, EASE.inOut);
+    flash(outCard, 'hot-out', 600);
     count.outside++; hud();
-    dot.remove();
+    if (sideCount++ % 2 === 0) say('obs', 'SEEN    ', 'nightly-etl → api.openai.com · outside the gateway, not enforced');
+    await wait(200);
+    pl.remove();
   }
 
   if (!reduced) {
     let visible = true;
-    new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe(flow);
-    const tick = () => { if (visible && !document.hidden) flight(); setTimeout(tick, 1100 + Math.random() * 700); };
-    const side = () => { if (visible && !document.hidden) sideDoor(); setTimeout(side, 4200 + Math.random() * 2000); };
+    new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe($('#radar'));
+    const tick = () => { if (visible && !document.hidden) flight(); setTimeout(tick, 1300 + Math.random() * 900); };
+    const side = () => { if (visible && !document.hidden) sideDoor(); setTimeout(side, 5200 + Math.random() * 2400); };
     setTimeout(tick, 900);
-    setTimeout(side, 2600);
+    setTimeout(side, 3200);
+  }
+
+  /* ---------------------------------------------------------- scroll-driven motion */
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  const scrollEls = $$('[data-scroll]');
+  const words = [];
+  const statement = $('[data-words]');
+  if (statement) {
+    const walk = (node) => {
+      for (const n of [...node.childNodes]) {
+        if (n.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          for (const part of n.textContent.split(/(\s+)/)) {
+            if (!part) continue;
+            if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); continue; }
+            const w = document.createElement('span');
+            w.className = 'wd';
+            w.textContent = part;
+            frag.appendChild(w);
+            words.push(w);
+          }
+          n.replaceWith(frag);
+        } else if (n.nodeType === 1) walk(n);
+      }
+    };
+    walk(statement);
+  }
+  const journey = $('#journey');
+  const rails = $$('.rail');
+  const bar = $('#scrollFill');
+  const frame = () => {
+    const vh = innerHeight;
+    for (const el of scrollEls) {
+      const r = el.getBoundingClientRect();
+      const mode = el.dataset.scroll;
+      const p = mode === 'out' ? clamp(-r.top / (r.height * 0.7)) : mode === 'mid' ? clamp((vh * 0.92 - r.top) / (vh * 0.5)) : clamp((vh - r.top) / (vh * 0.6));
+      el.style.setProperty('--p', p.toFixed(3));
+    }
+    if (statement) {
+      const r = statement.getBoundingClientRect();
+      const lit = Math.round(clamp((vh * 0.85 - r.top) / (r.height + vh * 0.3)) * words.length);
+      words.forEach((w, k) => w.classList.toggle('lit', k < lit));
+    }
+    const jr = journey.getBoundingClientRect();
+    const rp = clamp((vh * 0.55 - jr.top) / jr.height);
+    journey.style.setProperty('--rp', rp.toFixed(4));
+    const head = jr.top + rp * jr.height;
+    rails.forEach((m) => m.classList.toggle('lit', m.getBoundingClientRect().top + 6 <= head));
+    bar.style.transform = `scaleX(${clamp(scrollY / Math.max(1, document.documentElement.scrollHeight - vh))})`;
+  };
+  if (reduced) {
+    scrollEls.forEach((el) => el.style.setProperty('--p', el.dataset.scroll === 'out' ? '0' : '1'));
+    words.forEach((w) => w.classList.add('lit'));
+    rails.forEach((m) => m.classList.add('lit'));
+    journey.style.setProperty('--rp', '1');
+  } else {
+    let queued = false;
+    const onScroll = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; frame(); }); } };
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onScroll);
+    frame();
   }
 })();
 </script>

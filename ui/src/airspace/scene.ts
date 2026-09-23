@@ -41,6 +41,8 @@ export interface ToolRow {
   count24h: number;
   gates: Rule[];
   y: number;
+  /** Where this row's gate icons were drawn (world), for clicking them. */
+  gateHits: Array<{ rule: Rule; x: number; y: number }>;
 }
 
 export interface Station {
@@ -111,6 +113,14 @@ export type ClickInfo =
   | { kind: 'zone'; zone: Zone; x: number; y: number }
   | { kind: 'gate'; rule: Rule; x: number; y: number }
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
+  /** A line was clicked: agent spoke (traffic from an agent) or destination spoke (traffic to it). */
+  | { kind: 'lane'; stationId: string; stationKind: StationKind; x: number; y: number }
+  /** A tool row was clicked. */
+  | { kind: 'tool'; serverId: string; tool: string; x: number; y: number }
+  /** Gate mode: dragged from an agent to a destination (optionally a single tool). */
+  | { kind: 'connect'; agentId: string; destId: string; tool?: string | undefined; x: number; y: number }
+  /** Right-click on a node. */
+  | { kind: 'context'; stationId: string; stationKind: StationKind; x: number; y: number }
   | { kind: 'empty'; x: number; y: number };
 
 export interface FocusSummary {
@@ -256,6 +266,9 @@ export class AirspaceScene {
   private layoutCb: ((positions: Record<string, Pt>) => void) | null = null;
   private camCb: ((cam: { x: number; y: number; k: number }) => void) | null = null;
   drawMode = false;
+  /** Gate mode: drag from an agent to a destination to put a gate on that path. */
+  gateMode = false;
+  private connect: { from: Station; start: Pt; end: Pt; down: Pt } | null = null;
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
@@ -287,6 +300,13 @@ export class AirspaceScene {
       this.pointer = sp;
       if (this.lasso) {
         this.lasso.push(this.toWorld(sp));
+        this.dirty = true;
+        return;
+      }
+      if (this.connect) {
+        this.connect.end = this.toWorld(sp);
+        const t = this.stationAt(this.connect.end);
+        this.setHovered(t && t.kind !== 'unknown' && (t.kind === 'agent') !== (this.connect.from.kind === 'agent') ? `station:${t.id}` : null);
         this.dirty = true;
         return;
       }
@@ -328,6 +348,14 @@ export class AirspaceScene {
         this.lasso = [wp];
         return;
       }
+      if (this.gateMode && ev.button === 0) {
+        const s = this.stationAt(wp);
+        if (s && s.kind !== 'unknown') {
+          this.connect = { from: s, start: [s.px, s.py], end: wp, down: sp };
+          this.hoverCb?.(null);
+          return;
+        }
+      }
       let kind: 'station' | 'hub' | 'pan' = 'pan';
       let id = '';
       let offset: Pt = [0, 0];
@@ -367,6 +395,28 @@ export class AirspaceScene {
         }
         return;
       }
+      if (this.connect) {
+        const c = this.connect;
+        this.connect = null;
+        this.setHovered(null);
+        this.dirty = true;
+        // A plain click in gate mode: gate what was clicked (a tool row, or the node itself).
+        if ((sp[0] - c.down[0]) ** 2 + (sp[1] - c.down[1]) ** 2 < 16) {
+          const hit = this.hitTest(wp, sp);
+          if (hit.kind === 'station') this.clickCb?.({ kind: 'context', stationId: c.from.id, stationKind: c.from.kind, x: sp[0], y: sp[1] });
+          else this.clickCb?.(hit);
+          return;
+        }
+        const target = this.stationAt(wp);
+        if (target && target.kind !== 'unknown' && target.id !== c.from.id && (target.kind === 'agent') !== (c.from.kind === 'agent')) {
+          const agent = c.from.kind === 'agent' ? c.from : target;
+          const dest = c.from.kind === 'agent' ? target : c.from;
+          // Dropping on a tool row scopes the gate to that tool.
+          const row = dest === target && dest.expanded ? dest.tools.find((r) => wp[1] >= r.y && wp[1] < r.y + TOOL_ROW) : undefined;
+          this.clickCb?.({ kind: 'connect', agentId: agent.id, destId: dest.id, tool: row?.name, x: sp[0], y: sp[1] });
+        }
+        return;
+      }
       const d = this.drag;
       this.drag = null;
       this.canvas.style.cursor = 'default';
@@ -386,6 +436,13 @@ export class AirspaceScene {
         }
       }
       this.clickCb?.(this.hitTest(wp, sp));
+    });
+    this.canvas.addEventListener('contextmenu', (ev) => {
+      const sp = screenPos(ev);
+      const s = this.stationAt(this.toWorld(sp));
+      if (!s || s.kind === 'unknown') return;
+      ev.preventDefault();
+      this.clickCb?.({ kind: 'context', stationId: s.id, stationKind: s.kind, x: sp[0], y: sp[1] });
     });
     this.canvas.addEventListener(
       'wheel',
@@ -576,7 +633,7 @@ export class AirspaceScene {
       const prev = new Map(s.tools.map((r) => [r.name, r]));
       s.tools = m.tools.map((tool) => {
         const old = prev.get(tool.name);
-        return { name: tool.name, full: `${m.slug}__${tool.name}`, op: tool.op, recent: old?.recent ?? [], lastAt: old?.lastAt ?? 0, count24h: 0, gates: [], y: 0 };
+        return { name: tool.name, full: `${m.slug}__${tool.name}`, op: tool.op, recent: old?.recent ?? [], lastAt: old?.lastAt ?? 0, count24h: 0, gates: [], y: 0, gateHits: [] };
       });
     }
     for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
@@ -748,11 +805,23 @@ export class AirspaceScene {
     for (const s of this.stations.values()) for (const r of s.tools) r.gates = [];
     for (const r of this.policy?.rules ?? []) {
       if (!r.enabled) continue;
-      const toolGlobs = (r.match as { tools?: string[] }).tools;
+      const m = r.match as { tools?: string[]; keys?: string[]; deployments?: string[]; mcp_servers?: string[] };
+      const toolGlobs = m.tools;
       const toZone = r.to_zone ? zones.find((x) => x.id === r.to_zone) : undefined;
       if (toolGlobs?.length) {
-        const servers = toZone ? this.zoneMembers(toZone).filter((s) => s.kind === 'mcp') : [...this.stations.values()].filter((s) => s.kind === 'mcp');
+        let servers = toZone ? this.zoneMembers(toZone).filter((s) => s.kind === 'mcp') : [...this.stations.values()].filter((s) => s.kind === 'mcp');
+        if (m.mcp_servers?.length) servers = servers.filter((s) => m.mcp_servers!.includes(s.id));
         for (const s of servers) for (const row of s.tools) if (toolGlobs.some((g) => globMatch(g, row.full))) row.gates.push(r);
+        continue;
+      }
+      const destIds = [...(m.deployments ?? []), ...(m.mcp_servers ?? [])];
+      if (m.keys?.length) {
+        // Scoped to specific agents: the gate sits on each agent's line.
+        for (const k of m.keys) this.addGate(k, r, 0.66);
+        continue;
+      }
+      if (destIds.length) {
+        for (const d of destIds) this.addGate(d, r, 0.34);
         continue;
       }
       if (toZone) {
@@ -1095,6 +1164,11 @@ export class AirspaceScene {
           width = 1.5;
           break;
       }
+      if (this.hovered === `spoke:${s.id}`) {
+        width += 1.5;
+        dash = [];
+        if (st === 'idle' || st === 'unused') color = '#8ea1bb';
+      }
       ctx.globalAlpha = dim(s.id);
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
@@ -1147,6 +1221,23 @@ export class AirspaceScene {
       ctx.globalAlpha = dim(s.id);
       this.drawCard(s, now, rel);
       ctx.globalAlpha = 1;
+    }
+
+    if (this.connect) {
+      const { start, end } = this.connect;
+      ctx.beginPath();
+      ctx.moveTo(start[0], start[1]);
+      const mx = (start[0] + end[0]) / 2;
+      ctx.bezierCurveTo(mx, start[1], mx, end[1], end[0], end[1]);
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = 'rgba(31,94,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(end[0], end[1], 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#1f5eff';
+      ctx.fill();
     }
 
     if (this.lasso && this.lasso.length > 1) {
@@ -1423,8 +1514,10 @@ export class AirspaceScene {
         ctx.fillText(count, rx, cy + 0.5);
         rx -= ctx.measureText(count).width + 8;
       }
+      row.gateHits = [];
       for (const g of row.gates) {
-        this.drawGate(rx - 7, cy, g, 6.5, false);
+        this.drawGate(rx - 7, cy, g, 6.5, this.hovered === `toolgate:${g.id}:${s.id}:${row.name}`);
+        row.gateHits.push({ rule: g, x: rx - 7, y: cy });
         rx -= 18;
       }
       const op = OP_STYLE[row.op];
@@ -1539,6 +1632,12 @@ export class AirspaceScene {
     const [x, y] = wp;
     const [sx, sy] = sp;
     for (const s of this.stations.values()) {
+      if (!s.expanded || x < s.x || x > s.x + s.w || y <= s.y + s.headH || y > s.y + s.h) continue;
+      for (const r of s.tools) for (const g of r.gateHits) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 9 * 9) return { kind: 'gate', rule: g.rule, x: sx, y: sy };
+      const row = s.tools.find((r) => y >= r.y && y < r.y + TOOL_ROW);
+      if (row) return { kind: 'tool', serverId: s.id, tool: row.name, x: sx, y: sy };
+    }
+    for (const s of this.stations.values()) {
       if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return { kind: 'station', station: this.view(s, now), x: sx, y: sy };
     }
     for (const sp of this.spokes.values()) {
@@ -1548,6 +1647,15 @@ export class AirspaceScene {
       const c = zb.chip;
       if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return { kind: 'zone', zone: zb.zone, x: sx, y: sy };
     }
+    let best: { sp: Spoke; d: number } | null = null;
+    for (const spk of this.spokes.values()) {
+      for (let t = 0.04; t < 0.97; t += 0.04) {
+        const [px, py] = bezAt(spk.bez, t);
+        const d = (px - x) ** 2 + (py - y) ** 2;
+        if (d < 64 && (!best || d < best.d)) best = { sp: spk, d };
+      }
+    }
+    if (best && best.sp.station.kind !== 'unknown') return { kind: 'lane', stationId: best.sp.station.id, stationKind: best.sp.station.kind, x: sx, y: sy };
     return { kind: 'empty', x: sx, y: sy };
   }
 
@@ -1570,16 +1678,26 @@ export class AirspaceScene {
     for (const s of this.stations.values()) {
       if (x < s.x || x > s.x + s.w || y < s.y || y > s.y + s.h) continue;
       if (s.expanded && y > s.y + s.headH) {
+        for (const r of s.tools) {
+          for (const g of r.gateHits) {
+            if ((g.x - x) ** 2 + (g.y - y) ** 2 < 9 * 9) {
+              this.setHovered(`toolgate:${g.rule.id}:${s.id}:${r.name}`);
+              this.canvas.style.cursor = 'pointer';
+              this.hoverCb?.({ x: sx, y: sy, gate: { rule: g.rule, hits: this.ruleHits.get(g.rule.id)?.length ?? 0 } });
+              return;
+            }
+          }
+        }
         const row = s.tools.find((r) => y >= r.y && y < r.y + TOOL_ROW);
         if (row) {
           this.setHovered(`tool:${s.id}:${row.name}`);
-          this.canvas.style.cursor = 'default';
+          this.canvas.style.cursor = this.gateMode ? 'crosshair' : 'pointer';
           this.hoverCb?.({ x: sx, y: sy, tool: { server: s.label, name: row.name, op: row.op, rpm: row.recent.length, count24h: row.count24h, gates: row.gates } });
           return;
         }
       }
       this.setHovered(`station:${s.id}`);
-      this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'grab';
+      this.canvas.style.cursor = this.drawMode || this.gateMode ? 'crosshair' : 'grab';
       this.hoverCb?.({ x: sx, y: sy, station: this.view(s, now) });
       return;
     }
@@ -1622,6 +1740,7 @@ export class AirspaceScene {
     this.canvas.style.cursor = this.drawMode ? 'crosshair' : 'default';
     if (best) {
       this.setHovered(`spoke:${best.sp.station.id}`);
+      this.canvas.style.cursor = 'pointer';
       this.hoverCb?.({ x: sx, y: sy, lane: this.laneView(best.sp, now) });
       return;
     }

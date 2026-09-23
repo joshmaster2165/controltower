@@ -4,12 +4,20 @@ import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
 import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type LinkState } from '../airspace/scene';
 import { hex } from '../airspace/colors';
-import { api, ApiError, type Rule, type Zone } from '../api';
+import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
 import { ApprovalCard } from './Tower';
 
 const SWATCHES = ['#1f5eff', '#0b3d91', '#0e9aa7', '#6366f1', '#1a9e6b', '#d9860b', '#d3374e', '#7c3aed'];
 
+/** Prefill for the gate composer: `from` is 'all' | 'zone:<id>' | 'key:<id>', `to` is '' | 'dep:<id>' | 'mcp:<id>'. */
+interface GateDraft {
+  from: string;
+  to: string;
+  tool?: string | undefined;
+}
+
 type Popover =
+  | { kind: 'compose'; draft: GateDraft; x: number; y: number }
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
   | { kind: 'gate'; rule: Rule; x: number; y: number };
@@ -23,6 +31,30 @@ const STATE_LABEL: Record<LinkState, string> = {
 };
 
 const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', unknown: 'unrouted' } as const;
+
+function destRef(id: string): string {
+  const t = useStore.getState().topology;
+  return t?.mcp_servers.some((m) => m.id === id) ? `mcp:${id}` : `dep:${id}`;
+}
+
+/** Plain-language description of what a gate covers. */
+export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string {
+  const m = r.match as { keys?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
+  const keyName = (id: string) => t?.keys.find((k) => k.id === id)?.name ?? id;
+  const depName = (id: string) => {
+    const d = t?.deployments.find((x) => x.id === id);
+    return d?.public_name ?? d?.upstream_model ?? id;
+  };
+  const mcpName = (id: string) => t?.mcp_servers.find((x) => x.id === id)?.name ?? id;
+  const zoneName = (id: string) => zones.find((z) => z.id === id)?.name ?? id;
+  const from = m.keys?.length ? m.keys.map(keyName).join(', ') : r.from_zone ? `${zoneName(r.from_zone)} agents` : 'any agent';
+  let to = 'anything';
+  if (m.deployments?.length) to = m.deployments.map(depName).join(', ');
+  else if (m.mcp_servers?.length) to = m.mcp_servers.map(mcpName).join(', ');
+  else if (r.to_zone) to = zoneName(r.to_zone);
+  if (m.tools?.length) to += ` → ${m.tools.map((x) => x.split('__').pop()).join(', ')}`;
+  return `${from} → ${to}`;
+}
 
 export function AirspacePage() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -38,6 +70,7 @@ export function AirspacePage() {
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [stats, setStats] = useState({ active: 0, stations: 0, held: 0 });
   const [drawMode, setDrawMode] = useState(false);
+  const [gateMode, setGateMode] = useState(false);
   const [popover, setPopover] = useState<Popover | null>(null);
   const [showTower, setShowTower] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +121,14 @@ export function AirspacePage() {
           } else if (c.kind === 'station') {
             setPopover(null);
             applyFocus(focusRef.current === c.station.id ? null : c.station.id);
+          } else if (c.kind === 'lane') {
+            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: `key:${c.stationId}`, to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
+          } else if (c.kind === 'tool') {
+            setPopover({ kind: 'compose', draft: { from: 'all', to: `mcp:${c.serverId}`, tool: c.tool }, x: c.x, y: c.y });
+          } else if (c.kind === 'connect') {
+            setPopover({ kind: 'compose', draft: { from: `key:${c.agentId}`, to: destRef(c.destId), tool: c.tool }, x: c.x, y: c.y });
+          } else if (c.kind === 'context') {
+            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: `key:${c.stationId}`, to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
           } else if (c.kind === 'zone') setPopover({ kind: 'zone', zone: c.zone, x: c.x, y: c.y });
           else if (c.kind === 'gate') setPopover({ kind: 'gate', rule: c.rule, x: c.x, y: c.y });
           else {
@@ -189,7 +230,21 @@ export function AirspacePage() {
   const toggleDraw = () => {
     const next = !drawMode;
     setDrawMode(next);
-    if (sceneRef.current) sceneRef.current.drawMode = next;
+    setGateMode(false);
+    if (sceneRef.current) {
+      sceneRef.current.drawMode = next;
+      sceneRef.current.gateMode = false;
+    }
+    setPopover(null);
+  };
+  const toggleGate = () => {
+    const next = !gateMode;
+    setGateMode(next);
+    setDrawMode(false);
+    if (sceneRef.current) {
+      sceneRef.current.gateMode = next;
+      sceneRef.current.drawMode = false;
+    }
     setPopover(null);
   };
 
@@ -229,6 +284,9 @@ export function AirspacePage() {
             </div>
           </div>
         </div>
+        <button className={`btn ${gateMode ? 'active' : ''}`} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path">
+          Add gate
+        </button>
         <button className={`btn ${drawMode ? 'active' : ''}`} onClick={toggleDraw} title="Drag a lasso around stations to create a zone">
           Draw zone
         </button>
@@ -247,6 +305,11 @@ export function AirspacePage() {
         </div>
       )}
       {drawMode && <div className="mode-banner">Drag a lasso around the stations that belong together</div>}
+      {gateMode && (
+        <div className="mode-banner">
+          Drag from an agent to a model, tool server or a single tool to gate that path · or click any line or tool row
+        </div>
+      )}
 
       {focus ? (
         <FocusPanel summary={focus} onClose={() => applyFocus(null)} onPick={(id) => applyFocus(id)} />
@@ -271,6 +334,20 @@ export function AirspacePage() {
         )
       )}
 
+      {popover?.kind === 'compose' && topology && (
+        <GateComposer
+          x={popover.x}
+          y={popover.y}
+          draft={popover.draft}
+          topology={topology}
+          zones={policy?.zones ?? []}
+          onClose={() => setPopover(null)}
+          onCreated={() => {
+            setPopover(null);
+            void refreshPolicy();
+          }}
+        />
+      )}
       {popover?.kind === 'lasso' && (
         <ZoneCreatePopover
           x={popover.x}
@@ -296,6 +373,7 @@ export function AirspacePage() {
           x={popover.x}
           y={popover.y}
           rule={policy.rules.find((r) => r.id === popover.rule.id) ?? popover.rule}
+          desc={describeRule(policy.rules.find((r) => r.id === popover.rule.id) ?? popover.rule, topology, policy.zones)}
           zones={policy.zones}
           stats={policy.rule_stats[popover.rule.id]}
           onClose={() => setPopover(null)}
@@ -700,11 +778,10 @@ function ZonePopover({ x, y, zone, zones, rules, onClose, onChanged }: { x: numb
   );
 }
 
-function GatePopover({ x, y, rule, zones, stats, onClose, onChanged }: { x: number; y: number; rule: Rule; zones: Zone[]; stats: { approved: number; denied: number } | undefined; onClose: () => void; onChanged: () => void }) {
+function GatePopover({ x, y, rule, desc, stats, onClose, onChanged }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; onClose: () => void; onChanged: () => void }) {
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
-  const zoneName = (id: string | null) => (id ? (zones.find((z) => z.id === id)?.name ?? '?') : 'anywhere');
   const total = (stats?.approved ?? 0) + (stats?.denied ?? 0);
   const rate = total ? (stats!.approved / total) * 100 : null;
   const save = async () => {
@@ -726,7 +803,7 @@ function GatePopover({ x, y, rule, zones, stats, onClose, onChanged }: { x: numb
     <div className="popover" style={{ left: Math.min(x, window.innerWidth - 340), top: Math.min(y + 8, window.innerHeight - 360) }}>
       <div className="t">{rule.name}</div>
       <div className="hint" style={{ marginBottom: 8 }}>
-        {zoneName(rule.from_zone)} → {zoneName(rule.to_zone)}
+        {desc}
         {rule.demo ? ' · demo' : ''}
       </div>
       <div className="field">
@@ -764,6 +841,173 @@ function GatePopover({ x, y, rule, zones, stats, onClose, onChanged }: { x: numb
         </button>
         <button className="btn sm ghost" onClick={onClose}>
           Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const EFFECTS: Array<{ id: Rule['effect']; label: string; hint: string; cls: string }> = [
+  { id: 'deny', label: 'Block', hint: 'Requests on this path are refused with a 403 the agent can read.', cls: 'deny' },
+  { id: 'require_approval', label: 'Require approval', hint: 'Requests wait at the gate until someone approves in the Tower.', cls: 'hold' },
+  { id: 'allow', label: 'Allow', hint: 'Explicitly allow this path (takes precedence over broader gates below it).', cls: 'allow' },
+];
+
+function GateComposer({ x, y, draft, topology, zones, onClose, onCreated }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; onClose: () => void; onCreated: () => void }) {
+  const [from, setFrom] = useState(draft.from);
+  const [to, setTo] = useState(draft.to);
+  const [tool, setTool] = useState(draft.tool ?? '');
+  const [effect, setEffect] = useState<Rule['effect']>('require_approval');
+  const [reason, setReason] = useState('');
+  const [hold, setHold] = useState('20');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const server = to.startsWith('mcp:') ? topology.mcp_servers.find((m) => m.id === to.slice(4)) : undefined;
+  const agentLabel = from === 'all' ? 'Any agent' : from.startsWith('zone:') ? `${zones.find((z) => z.id === from.slice(5))?.name ?? '?'} agents` : (topology.keys.find((k) => k.id === from.slice(4))?.name ?? '?');
+  const destLabel = !to
+    ? 'anything'
+    : to.startsWith('mcp:')
+      ? `${server?.name ?? '?'}${tool ? ` → ${tool}` : ''}`
+      : (() => {
+          const d = topology.deployments.find((x) => x.id === to.slice(4));
+          return d?.public_name ?? d?.upstream_model ?? '?';
+        })();
+  const verb = effect === 'deny' ? 'Block' : effect === 'require_approval' ? 'Require approval for' : 'Allow';
+  const sentence = `${verb} ${agentLabel} → ${destLabel}`;
+
+  const create = async () => {
+    if (from === 'all' && !to) {
+      setErr('Pick an agent or a destination — a gate on everything would stop all traffic.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const match: Record<string, unknown> = {};
+    const body: Record<string, unknown> = { name: sentence, effect, priority: 5, target_kind: 'any' };
+    if (from.startsWith('key:')) match.keys = [from.slice(4)];
+    if (from.startsWith('zone:')) body.from_zone = from.slice(5);
+    if (to.startsWith('dep:')) {
+      match.deployments = [to.slice(4)];
+      body.target_kind = 'model';
+    }
+    if (to.startsWith('mcp:')) {
+      match.mcp_servers = [to.slice(4)];
+      body.target_kind = 'tool';
+      if (tool && server) match.tools = [`${server.slug}__${tool}`];
+    }
+    body.match = match;
+    const config: Record<string, unknown> = {};
+    if (reason.trim()) config.reason = reason.trim();
+    if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
+    body.config = config;
+    try {
+      await api.post('/admin/api/rules', body);
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="popover composer" style={{ left: Math.max(12, Math.min(x, window.innerWidth - 740)), top: Math.max(12, Math.min(y - 40, window.innerHeight - 52 - 600)) }}>
+      <div className="t">New gate</div>
+      <div className="field">
+        <label>From</label>
+        <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
+          <option value="all">Any agent</option>
+          {zones.length > 0 && (
+            <optgroup label="Zones">
+              {zones.map((z) => (
+                <option key={z.id} value={`zone:${z.id}`}>
+                  {z.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Agents">
+            {topology.keys.map((k) => (
+              <option key={k.id} value={`key:${k.id}`}>
+                {k.name}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      </div>
+      <div className="field">
+        <label>To</label>
+        <select
+          className="input"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setTool('');
+          }}
+        >
+          <option value="">Anything</option>
+          <optgroup label="Models">
+            {topology.deployments.map((d) => (
+              <option key={d.id} value={`dep:${d.id}`}>
+                {d.public_name ?? d.upstream_model}
+              </option>
+            ))}
+          </optgroup>
+          {topology.mcp_servers.length > 0 && (
+            <optgroup label="MCP servers">
+              {topology.mcp_servers.map((m) => (
+                <option key={m.id} value={`mcp:${m.id}`}>
+                  {m.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+      {server && (
+        <div className="field">
+          <label>Tool</label>
+          <select className="input" value={tool} onChange={(e) => setTool(e.target.value)}>
+            <option value="">Any tool on {server.name}</option>
+            {server.tools.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+                {t.op === 'admin' ? ' (destructive)' : t.op === 'write' ? ' (write)' : t.op === 'read' ? ' (read)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="field">
+        <label>Effect</label>
+        <div className="effects">
+          {EFFECTS.map((e) => (
+            <button key={e.id} type="button" className={`effect ${e.cls} ${effect === e.id ? 'on' : ''}`} onClick={() => setEffect(e.id)}>
+              {e.label}
+            </button>
+          ))}
+        </div>
+        <div className="hint" style={{ marginTop: 6 }}>{EFFECTS.find((e) => e.id === effect)!.hint}</div>
+      </div>
+      {effect === 'require_approval' && (
+        <div className="field">
+          <label>Hold the request up to (seconds) before issuing a ticket</label>
+          <input className="input" type="number" min={0} max={55} value={hold} onChange={(e) => setHold(e.target.value)} />
+        </div>
+      )}
+      <div className="field">
+        <label>Reason shown to the agent (optional)</label>
+        <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
+      </div>
+      <div className="summary">{sentence}</div>
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      <div className="row">
+        <button className="btn sm primary" disabled={busy} onClick={() => void create()}>
+          {busy ? 'Adding…' : 'Add gate'}
+        </button>
+        <button className="btn sm ghost" onClick={onClose}>
+          Cancel
         </button>
       </div>
     </div>

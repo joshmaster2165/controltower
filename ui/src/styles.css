@@ -186,7 +186,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .approval.done { opacity: 0.7; border-color: var(--border); }
 .hint { font-size: 12.5px; color: var(--text-dim); }
 .mode-banner {
-  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 4; pointer-events: none;
+  position: absolute; left: 50%; top: 112px; transform: translateX(-50%); z-index: 4; pointer-events: none; max-width: 90%; text-align: center;
   background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent-deep); padding: 6px 12px; border-radius: 999px; font-size: 12.5px;
 }
 
@@ -249,3 +249,16 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .map-controls .sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
 .map-controls .save { font-size: 11.5px; color: var(--text-faint); margin: 0 6px; }
 .airspace canvas { touch-action: none; }
+
+/* Gate composer */
+.popover.composer { width: 340px; }
+.effects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.effect {
+  border: 1px solid var(--border-strong); background: #fff; border-radius: 8px; padding: 7px 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.effect.deny.on { border-color: var(--danger); background: #fff3f5; color: #b4233a; }
+.effect.hold.on { border-color: var(--warn); background: #fff8ec; color: #8a5200; }
+.effect.allow.on { border-color: var(--ok); background: #effaf5; color: #11744d; }
+.popover .summary { font-size: 12.5px; background: #f5f8fc; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin-bottom: 10px; }
+
+.popover.composer { max-height: calc(100% - 24px); overflow-y: auto; }

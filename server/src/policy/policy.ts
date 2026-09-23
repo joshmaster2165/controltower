@@ -35,6 +35,12 @@ export interface ArgConstraint {
 }
 
 export interface RuleMatch {
+  /** Specific agents (API key ids). Empty = any agent (subject to from_zone). */
+  keys?: string[];
+  /** Specific model deployments. */
+  deployments?: string[];
+  /** Specific MCP tool servers. */
+  mcp_servers?: string[];
   models?: string[];
   tools?: string[];
   operations?: Array<'read' | 'write' | 'admin' | 'unknown'>;
@@ -208,6 +214,13 @@ export class PolicyService implements PolicyEngine {
     if (r.targetKind !== 'any' && r.targetKind !== target.kind) return 'no';
     if (r.fromZone && !src.has(r.fromZone)) return 'no';
     if (r.toZone && !dst.has(r.toZone)) return 'no';
+    // Station-level scope: gates drawn directly on the Airspace between a specific agent and destination.
+    if (r.match.keys?.length && !r.match.keys.includes(key.id)) return 'no';
+    const dests = [...(r.match.deployments ?? []), ...(r.match.mcp_servers ?? [])];
+    if (dests.length) {
+      const id = target.kind === 'model' ? target.deploymentId : target.mcpServerId;
+      if (!id || !dests.includes(id)) return 'no';
+    }
     if (target.kind === 'model' && r.match.models?.length && !r.match.models.some((g) => globMatch(g, target.name))) return 'no';
     if (target.kind === 'tool' && r.match.tools?.length && !r.match.tools.some((g) => globMatch(g, target.name))) return 'no';
     if (r.match.operations?.length && !r.match.operations.includes(target.operation)) return 'no';

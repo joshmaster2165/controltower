@@ -3,13 +3,14 @@ import { api, ApiError, type KeyRow } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
+import { ConnectAgent } from '../components/ConnectAgent';
 import { ago, globList } from '../format';
 import { agentColor, hex } from '../airspace/colors';
 
 export function KeysPage() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [showNew, setShowNew] = useState(false);
-  const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
+  const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
   const refreshTopology = useStore((s) => s.refreshTopology);
@@ -34,7 +35,7 @@ export function KeysPage() {
         limits: form.rpm ? { rpm: Number(form.rpm) } : {},
       };
       if (form.budget) body.budget = { limit_usd: Number(form.budget), period: 'monthly', hard: true };
-      const r = await api.post<{ name: string; key: string }>('/admin/api/keys', body);
+      const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
       setForm({ name: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
@@ -84,9 +85,10 @@ export function KeysPage() {
               Dismiss
             </button>
           </div>
-          <div style={{ marginTop: 12, color: 'var(--text-dim)', fontSize: 13 }}>
-            Point any OpenAI SDK at <code>{location.origin}/v1</code> with this key, or Claude Code / Anthropic SDK at <code>{location.origin}</code> with <code>x-api-key</code>.
+          <div className="section-title" style={{ margin: '18px 0 8px' }}>
+            <h2>Connect {created.name}</h2>
           </div>
+          <ConnectAgent keyId={created.id} secret={created.key} />
         </div>
       )}
 

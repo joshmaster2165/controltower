@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
@@ -26,7 +26,7 @@ import { mountDemoHttpApis } from './demo/http-apis.js';
 export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: string | undefined; logger?: boolean | object } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? { level: ctx.config.logLevel },
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 10 * 1024 * 1024,
     trustProxy: true,
     // Fastify defaults to a 30 s keep-alive; long LLM streams need more.

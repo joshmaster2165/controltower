@@ -187,6 +187,12 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   // ---- keys ----
   app.get('/admin/api/keys', { preHandler: guard }, async () => {
+    // Last use comes from what the key actually did: gateway flights and observe reports.
+    const used = new Map<string, number>();
+    const flightRows = await ctx.db.read.selectFrom('flights').select(['key_id', sql<number>`max(ts)`.as('ts')]).where('key_id', 'is not', null).groupBy('key_id').execute();
+    for (const r of flightRows) if (r.key_id) used.set(r.key_id, Number(r.ts));
+    const observedRows = await ctx.db.read.selectFrom('observed_hourly').select(['key_id', sql<number>`max(last_seen)`.as('ts')]).groupBy('key_id').execute();
+    for (const r of observedRows) used.set(r.key_id, Math.max(used.get(r.key_id) ?? 0, Number(r.ts)));
     return {
       keys: [...ctx.registry.keysById.values()]
         .sort((a, b) => b.createdAt - a.createdAt)
@@ -206,7 +212,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           expires_at: k.expiresAt,
           demo: k.demo,
           created_at: k.createdAt,
-          last_used_at: k.lastUsedAt,
+          last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,
         })),
     };
   });

@@ -16,12 +16,15 @@ import { PolicyService } from './policy/policy.js';
 import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
 import { buildApp } from './app.js';
+import { startupBanner } from './banner.js';
+import { isSetupComplete } from './admin/auth.js';
 import type { AppContext } from './context.js';
 import { seedDemo, seedDemoPolicy } from './demo/seed.js';
 import { DemoFleet } from './demo/fleet.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
 import { HttpApiRegistry } from './http/registry.js';
+import { AutoModels } from './models/auto.js';
 import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
 import { seedDemoHttp } from './demo/http-apis.js';
 import { AlertService } from './alerts/alerts.js';
@@ -117,13 +120,18 @@ async function main(): Promise<void> {
   const observedVersion = new Versioned();
   const observed = new ObservedStore(db.write, observedVersion);
 
+  const adapters = new Adapters();
+  const pricing = new PricingTable();
+  const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
+
   const ctx: Omit<AppContext, 'log'> = {
     config,
     db,
     secrets,
     registry,
-    adapters: new Adapters(),
-    pricing: new PricingTable(),
+    adapters,
+    autoModels,
+    pricing,
     limiter: new MemoryLimiter(),
     spend,
     budgets,
@@ -160,6 +168,17 @@ async function main(): Promise<void> {
   await app.listen({ port: config.port, host: config.host });
   const url = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`;
   app.log.info(`Control Tower ${config.version} listening on ${url}  (ui: ${uiDir ?? 'not built'})`);
+  process.stdout.write(
+    startupBanner({
+      version: config.version,
+      url: config.publicUrl ?? url,
+      setupDone: await isSetupComplete(full),
+      dataDir: config.dataDir,
+      masterKey: mk.source === 'env' ? 'CT_MASTER_KEY' : (mk.file ?? `${config.dataDir}/master.key`),
+      demo: config.demo,
+      inContainer: fs.existsSync('/.dockerenv'),
+    }),
+  );
 
   if (config.demo) {
     const keys = await seedDemo(db.write, secrets);

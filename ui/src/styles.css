@@ -660,3 +660,16 @@ li.done .step-label { color: var(--text-faint); text-decoration: line-through; f
 .bi-steps li b { color: var(--text); }
 .bi-steps li::before { content: counter(bi); position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-deep); font-weight: 700; font-size: 11px; }
 .bi-steps li.done::before { content: '✓'; background: #e7f6ef; color: var(--ok); }
+
+/* ---------------------------------------------------------------- connect an agent */
+.connect-agent { display: grid; gap: 10px; }
+.connect-agent .seg { justify-self: start; flex-wrap: wrap; }
+.connect-note { margin: 2px 0 0; font-size: 13px; color: var(--text-dim); max-width: 70ch; }
+.connect-agent .codeblock pre { white-space: pre; word-break: normal; }
+.connect-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); font-size: 13px; color: var(--text-dim); background: #fafbfd; }
+.connect-status i { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 4px rgba(217, 134, 11, 0.15); animation: connectPulse 1.4s ease-in-out infinite; }
+.connect-status.ok { border-style: solid; border-color: rgba(26, 158, 107, 0.45); background: #f1fbf6; color: var(--text); }
+.connect-status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgba(26, 158, 107, 0.15); animation: none; }
+.connect-status .btn { margin-left: auto; }
+@keyframes connectPulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .connect-status i { animation: none; } }

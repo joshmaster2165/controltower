@@ -84,7 +84,7 @@ export const E = {
   modelNotFound: (model: string): GatewayError => ({
     status: 404,
     code: 'model_not_found',
-    message: `The model "${model}" does not exist or has no healthy deployment. Add it in the Control Tower console.`,
+    message: `No connected provider serves the model "${model}". Connect the provider that offers it (Providers in the Control Tower console) and retry — models are added on first use — or pin one with "<provider>/${model}".`,
   }),
   badRequest: (msg: string): GatewayError => ({ status: 400, code: 'invalid_request', message: msg }),
   rateLimited: (which: string, retryAfterMs: number): GatewayError => ({

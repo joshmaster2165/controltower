@@ -354,6 +354,12 @@ export class ApprovalService implements Approvals {
 /** Never the model's summary: the actual (bounded) wire arguments. */
 function previewArgs(flight: Flight): Record<string, unknown> {
   if (flight.kind === 'mcp.tool') return (flight.body.arguments as Record<string, unknown>) ?? {};
+  // HTTP: the request itself — method, path, query and (possibly truncated) body.
+  if (flight.kind === 'http.request') {
+    const a = (flight.body.arguments as Record<string, unknown>) ?? {};
+    const body = a.body === undefined ? '' : typeof a.body === 'string' ? a.body : JSON.stringify(a.body);
+    return body.length > 4000 ? { ...a, body: `${body.slice(0, 4000)}… (${Math.round(body.length / 1024)} KB, truncated)` } : a;
+  }
   const msgs = flight.body.messages as Array<{ role?: string; content?: unknown }> | undefined;
   const last = msgs?.filter((m) => m.role === 'user').pop();
   const text = typeof last?.content === 'string' ? last.content : last?.content != null ? JSON.stringify(last.content) : '';

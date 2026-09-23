@@ -31,17 +31,23 @@ Open <http://localhost:4000>, set your admin password, and you're in. With `CT_D
 Then, in the browser:
 
 1. **Providers** → add OpenAI / Anthropic / Azure / Gemini / Vertex AI / Bedrock / any OpenAI-compatible URL, paste credentials, *Test Connect*.
-2. **Models** → add deployments (pricing is pre-mapped) and group them under an alias like `smart` with fallbacks.
-3. **Playground** → send a message; watch the flight on the Airspace.
-4. **Keys** → create a key per agent, with team/project labels, model allow-lists, rate limits and a budget.
-5. Point any OpenAI SDK at `http://localhost:4000/v1` with that key. Claude Code and the Anthropic SDK can use `http://localhost:4000` with `x-api-key`.
-6. **MCP servers** → register tool servers; point MCP clients at `http://localhost:4000/mcp` with the same key. Tools a key may not use are not listed.
-7. **Airspace** → *Draw zone*, lasso some stations, click a zone label to add a gate: allow, deny, or require approval. Held flights show up in the **Tower**.
+2. **Keys** → create a key per agent. The console shows copy-paste setup for OpenAI SDKs, Claude Code, Anthropic SDKs and MCP clients with the key filled in, and turns green when the agent's first request arrives.
+3. Point the agent at Control Tower — usually just two environment variables, no code changes:
+
+   ```bash
+   export OPENAI_BASE_URL=http://localhost:4000/v1      # OpenAI SDKs
+   export OPENAI_API_KEY=ct_sk_…
+   export ANTHROPIC_BASE_URL=http://localhost:4000      # Claude Code: ANTHROPIC_AUTH_TOKEN=ct_sk_…
+   ```
+
+   Model names stay as they are: the first time an agent asks for a model a connected provider serves (`gpt-4.1-mini`, `claude-sonnet-4-5`, a model on your Ollama…), Control Tower adds it and prices it. Pin a provider with `<provider>/<model>`. **Models** is for extras: renaming, aliases with fallbacks, price overrides.
+4. **MCP servers** → register tool servers; point MCP clients at `http://localhost:4000/mcp` with the same key. Tools a key may not use are not listed.
+5. **Airspace** → *Draw zone*, lasso some stations, click a zone label to add a gate: allow, deny, or require approval. Held flights show up in the **Tower**.
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:4000/v1", api_key="ct_sk_...")
-client.chat.completions.create(model="smart", messages=[{"role": "user", "content": "hello tower"}])
+client.chat.completions.create(model="gpt-4.1-mini", messages=[{"role": "user", "content": "hello tower"}])
 ```
 
 ## Run from source
@@ -185,6 +191,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |
+| `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe |

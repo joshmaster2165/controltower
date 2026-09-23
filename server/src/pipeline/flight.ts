@@ -225,7 +225,9 @@ export class FlightRunner {
       }
 
       // ---- resolve ----
-      const res = ctx.registry.resolveModel(f.modelRequested);
+      let res = ctx.registry.resolveModel(f.modelRequested);
+      // A model a connected provider serves is added on first use: no Models step needed.
+      if (res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
       if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
       const head = res.candidates[0]!;
       const headProv = ctx.registry.providers.get(head.providerId);

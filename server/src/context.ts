@@ -3,6 +3,7 @@ import type { Config } from './config.js';
 import type { Db } from './db/index.js';
 import type { Registry } from './registry.js';
 import type { Adapters } from './providers/index.js';
+import type { AutoModels } from './models/auto.js';
 import type { PricingTable } from './pricing/index.js';
 import type { Limiter, SpendTracker } from './limits/limiter.js';
 import type { Budgets } from './limits/budgets.js';
@@ -27,6 +28,8 @@ export interface AppContext {
   secrets: SecretBox;
   registry: Registry;
   adapters: Adapters;
+  /** Adds deployments on first use for models a connected provider serves. */
+  autoModels: AutoModels;
   pricing: PricingTable;
   limiter: Limiter;
   spend: SpendTracker;

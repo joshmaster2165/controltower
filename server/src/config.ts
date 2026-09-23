@@ -11,6 +11,8 @@ export interface Config {
   dataDir: string;
   databaseUrl: string | undefined;
   demo: boolean;
+  /** Add a deployment the first time a request names a model a connected provider serves. */
+  autoModels: boolean;
   /** `off` disables policy enforcement entirely (kill switch). */
   mode: 'on' | 'off';
   publicUrl: string | undefined;
@@ -45,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir,
     databaseUrl: env.CT_DATABASE_URL || undefined,
     demo: bool(env.CT_DEMO),
+    autoModels: bool(env.CT_AUTO_MODELS, true),
     mode: env.CT_MODE === 'off' ? 'off' : 'on',
     publicUrl: env.CT_PUBLIC_URL || undefined,
     metricsToken: env.CT_METRICS_TOKEN || undefined,

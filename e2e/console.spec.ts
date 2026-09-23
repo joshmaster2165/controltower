@@ -118,6 +118,26 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await field(page, /Name \(agent\)/).fill('e2e-agent');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.locator('.keybox')).toContainText(/ct_sk_[0-9A-Za-z]{32}_[0-9A-Za-z]{6}/);
+  const secret = (await page.locator('.keybox').innerText()).trim();
+
+  // ---- Connect panel: waits for the agent, then confirms it ----
+  await expect(page.locator('.connect-agent')).toContainText(`OPENAI_API_KEY=${secret}`);
+  await expect(page.locator('.connect-status')).toContainText("Waiting for this agent's first request");
+  const chat = (model: string) =>
+    fetch('http://127.0.0.1:4400/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hi' }] }),
+    });
+  // Never added under Models: served because the connected Gemini provider offers it.
+  const auto = await chat('gemini-2.5-pro');
+  expect(auto.status).toBe(200);
+  expect(JSON.stringify(await auto.json())).toContain('Hello from Gemini');
+  // A name nobody serves still fails, and says what to do.
+  const missing = await chat('no-such-model-9000');
+  expect(missing.status).toBe(404);
+  expect((await missing.json()).error.message).toContain('Connect the provider');
+  await expect(page.locator('.connect-status')).toContainText('Connected', { timeout: 15_000 });
 
   // ---- Flights recorded with provider usage ----
   await page.getByRole('link', { name: 'Flights' }).click();

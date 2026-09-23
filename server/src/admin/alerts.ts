@@ -3,7 +3,7 @@ import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { PolicyService } from '../policy/policy.js';
-import { ALERT_TRIGGERS, targetHint, type AlertTrigger, type ChannelKind } from '../alerts/alerts.js';
+import { ALERT_KINDS, KIND_TRIGGERS, targetHint, type AlertKind, type AlertParams, type AlertTrigger, type ChannelKind } from '../alerts/alerts.js';
 
 const bad = (reply: FastifyReply, message: string) => reply.status(400).send({ error: { code: 'invalid', message } });
 const notFound = (reply: FastifyReply, what: string) => reply.status(404).send({ error: { code: 'not_found', message: `${what} not found` } });
@@ -71,14 +71,29 @@ export async function alertRoutes(app: FastifyInstance, ctx: AppContext): Promis
   /** Validates an alert-rule body; returns the column values or an error message. */
   const ruleBody = (b: Record<string, unknown>, partial: boolean): { v: Record<string, unknown> } | { error: string } => {
     const out: Record<string, unknown> = {};
+    const kind = (b.kind ?? (partial ? undefined : 'gate')) as AlertKind | undefined;
+    if (kind !== undefined) {
+      if (!ALERT_KINDS.includes(kind)) return { error: `kind must be ${ALERT_KINDS.join(' | ')}` };
+      out.kind = kind;
+    }
+    if ('params' in b || !partial) {
+      const p = (b.params ?? {}) as AlertParams;
+      const params: AlertParams = {};
+      if (Array.isArray(p.targets)) params.targets = p.targets.filter((x): x is string => typeof x === 'string').slice(0, 200);
+      if (p.slow_ms !== undefined) params.slow_ms = clampInt(p.slow_ms, 100, 3_600_000, 30_000);
+      if (p.warn_pct !== undefined) params.warn_pct = clampInt(p.warn_pct, 1, 99, 80);
+      if (p.hour !== undefined) params.hour = clampInt(p.hour, 0, 23, 8);
+      out.params = JSON.stringify(params);
+    }
     if ('rule_id' in b || !partial) {
       const rid = (b.rule_id as string | null | undefined) ?? null;
       if (rid && !policy.rules.some((r) => r.id === rid)) return { error: 'gate (rule_id) not found' };
       out.rule_id = rid;
     }
     if ('triggers' in b || !partial) {
-      const t = Array.isArray(b.triggers) ? (b.triggers as unknown[]).filter((x): x is AlertTrigger => (ALERT_TRIGGERS as readonly unknown[]).includes(x)) : [];
-      if (!t.length) return { error: `pick at least one trigger: ${ALERT_TRIGGERS.join(' | ')}` };
+      const allowed = KIND_TRIGGERS[kind ?? 'gate'];
+      const t = Array.isArray(b.triggers) ? (b.triggers as unknown[]).filter((x): x is AlertTrigger => (allowed as readonly unknown[]).includes(x)) : [];
+      if (!t.length) return { error: `pick at least one trigger: ${allowed.join(' | ')}` };
       out.triggers = JSON.stringify([...new Set(t)]);
     }
     if ('threshold' in b || !partial) out.threshold = clampInt(b.threshold, 1, 10_000, 1);
@@ -108,6 +123,8 @@ export async function alertRoutes(app: FastifyInstance, ctx: AppContext): Promis
       rules: rows.map((r) => ({
         id: r.id,
         name: r.name,
+        kind: r.kind,
+        params: JSON.parse(r.params || '{}') as AlertParams,
         rule_id: r.rule_id,
         gate_name: r.rule_id ? (policy.rules.find((x) => x.id === r.rule_id)?.name ?? null) : null,
         triggers: JSON.parse(r.triggers) as string[],
@@ -129,12 +146,16 @@ export async function alertRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const v = r.v;
     const id = `alr_${ulid()}`;
     const now = Date.now();
+    if (v.kind !== 'gate') v.rule_id = null;
     const gate = v.rule_id ? policy.rules.find((r) => r.id === v.rule_id) : undefined;
+    const kindName: Record<string, string> = { health: 'Provider outage', errors: 'Failed requests', latency: 'Slow requests', budget: 'Budget', digest: 'Daily summary' };
     await ctx.db.write
       .insertInto('alert_rules')
       .values({
         id,
-        name: (v.name as string | undefined) ?? (gate ? `Alert on “${gate.name}”` : 'Alert on any gate'),
+        name: (v.name as string | undefined) ?? (v.kind !== 'gate' ? (kindName[v.kind as string] ?? 'Alert') : gate ? `Alert on “${gate.name}”` : 'Alert on any gate'),
+        kind: v.kind as string,
+        params: v.params as string,
         rule_id: v.rule_id as string | null,
         triggers: v.triggers as string,
         threshold: v.threshold as number,

@@ -366,3 +366,12 @@ CREATE INDEX alerts_last_at ON alerts(last_at);
 CREATE INDEX alerts_unread ON alerts(read_at, last_at);
 `,
 });
+
+migrations.push({
+  version: 5,
+  name: 'alert_kinds',
+  sqlite: `
+ALTER TABLE alert_rules ADD COLUMN kind TEXT NOT NULL DEFAULT 'gate';
+ALTER TABLE alert_rules ADD COLUMN params TEXT NOT NULL DEFAULT '{}';
+`,
+});

@@ -23,6 +23,8 @@ import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
 import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
 import { AlertService } from './alerts/alerts.js';
+import { Metrics } from './metrics/metrics.js';
+import { NANO_PER_USD } from '@controltower/shared';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -63,6 +65,16 @@ async function main(): Promise<void> {
       const r = policy.rules.find((x) => x.id === id);
       return r ? { name: r.name, effect: r.effect } : undefined;
     },
+    names: (kind, id) => {
+      if (kind === 'key') return registry.keysById.get(id)?.name;
+      if (kind === 'mcp') return mcp.servers.get(id)?.name;
+      const d = registry.deployments.get(id);
+      return d ? (d.publicName ?? d.upstreamModel) : undefined;
+    },
+    budget: (scope) => {
+      const b = spend.get(scope);
+      return b ? { limitNanousd: b.limitNanousd, spentNanousd: b.spent, resetsAt: b.resetsAt, period: b.period } : undefined;
+    },
     log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger),
   });
   await alerts.reload();
@@ -72,6 +84,31 @@ async function main(): Promise<void> {
   const budgets = new Budgets(db.write, spend);
   await budgets.reload();
   budgets.startPersisting();
+
+  const startedAt = Date.now();
+  const metrics = new Metrics({
+    version: config.version,
+    startedAt,
+    modelName: (id) => {
+      const d = id ? registry.deployments.get(id) : undefined;
+      return d ? (d.publicName ?? d.upstreamModel) : undefined;
+    },
+    providerKind: (id) => (id ? registry.providers.get(id)?.kind : undefined),
+    mcpName: (id) => (id ? mcp.servers.get(id)?.slug : undefined),
+    gateName: (id) => policy.rules.find((r) => r.id === id)?.name,
+    heldRequests: () => approvals.heldCount,
+    pendingEvents: () => dbSink.pendingCount,
+    deployments: () =>
+      [...registry.deployments.values()].map((d) => ({ model: d.publicName ?? d.upstreamModel, provider: registry.providers.get(d.providerId)?.kind ?? '', coolingDown: (d.coolingUntil ?? 0) > Date.now() })),
+    mcpServers: () => [...mcp.servers.values()].map((s) => ({ server: s.slug, up: s.health === 'ok' })),
+    budgets: () =>
+      budgets.snapshot().map((b) => {
+        const [type, id] = [b.scope.slice(0, b.scope.indexOf(':')), b.scope.slice(b.scope.indexOf(':') + 1)];
+        const scope = type === 'key' ? `key:${registry.keysById.get(id)?.name ?? id}` : b.scope;
+        return { scope, limitUsd: b.limit_nanousd / NANO_PER_USD, spentUsd: b.spent_nanousd / NANO_PER_USD };
+      }),
+  });
+  bus.subscribe(metrics.push);
 
   const ctx: Omit<AppContext, 'log'> = {
     config,
@@ -92,8 +129,9 @@ async function main(): Promise<void> {
     mcp,
     alerts,
     alertsVersion,
+    metrics,
     demo: undefined,
-    startedAt: Date.now(),
+    startedAt,
     shuttingDown: false,
   };
 

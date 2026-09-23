@@ -34,14 +34,16 @@ async function setup(opts: { respond?: (n: number) => number } = {}): Promise<Se
     fetch: fakeFetch,
     now: () => clock.t,
     retryDelaysMs: [0, 0],
+    names: (kind, id) => ({ dep_a: 'model-a', dep_b: 'model-b', k_team: 'team-bot' })[id],
+    budget: (scope) => budgets.get(scope),
   });
   return { svc, db, clock, sent };
 }
 
-function addRule(db: Setup['db'], id: string, over: Partial<{ rule_id: string | null; triggers: string[]; threshold: number; window_s: number; cooldown_s: number; channels: string[] }> = {}): void {
+function addRule(db: Setup['db'], id: string, over: Partial<{ kind: string; params: Record<string, unknown>; rule_id: string | null; triggers: string[]; threshold: number; window_s: number; cooldown_s: number; channels: string[] }> = {}): void {
   db.raw
-    .prepare(`INSERT INTO alert_rules (id, name, rule_id, triggers, threshold, window_s, cooldown_s, channels, enabled, demo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0)`)
-    .run(id, id, over.rule_id === undefined ? 'rule_demo' : over.rule_id, JSON.stringify(over.triggers ?? ['blocked']), over.threshold ?? 1, over.window_s ?? 300, over.cooldown_s ?? 0, JSON.stringify(over.channels ?? []));
+    .prepare(`INSERT INTO alert_rules (id, name, kind, params, rule_id, triggers, threshold, window_s, cooldown_s, channels, enabled, demo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0)`)
+    .run(id, id, over.kind ?? 'gate', JSON.stringify(over.params ?? {}), over.rule_id === undefined ? 'rule_demo' : over.rule_id, JSON.stringify(over.triggers ?? ['blocked']), over.threshold ?? 1, over.window_s ?? 300, over.cooldown_s ?? 0, JSON.stringify(over.channels ?? []));
 }
 
 function addChannel(s: Setup, id: string, kind: 'slack' | 'webhook', url: string, secret?: string): void {
@@ -49,6 +51,8 @@ function addChannel(s: Setup, id: string, kind: 'slack' | 'webhook', url: string
     .prepare(`INSERT INTO alert_channels (id, name, kind, config_enc, target_hint, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, '', 1, 0, 0)`)
     .run(id, id, kind, s.svc.encryptConfig(id, { url, secret }));
 }
+
+const budgets = new Map<string, { limitNanousd: number; spentNanousd: number; resetsAt: number | undefined; period: string }>();
 
 let seq = 0;
 /** One flight through a gate: started → decision (→ resolved) → completed. */
@@ -207,5 +211,99 @@ describe('gate alerts', () => {
   it('shows channels by host and a short tail only', () => {
     expect(targetHint('https://hooks.slack.com/services/T000/B000/abcdefgh')).toBe('hooks.slack.com/…efgh');
     expect(slackMessage({ title: '<b>&', agents: [], destinations: [], reason: null, alert_rule: { name: 'r' }, gate: null, console_url: null } as never).blocks).toHaveLength(2);
+  });
+});
+
+function upstream(s: Setup, dep: string, outcome: 'ok' | 'error' | 'fallback', status?: number, code?: string): void {
+  s.svc.push({ t: 'flight.upstream', flight_id: `u${++seq}`, ts: s.clock.t, attempt: 1, deployment_id: dep, provider_id: 'prov', upstream_model: dep, outcome, status, error_code: code });
+}
+
+function completed(s: Setup, over: { status?: 'ok' | 'error'; duration_ms?: number; cost?: number; key?: string; team?: string; dep?: string; code?: string } = {}): void {
+  const id = `c${++seq}`;
+  s.svc.push({ t: 'flight.started', flight_id: id, ts: s.clock.t, key_id: over.key ?? 'k_team', key_name: 'team-bot', team: over.team, kind: 'chat', dialect: 'openai-chat', stream: false, model_requested: 'fast', deployment_id: over.dep ?? 'dep_a', est_input_tokens: 1, projected_nanousd: 0 });
+  s.svc.push({ t: 'flight.completed', flight_id: id, ts: s.clock.t, status: over.status ?? 'ok', http_status: 200, usage_source: 'provider', cost_nanousd: over.cost ?? 0, cost_confidence: 'exact', duration_ms: over.duration_ms ?? 100, gateway_overhead_ms: 1, error: over.code ? { code: over.code, message: 'x' } : undefined });
+}
+
+describe('operational alerts', () => {
+  it('detects an outage per deployment from 5xx/timeouts only, then its recovery', async () => {
+    const s = await setup();
+    addRule(s.db, 'health', { kind: 'health', rule_id: null, triggers: ['outage', 'recovered'], threshold: 3, window_s: 60, cooldown_s: 600 });
+    await s.svc.reload();
+    upstream(s, 'dep_a', 'error', 429); // rate limits are not outages
+    upstream(s, 'dep_a', 'error', 400);
+    upstream(s, 'dep_a', 'fallback', 503);
+    upstream(s, 'dep_b', 'error', 500); // a different deployment has its own window
+    upstream(s, 'dep_a', 'error', undefined, 'provider_timeout');
+    await s.svc.settle();
+    expect(fired(s)).toHaveLength(0);
+    upstream(s, 'dep_a', 'error', 502);
+    upstream(s, 'dep_b', 'ok');
+    await s.svc.settle();
+    expect(fired(s).map((a) => a.title)).toEqual(['model-a may be down: 3 upstream failures in 1 min']);
+    upstream(s, 'dep_a', 'ok');
+    upstream(s, 'dep_a', 'ok');
+    await s.svc.settle();
+    expect(fired(s).map((a) => a.title)).toEqual(['model-a may be down: 3 upstream failures in 1 min', 'model-a recovered: requests are succeeding again']);
+  });
+
+  it('counts failed and slow requests', async () => {
+    const s = await setup();
+    addRule(s.db, 'errors', { kind: 'errors', rule_id: null, triggers: ['failed'], threshold: 2 });
+    addRule(s.db, 'slow', { kind: 'latency', rule_id: null, triggers: ['slow'], threshold: 1, params: { slow_ms: 5000 } });
+    await s.svc.reload();
+    completed(s, { status: 'error', code: 'provider_error' });
+    completed(s, { duration_ms: 4000 });
+    completed(s, { status: 'error', code: 'provider_timeout' });
+    completed(s, { duration_ms: 12_500 });
+    await s.svc.settle();
+    expect(fired(s).map((a) => a.title)).toEqual(['2 requests failed in the last 5 min', 'team-bot → fast took 12.5 s']);
+  });
+
+  it('warns once per budget period at the threshold and again when it runs out', async () => {
+    const s = await setup();
+    addRule(s.db, 'budget', { kind: 'budget', rule_id: null, triggers: ['budget_warning', 'budget_exceeded'], params: { warn_pct: 80 } });
+    await s.svc.reload();
+    const b = { limitNanousd: 10e9, spentNanousd: 5e9, resetsAt: Date.UTC(2026, 9, 1), period: 'monthly' };
+    budgets.set('team:growth', b);
+    completed(s, { team: 'growth', cost: 1 });
+    b.spentNanousd = 8.5e9;
+    completed(s, { team: 'growth', cost: 1 });
+    completed(s, { team: 'growth', cost: 1 }); // same period: no repeat
+    b.spentNanousd = 10.2e9;
+    completed(s, { team: 'growth', cost: 1 });
+    b.resetsAt = Date.UTC(2026, 10, 1);
+    b.spentNanousd = 8.1e9;
+    completed(s, { team: 'growth', cost: 1 }); // new period re-arms the warning
+    await s.svc.settle();
+    const a = fired(s);
+    expect(a.map((x) => x.title)).toEqual(['Budget for team growth is nearly used', 'Budget exhausted for team growth', 'Budget for team growth is nearly used']);
+    expect(JSON.parse(a[0]!.detail).lines[0]).toBe('85% used: $8.50 of $10.00 (monthly, resets 2026-10-01)');
+    budgets.clear();
+  });
+
+  it('sends a daily summary once, at its hour, from the flight log', async () => {
+    const s = await setup();
+    s.clock.t = Date.UTC(2026, 8, 22, 8, 5);
+    addRule(s.db, 'digest', { kind: 'digest', rule_id: null, triggers: ['daily'], params: { hour: 8 } });
+    const ins = s.db.raw.prepare(`INSERT INTO flights (id, ts, key_id, key_name, kind, dialect, model_requested, deployment_id, status, cost_nanousd, in_tokens, out_tokens, duration_ms, stream) VALUES (?, ?, 'k', ?, 'chat', 'openai-chat', 'fast', 'dep_a', ?, ?, 10, 20, ?, 0)`);
+    ins.run('f1', s.clock.t - 1000, 'researcher', 'ok', 2e9, 1200);
+    ins.run('f2', s.clock.t - 2000, 'researcher', 'denied', 0, 5);
+    ins.run('f3', s.clock.t - 3000, 'ops-agent', 'error', 0, 30);
+    ins.run('old', s.clock.t - 2 * 86_400_000, 'ops-agent', 'ok', 9e9, 10);
+    await s.svc.reload();
+    await s.svc.runScheduled();
+    await s.svc.runScheduled();
+    await s.svc.settle();
+    const a = fired(s);
+    expect(a).toHaveLength(1);
+    expect(a[0]!.title).toBe('Daily summary: 3 requests · $2.00 · 1 blocked · 1 errors');
+    expect(JSON.parse(a[0]!.detail).lines).toEqual([
+      'Requests: 3 · tokens: 90 · spend: $2.00',
+      'Enforcement: 1 blocked · 0 held for approval · 0 masked or flagged',
+      'Errors: 1 · alerts fired: 0',
+      'Top spend: researcher $2.00',
+      'Most failures: model-a (1)',
+      'Slowest: model-a 1.2 s avg',
+    ]);
   });
 });

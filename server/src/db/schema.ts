@@ -288,6 +288,8 @@ export interface AlertChannelsTable {
 export interface AlertRulesTable {
   id: string;
   name: string;
+  kind: string;
+  params: Json;
   rule_id: string | null;
   triggers: Json;
   threshold: number;

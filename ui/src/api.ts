@@ -268,7 +268,32 @@ export interface Approval {
   demo: boolean;
 }
 
-export type AlertTrigger = 'blocked' | 'held' | 'approved' | 'rejected' | 'unanswered' | 'allowed' | 'scope_mismatch' | 'masked' | 'flagged';
+export type AlertTrigger =
+  | 'blocked'
+  | 'held'
+  | 'approved'
+  | 'rejected'
+  | 'unanswered'
+  | 'allowed'
+  | 'scope_mismatch'
+  | 'masked'
+  | 'flagged'
+  | 'outage'
+  | 'recovered'
+  | 'failed'
+  | 'slow'
+  | 'budget_warning'
+  | 'budget_exceeded'
+  | 'daily';
+
+export type AlertKind = 'gate' | 'health' | 'errors' | 'latency' | 'budget' | 'digest';
+
+export interface AlertParams {
+  targets?: string[] | undefined;
+  slow_ms?: number | undefined;
+  warn_pct?: number | undefined;
+  hour?: number | undefined;
+}
 
 export const ALERT_TRIGGERS: Array<{ id: AlertTrigger; label: string; hint: string }> = [
   { id: 'blocked', label: 'Blocked', hint: 'the gate refused a request' },
@@ -280,6 +305,13 @@ export const ALERT_TRIGGERS: Array<{ id: AlertTrigger; label: string; hint: stri
   { id: 'scope_mismatch', label: 'Approval misused', hint: 'an approval was replayed with different arguments' },
   { id: 'masked', label: 'Masked', hint: 'an inspect gate masked sensitive content' },
   { id: 'flagged', label: 'Flagged', hint: 'an inspect gate found sensitive content and let it through' },
+  { id: 'outage', label: 'Failing upstream', hint: 'timeouts, network errors or 5xx from the provider or MCP server' },
+  { id: 'recovered', label: 'Recovered', hint: 'the first success after an outage alert' },
+  { id: 'failed', label: 'Failed', hint: 'a request failed for the agent, after any fallbacks' },
+  { id: 'slow', label: 'Slow', hint: 'a request took longer than the threshold' },
+  { id: 'budget_warning', label: 'Nearly used', hint: 'spend crossed the warning percentage' },
+  { id: 'budget_exceeded', label: 'Exhausted', hint: 'the budget is used up' },
+  { id: 'daily', label: 'Daily summary', hint: 'once a day' },
 ];
 
 export interface AlertItem {
@@ -289,6 +321,9 @@ export interface AlertItem {
   trigger: AlertTrigger | 'mixed';
   title: string;
   detail: {
+    kind?: AlertKind;
+    subject?: { kind: string; id: string; name: string } | null;
+    lines?: string[];
     gate: { id: string; name: string; effect: string } | null;
     agents: Array<{ name: string; count: number }>;
     destinations: Array<{ name: string; count: number }>;
@@ -308,6 +343,8 @@ export interface AlertItem {
 export interface AlertRule {
   id: string;
   name: string;
+  kind: AlertKind;
+  params: AlertParams;
   rule_id: string | null;
   gate_name: string | null;
   triggers: AlertTrigger[];

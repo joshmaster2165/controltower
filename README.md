@@ -13,7 +13,7 @@
 - **Draw the rules.** Lasso stations into a zone, click a boundary, pick *allow / deny / require approval / allow with limits*. YAML is the *output*, for review and Git.
 - **Stop it.** Approvals hold the agent's request at the gate; a human clicks approve in the **Tower** and the flight continues. Unanswered holds turn into a resumable ticket, never a silent timeout.
 - **Inspect it.** *Inspect gates* scan what passes along a path — prompts, model replies, MCP tool arguments and tool results — for secrets, personal data, prompt injection or your own keywords, and mask it, block it, or flag it.
-- **Hear about it.** Put an alert on any gate — *blocked*, *held for approval*, *approved*, *rejected*, *not answered*, *approval misused* — firing every time or only when it repeats (e.g. 5× in 10 min). Alerts land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary.
+- **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
 > Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL), API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace, zones and gates drawn on the map, human approvals with hold → ticket → grant, the MCP tool gateway, and demo mode. Not yet: embeddings, Flight Recorder replay/simulate, the Ledger page, Slack notifications. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
@@ -81,13 +81,34 @@ Pick **Inspect** when adding a gate. A gate with no agent or destination covers 
 
 ## Alerts
 
-Click a gate on the Airspace and choose **Add alert**, tick *Alert me* when creating a gate, or use the **Alerts** page (which also holds the inbox and the channels).
+Click a gate on the Airspace and choose **Add alert**, tick *Alert me* when creating a gate, or use the **Alerts** page (which also holds the inbox and the channels). An alert rule watches one of:
 
-- **Triggers**: `blocked`, `held`, `approved`, `rejected` (by an approver), `unanswered` (hold or approval expired), `allowed` (allow gates), `scope_mismatch` (an approval redeemed with different arguments — a security event).
+| Kind | Fires on |
+|---|---|
+| Gate | `blocked`, `held`, `approved`, `rejected` (by an approver), `unanswered` (hold or approval expired), `allowed`, `scope_mismatch` (an approval redeemed with different arguments — a security event), `masked` / `flagged` (inspect gates) |
+| Provider outage | `outage`: N upstream timeouts, network errors or 5xx for one model or MCP server within a window (rate limits and 4xx don't count; each deployment has its own window) · `recovered`: the first success after an outage alert |
+| Failed requests | `failed`: requests that still failed after fallbacks, optionally for chosen agents or models |
+| Slow requests | `slow`: requests slower than a threshold (default 30 s) |
+| Budget | `budget_warning` at a percentage (default 80%) and `budget_exceeded`, for every key, team and project budget — once per budget period |
+| Daily summary | `daily`: requests, tokens, spend, blocked / held / masked counts, errors, top spenders, most-failing and slowest models, at a chosen UTC hour; skipped on days without traffic |
+
 - **Condition**: every time, or *N times within M minutes*. After firing, the rule stays quiet for its cooldown and then sends one digest of what happened meanwhile.
 - **Channels**: the console inbox (always, with a nav badge and live toasts), Slack incoming webhooks (also Mattermost / Rocket.Chat), and generic webhooks. Channel URLs and secrets are encrypted at rest and never returned by the API.
-- **Webhook payload**: `POST` JSON `{ "type": "controltower.alert", "title", "trigger", "count", "gate": {id, name, effect}, "agents": [{name, count}], "destinations": [...], "reason", "flights": [ids], "console_url", ... }`. With a signing secret, `x-ct-signature: t=<unix>,v1=<hex>` where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Delivery retries twice on network errors, 408, 429 and 5xx.
+- **Webhook payload**: `POST` JSON `{ "type": "controltower.alert", "kind", "title", "trigger", "count", "subject": {kind, id, name}, "gate": {id, name, effect}, "agents": [{name, count}], "destinations": [...], "reason", "lines": [...], "flights": [ids], "console_url", ... }`. With a signing secret, `x-ct-signature: t=<unix>,v1=<hex>` where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Delivery retries twice on network errors, 408, 429 and 5xx.
 - Alerts carry names and counts only — never prompts, tool arguments or responses. Set `CT_PUBLIC_URL` so links in Slack and webhooks point at your console.
+
+## Metrics
+
+`GET /metrics` serves Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with `Authorization: Bearer <token>` (a signed-in admin can also open it).
+
+```yaml
+scrape_configs:
+  - job_name: controltower
+    authorization: { credentials: <CT_METRICS_TOKEN> }
+    static_configs: [{ targets: ['controltower:4000'] }]
+```
+
+Counters: `controltower_requests_total{agent,team,kind,model,provider,status}`, `controltower_tokens_total{agent,model,type}`, `controltower_spend_usd_total{agent,team,model}`, `controltower_upstream_failures_total{model,code}`, `controltower_fallbacks_total{model}`, `controltower_gate_decisions_total{gate,decision}`, `controltower_approvals_total{outcome}`. Histograms (5 ms … 600 s): `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, plus `controltower_gateway_overhead_seconds`. Gauges: requests in flight, held requests, event backlog, `controltower_deployment_state` (0 healthy, 1 cooling down), `controltower_mcp_server_up`, budget limit / spent / remaining per scope, build info and uptime. Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will.
 
 ## What is actually enforced
 
@@ -104,6 +125,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed a mock provider and run a synthetic agent fleet |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
+| `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |

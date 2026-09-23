@@ -14,6 +14,8 @@ export interface Config {
   /** `off` disables policy enforcement entirely (kill switch). */
   mode: 'on' | 'off';
   publicUrl: string | undefined;
+  /** Bearer token Prometheus uses to scrape /metrics (admins may also scrape with their session). */
+  metricsToken: string | undefined;
   masterKeyEnv: string | undefined;
   shutdownGraceMs: number;
   maxHeld: number;
@@ -45,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     demo: bool(env.CT_DEMO),
     mode: env.CT_MODE === 'off' ? 'off' : 'on',
     publicUrl: env.CT_PUBLIC_URL || undefined,
+    metricsToken: env.CT_METRICS_TOKEN || undefined,
     masterKeyEnv: env.CT_MASTER_KEY || undefined,
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),
     maxHeld: int(env.CT_MAX_HELD, 500),

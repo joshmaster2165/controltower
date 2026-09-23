@@ -182,18 +182,21 @@ export async function seedDemoInspectGates(db: Kysely<Database>): Promise<void> 
   }
 }
 
-/** Demo alert rules on the two tool gates, so the Alerts inbox fills up on its own. */
+/** Demo alert rules: two on tool gates, one on the secrets gate, plus outage, budget and a daily summary. */
 export async function seedDemoAlerts(db: Kysely<Database>): Promise<void> {
   const now = Date.now();
   const rules = [
-    { id: 'alr_demo_sandbox_merge', name: 'Sandbox keeps trying to merge', rule_id: 'rule_demo_sandbox_repo', triggers: ['blocked'], threshold: 3, window_s: 300, cooldown_s: 600 },
-    { id: 'alr_demo_secrets', name: 'Secrets pasted into prompts', rule_id: 'rule_demo_inspect_secrets', triggers: ['blocked'], threshold: 1, window_s: 300, cooldown_s: 600 },
-    { id: 'alr_demo_crm_delete', name: 'CRM deletions waiting for approval', rule_id: 'rule_demo_crm_delete', triggers: ['held', 'unanswered'], threshold: 1, window_s: 300, cooldown_s: 300 },
+    { id: 'alr_demo_sandbox_merge', name: 'Sandbox keeps trying to merge', kind: 'gate', rule_id: 'rule_demo_sandbox_repo', triggers: ['blocked'], threshold: 3, window_s: 300, cooldown_s: 600, params: {} },
+    { id: 'alr_demo_secrets', name: 'Secrets pasted into prompts', kind: 'gate', rule_id: 'rule_demo_inspect_secrets', triggers: ['blocked'], threshold: 1, window_s: 300, cooldown_s: 600, params: {} },
+    { id: 'alr_demo_crm_delete', name: 'CRM deletions waiting for approval', kind: 'gate', rule_id: 'rule_demo_crm_delete', triggers: ['held', 'unanswered'], threshold: 1, window_s: 300, cooldown_s: 300, params: {} },
+    { id: 'alr_demo_outage', name: 'Provider outage', kind: 'health', rule_id: null, triggers: ['outage', 'recovered'], threshold: 3, window_s: 60, cooldown_s: 600, params: {} },
+    { id: 'alr_demo_budget', name: 'Budgets', kind: 'budget', rule_id: null, triggers: ['budget_warning', 'budget_exceeded'], threshold: 1, window_s: 300, cooldown_s: 0, params: { warn_pct: 80 } },
+    { id: 'alr_demo_digest', name: 'Daily summary', kind: 'digest', rule_id: null, triggers: ['daily'], threshold: 1, window_s: 86400, cooldown_s: 0, params: { hour: 8 } },
   ];
   for (const r of rules) {
     await db
       .insertInto('alert_rules')
-      .values({ ...r, triggers: JSON.stringify(r.triggers), channels: '[]', enabled: 1, demo: 1, last_fired_at: null, created_at: now, updated_at: now })
+      .values({ ...r, triggers: JSON.stringify(r.triggers), params: JSON.stringify(r.params), channels: '[]', enabled: 1, demo: 1, last_fired_at: null, created_at: now, updated_at: now })
       .onConflict((oc) => oc.column('id').doNothing())
       .execute();
   }

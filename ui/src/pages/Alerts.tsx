@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError, ALERT_TRIGGERS, type AlertChannel, type AlertItem, type AlertRule, type AlertTrigger, type Rule } from '../api';
+import { api, ApiError, ALERT_TRIGGERS, type AlertChannel, type AlertItem, type AlertKind, type AlertParams, type AlertRule, type AlertTrigger, type Rule } from '../api';
 import { useStore } from '../store';
 
 export function timeAgo(ts: number, now = Date.now()): string {
@@ -20,7 +20,9 @@ function dur(s: number): string {
 const TRIGGER_LABEL = Object.fromEntries(ALERT_TRIGGERS.map((t) => [t.id, t.label])) as Record<AlertTrigger, string>;
 
 export function triggerTone(t: string): 'danger' | 'warn' | 'ok' {
-  return t === 'blocked' || t === 'rejected' || t === 'scope_mismatch' || t === 'mixed' ? 'danger' : t === 'held' || t === 'unanswered' || t === 'masked' || t === 'flagged' ? 'warn' : 'ok';
+  if (['blocked', 'rejected', 'scope_mismatch', 'mixed', 'outage', 'failed', 'budget_exceeded'].includes(t)) return 'danger';
+  if (['held', 'unanswered', 'masked', 'flagged', 'slow', 'budget_warning'].includes(t)) return 'warn';
+  return 'ok';
 }
 
 /** What a gate most likely wants to hear about. */
@@ -34,6 +36,23 @@ export function defaultTriggers(effect: Rule['effect'] | undefined): AlertTrigge
 
 export function conditionText(r: Pick<AlertRule, 'threshold' | 'window_s'>): string {
   return r.threshold <= 1 ? 'every time' : `${r.threshold}× within ${dur(r.window_s)}`;
+}
+
+function ruleScope(r: AlertRule): string {
+  const n = r.params?.targets?.length ?? 0;
+  switch (r.kind ?? 'gate') {
+    case 'gate':
+      return r.rule_id ? (r.gate_name ?? 'deleted gate') : 'Any gate';
+    case 'health':
+      return n ? `${n} model${n === 1 ? '' : 's'} or server${n === 1 ? '' : 's'}` : 'All models and tool servers';
+    case 'errors':
+    case 'latency':
+      return `${n ? `${n} selected` : 'All agents'}${r.kind === 'latency' ? `, over ${Math.round((r.params?.slow_ms ?? 30_000) / 1000)} s` : ''}`;
+    case 'budget':
+      return `All budgets, warn at ${r.params?.warn_pct ?? 80}%`;
+    case 'digest':
+      return `Daily at ${String(r.params?.hour ?? 8).padStart(2, '0')}:00 UTC`;
+  }
 }
 
 export function notifyText(r: Pick<AlertRule, 'channels'>, channels: AlertChannel[]): string {
@@ -52,6 +71,37 @@ export function BellIcon({ size = 14 }: { size?: number }) {
 
 // ------------------------------------------------------------ rule form
 
+export const ALERT_KINDS: Array<{ id: AlertKind; label: string; hint: string }> = [
+  { id: 'gate', label: 'A gate', hint: 'requests blocked, held, masked or flagged at a gate' },
+  { id: 'health', label: 'Provider outage', hint: 'a model or MCP server keeps failing upstream (timeouts, 5xx)' },
+  { id: 'errors', label: 'Failed requests', hint: 'agents are getting errors, after any fallbacks' },
+  { id: 'latency', label: 'Slow requests', hint: 'requests take longer than a limit' },
+  { id: 'budget', label: 'Budget', hint: 'a key, team or project budget is nearly or fully used' },
+  { id: 'digest', label: 'Daily summary', hint: 'traffic, spend, enforcement and failures, once a day' },
+];
+
+const KIND_DEFAULTS: Record<AlertKind, { triggers: AlertTrigger[]; threshold: number; windowMin: number; cooldown: number }> = {
+  gate: { triggers: ['blocked', 'held'], threshold: 1, windowMin: 5, cooldown: 300 },
+  health: { triggers: ['outage', 'recovered'], threshold: 5, windowMin: 1, cooldown: 900 },
+  errors: { triggers: ['failed'], threshold: 5, windowMin: 5, cooldown: 900 },
+  latency: { triggers: ['slow'], threshold: 3, windowMin: 10, cooldown: 900 },
+  budget: { triggers: ['budget_warning', 'budget_exceeded'], threshold: 1, windowMin: 5, cooldown: 0 },
+  digest: { triggers: ['daily'], threshold: 1, windowMin: 1440, cooldown: 0 },
+};
+
+const KIND_TRIGGERS: Record<AlertKind, AlertTrigger[]> = {
+  gate: ['blocked', 'held', 'approved', 'rejected', 'unanswered', 'allowed', 'scope_mismatch', 'masked', 'flagged'],
+  health: ['outage', 'recovered'],
+  errors: ['failed'],
+  latency: ['slow'],
+  budget: ['budget_warning', 'budget_exceeded'],
+  digest: ['daily'],
+};
+
+export function kindLabel(k: AlertKind | undefined): string {
+  return ALERT_KINDS.find((x) => x.id === (k ?? 'gate'))?.label ?? 'Alert';
+}
+
 interface RuleFormProps {
   /** Fixes the gate (used from the map). Omit to let the user choose. */
   gate?: Rule | undefined;
@@ -64,6 +114,8 @@ interface RuleFormProps {
 }
 
 export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone, onCancel }: RuleFormProps) {
+  const topology = useStore((s) => s.topology);
+  const [kind, setKind] = useState<AlertKind>(gate ? 'gate' : (existing?.kind ?? 'gate'));
   const [gateId, setGateId] = useState<string>(existing ? (existing.rule_id ?? '') : (gate?.id ?? ''));
   const chosen = gate ?? gates.find((g) => g.id === gateId);
   const [triggers, setTriggers] = useState<AlertTrigger[]>(existing?.triggers ?? defaultTriggers(chosen?.effect));
@@ -71,12 +123,30 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
   const [threshold, setThreshold] = useState(String(existing && existing.threshold > 1 ? existing.threshold : 5));
   const [windowMin, setWindowMin] = useState(String(Math.max(1, Math.round((existing?.window_s ?? 300) / 60))));
   const [cooldown, setCooldown] = useState(String(existing?.cooldown_s ?? 300));
+  const [targets, setTargets] = useState<string[]>(existing?.params?.targets ?? []);
+  const [slowS, setSlowS] = useState(String(Math.round((existing?.params?.slow_ms ?? 30_000) / 1000)));
+  const [warnPct, setWarnPct] = useState(String(existing?.params?.warn_pct ?? 80));
+  const [hour, setHour] = useState(String(existing?.params?.hour ?? 8));
   const [picked, setPicked] = useState<string[]>(existing?.channels ?? channels.filter((c) => c.enabled).map((c) => c.id));
   const [name, setName] = useState(existing?.name ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const toggle = <T,>(xs: T[], x: T): T[] => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x]);
+
+  const switchKind = (k: AlertKind) => {
+    setKind(k);
+    const d = KIND_DEFAULTS[k];
+    setTriggers(k === 'gate' ? defaultTriggers(chosen?.effect) : d.triggers);
+    setThreshold(String(d.threshold > 1 ? d.threshold : 5));
+    setMode(d.threshold > 1 ? 'burst' : 'every');
+    setWindowMin(String(d.windowMin));
+    setCooldown(String(d.cooldown));
+    setTargets([]);
+  };
+
+  const windowed = kind === 'gate' || kind === 'health' || kind === 'errors' || kind === 'latency';
+  const alwaysBurst = kind === 'health' || kind === 'errors' || kind === 'latency';
 
   const save = async () => {
     if (!triggers.length) {
@@ -85,14 +155,22 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
     }
     setBusy(true);
     setErr(null);
+    const params: AlertParams = {};
+    if (targets.length) params.targets = targets;
+    if (kind === 'latency') params.slow_ms = Math.max(1, Number(slowS) || 30) * 1000;
+    if (kind === 'budget') params.warn_pct = Math.min(99, Math.max(1, Number(warnPct) || 80));
+    if (kind === 'digest') params.hour = Number(hour);
+    const burst = alwaysBurst || (kind === 'gate' && mode === 'burst');
     const body = {
       ...(name.trim() ? { name: name.trim() } : {}),
-      rule_id: (gate?.id ?? gateId) || null,
+      kind,
+      rule_id: kind === 'gate' ? (gate?.id ?? gateId) || null : null,
       triggers,
-      threshold: mode === 'every' ? 1 : Math.max(2, Number(threshold) || 2),
-      window_s: Math.max(1, Number(windowMin) || 5) * 60,
-      cooldown_s: Number(cooldown),
+      threshold: windowed && burst ? Math.max(1, Number(threshold) || 1) : 1,
+      window_s: kind === 'digest' ? 86_400 : Math.max(1, Number(windowMin) || 5) * 60,
+      cooldown_s: windowed ? Number(cooldown) : 0,
       channels: picked,
+      params,
     };
     try {
       if (existing) await api.patch(`/admin/api/alert-rules/${existing.id}`, body);
@@ -106,15 +184,38 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
     }
   };
 
-  const shown = chosen?.effect === 'deny' ? ALERT_TRIGGERS.filter((t) => ['blocked', 'scope_mismatch'].includes(t.id))
-    : chosen?.effect === 'require_approval' ? ALERT_TRIGGERS.filter((t) => ['held', 'approved', 'rejected', 'unanswered', 'scope_mismatch'].includes(t.id))
-    : chosen?.effect === 'allow' ? ALERT_TRIGGERS.filter((t) => t.id === 'allowed')
-    : chosen?.effect === 'inspect' ? ALERT_TRIGGERS.filter((t) => ['blocked', 'masked', 'flagged'].includes(t.id))
-    : ALERT_TRIGGERS;
+  const gateTriggers =
+    chosen?.effect === 'deny' ? ['blocked', 'scope_mismatch']
+    : chosen?.effect === 'require_approval' ? ['held', 'approved', 'rejected', 'unanswered', 'scope_mismatch']
+    : chosen?.effect === 'allow' ? ['allowed']
+    : chosen?.effect === 'inspect' ? ['blocked', 'masked', 'flagged']
+    : KIND_TRIGGERS.gate;
+  const shown = ALERT_TRIGGERS.filter((t) => (kind === 'gate' ? gateTriggers : KIND_TRIGGERS[kind]).includes(t.id));
+
+  // What a health / errors / latency rule can be narrowed to.
+  const targetOptions: Array<{ id: string; label: string }> =
+    kind === 'health'
+      ? [...(topology?.deployments ?? []).map((d) => ({ id: d.id, label: d.public_name ?? d.upstream_model })), ...(topology?.mcp_servers ?? []).map((m) => ({ id: m.id, label: m.name }))]
+      : kind === 'errors' || kind === 'latency'
+        ? [...(topology?.keys ?? []).map((k) => ({ id: k.id, label: k.name })), ...(topology?.deployments ?? []).map((d) => ({ id: d.id, label: d.public_name ?? d.upstream_model }))]
+        : [];
 
   return (
     <div className={`alert-form ${compact ? 'compact' : ''}`}>
       {!gate && (
+        <div className="field">
+          <label>What to watch</label>
+          <select className="input" value={kind} onChange={(e) => switchKind(e.target.value as AlertKind)}>
+            {ALERT_KINDS.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+          <div className="hint">{ALERT_KINDS.find((k) => k.id === kind)!.hint}</div>
+        </div>
+      )}
+      {kind === 'gate' && !gate && (
         <div className="field">
           <label>Gate</label>
           <select
@@ -134,47 +235,103 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
           </select>
         </div>
       )}
-      <div className="field">
-        <label>Alert when</label>
-        <div className="chips">
-          {shown.map((t) => (
-            <button key={t.id} type="button" title={t.hint} className={`chip ${triggerTone(t.id)} ${triggers.includes(t.id) ? 'on' : ''}`} onClick={() => setTriggers(toggle(triggers, t.id))}>
-              {t.label}
+      {targetOptions.length > 0 && (
+        <div className="field">
+          <label>{kind === 'health' ? 'Models and tool servers' : 'Agents and models'}</label>
+          <div className="chips">
+            <button type="button" className={`chip ok ${targets.length === 0 ? 'on' : ''}`} onClick={() => setTargets([])}>
+              All
             </button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>How often</label>
-        <div className="seg">
-          <button type="button" className={mode === 'every' ? 'on' : ''} onClick={() => setMode('every')}>
-            Every time
-          </button>
-          <button type="button" className={mode === 'burst' ? 'on' : ''} onClick={() => setMode('burst')}>
-            When it repeats
-          </button>
-        </div>
-        {mode === 'burst' && (
-          <div className="inline-fields">
-            <input className="input" type="number" min={2} value={threshold} onChange={(e) => setThreshold(e.target.value)} aria-label="Times" />
-            <span>times within</span>
-            <input className="input" type="number" min={1} value={windowMin} onChange={(e) => setWindowMin(e.target.value)} aria-label="Minutes" />
-            <span>min</span>
+            {targetOptions.map((t) => (
+              <button key={t.id} type="button" className={`chip ok ${targets.includes(t.id) ? 'on' : ''}`} onClick={() => setTargets(toggle(targets, t.id))}>
+                {t.label}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
-      <div className="field">
-        <label>After an alert, stay quiet for</label>
-        <select className="input" value={cooldown} onChange={(e) => setCooldown(e.target.value)}>
-          <option value="0">No pause (alert on every match)</option>
-          <option value="60">1 minute</option>
-          <option value="300">5 minutes</option>
-          <option value="900">15 minutes</option>
-          <option value="3600">1 hour</option>
-          <option value="86400">1 day</option>
-        </select>
-        {cooldown !== '0' && <div className="hint">Anything that happens meanwhile is sent as one summary when the pause ends.</div>}
-      </div>
+        </div>
+      )}
+      {kind === 'latency' && (
+        <div className="field">
+          <label>Slower than</label>
+          <div className="inline-fields" style={{ marginTop: 0 }}>
+            <input className="input" type="number" min={1} value={slowS} onChange={(e) => setSlowS(e.target.value)} aria-label="Seconds" />
+            <span>seconds, end to end</span>
+          </div>
+        </div>
+      )}
+      {kind === 'budget' && (
+        <div className="field">
+          <label>Warn at</label>
+          <div className="inline-fields" style={{ marginTop: 0 }}>
+            <input className="input" type="number" min={1} max={99} value={warnPct} onChange={(e) => setWarnPct(e.target.value)} aria-label="Percent" />
+            <span>% of the limit</span>
+          </div>
+          <div className="hint">Covers every key, team and project that has a budget. Each alert is sent once per budget period.</div>
+        </div>
+      )}
+      {kind === 'digest' && (
+        <div className="field">
+          <label>Send at</label>
+          <select className="input" value={hour} onChange={(e) => setHour(e.target.value)}>
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, '0')}:00 UTC
+              </option>
+            ))}
+          </select>
+          <div className="hint">Covers the previous 24 hours. Skipped on days with no traffic.</div>
+        </div>
+      )}
+      {shown.length > 1 && (
+        <div className="field">
+          <label>Alert when</label>
+          <div className="chips">
+            {shown.map((t) => (
+              <button key={t.id} type="button" title={t.hint} className={`chip ${triggerTone(t.id)} ${triggers.includes(t.id) ? 'on' : ''}`} onClick={() => setTriggers(toggle(triggers, t.id))}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {windowed && (
+        <div className="field">
+          <label>{kind === 'health' ? 'Failures needed' : kind === 'errors' ? 'Failures needed' : kind === 'latency' ? 'Slow requests needed' : 'How often'}</label>
+          {kind === 'gate' && (
+            <div className="seg">
+              <button type="button" className={mode === 'every' ? 'on' : ''} onClick={() => setMode('every')}>
+                Every time
+              </button>
+              <button type="button" className={mode === 'burst' ? 'on' : ''} onClick={() => setMode('burst')}>
+                When it repeats
+              </button>
+            </div>
+          )}
+          {(alwaysBurst || mode === 'burst') && (
+            <div className="inline-fields" style={alwaysBurst ? { marginTop: 0 } : undefined}>
+              <input className="input" type="number" min={1} value={threshold} onChange={(e) => setThreshold(e.target.value)} aria-label="Times" />
+              <span>{kind === 'health' ? `failure${threshold === '1' ? '' : 's'} per model within` : 'times within'}</span>
+              <input className="input" type="number" min={1} value={windowMin} onChange={(e) => setWindowMin(e.target.value)} aria-label="Minutes" />
+              <span>min</span>
+            </div>
+          )}
+          {kind === 'health' && <div className="hint">Counts timeouts, network errors and 5xx answers — not rate limits or bad requests.</div>}
+        </div>
+      )}
+      {windowed && (
+        <div className="field">
+          <label>After an alert, stay quiet for</label>
+          <select className="input" value={cooldown} onChange={(e) => setCooldown(e.target.value)}>
+            <option value="0">No pause (alert on every match)</option>
+            <option value="60">1 minute</option>
+            <option value="300">5 minutes</option>
+            <option value="900">15 minutes</option>
+            <option value="3600">1 hour</option>
+            <option value="86400">1 day</option>
+          </select>
+          {cooldown !== '0' && <div className="hint">Anything that happens meanwhile is sent as one summary when the pause ends.</div>}
+        </div>
+      )}
       <div className="field">
         <label>Notify</label>
         <label className="check disabled">
@@ -195,7 +352,7 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
       {!compact && (
         <div className="field">
           <label>Name (optional)</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen ? `Alert on “${chosen.name}”` : 'Alert on any gate'} />
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind !== 'gate' ? kindLabel(kind) : chosen ? `Alert on “${chosen.name}”` : 'Alert on any gate'} />
         </div>
       )}
       {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
@@ -231,6 +388,13 @@ function AlertRow({ a, fresh }: { a: AlertItem; fresh: boolean }) {
           {d.reason && <span className="reason">“{d.reason}”</span>}
           {a.demo && <span>demo</span>}
         </div>
+        {d.lines && d.lines.length > 0 && (
+          <div className="alert-lines">
+            {d.lines.map((l, i) => (
+              <div key={i}>{l}</div>
+            ))}
+          </div>
+        )}
         {a.deliveries.length > 0 && (
           <div className="deliveries">
             {a.deliveries.map((x) => (
@@ -420,7 +584,7 @@ export function AlertsPage() {
   return (
     <div className="page alerts-page">
       <h1>Alerts</h1>
-      <p className="sub">Get told when a gate does its job — or when agents keep hitting it. Alerts are set per gate (here, or by clicking a gate on the Airspace), always land in this inbox, and can also go to Slack or any webhook. They carry names and counts, never request contents.</p>
+      <p className="sub">Get told when a gate does its job, when a provider goes down, when agents start failing or slowing down, or when a budget runs low — plus a daily summary. Gate alerts can also be set by clicking a gate on the Airspace. Alerts always land in this inbox, can also go to Slack or any webhook, and carry names and counts, never request contents.</p>
       <div className="alerts-grid">
         <section>
           <div className="section-h">
@@ -470,7 +634,9 @@ export function AlertsPage() {
                   {r.fired_24h > 0 && <span className="dim">{r.fired_24h} in 24h</span>}
                 </div>
                 <div className="dim">
-                  {r.rule_id ? (r.gate_name ?? 'deleted gate') : 'Any gate'} · {r.triggers.map((t) => TRIGGER_LABEL[t] ?? t).join(', ')} · {conditionText(r)}
+                  <span className="tag" style={{ marginRight: 6 }}>{kindLabel(r.kind)}</span>
+                  {ruleScope(r)} · {r.triggers.map((t) => TRIGGER_LABEL[t] ?? t).join(', ')}
+                  {r.kind === 'gate' || r.kind === 'health' || r.kind === 'errors' || r.kind === 'latency' ? ` · ${conditionText(r)}` : ''}
                   {r.cooldown_s ? ` · quiet ${dur(r.cooldown_s)}` : ''}
                 </div>
                 <div className="dim">
@@ -544,7 +710,7 @@ export function AlertToasts() {
           <div className="body">
             <div className="title">{t.title}</div>
             <div className="meta">
-              {t.detail.gate ? `Gate: ${t.detail.gate.name}` : 'Alert'}
+              {t.detail.gate ? `Gate: ${t.detail.gate.name}` : kindLabel(t.detail.kind)}
               {t.count > 1 ? ` · ${t.count} events` : ''}
               {t.repeats ? ` · ${t.repeats + 1} alerts` : ''}
             </div>

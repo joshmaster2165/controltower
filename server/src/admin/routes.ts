@@ -256,9 +256,19 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (Array.isArray(b.tags)) patch.tags = JSON.stringify(b.tags);
     if (b.limits && typeof b.limits === 'object') patch.limits = JSON.stringify(b.limits);
     if ('expires_at' in b) patch.expires_at = (b.expires_at as number | null) ?? null;
-    if (Object.keys(patch).length === 0) return reply.status(400).send({ error: { code: 'invalid', message: 'nothing to update' } });
-    const res = await ctx.db.write.updateTable('api_keys').set(patch).where('id', '=', id).executeTakeFirst();
-    if (Number(res.numUpdatedRows) === 0) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    const budget = b.budget as { limit_usd?: number; period?: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null | undefined;
+    if (budget !== undefined && budget !== null && !(typeof budget.limit_usd === 'number' && budget.limit_usd > 0 && ['daily', 'weekly', 'monthly', 'total'].includes(budget.period ?? ''))) {
+      return reply.status(400).send({ error: { code: 'invalid', message: 'budget needs limit_usd > 0 and period daily | weekly | monthly | total' } });
+    }
+    if (Object.keys(patch).length === 0 && budget === undefined) return reply.status(400).send({ error: { code: 'invalid', message: 'nothing to update' } });
+    if (!ctx.registry.keysById.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    if (Object.keys(patch).length) await ctx.db.write.updateTable('api_keys').set(patch).where('id', '=', id).execute();
+    if (budget === null) {
+      await ctx.db.write.deleteFrom('budgets').where('scope_type', '=', 'key').where('scope_id', '=', id).execute();
+      await ctx.budgets.reload();
+    } else if (budget) {
+      await ctx.budgets.upsert('key', id, budget.limit_usd!, budget.period!, budget.hard ?? true);
+    }
     await ctx.registry.reload();
     return { ok: true };
   });

@@ -6,7 +6,8 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import type { AppContext } from './context.js';
 import { gatewayRoutes } from './gateway/routes.js';
-import { authRoutes } from './admin/auth.js';
+import { authRoutes, loadSession } from './admin/auth.js';
+import { timingSafeEqual } from 'node:crypto';
 import { adminRoutes } from './admin/routes.js';
 import { wsRoutes } from './admin/ws.js';
 import { providerRoutes } from './admin/providers.js';
@@ -34,6 +35,22 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   await app.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024 } });
 
   app.get('/healthz', async () => ({ ok: true }));
+
+  // Prometheus scrape endpoint. Metrics name agents and show spend, so it is
+  // never anonymous: a CT_METRICS_TOKEN bearer token, or an admin session.
+  app.get('/metrics', async (req, reply) => {
+    const token = full.config.metricsToken;
+    const auth = req.headers.authorization ?? '';
+    const presented = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+    const tokenOk = !!token && presented.length === token.length && timingSafeEqual(Buffer.from(presented), Buffer.from(token));
+    if (!tokenOk && !(await loadSession(full, req))) {
+      return reply
+        .status(401)
+        .header('www-authenticate', 'Bearer')
+        .send(token ? 'Unauthorized: send Authorization: Bearer <CT_METRICS_TOKEN>.\n' : 'Unauthorized: set CT_METRICS_TOKEN and scrape with Authorization: Bearer <token>, or sign in to the console.\n');
+    }
+    return reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8').header('cache-control', 'no-store').send(full.metrics.render());
+  });
   app.get('/readyz', async (_req, reply) => {
     const ready = !full.shuttingDown && !full.dbSink.backpressure;
     return reply.status(ready ? 200 : 503).send({

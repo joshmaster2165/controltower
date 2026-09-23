@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Control Tower — see and steer every AI agent</title>
+<meta name="description" content="Open-source, self-hosted AI gateway for LLM and MCP traffic. Map every agentic data flow, gate risky calls, hold them for a human, and track what each agent costs." />
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #f4f6fa;
+  --paper: #ffffff;
+  --ink: #0f1b2d;
+  --dim: #5b6b82;
+  --faint: #8a98ad;
+  --line: #e3e8f0;
+  --line-2: #d3dbe7;
+  --accent: #1f5eff;
+  --accent-2: #4b7dff;
+  --deep: #0b3d91;
+  --soft: #e8efff;
+  --ok: #1a9e6b;
+  --warn: #d9860b;
+  --danger: #d3374e;
+  --night: #0a1222;
+  --frame: 1200px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+code, .mono { font-family: var(--mono); }
+img { display: block; }
+
+/* ------------------------------------------------------------ motion */
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes rowIn { from { opacity: 0; transform: translateY(8px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes marquee { to { transform: translateX(-50%); } }
+@keyframes fill { from { width: 0; } to { width: 100%; } }
+@keyframes drift { to { background-position: 1200px 0; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes pop { 0% { transform: scale(1); } 30% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes ring { from { r: 5; opacity: 0.7; } to { r: 17; opacity: 0; } }
+@keyframes burst { from { r: 4; opacity: 0.9; } to { r: 18; opacity: 0; } }
+@keyframes countdown { from { width: 100%; } to { width: 0; } }
+@keyframes grow { from { width: 0; } }
+
+.rise { animation: rise 0.7s var(--ease) both; animation-delay: var(--d, 0ms); }
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
+.pane.on .r { animation: rowIn 0.55s var(--ease) both; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------ frame */
+.frame { max-width: var(--frame); margin: 0 auto; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); position: relative; }
+.pad { padding-left: 56px; padding-right: 56px; }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.accent { color: var(--accent); }
+
+/* ------------------------------------------------------------ top bar + nav */
+.topbar { background: var(--night); color: #cfd8ea; font: 400 12.5px/1 var(--mono); text-align: center; padding: 11px 16px; }
+.topbar a { color: #fff; }
+.topbar a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.nav { position: sticky; top: 0; z-index: 50; background: rgba(255, 255, 255, 0.78); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); border-bottom: 1px solid var(--line); }
+.nav .frame { display: flex; align-items: center; gap: 28px; height: 64px; border: 0; padding: 0 24px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; }
+.brand img { width: 26px; height: 26px; }
+.tag { font: 500 10.5px/1 var(--mono); letter-spacing: 0.06em; color: var(--accent); background: var(--soft); border: 1px solid #c9d8ff; border-radius: 6px; padding: 5px 7px; text-transform: uppercase; }
+.nav-links { display: flex; gap: 22px; font-size: 14px; color: #33435a; }
+.nav-links a:hover { color: var(--ink); }
+.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 10px; font: 500 14.5px/1 var(--sans); cursor: pointer; border: 1px solid transparent; transition: transform 0.2s var(--ease), box-shadow 0.2s; white-space: nowrap; }
+.btn:hover { transform: translateY(-1px); }
+.btn.primary { color: #fff; background: linear-gradient(#3a72ff, #1f5eff); border-color: #1a4fd8; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 6px 18px rgba(31, 94, 255, 0.28); }
+.btn.primary:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 10px 26px rgba(31, 94, 255, 0.36); }
+.btn.alt { color: var(--ink); background: linear-gradient(#fff, #f6f8fb); border-color: var(--line-2); box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06); }
+.btn.alt:hover { box-shadow: 0 6px 16px rgba(15, 27, 45, 0.1); }
+.btn.ghost { color: #33435a; }
+.btn svg { width: 16px; height: 16px; }
+.burger { display: none; }
+
+/* ------------------------------------------------------------ hero */
+.hero { position: relative; overflow: hidden; }
+.hero-bars { position: absolute; inset: -40px -10% 0; background:
+  repeating-linear-gradient(90deg,
+    rgba(31, 94, 255, 0.0) 0 40px, rgba(31, 94, 255, 0.55) 40px 64px, rgba(120, 170, 255, 0.35) 64px 92px,
+    rgba(255, 255, 255, 0) 92px 150px, rgba(76, 56, 230, 0.45) 150px 168px, rgba(130, 205, 255, 0.5) 168px 206px,
+    rgba(255, 255, 255, 0) 206px 260px, rgba(31, 94, 255, 0.35) 260px 276px, rgba(255, 255, 255, 0) 276px 330px);
+  filter: blur(22px); opacity: 0.75; animation: drift 90s linear infinite;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%); mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%); }
+.hero .frame { background: rgba(255, 255, 255, 0.58); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-color: rgba(201, 211, 224, 0.9); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 40px; align-items: center; padding-top: 88px; padding-bottom: 72px; }
+.hero h1 { font-size: 62px; line-height: 1.04; font-weight: 450; letter-spacing: -0.035em; margin: 18px 0 22px; }
+.hero h1 .accent { display: block; }
+.hero .lede { font-size: 17px; line-height: 1.6; color: #33435a; max-width: 30em; margin: 0 0 30px; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; }
+.note { font: 400 12.5px/1.4 var(--mono); color: var(--faint); margin-top: 18px; }
+
+/* hero diagram */
+.flow { position: relative; }
+.flow-inner { position: relative; width: 580px; transform-origin: top left; }
+.flow-cols { position: relative; z-index: 1; display: grid; grid-template-columns: 112px 1fr 150px; column-gap: 58px; align-items: center; }
+.cap { font: 500 9.5px/1 var(--mono); letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; margin-bottom: 10px; }
+.src { display: grid; gap: 16px; }
+.node { background: rgba(255, 255, 255, 0.92); border: 1.5px solid #cbd7f3; border-radius: 12px; padding: 10px 8px 9px; display: grid; justify-items: center; gap: 6px; font-size: 11.5px; color: #33435a; box-shadow: 0 4px 14px rgba(31, 94, 255, 0.08); transition: border-color 0.3s, box-shadow 0.3s; }
+.node.hot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1), 0 6px 18px rgba(31, 94, 255, 0.14); }
+.glyph { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(165deg, #1f5eff 25%, #9fbaff 125%); box-shadow: 0 3px 8px rgba(31, 94, 255, 0.3); }
+.glyph svg { width: 17px; height: 17px; }
+.mid { display: grid; gap: 14px; }
+.tower { background: linear-gradient(185deg, #f1f4f9 35%, #fff 105%); border: 1.5px solid #cbd7f3; border-radius: 16px; padding: 14px 14px 12px; box-shadow: 0 10px 30px rgba(15, 27, 45, 0.08); text-align: center; }
+.tower-head { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-weight: 600; font-size: 13px; box-shadow: 0 2px 8px rgba(15, 27, 45, 0.07); }
+.tower-head img { width: 18px; height: 18px; }
+.tower .cap { margin: 9px 0 10px; color: var(--faint); }
+.pill { display: flex; align-items: center; justify-content: center; gap: 6px; height: 27px; margin-top: 6px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: 11.5px; color: #33435a; transition: background 0.25s, border-color 0.25s, color 0.25s; }
+.pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: background 0.25s; }
+.pill.hit { border-color: #a9c1ff; background: var(--soft); color: var(--deep); }
+.pill.hit i { background: var(--accent); }
+.pill.hit-warn { border-color: #f2c77e; background: #fff7e8; color: #8a5300; }
+.pill.hit-warn i { background: var(--warn); }
+.pill.hit-deny { border-color: #f1a9b4; background: #fff1f3; color: #9b1c30; }
+.pill.hit-deny i { background: var(--danger); }
+.outside { border: 1.5px dashed #b6c2d3; border-radius: 12px; padding: 9px 10px; background: rgba(255, 255, 255, 0.55); }
+.outside { transition: border-color 0.3s; }
+.outside.hot { border-color: var(--danger); }
+.outside .cap { color: var(--faint); margin-bottom: 7px; font-size: 8.5px; }
+.obs { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: 400 10.5px/1 var(--mono); color: var(--dim); }
+.obs b { font: 500 9px/1 var(--mono); color: var(--danger); border: 1px dashed rgba(211, 55, 78, 0.55); border-radius: 5px; padding: 3px 5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.dst { display: grid; gap: 12px; }
+.grp { background: rgba(255, 255, 255, 0.92); border: 1.5px solid #cbd7f3; border-radius: 12px; padding: 9px 9px 10px; box-shadow: 0 4px 14px rgba(31, 94, 255, 0.07); transition: border-color 0.3s, box-shadow 0.3s; }
+.grp.hot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.1); }
+.grp .cap { text-align: center; color: #33435a; letter-spacing: 0.1em; margin-bottom: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.tiles span { font: 500 9px/1 var(--mono); color: #33435a; background: #f5f7fb; border: 1px solid var(--line); border-radius: 6px; padding: 6px 0; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; overflow: visible; pointer-events: none; }
+.wires .w { fill: none; stroke: #b9c8e6; stroke-width: 1.5; }
+.wires .w.dash { stroke: #b6c2d3; stroke-dasharray: 4 4; }
+.wires .gate { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+.wires .ring { fill: none; stroke: var(--warn); stroke-width: 2; animation: ring 1.1s ease-out infinite; }
+.wires .burst { fill: none; stroke: var(--danger); stroke-width: 2; animation: burst 0.6s ease-out forwards; }
+.flow-hud { display: flex; gap: 0; margin-top: 22px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.85); overflow: hidden; width: fit-content; }
+.flow-hud div { padding: 9px 16px; border-right: 1px solid var(--line); }
+.flow-hud div:last-child { border-right: 0; }
+.flow-hud small { display: block; font: 500 9.5px/1 var(--mono); letter-spacing: 0.12em; color: var(--faint); text-transform: uppercase; margin-bottom: 5px; }
+.flow-hud b { font: 500 16px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.flow-hud .w b { color: var(--warn); }
+.flow-hud .d b { color: var(--danger); }
+
+/* ------------------------------------------------------------ marquee */
+.works { border-top: 1px solid var(--line); padding: 26px 0 30px; background: rgba(255, 255, 255, 0.5); }
+.works .eyebrow { display: block; text-align: center; color: #5b6b82; margin-bottom: 20px; }
+.marquee { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+.track { display: flex; width: max-content; animation: marquee 45s linear infinite; }
+.marquee:hover .track { animation-play-state: paused; }
+.track span { font-size: 19px; font-weight: 500; letter-spacing: -0.01em; color: #97a3b6; padding: 0 30px; white-space: nowrap; transition: color 0.3s; display: flex; align-items: center; gap: 30px; }
+.track span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: #c9d3e0; }
+.track span:hover { color: var(--ink); }
+
+/* ------------------------------------------------------------ statement */
+.dots { background-image: radial-gradient(#cdd6e3 1px, transparent 1px); background-size: 16px 16px; }
+.statement { padding-top: 88px; padding-bottom: 88px; border-bottom: 1px solid var(--line-2); background-color: var(--bg); }
+.statement h2 { font-size: 36px; line-height: 1.22; font-weight: 450; letter-spacing: -0.02em; max-width: 25em; margin: 18px 0 0; }
+
+/* ------------------------------------------------------------ feature sections */
+.feature { border-bottom: 1px solid var(--line-2); padding-top: 96px; padding-bottom: 96px; background: var(--bg); }
+.feature-grid { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); gap: 64px; align-items: start; }
+.feature.flip .feature-grid { grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); }
+.feature.flip .copy { order: 2; }
+.rail { position: absolute; left: -27px; top: 104px; display: flex; align-items: center; gap: 9px; font: 500 11px/1 var(--mono); color: var(--accent); }
+.rail::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.14); }
+.copy { position: static; padding-top: 4px; }
+.copy h3 { font-size: 30px; line-height: 1.2; font-weight: 450; letter-spacing: -0.02em; margin: 0 0 16px; }
+.copy > p { color: var(--dim); margin: 0 0 26px; max-width: 34em; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.checks li { position: relative; padding-left: 30px; font-size: 14.5px; color: #33435a; }
+.checks li b { color: var(--ink); font-weight: 600; }
+.checks li::before { content: ''; position: absolute; left: 0; top: 2px; width: 18px; height: 18px; border-radius: 5px; background: var(--soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%231f5eff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 13px no-repeat; border: 1px solid #c9d8ff; }
+
+/* mock window */
+.mock { position: relative; }
+.mtabs { display: flex; gap: 2px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(15, 27, 45, 0.04); overflow-x: auto; scrollbar-width: none; }
+.mtab { position: relative; flex: none; display: flex; align-items: center; gap: 6px; border: 0; background: transparent; font: 500 12.5px/1 var(--sans); color: var(--dim); padding: 9px 12px; border-radius: 8px; cursor: pointer; overflow: hidden; }
+.mtab svg { width: 14px; height: 14px; }
+.mtab:hover { color: var(--ink); }
+.mtab.on { background: var(--soft); color: var(--deep); }
+.mtab .bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--accent); }
+.mock.auto .mtab.on .bar { animation: fill var(--dur, 6s) linear forwards; }
+.mock.auto.paused .mtab.on .bar { animation-play-state: paused; }
+.window { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 27, 45, 0.04), 0 18px 48px rgba(15, 27, 45, 0.09); overflow: hidden; }
+.whead { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13.5px; }
+.whead .sp { flex: 1; }
+.wbtn { font: 500 11.5px/1 var(--sans); color: #33435a; border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 9px; background: #fff; }
+.wbtn.pri { color: #fff; background: var(--accent); border-color: var(--accent); }
+.pane { display: none; }
+.pane.on { display: block; }
+.wbody { padding: 16px; min-height: 408px; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { text-align: left; font: 500 10px/1 var(--mono); letter-spacing: 0.1em; color: var(--faint); text-transform: uppercase; padding: 0 8px 10px; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 10px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tbl .sub { display: block; font: 400 10.5px/1.3 var(--mono); color: var(--faint); }
+.who { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.who i { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+.chip { display: inline-block; font: 500 10.5px/1 var(--mono); border-radius: 6px; padding: 4px 6px; border: 1px solid var(--line); color: #33435a; background: #f7f9fc; white-space: nowrap; }
+.chip.ok { color: #0f7a51; background: #eaf8f1; border-color: #bfe7d4; }
+.chip.warn { color: #8a5300; background: #fff6e6; border-color: #f2d19a; }
+.chip.deny { color: #a51d33; background: #fff1f3; border-color: #f3bcc5; }
+.chip.dash { color: var(--danger); background: #fff; border: 1px dashed rgba(211, 55, 78, 0.6); }
+.chip.acc { color: var(--deep); background: var(--soft); border-color: #c9d8ff; }
+
+.form { display: grid; gap: 12px; }
+.frow { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; font-size: 12.5px; }
+.frow label { color: var(--dim); }
+.input { height: 34px; border: 1px solid var(--line-2); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font: 400 12.5px/1 var(--mono); color: var(--ink); background: #fff; }
+.input::after { content: '▾'; color: var(--faint); font-size: 10px; }
+.input.plain::after { content: none; }
+.seg { display: flex; flex-wrap: wrap; gap: 5px; }
+.seg span { font-size: 11.5px; font-weight: 500; border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 10px; color: #33435a; }
+.seg span.on { border-color: #f0c070; background: #fff6e6; color: #8a5300; box-shadow: 0 0 0 3px rgba(217, 134, 11, 0.12); }
+.hint { font: 400 11px/1.4 var(--mono); color: var(--faint); }
+.wfoot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.stat small { display: block; font: 500 10px/1 var(--mono); letter-spacing: 0.1em; color: var(--faint); text-transform: uppercase; margin-bottom: 10px; }
+.stat b { font: 500 26px/1 var(--sans); letter-spacing: -0.02em; }
+.stat.d b { color: var(--danger); }
+.stat.w b { color: var(--warn); }
+.stat.o b { color: var(--ok); }
+.ticks { display: grid; grid-template-columns: repeat(48, 1fr); gap: 2px; margin-top: 18px; height: 54px; align-items: end; }
+.ticks i { display: block; border-radius: 2px; background: #dbe4f3; }
+.ticks i.d { background: var(--danger); }
+.ticks i.w { background: var(--warn); }
+.legend { display: flex; gap: 14px; margin-top: 10px; font: 400 11px/1 var(--mono); color: var(--faint); }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+.card-hold { border: 1px solid #f2d19a; border-radius: 12px; overflow: hidden; }
+.card-hold .top { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #fffaf0; border-bottom: 1px solid #f6e0b8; font-size: 12.5px; }
+.card-hold .top .sp { flex: 1; }
+.timer { height: 3px; background: #f6e0b8; }
+.timer i { display: block; height: 100%; background: var(--warn); animation: countdown 20s linear infinite; }
+.card-hold .in { padding: 14px; display: grid; gap: 12px; }
+.card-hold .ttl { font-size: 14px; }
+.card-hold .ttl b { font-weight: 600; }
+pre.args { margin: 0; background: #0f1b2d; color: #dbe6ff; border-radius: 10px; padding: 12px 14px; font: 400 12px/1.6 var(--mono); overflow-x: auto; }
+pre.args .k { color: #8fb3ff; }
+pre.args .s { color: #9fe0bf; }
+.scope { font-size: 12.5px; color: #33435a; background: #f5f8fc; border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.acts span { font-size: 12px; font-weight: 500; border-radius: 8px; padding: 8px 12px; border: 1px solid var(--line-2); }
+.acts .ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.acts .no { color: var(--danger); border-color: #f3bcc5; }
+
+.chat { display: grid; gap: 14px; }
+.msg { display: grid; grid-template-columns: 34px 1fr; gap: 10px; }
+.msg .av { width: 34px; height: 34px; border-radius: 8px; background: #fff; border: 1px solid var(--line); display: grid; place-items: center; }
+.msg .av img { width: 20px; }
+.msg .meta { font-size: 12.5px; }
+.msg .meta b { font-weight: 600; }
+.msg .meta span { color: var(--faint); font-size: 11px; margin-left: 6px; }
+.msg .bub { margin-top: 5px; border-left: 3px solid var(--warn); padding: 4px 0 4px 11px; font-size: 12.5px; color: #33435a; display: grid; gap: 8px; }
+.msg .bub .btnrow { display: flex; gap: 6px; }
+.msg .bub .btnrow span { font-size: 11.5px; font-weight: 600; border-radius: 6px; padding: 6px 10px; border: 1px solid var(--line-2); }
+.msg .bub .btnrow .p { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.log { display: grid; gap: 0; font-size: 12.5px; }
+.log div { display: grid; grid-template-columns: 70px 16px 1fr; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid #eef2f7; }
+.log div:last-child { border-bottom: 0; }
+.log time { font: 400 11px/1.6 var(--mono); color: var(--faint); }
+.log i { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--line-2); }
+.log i.w { background: var(--warn); }
+.log i.o { background: var(--ok); }
+.log i.a { background: var(--accent); }
+
+.bars { display: grid; gap: 12px; }
+.brow { display: grid; grid-template-columns: 112px 1fr 74px; gap: 12px; align-items: center; font-size: 12.5px; }
+.brow .tr { height: 10px; background: #eef2f8; border-radius: 99px; overflow: hidden; }
+.brow .tr i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #4b7dff, #1f5eff); }
+.pane.on .brow .tr i { animation: grow 1.1s var(--ease) both; animation-delay: calc(var(--i, 0) * 90ms + 150ms); }
+.brow .num { text-align: right; font-family: var(--mono); font-size: 12px; }
+.brow .over { color: var(--danger); }
+
+.mapsvg { width: 100%; height: auto; display: block; }
+.mapsvg text { font-family: var(--sans); }
+
+/* ------------------------------------------------------------ honesty */
+.honest { padding-top: 88px; padding-bottom: 88px; border-bottom: 1px solid var(--line-2); background: #fff; }
+.honest h3 { font-size: 30px; font-weight: 450; letter-spacing: -0.02em; margin: 16px 0 12px; }
+.honest > p { color: var(--dim); max-width: 44em; margin: 0 0 32px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.hcard { border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: var(--bg); }
+.hcard.dash { border-style: dashed; border-color: #b6c2d3; background: #fff; }
+.hcard svg { width: 100%; height: 26px; margin-bottom: 12px; }
+.hcard h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.hcard p { margin: 0; color: var(--dim); font-size: 14px; }
+.hcard code { font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.hcard.dash code { background: var(--bg); }
+
+/* ------------------------------------------------------------ install */
+.install { padding-top: 96px; padding-bottom: 96px; border-bottom: 1px solid var(--line-2); background: var(--bg); }
+.term { background: var(--night); border-radius: 14px; overflow: hidden; box-shadow: 0 24px 60px rgba(10, 18, 34, 0.35); border: 1px solid #1c2940; }
+.term-h { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid #1c2940; }
+.term-h i { width: 10px; height: 10px; border-radius: 50%; background: #2a3a55; }
+.term-h span { margin-left: 8px; font: 400 11.5px/1 var(--mono); color: #7f8fab; flex: 1; }
+.copybtn { font: 500 11.5px/1 var(--sans); color: #cfd8ea; background: #16223a; border: 1px solid #2a3a55; border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+.copybtn.pop { animation: pop 0.5s var(--ease); }
+.term pre { margin: 0; padding: 18px 18px 22px; font: 400 13px/1.75 var(--mono); color: #dbe6ff; white-space: pre-wrap; word-break: break-all; min-height: 244px; }
+.term .p { color: #6f86b3; }
+.term .ok { color: #7fe0b0; }
+.term .dim { color: #7f8fab; }
+.term .link { color: #8fb3ff; }
+.cursor { display: inline-block; width: 8px; height: 16px; background: #8fb3ff; vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+.steps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 16px; counter-reset: s; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; color: var(--dim); font-size: 14.5px; }
+.steps li b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; }
+.steps li::before { content: counter(s, decimal-leading-zero); position: absolute; left: 0; top: 1px; font: 500 12px/1 var(--mono); color: var(--accent); border: 1px solid #c9d8ff; background: var(--soft); border-radius: 7px; padding: 5px 5px; }
+.steps code { font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; color: var(--ink); }
+
+/* ------------------------------------------------------------ closing */
+.closing { position: relative; overflow: hidden; background: #fff; }
+.closing .hero-bars { inset: 0 -10% -40px; opacity: 0.8; -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 90%); mask-image: linear-gradient(to top, #000 0%, transparent 90%); }
+.closing .frame { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); text-align: center; padding-top: 110px; padding-bottom: 110px; }
+.closing h2 { font-size: 48px; line-height: 1.08; font-weight: 450; letter-spacing: -0.03em; margin: 18px 0 16px; }
+.closing p { color: var(--dim); font-size: 16px; margin: 0 auto 30px; max-width: 32em; }
+.closing .cta { justify-content: center; }
+footer { background: var(--night); color: #8b9ab5; font-size: 13px; }
+footer .frame { border-color: #1c2940; display: flex; flex-wrap: wrap; align-items: center; gap: 18px 28px; padding-top: 30px; padding-bottom: 30px; }
+footer .brand { color: #fff; font-size: 15px; }
+footer .brand img { width: 22px; height: 22px; }
+footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
+footer a:hover { color: #fff; }
+footer .sp { flex: 1; }
+
+/* ------------------------------------------------------------ responsive */
+@media (max-width: 1280px) { .rail { display: none; } }
+@media (max-width: 1080px) {
+  .hero-grid, .feature-grid, .feature.flip .feature-grid { grid-template-columns: minmax(0, 1fr); gap: 48px; }
+  .feature.flip .copy { order: 0; }
+  .hero-grid { padding-top: 64px; }
+  .hero h1 { font-size: 52px; }
+  .nav-links { display: none; }
+}
+@media (max-width: 720px) {
+  .pad { padding-left: 16px; padding-right: 16px; }
+  .frame { border-left: 0; border-right: 0; }
+  .nav .frame { padding: 0 16px; gap: 12px; }
+  .nav-right .btn.ghost, .nav-right .btn.alt { display: none; }
+  .hero h1 { font-size: 40px; }
+  .hero .lede { font-size: 16px; }
+  .statement h2 { font-size: 26px; }
+  .copy h3, .honest h3 { font-size: 25px; }
+  .closing h2 { font-size: 34px; }
+  .feature, .install { padding-top: 64px; padding-bottom: 64px; }
+  .two { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .stat { padding: 10px; }
+  .stat b { font-size: 20px; }
+  .frow { grid-template-columns: 1fr; gap: 5px; }
+  .brow { grid-template-columns: 84px 1fr 62px; gap: 8px; }
+  .tbl .hide-sm { display: none; }
+  .flow-hud div { padding: 8px 11px; }
+  .topbar { font-size: 11px; }
+  .tag.hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">Open source under Apache-2.0 · v0.1 preview · <a href="#install">Run it in one command →</a></div>
+
+<header class="nav">
+  <div class="frame">
+    <a class="brand" href="#top"><img src="logo.svg" alt="" />Control Tower</a>
+    <span class="tag hide-sm">Open source</span>
+    <nav class="nav-links">
+      <a href="#map">Airspace</a>
+      <a href="#gates">Gates</a>
+      <a href="#approvals">Approvals</a>
+      <a href="#monitor">Monitoring</a>
+      <a href="#install">Docs</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn ghost" href="https://github.com/controltower-ai/controltower">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.71 1.23 1.87.87 2.33.67.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.74.54 1.49v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+        GitHub
+      </a>
+      <a class="btn alt" href="#map">Take the tour</a>
+      <a class="btn primary" href="#install">Get started</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================================================================ HERO -->
+<section class="hero">
+  <div class="hero-bars" aria-hidden="true"></div>
+  <div class="frame pad">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow rise" style="--d: 0ms">The AI gateway you can see</span>
+        <h1 class="rise" style="--d: 60ms">Air traffic control <span class="accent">for your AI agents</span></h1>
+        <p class="lede rise" style="--d: 140ms">Map every agent, model and tool call across your environment. Gate the risky ones, hold them for a human, and see what each agent costs — enforced at the gateway, not just observed.</p>
+        <div class="cta rise" style="--d: 220ms">
+          <a class="btn alt" href="#install">Run it locally</a>
+          <a class="btn primary" href="#map">See how it works
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+          </a>
+        </div>
+        <p class="note rise" style="--d: 300ms">Self-hosted · one Docker command · Apache-2.0</p>
+      </div>
+
+      <div class="flow rise" style="--d: 180ms" id="flow" aria-label="Diagram: agents send model and tool calls through Control Tower, which checks gates, holds calls for approval, inspects them and records cost. One agent calls a model directly, outside the gateway.">
+        <div class="flow-inner" id="flowInner">
+          <svg class="wires" id="wires" aria-hidden="true"></svg>
+          <div class="flow-cols">
+            <div class="src">
+              <div class="cap">Your agents</div>
+              <div class="node" data-src="0">
+                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><rect x="4.5" y="8" width="15" height="11" rx="3"/><path d="M12 4.5V8"/><circle cx="9.5" cy="13.5" r="1" fill="#fff"/><circle cx="14.5" cy="13.5" r="1" fill="#fff"/></svg></span>
+                Agents
+              </div>
+              <div class="node" data-src="1">
+                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7.5 10l3 2.5-3 2.5M12.5 15h4"/></svg></span>
+                Copilots
+              </div>
+              <div class="node" data-src="2">
+                <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.3"/><circle cx="6" cy="17" r="2.3"/><circle cx="18" cy="12" r="2.3"/><path d="M8.2 7.8l7.6 3.4M8.2 16.2l7.6-3.4"/></svg></span>
+                Pipelines
+              </div>
+            </div>
+
+            <div class="mid">
+              <div class="cap" style="text-align:center;visibility:hidden">·</div>
+              <div class="tower" id="tower">
+                <span class="tower-head"><img src="logo.svg" alt="" />Control Tower</span>
+                <div class="cap">Gateway · LLM + MCP</div>
+                <div class="pill" data-pill="gates"><i></i>Gates</div>
+                <div class="pill" data-pill="approvals"><i></i>Approvals</div>
+                <div class="pill" data-pill="inspect"><i></i>Inspection</div>
+                <div class="pill" data-pill="ledger"><i></i>Ledger</div>
+              </div>
+              <div class="outside" id="outside">
+                <div class="cap">Outside · seen, not enforced</div>
+                <div class="obs">api.openai.com <b>direct</b></div>
+              </div>
+            </div>
+
+            <div class="dst">
+              <div class="grp" data-dst="0">
+                <div class="cap">Models</div>
+                <div class="tiles"><span>gpt-4o</span><span>claude</span><span>gemini</span><span>llama</span><span>mistral</span><span>bedrock</span></div>
+              </div>
+              <div class="grp" data-dst="1">
+                <div class="cap">MCP tools</div>
+                <div class="tiles"><span>github</span><span>crm</span><span>jira</span></div>
+              </div>
+              <div class="grp" data-dst="2">
+                <div class="cap">Data & SaaS</div>
+                <div class="tiles"><span>postgres</span><span>s3</span><span>slack</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flow-hud" aria-hidden="true">
+          <div><small>Flights</small><b id="hFlights">1,204</b></div>
+          <div class="w"><small>Holding</small><b id="hHeld">0</b></div>
+          <div class="d"><small>Blocked</small><b id="hBlocked">17</b></div>
+          <div><small>Outside</small><b id="hOutside">42</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="works">
+    <div class="frame" style="border:0">
+      <span class="eyebrow">Works with the models, clients and protocols you already use</span>
+      <div class="marquee">
+        <div class="track" id="track">
+          <span>OpenAI</span><span>Anthropic</span><span>Google Gemini</span><span>Vertex AI</span><span>AWS Bedrock</span><span>Azure OpenAI</span><span>Mistral</span><span>Groq</span><span>DeepSeek</span><span>xAI</span><span>OpenRouter</span><span>Ollama</span><span>vLLM</span><span>Claude Code</span><span>Cursor</span><span>Model Context Protocol</span><span>OpenTelemetry</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ STATEMENT -->
+<section class="dots">
+  <div class="frame pad statement">
+    <span class="eyebrow reveal">Why Control Tower</span>
+    <h2 class="reveal">Agents now hop between models, tool servers and your data. Control Tower puts every hop <span class="accent">on one live map</span>, then lets you <span class="accent">gate, approve and account for</span> each call before it runs.</h2>
+  </div>
+</section>
+
+<!-- ================================================================ 01 MAP -->
+<section class="frame pad feature" id="map">
+  <div class="feature-grid">
+    <div class="copy reveal">
+      <span class="rail">01</span>
+      <h3><span class="accent">Airspace:</span> every agentic data flow, on one map.</h3>
+      <p>Each API key is an agent. Each model, MCP server and outside system it touches is a station. Lines show who talks to whom right now, and the map documents itself as traffic flows.</p>
+      <ul class="checks">
+        <li><b>Live map of agents, models and tools</b>, laid out like a transit map so busy estates stay readable.</li>
+        <li><b>Traffic that bypasses the gateway shows up too</b>, reported by your SDK or OpenTelemetry and drawn dashed: seen, not enforced.</li>
+        <li><b>Hover to trace</b> one agent's routes; filter to active, gateway or outside traffic.</li>
+        <li><b>Export the estate</b> as an image, or a Markdown or CSV data-flow inventory for your reviewers.</li>
+      </ul>
+    </div>
+
+    <div class="mock reveal auto" data-mock>
+      <div class="mtabs" role="tablist">
+        <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 3.5l4-1.5 5 2 4-1.5v10l-4 1.5-5-2-4 1.5z M5.5 2v10 M10.5 4v10"/></svg>Airspace<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>Inventory<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>Outside the gateway<i class="bar"></i></button>
+      </div>
+      <div class="window">
+        <div class="pane on">
+          <div class="whead">Airspace <span class="chip acc">live</span><span class="sp"></span><span class="wbtn">Add gate</span><span class="wbtn">Export</span></div>
+          <div class="wbody" style="padding: 10px 12px">
+            <svg class="mapsvg" viewBox="0 0 520 330" aria-label="A small Airspace map">
+              <defs>
+                <pattern id="g" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.8" fill="#dde4ee"/></pattern>
+              </defs>
+              <rect width="520" height="330" fill="url(#g)"/>
+              <g class="r" style="--i:0" fill="none" stroke-width="1.6">
+                <path d="M118 42 C180 42 190 120 244 120" stroke="#9db8ff"/>
+                <path d="M118 92 C170 92 200 120 244 124" stroke="#9db8ff"/>
+                <path d="M118 142 C170 142 200 130 244 128" stroke="#f0b75a"/>
+                <path d="M118 192 C180 192 200 136 244 132" stroke="#e58a99"/>
+                <path d="M296 124 C350 124 350 52 402 52" stroke="#9db8ff"/>
+                <path d="M296 126 C350 126 350 116 402 116" stroke="#9db8ff"/>
+                <path d="M296 128 C350 128 350 180 402 180" stroke="#f0b75a"/>
+                <path d="M118 196 L136 196 Q142 196 142 202 L142 269 Q142 275 148 275 L232 275" stroke="#d3374e" stroke-dasharray="4 4"/>
+                <path d="M118 46 L128 46 Q134 46 134 52 L134 295 Q134 301 140 301 L352 301" stroke="#aab6c8" stroke-dasharray="4 4"/>
+              </g>
+              <g class="r" style="--i:1" font-size="10.5">
+                <g><rect x="12" y="28" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="36" width="14" height="14" rx="4" fill="#1f5eff"/><text x="40" y="47" fill="#0f1b2d" font-weight="600">support-bot</text></g>
+                <g><rect x="12" y="78" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="86" width="14" height="14" rx="4" fill="#7c5cff"/><text x="40" y="97" fill="#0f1b2d" font-weight="600">code-reviewer</text></g>
+                <g><rect x="12" y="128" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="136" width="14" height="14" rx="4" fill="#0fa3a3"/><text x="40" y="147" fill="#0f1b2d" font-weight="600">ops-agent</text></g>
+                <g><rect x="12" y="178" width="106" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><rect x="20" y="186" width="14" height="14" rx="4" fill="#e0662f"/><text x="40" y="197" fill="#0f1b2d" font-weight="600">researcher</text></g>
+              </g>
+              <g class="r" style="--i:2">
+                <circle cx="270" cy="126" r="34" fill="#e8efff" opacity=".6"/>
+                <circle cx="270" cy="126" r="26" fill="#fff" stroke="#b9ccff" stroke-width="1.5"/>
+                <path d="M259 118h22l-2.6 7h-16.8z" fill="#1f5eff"/><path d="M266.2 125h7.6l2.2 14h-12z" fill="#0b3d91"/><rect x="262" y="138" width="16" height="3" rx="1.5" fill="#0b3d91"/><rect x="269" y="110" width="2" height="7" rx="1" fill="#0b3d91"/>
+                <text x="270" y="172" text-anchor="middle" font-size="8.5" font-weight="600" fill="#33435a" letter-spacing=".8">CONTROL TOWER</text>
+                <circle cx="236" cy="131" r="5" fill="#fff" stroke="#d9860b" stroke-width="1.8"/>
+                <circle cx="236" cy="136" r="5" fill="#fff" stroke="#d3374e" stroke-width="1.8" opacity="0"/>
+              </g>
+              <g class="r" style="--i:3" font-size="10.5">
+                <g><rect x="402" y="38" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="57" fill="#0f1b2d" font-weight="600">claude-sonnet</text></g>
+                <g><rect x="402" y="102" width="108" height="30" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="121" fill="#0f1b2d" font-weight="600">gpt-4o-mini</text></g>
+                <g><rect x="402" y="166" width="108" height="46" rx="7" fill="#fff" stroke="#cbd7f3"/><text x="412" y="184" fill="#0f1b2d" font-weight="600">crm</text><text x="412" y="201" fill="#8a5300" font-size="9.5" font-family="Geist Mono, monospace">delete_contact ◆</text></g>
+              </g>
+              <g class="r" style="--i:4" font-size="10">
+                <rect x="150" y="232" width="358" height="90" rx="10" fill="none" stroke="#b6c2d3" stroke-dasharray="4 4"/>
+                <text x="164" y="250" fill="#8a98ad" font-size="8.5" font-family="Geist Mono, monospace" letter-spacing="1">OUTSIDE THE GATEWAY · SEEN, NOT ENFORCED</text>
+                <g><rect x="232" y="262" width="100" height="26" rx="7" fill="#fff" stroke="#d3374e" stroke-dasharray="3 3"/><text x="244" y="279" fill="#0f1b2d" font-weight="600">OpenAI direct</text></g>
+                <g><rect x="352" y="288" width="104" height="26" rx="7" fill="#fff" stroke="#aab6c8" stroke-dasharray="3 3"/><text x="363" y="305" fill="#33435a" font-weight="600">api.github.com</text></g>
+              </g>
+            </svg>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Data-flow inventory <span class="chip">24 h</span><span class="sp"></span><span class="wbtn">Markdown</span><span class="wbtn">CSV</span></div>
+          <div class="wbody">
+            <table class="tbl">
+              <thead><tr><th>Agent</th><th>Reaches</th><th class="hide-sm">Via</th><th>Policy</th><th class="num hide-sm">Calls</th></tr></thead>
+              <tbody>
+                <tr class="r" style="--i:0"><td><span class="who"><i style="background:#1f5eff"></i>support-bot</span></td><td class="mono">crm › delete_contact</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip warn">approval</span></td><td class="num hide-sm">412</td></tr>
+                <tr class="r" style="--i:1"><td><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span></td><td class="mono">claude-sonnet</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">allow</span></td><td class="num hide-sm">2,081</td></tr>
+                <tr class="r" style="--i:2"><td><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span></td><td class="mono">repo › merge_pr</td><td class="hide-sm"><span class="chip">MCP</span></td><td><span class="chip deny">deny</span></td><td class="num hide-sm">9</td></tr>
+                <tr class="r" style="--i:3"><td><span class="who"><i style="background:#0fa3a3"></i>ops-agent</span></td><td class="mono">orders (postgres)</td><td class="hide-sm"><span class="chip">observed</span></td><td><span class="chip dash">not enforced</span></td><td class="num hide-sm">164</td></tr>
+                <tr class="r" style="--i:4"><td><span class="who"><i style="background:#e0662f"></i>researcher</span></td><td class="mono">api.openai.com</td><td class="hide-sm"><span class="chip">direct</span></td><td><span class="chip dash">bypasses</span></td><td class="num hide-sm">57</td></tr>
+                <tr class="r" style="--i:5"><td><span class="who"><i style="background:#1f5eff"></i>support-bot</span></td><td class="mono">gpt-4o-mini</td><td class="hide-sm"><span class="chip">/v1</span></td><td><span class="chip ok">inspect</span></td><td class="num hide-sm">3,420</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Outside the gateway <span class="chip">4 systems</span><span class="sp"></span><span class="wbtn">Filter</span></div>
+          <div class="wbody">
+            <table class="tbl">
+              <thead><tr><th>System</th><th>Called by</th><th>Status</th><th class="num hide-sm"></th></tr></thead>
+              <tbody>
+                <tr class="r" style="--i:0"><td>OpenAI<span class="sub">api.openai.com</span></td><td>researcher</td><td><span class="chip dash">bypasses gateway</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:1"><td>GitHub<span class="sub">api.github.com</span></td><td>code-reviewer, ops-agent</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:2"><td>orders<span class="sub">postgresql · orders-db</span></td><td>ops-agent</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+                <tr class="r" style="--i:3"><td>HubSpot<span class="sub">api.hubapi.com</span></td><td>sdr-agent, support-bot</td><td><span class="chip">observed</span></td><td class="num hide-sm" style="color:var(--accent)">Bring inside →</td></tr>
+              </tbody>
+            </table>
+            <p class="hint r" style="--i:4; margin: 16px 8px 0">Reported with one call to /v1/observe, or any OpenTelemetry exporter pointed at /v1/traces.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ 02 GATES -->
+<section class="frame pad feature flip" id="gates">
+  <div class="feature-grid">
+    <div class="copy reveal">
+      <span class="rail">02</span>
+      <h3><span class="accent">Gates:</span> decide at the boundary, before the call runs.</h3>
+      <p>Click a line or a tool on the map and set a gate. Because Control Tower is in the path, a gate is enforced, not a suggestion — and you can replay it against yesterday's traffic before you publish.</p>
+      <ul class="checks">
+        <li><b>Allow, deny, require approval, allow with limits or inspect</b> — per agent, team, model or individual MCP tool.</li>
+        <li><b>Tools an agent may not use are never listed</b> to it, so there is nothing to talk its way around.</li>
+        <li><b>Simulate on real traffic</b>: see what a draft gate would have blocked, held or saved in the last 24 hours.</li>
+        <li><b>Inspection</b> scans prompts and tool arguments for PII, secrets and prompt injection, then flags, redacts or blocks.</li>
+      </ul>
+    </div>
+
+    <div class="mock reveal auto" data-mock>
+      <div class="mtabs" role="tablist">
+        <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.5l5.5 2v4.2c0 3.2-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.6-5.5-6.8V3.5z"/></svg>New gate<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12.5l3.5-4 3 2.5L14 4"/></svg>Simulate<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>Inspect<i class="bar"></i></button>
+      </div>
+      <div class="window">
+        <div class="pane on">
+          <div class="whead">Gate · support-bot → crm<span class="sp"></span><span class="wbtn">YAML</span></div>
+          <div class="wbody form">
+            <div class="frow r" style="--i:0"><label>From</label><span class="input">support-bot · team support</span></div>
+            <div class="frow r" style="--i:1"><label>To</label><span class="input">crm › delete_contact</span></div>
+            <div class="frow r" style="--i:2"><label>Effect</label><span class="seg"><span>Allow</span><span>Deny</span><span class="on">Require approval</span><span>Limits</span><span>Inspect</span></span></div>
+            <div class="frow r" style="--i:3"><label>Hold for</label><span class="input">20 s, then issue a ticket</span></div>
+            <div class="frow r" style="--i:4"><label>Approval binds to</label><span class="input">contact_id — this exact contact</span></div>
+            <div class="frow r" style="--i:5"><label>Notify</label><span class="input">#ops-approvals</span></div>
+            <div class="frow r" style="--i:6"><label></label><span class="hint">Last 24 h: this gate would have held 12 calls.</span></div>
+            <div class="wfoot r" style="--i:7"><span class="wbtn">Simulate</span><span class="wbtn pri">Publish gate</span></div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Simulation · draft gates vs last 24 h<span class="sp"></span><span class="chip">1,318 flights replayed</span></div>
+          <div class="wbody">
+            <div class="stats">
+              <div class="stat d r" style="--i:0"><small>Would block</small><b>37</b></div>
+              <div class="stat w r" style="--i:1"><small>Would hold</small><b>12</b></div>
+              <div class="stat o r" style="--i:2"><small>Cost avoided</small><b>$4.10</b></div>
+            </div>
+            <div class="ticks r" style="--i:3" id="ticks"></div>
+            <div class="legend r" style="--i:4"><span><i style="background:#dbe4f3"></i>allowed</span><span><i style="background:var(--warn)"></i>held</span><span><i style="background:var(--danger)"></i>blocked</span></div>
+            <p class="hint r" style="--i:5; margin: 16px 0 0">Nothing is published until you press Publish. Simulation never touches live traffic.</p>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Inspection · all agents → models and tools<span class="sp"></span><span class="chip">24 h</span></div>
+          <div class="wbody">
+            <table class="tbl">
+              <thead><tr><th>Detector</th><th>Action</th><th class="num">Matches</th></tr></thead>
+              <tbody>
+                <tr class="r" style="--i:0"><td>Personal data<span class="sub">emails, phone numbers, card numbers</span></td><td><span class="chip acc">redact</span></td><td class="num">14</td></tr>
+                <tr class="r" style="--i:1"><td>Secrets<span class="sub">cloud keys, API tokens, private keys</span></td><td><span class="chip deny">block</span></td><td class="num">2</td></tr>
+                <tr class="r" style="--i:2"><td>Prompt injection<span class="sub">"ignore previous instructions" and friends</span></td><td><span class="chip warn">flag</span></td><td class="num">5</td></tr>
+                <tr class="r" style="--i:3"><td>Custom pattern<span class="sub">internal project code names</span></td><td><span class="chip warn">flag</span></td><td class="num">0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ 03 APPROVALS -->
+<section class="frame pad feature" id="approvals">
+  <div class="feature-grid">
+    <div class="copy reveal">
+      <span class="rail">03</span>
+      <h3><span class="accent">Tower:</span> a human in the loop, without breaking the agent.</h3>
+      <p>A gated call holds at the gate while someone decides. Approve it in the console or straight from the alert in Slack; the agent carries on. If nobody answers in time, the agent gets a ticket it can redeem once approved.</p>
+      <ul class="checks">
+        <li><b>See the real arguments</b> and a plain-language scope — "this one contact", not "all CRM writes".</li>
+        <li><b>Approvals bind to what was approved</b>, so an agent can't swap the arguments after you say yes.</li>
+        <li><b>Retries collapse into one card</b> instead of forty, and each approval is redeemed at most once.</li>
+        <li><b>Alerts deep-link to the card</b> from Slack or any signed webhook.</li>
+      </ul>
+    </div>
+
+    <div class="mock reveal auto" data-mock>
+      <div class="mtabs" role="tablist">
+        <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.4" stroke-linecap="round"/></svg>Holding<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>Slack alert<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3.5h10M3 8h10M3 12.5h6"/></svg>Audit trail<i class="bar"></i></button>
+      </div>
+      <div class="window">
+        <div class="pane on">
+          <div class="whead">Tower <span class="chip warn">1 holding</span><span class="sp"></span><span class="wbtn">History</span></div>
+          <div class="wbody">
+            <div class="card-hold r" style="--i:0">
+              <div class="top"><span class="chip warn">Holding</span><span>gate: support → CRM writes</span><span class="sp"></span><span class="mono" style="font-size:11.5px;color:#8a5300">20 s</span></div>
+              <div class="timer"><i></i></div>
+              <div class="in">
+                <div class="ttl r" style="--i:1"><b>support-bot</b> wants to call <b class="mono" style="font-weight:500">crm › delete_contact</b></div>
+                <pre class="args r" style="--i:2">{ <span class="k">"contact_id"</span>: <span class="s">"c_8812"</span>,
+  <span class="k">"reason"</span>: <span class="s">"duplicate of c_8790"</span> }</pre>
+                <div class="scope r" style="--i:3">Approving allows <b>this one call</b> for contact <span class="mono">c_8812</span>. Any other contact asks again.</div>
+                <div class="acts r" style="--i:4"><span class="ok">Approve</span><span>Approve for 30 min</span><span class="no">Deny</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead"># ops-approvals<span class="sp"></span><span class="chip">Slack</span></div>
+          <div class="wbody chat">
+            <div class="msg r" style="--i:0">
+              <span class="av"><img src="logo.svg" alt="" /></span>
+              <div>
+                <div class="meta"><b>Control Tower</b><span>14:02</span></div>
+                <div class="bub">
+                  <div><b>Held for approval:</b> support-bot → crm › delete_contact</div>
+                  <div class="hint" style="color:#5b6b82">gate “support → CRM writes” · 1 waiting · expires in 20 s</div>
+                  <div class="btnrow"><span class="p">Review &amp; approve</span><span>Open map</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="msg r" style="--i:1">
+              <span class="av" style="background:#e8efff;color:#0b3d91;font-weight:600;font-size:13px">D</span>
+              <div>
+                <div class="meta"><b>dana</b><span>14:02</span></div>
+                <div style="font-size:12.5px;color:#33435a;margin-top:4px">Checked — it's a duplicate. Approved from the card 👍</div>
+              </div>
+            </div>
+            <div class="msg r" style="--i:2">
+              <span class="av"><img src="logo.svg" alt="" /></span>
+              <div>
+                <div class="meta"><b>Control Tower</b><span>14:02</span></div>
+                <div class="bub" style="border-color:var(--ok)"><div><b>Approved</b> by dana · call completed in 184 ms</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Flight 01J9…Q4ZK<span class="sp"></span><span class="wbtn">Export</span></div>
+          <div class="wbody log">
+            <div class="r" style="--i:0"><time>14:02:11</time><i class="a"></i><span><b>Started</b> · support-bot → crm › delete_contact</span></div>
+            <div class="r" style="--i:1"><time>14:02:11</time><i class="w"></i><span><b>Held</b> by gate “support → CRM writes” · Slack alert sent</span></div>
+            <div class="r" style="--i:2"><time>14:02:19</time><i class="o"></i><span><b>Approved</b> by dana · scope: contact_id = c_8812</span></div>
+            <div class="r" style="--i:3"><time>14:02:19</time><i class="o"></i><span><b>Completed</b> · 184 ms · upstream ok</span></div>
+            <div class="r" style="--i:4"><time>14:05:40</time><i class="w"></i><span><b>Held</b> · same agent, contact c_9101 — a new approval is needed</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ 04 MONITOR -->
+<section class="frame pad feature flip" id="monitor">
+  <div class="feature-grid">
+    <div class="copy reveal">
+      <span class="rail">04</span>
+      <h3><span class="accent">Monitor:</span> spend, errors and latency, by agent.</h3>
+      <p>Every flight is recorded with tokens, cost, latency and outcome. Budgets and rate limits live on each agent's key, and alerts tell you when a gate fires or something drifts.</p>
+      <ul class="checks">
+        <li><b>Cost per agent, team, model and tool</b>, priced from a maintained model price table.</li>
+        <li><b>Budgets and rate limits per key</b> that stop a runaway loop before it runs up the bill.</li>
+        <li><b>Alerts on gates, errors, latency, health and budgets</b>, to Slack or signed webhooks, with digests instead of floods.</li>
+        <li><b>Prometheus <code>/metrics</code></b> for the dashboards you already run.</li>
+      </ul>
+    </div>
+
+    <div class="mock reveal auto" data-mock>
+      <div class="mtabs" role="tablist">
+        <button class="mtab on" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 13V8M8 13V3M13 13V6"/></svg>Ledger<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z M6.5 14h3"/></svg>Alerts<i class="bar"></i></button>
+        <button class="mtab" role="tab"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4L1.5 8 5 12M11 4l3.5 4-3.5 4"/></svg>/metrics<i class="bar"></i></button>
+      </div>
+      <div class="window">
+        <div class="pane on">
+          <div class="whead">Spend by agent <span class="chip">this month</span><span class="sp"></span><span class="wbtn">By team</span><span class="wbtn">Export</span></div>
+          <div class="wbody bars">
+            <div class="brow r" style="--i:0"><span class="who"><i style="background:#1f5eff"></i>support-bot</span><span class="tr"><i style="width:82%;--i:0"></i></span><span class="num">$412.08</span></div>
+            <div class="brow r" style="--i:1"><span class="who"><i style="background:#7c5cff"></i>code-reviewer</span><span class="tr"><i style="width:64%;--i:1"></i></span><span class="num">$318.40</span></div>
+            <div class="brow r" style="--i:2"><span class="who"><i style="background:#e0662f"></i>researcher</span><span class="tr"><i style="width:47%;--i:2;background:linear-gradient(90deg,#f08a9a,#d3374e)"></i></span><span class="num over">$236.90</span></div>
+            <div class="brow r" style="--i:3"><span class="who"><i style="background:#0fa3a3"></i>ops-agent</span><span class="tr"><i style="width:29%;--i:3"></i></span><span class="num">$145.12</span></div>
+            <div class="brow r" style="--i:4"><span class="who"><i style="background:#c23fb0"></i>sdr-agent</span><span class="tr"><i style="width:14%;--i:4"></i></span><span class="num">$70.33</span></div>
+            <p class="hint r" style="--i:5;margin:6px 0 0">researcher is at 95% of its $250 monthly budget — new calls will be refused at the cap.</p>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">Alert rules <span class="chip">4 active</span><span class="sp"></span><span class="wbtn pri">Add alert</span></div>
+          <div class="wbody">
+            <table class="tbl">
+              <thead><tr><th>When</th><th>Notify</th><th class="num">Last fired</th></tr></thead>
+              <tbody>
+                <tr class="r" style="--i:0"><td>Any gate holds a call<span class="sub">deep-links to the approval card</span></td><td><span class="chip">#ops-approvals</span></td><td class="num">2 m ago</td></tr>
+                <tr class="r" style="--i:1"><td>Error rate &gt; 5% for 5 min<span class="sub">per agent</span></td><td><span class="chip">webhook</span></td><td class="num">yesterday</td></tr>
+                <tr class="r" style="--i:2"><td>p95 latency &gt; 8 s<span class="sub">per model</span></td><td><span class="chip">#platform</span></td><td class="num">—</td></tr>
+                <tr class="r" style="--i:3"><td>Budget 80% used<span class="sub">once per period</span></td><td><span class="chip">#finops</span></td><td class="num">3 d ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="whead">GET /metrics<span class="sp"></span><span class="chip">Prometheus text</span></div>
+          <div class="wbody">
+            <pre class="args r" style="--i:0"><span class="k"># HELP</span> ct_flights_total Requests through the gateway.
+ct_flights_total{kind=<span class="s">"llm"</span>,outcome=<span class="s">"ok"</span>} 18234
+ct_flights_total{kind=<span class="s">"mcp"</span>,outcome=<span class="s">"denied"</span>} 37
+ct_flights_total{kind=<span class="s">"mcp"</span>,outcome=<span class="s">"ticketed"</span>} 12
+<span class="k"># HELP</span> ct_cost_usd_total Spend by team.
+ct_cost_usd_total{team=<span class="s">"support"</span>} 412.08
+ct_cost_usd_total{team=<span class="s">"engineering"</span>} 318.40
+<span class="k"># HELP</span> ct_approvals_pending Calls held at a gate.
+ct_approvals_pending 1</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ HONESTY -->
+<section class="frame pad honest">
+  <span class="eyebrow reveal">Honest by design</span>
+  <h3 class="reveal">Solid lines are enforced. Dashed lines are only seen.</h3>
+  <p class="reveal">A security map is only useful if it doesn't overstate what it controls. Control Tower draws the difference, so you always know which calls a gate can actually stop.</p>
+  <div class="two">
+    <div class="hcard reveal">
+      <svg viewBox="0 0 300 26" aria-hidden="true"><path d="M4 13 H296" stroke="#1f5eff" stroke-width="2.5" stroke-linecap="round"/><circle cx="150" cy="13" r="6" fill="#fff" stroke="#1f5eff" stroke-width="2"/></svg>
+      <h4>Enforced — through the gateway</h4>
+      <p>Model calls to <code>/v1</code> and tool calls to <code>/mcp</code> pass through Control Tower. Gates, approvals, budgets and inspection apply to every one.</p>
+    </div>
+    <div class="hcard dash reveal">
+      <svg viewBox="0 0 300 26" aria-hidden="true"><path d="M4 13 H296" stroke="#aab6c8" stroke-width="2.5" stroke-dasharray="6 6" stroke-linecap="round"/></svg>
+      <h4>Observed — reported, not controlled</h4>
+      <p>Calls your agents make directly, reported by SDK or OpenTelemetry. They are mapped and documented, and each one comes with steps to bring it inside.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ INSTALL -->
+<section class="frame pad install" id="install">
+  <div class="feature-grid">
+    <div class="copy reveal">
+      <span class="rail">05</span>
+      <span class="eyebrow">Get started</span>
+      <h3 style="margin-top:14px">Up and running in <span class="accent">one command.</span></h3>
+      <p>One container, SQLite by default, everything configured in the browser. Demo mode starts a synthetic agent fleet so the map is alive in seconds.</p>
+      <ol class="steps">
+        <li><b>Run the container</b>then open <code>localhost:4000</code> and set the admin password.</li>
+        <li><b>Connect a provider and create a key per agent</b>or import an existing LiteLLM config.</li>
+        <li><b>Point your agents at Control Tower</b><code>base_url = …/v1</code> for models, <code>…/mcp</code> for tools.</li>
+      </ol>
+    </div>
+    <div class="reveal">
+      <div class="term">
+        <div class="term-h"><i></i><i></i><i></i><span>~/controltower</span><button class="copybtn" id="copy" type="button">Copy</button></div>
+        <pre id="termOut" aria-live="off"></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ CLOSING -->
+<section class="closing">
+  <div class="hero-bars" aria-hidden="true"></div>
+  <div class="frame pad">
+    <span class="eyebrow reveal">Open source · Apache-2.0</span>
+    <h2 class="reveal">Put every agent<br /><span class="accent">on the map.</span></h2>
+    <p class="reveal">Self-host it today. Your prompts, keys and traffic never leave your infrastructure.</p>
+    <div class="cta reveal">
+      <a class="btn alt" href="https://github.com/controltower-ai/controltower">Star on GitHub</a>
+      <a class="btn primary" href="#install">Get started</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="frame pad">
+    <span class="brand"><img src="logo.svg" alt="" />Control Tower</span>
+    <nav>
+      <a href="#map">Airspace</a><a href="#gates">Gates</a><a href="#approvals">Approvals</a><a href="#monitor">Monitoring</a><a href="https://github.com/controltower-ai/controltower">GitHub</a>
+    </nav>
+    <span class="sp"></span>
+    <span>Apache-2.0 · model prices from LiteLLM's MIT-licensed table</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const fmt = (n) => n.toLocaleString('en-US');
+
+  /* ---------------------------------------------------------- reveal on scroll */
+  const io = new IntersectionObserver((es) => {
+    for (const e of es) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { rootMargin: '0px 0px -8% 0px' });
+  $$('.reveal').forEach((el) => io.observe(el));
+
+  /* ---------------------------------------------------------- marquee: two copies for a seamless loop */
+  const track = $('#track');
+  track.innerHTML += track.innerHTML;
+  $$('span', track).slice(track.children.length / 2).forEach((s) => s.setAttribute('aria-hidden', 'true'));
+
+  /* ---------------------------------------------------------- simulation ticks */
+  const ticks = $('#ticks');
+  for (let i = 0; i < 48; i++) {
+    const r = Math.sin(i * 12.9898) * 43758.5453 % 1;
+    const v = Math.abs(r);
+    const t = document.createElement('i');
+    t.style.height = 20 + Math.round(v * 80) + '%';
+    if (v > 0.9) t.className = 'd'; else if (v > 0.8) t.className = 'w';
+    ticks.appendChild(t);
+  }
+
+  /* ---------------------------------------------------------- tabbed mocks: auto-advance while visible */
+  for (const mock of $$('[data-mock]')) {
+    const tabs = $$('.mtab', mock);
+    const panes = $$('.pane', mock);
+    let cur = 0;
+    const show = (i) => {
+      cur = i;
+      tabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-selected', String(k === i)); });
+      panes.forEach((p, k) => {
+        p.classList.remove('on');
+        if (k === i) { void p.offsetWidth; p.classList.add('on'); }
+      });
+    };
+    tabs.forEach((t, k) => {
+      t.addEventListener('click', () => { mock.classList.remove('auto'); show(k); });
+      $('.bar', t).addEventListener('animationend', () => { if (mock.classList.contains('auto')) show((cur + 1) % tabs.length); });
+    });
+    mock.style.setProperty('--dur', '6.5s');
+    if (reduced) mock.classList.remove('auto');
+    mock.classList.add('paused');
+    new IntersectionObserver(([e]) => mock.classList.toggle('paused', !e.isIntersecting), { threshold: 0.35 }).observe(mock);
+    show(0);
+  }
+
+  /* ---------------------------------------------------------- terminal */
+  const cmd = 'docker run -p 4000:4000 -v controltower-data:/data -e CT_DEMO=1 ghcr.io/controltower-ai/controltower';
+  const out = $('#termOut');
+  const lines = [
+    ['dim', 'controltower v0.1.0 · node 24 · sqlite /data/controltower.db'],
+    ['ok', '✓ migrations applied'],
+    ['ok', '✓ demo fleet: 6 agents, 2 MCP servers, 3 gates'],
+    ['ok', '✓ gateway   /v1 · /v1/messages · /mcp'],
+    ['', '→ console   <span class="link">http://localhost:4000</span>'],
+  ];
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let typed = false;
+  const render = (n, done) => {
+    let html = '<span class="p">$</span> ' + esc(cmd.slice(0, n));
+    if (done) html += '\n\n' + lines.slice(0, done).map(([c, t]) => (c ? `<span class="${c}">${t}</span>` : t)).join('\n');
+    out.innerHTML = html + (done >= lines.length || !done ? ' <span class="cursor"></span>' : '');
+  };
+  render(0, 0);
+  const type = () => {
+    if (typed) return;
+    typed = true;
+    if (reduced) return render(cmd.length, lines.length);
+    let n = 0;
+    const step = () => {
+      n = Math.min(cmd.length, n + 2);
+      render(n, 0);
+      if (n < cmd.length) return setTimeout(step, 18);
+      let k = 0;
+      const next = () => { k++; render(cmd.length, k); if (k < lines.length) setTimeout(next, k === 1 ? 500 : 280); else $('#copy').classList.add('pop'); };
+      setTimeout(next, 450);
+    };
+    step();
+  };
+  new IntersectionObserver(([e], o) => { if (e.isIntersecting) { type(); o.disconnect(); } }, { threshold: 0.5 }).observe(out);
+  $('#copy').addEventListener('click', async (ev) => {
+    const b = ev.currentTarget;
+    try { await navigator.clipboard.writeText(cmd); b.textContent = 'Copied'; } catch { b.textContent = 'Select & copy'; }
+    b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+    setTimeout(() => (b.textContent = 'Copy'), 1600);
+  });
+
+  /* ---------------------------------------------------------- hero flow: wires + flights */
+  const flow = $('#flow');
+  const inner = $('#flowInner');
+  const svg = $('#wires');
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+  const srcs = $$('[data-src]', inner);
+  const dsts = $$('[data-dst]', inner);
+  const tower = $('#tower');
+  const outside = $('#outside');
+  const pills = Object.fromEntries($$('[data-pill]', inner).map((p) => [p.dataset.pill, p]));
+  const inW = srcs.map(() => mk('path', { class: 'w' }));
+  const outW = dsts.map(() => mk('path', { class: 'w' }));
+  const stub = mk('path', { class: 'w' });
+  const bypass = mk('path', { class: 'w dash' });
+  const gate = mk('rect', { class: 'gate', width: 10, height: 10, rx: 2 });
+  const dots = mk('g', {});
+  let scale = 1, G = { x: 0, y: 0 }, T = { l: 0, r: 0 };
+
+  const box = (el) => {
+    const r = el.getBoundingClientRect(), ir = inner.getBoundingClientRect();
+    return { l: (r.left - ir.left) / scale, t: (r.top - ir.top) / scale, r: (r.right - ir.left) / scale, b: (r.bottom - ir.top) / scale, get cy() { return (this.t + this.b) / 2; } };
+  };
+  const curve = (x1, y1, x2, y2) => { const m = (x2 - x1) * 0.5; return `M${x1},${y1} C${x1 + m},${y1} ${x2 - m},${y2} ${x2},${y2}`; };
+
+  const layout = () => {
+    const w = flow.clientWidth;
+    if (!w) return;
+    scale = Math.min(1, w / 580);
+    inner.style.transform = `scale(${scale})`;
+    inner.style.marginBottom = `${inner.offsetHeight * (scale - 1)}px`;
+    const tb = box(tower);
+    T = { l: tb.l, r: tb.r, y: tb.cy };
+    G = { x: tb.l - 22, y: T.y };
+    srcs.forEach((s, i) => { const b = box(s); inW[i].setAttribute('d', curve(b.r, b.cy, G.x, G.y)); });
+    dsts.forEach((d, i) => { const b = box(d); outW[i].setAttribute('d', curve(T.r, T.y, b.l, b.cy)); });
+    stub.setAttribute('d', `M${G.x},${G.y} L${T.l},${T.y}`);
+    gate.setAttribute('x', G.x - 5); gate.setAttribute('y', G.y - 5);
+    gate.setAttribute('transform', `rotate(45 ${G.x} ${G.y})`);
+    const s2 = box(srcs[2]), ob = box(outside);
+    bypass.setAttribute('d', `M${s2.r},${s2.cy + 10} C${s2.r + 30},${s2.cy + 10} ${ob.l - 34},${ob.cy} ${ob.l},${ob.cy}`);
+  };
+  layout();
+  new ResizeObserver(layout).observe(flow);
+  document.fonts?.ready.then(layout);
+
+  const count = { flights: 1204, held: 0, blocked: 17, outside: 42 };
+  const hud = () => {
+    $('#hFlights').textContent = fmt(count.flights);
+    $('#hHeld').textContent = fmt(count.held);
+    $('#hBlocked').textContent = fmt(count.blocked);
+    $('#hOutside').textContent = fmt(count.outside);
+  };
+  const flash = (el, cls, ms = 650) => { el.classList.add(cls); setTimeout(() => el.classList.remove(cls), ms); };
+  const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const makeDot = (color, hollow) => {
+    const g = mk('g', {}, dots);
+    mk('circle', { r: 10, fill: color, opacity: hollow ? 0 : 0.18 }, g);
+    mk('circle', { r: 4.6, fill: hollow ? '#fff' : color, stroke: color, 'stroke-width': hollow ? 1.6 : 0 }, g);
+    return g;
+  };
+  const paint = (g, color) => { const [h, c] = g.children; h.setAttribute('fill', color); c.setAttribute('fill', color); c.setAttribute('stroke', color); };
+  const travel = (g, path, dur) => new Promise((res) => {
+    const L = path.getTotalLength();
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const p = path.getPointAtLength(ease(k) * L);
+      g.setAttribute('transform', `translate(${p.x},${p.y})`);
+      k < 1 ? requestAnimationFrame(step) : res();
+    };
+    requestAnimationFrame(step);
+  });
+
+  const BLUE = '#1f5eff', AMBER = '#d9860b', RED = '#d3374e', GREEN = '#1a9e6b', GREY = '#8a98ad';
+  async function flight() {
+    const i = Math.floor(Math.random() * srcs.length);
+    const j = Math.random() < 0.5 ? 0 : 1 + Math.floor(Math.random() * 2);
+    const roll = Math.random();
+    const kind = roll < 0.12 ? 'deny' : roll < 0.3 ? 'hold' : 'allow';
+    const dot = makeDot(BLUE);
+    srcs[i].classList.add('hot');
+    await travel(dot, inW[i], 900);
+    srcs[i].classList.remove('hot');
+    await travel(dot, stub, 160);
+    if (kind === 'deny') {
+      paint(dot, RED);
+      flash(pills.gates, 'hit-deny', 900);
+      mk('circle', { class: 'burst', cx: G.x, cy: G.y, r: 4 });
+      count.blocked++; count.flights++; hud();
+      await wait(250);
+      dot.remove();
+      setTimeout(() => $$('.burst', svg).forEach((b) => b.remove()), 700);
+      return;
+    }
+    if (kind === 'hold') {
+      paint(dot, AMBER);
+      const ring = mk('circle', { class: 'ring', cx: G.x, cy: G.y, r: 5 });
+      pills.approvals.classList.add('hit-warn');
+      count.held++; hud();
+      await wait(1800);
+      ring.remove();
+      pills.approvals.classList.remove('hit-warn');
+      flash(pills.approvals, 'hit');
+      paint(dot, GREEN);
+      count.held--; hud();
+    } else {
+      flash(pills.gates, 'hit');
+    }
+    dot.style.opacity = '0';
+    if (Math.random() < 0.4) flash(pills.inspect, 'hit');
+    await wait(260);
+    const start = outW[j].getPointAtLength(0);
+    dot.setAttribute('transform', `translate(${start.x},${start.y})`);
+    dot.style.opacity = '';
+    await travel(dot, outW[j], 1000);
+    flash(dsts[j], 'hot', 500);
+    flash(pills.ledger, 'hit', 500);
+    count.flights++; hud();
+    dot.remove();
+  }
+  async function sideDoor() {
+    const dot = makeDot(GREY, true);
+    await travel(dot, bypass, 1300);
+    flash(outside, 'hot', 500);
+    count.outside++; hud();
+    dot.remove();
+  }
+
+  if (!reduced) {
+    let visible = true;
+    new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe(flow);
+    const tick = () => { if (visible && !document.hidden) flight(); setTimeout(tick, 1100 + Math.random() * 700); };
+    const side = () => { if (visible && !document.hidden) sideDoor(); setTimeout(side, 4200 + Math.random() * 2000); };
+    setTimeout(tick, 900);
+    setTimeout(side, 2600);
+  }
+})();
+</script>
+</body>
+</html>

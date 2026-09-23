@@ -4,14 +4,34 @@
     {
       "name": "controltower-demo",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; cd server && CT_DEMO=1 CT_PORT=4000 CT_DATA_DIR=../data/demo CT_LOG_LEVEL=info npx tsx src/main.ts"],
+      "runtimeArgs": [
+        "-c",
+        ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; cd server && CT_DEMO=1 CT_PORT=4000 CT_DATA_DIR=../data/demo CT_LOG_LEVEL=info npx tsx src/main.ts"
+      ],
       "port": 4000
     },
     {
       "name": "controltower",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; cd server && CT_PORT=4000 CT_DATA_DIR=../data/dev CT_LOG_LEVEL=info npx tsx src/main.ts"],
+      "runtimeArgs": [
+        "-c",
+        ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; cd server && CT_PORT=4000 CT_DATA_DIR=../data/dev CT_LOG_LEVEL=info npx tsx src/main.ts"
+      ],
       "port": 4000
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4300",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "site"
+      ],
+      "port": 4300
     }
   ]
 }

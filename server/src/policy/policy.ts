@@ -4,6 +4,7 @@ import type { KeyRecord, Registry } from '../registry.js';
 import { globMatch } from '../registry.js';
 import type { PolicyDecision, PolicyEngine, PolicyInput, PolicyTarget } from './engine.js';
 import { salientHash, scopeHash } from './hash.js';
+import { compileInspector, type CompiledInspector, type InspectConfig } from '../guardrails/scan.js';
 
 /**
  * Zones group stations; rules are gates on the boundary between a source zone
@@ -47,7 +48,7 @@ export interface RuleMatch {
   args?: ArgConstraint[];
 }
 
-export interface RuleConfig {
+export interface RuleConfig extends InspectConfig {
   reason?: string;
   hold_ms?: number;
   binding?: 'exact' | 'salient' | 'window';
@@ -64,7 +65,7 @@ export interface RuleRecord {
   toZone: string | null;
   targetKind: 'model' | 'tool' | 'any';
   match: RuleMatch;
-  effect: 'allow' | 'deny' | 'require_approval' | 'allow_with_limits';
+  effect: 'allow' | 'deny' | 'require_approval' | 'allow_with_limits' | 'inspect';
   config: RuleConfig;
   priority: number;
   enabled: boolean;
@@ -119,6 +120,8 @@ export class PolicyService implements PolicyEngine {
   zones = new Map<string, ZoneRecord>();
   rules: RuleRecord[] = [];
   version = 0;
+  /** Compiled detectors per inspect gate, rebuilt on reload. */
+  private compiled = new Map<string, CompiledInspector>();
   private listeners = new Set<() => void>();
 
   constructor(
@@ -164,6 +167,7 @@ export class PolicyService implements PolicyEngine {
         demo: r.demo === 1,
       }))
       .sort((a, b) => a.priority - b.priority);
+    this.compiled = new Map(this.rules.filter((r) => r.effect === 'inspect').map((r) => [r.id, compileInspector(r.config)]));
     this.version++;
     for (const l of this.listeners) {
       try {
@@ -237,6 +241,7 @@ export class PolicyService implements PolicyEngine {
     const dstZones = this.targetZones(input.target);
     const dst = new Set(dstZones.map((z) => z.id));
     for (const r of this.rules) {
+      if (r.effect === 'inspect') continue;
       const m = this.matchRule(r, input.key, input.target, src, dst, input.args);
       if (m !== 'match') continue;
       const zoneFrom = r.fromZone ? this.zones.get(r.fromZone)?.name : undefined;
@@ -260,11 +265,31 @@ export class PolicyService implements PolicyEngine {
     return { effect: 'allow' };
   }
 
+  /**
+   * Inspect gates on this path, in priority order. Unlike access gates they do
+   * not compete: every matching inspect gate runs, after the access decision.
+   */
+  inspectors(key: KeyRecord, target: PolicyTarget): Array<{ rule: RuleRecord; compiled: CompiledInspector }> {
+    if (!this.enforcement() || !this.compiled.size) return [];
+    const src = new Set(this.sourceZones(key).map((z) => z.id));
+    const dst = new Set(this.targetZones(target).map((z) => z.id));
+    const out: Array<{ rule: RuleRecord; compiled: CompiledInspector }> = [];
+    for (const r of this.rules) {
+      if (r.effect !== 'inspect') continue;
+      // Inspect gates have no argument constraints; `needs_args` cannot occur.
+      if (this.matchRule(r, key, target, src, dst, {}) !== 'match') continue;
+      const compiled = this.compiled.get(r.id);
+      if (compiled) out.push({ rule: r, compiled });
+    }
+    return out;
+  }
+
   staticDecision(key: KeyRecord, target: PolicyTarget): 'deny' | 'maybe' {
     if (!this.enforcement()) return 'maybe';
     const src = new Set(this.sourceZones(key).map((z) => z.id));
     const dst = new Set(this.targetZones(target).map((z) => z.id));
     for (const r of this.rules) {
+      if (r.effect === 'inspect') continue;
       const m = this.matchRule(r, key, target, src, dst, undefined);
       if (m === 'needs_args') return 'maybe';
       if (m === 'match') return r.effect === 'deny' ? 'deny' : 'maybe';

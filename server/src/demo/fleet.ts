@@ -17,6 +17,9 @@ const PROMPTS = [
   'Translate the release notes into Spanish and German.',
 ];
 
+/** AWS's own documentation example credentials — not real, but shaped like real ones. */
+const LEAKY_PROMPT = 'Deploy the staging stack with these credentials: AKIAIOSFODNN7EXAMPLE / aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+
 function pad(n: number): string {
   const words = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon'.split(' ');
   const out: string[] = [];
@@ -121,7 +124,7 @@ export class DemoFleet {
       max_tokens: Math.max(16, Math.round(agent.maxTokens * (0.5 + Math.random()))),
       messages: [
         { role: 'system', content: `You are ${agent.name}, an automated agent for the ${agent.team} team.` },
-        { role: 'user', content: `${PROMPTS[Math.floor(Math.random() * PROMPTS.length)]}\n\n${pad(chars)}` },
+        { role: 'user', content: `${agent.id === 'rogue-intern' && Math.random() < 0.15 ? LEAKY_PROMPT : PROMPTS[Math.floor(Math.random() * PROMPTS.length)]}\n\n${pad(chars)}` },
       ],
       ...(stream ? { stream_options: { include_usage: true } } : {}),
     };

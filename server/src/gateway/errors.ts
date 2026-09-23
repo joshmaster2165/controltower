@@ -115,5 +115,11 @@ export const E = {
     message,
     extra,
   }),
+  contentBlocked: (message: string, ruleId: string, findings: Record<string, number>): GatewayError => ({
+    status: 400,
+    code: 'content_blocked',
+    message,
+    extra: { rule_id: ruleId, findings },
+  }),
   shuttingDown: (): GatewayError => ({ status: 503, code: 'shutting_down', message: 'Control Tower is restarting. Retry shortly.' }),
 };

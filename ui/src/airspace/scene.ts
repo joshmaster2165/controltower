@@ -170,6 +170,10 @@ function rgba(c: number, a: number): string {
 function hexToNum(h: string): number {
   return Number.parseInt(h.replace('#', ''), 16) || 0x1f5eff;
 }
+function gateColor(rule: Rule): number {
+  return rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : rule.effect === 'inspect' ? STATUS_COLORS.info : STATUS_COLORS.ok;
+}
+
 function bezAt(b: Bez, t: number): Pt {
   const u = 1 - t;
   const a = u * u * u;
@@ -247,6 +251,8 @@ export class AirspaceScene {
   private topology: Topology | null = null;
   private policy: PolicyBundle | null = null;
   private alerted = new Set<string>();
+  /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
+  private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
@@ -811,6 +817,7 @@ export class AirspaceScene {
 
     // Gates: tool-scoped rules sit on the tool rows; the rest on the spoke of the station they guard.
     for (const s of this.stations.values()) for (const r of s.tools) r.gates = [];
+    const global: Rule[] = [];
     for (const r of this.policy?.rules ?? []) {
       if (!r.enabled) continue;
       const m = r.match as { tools?: string[]; keys?: string[]; deployments?: string[]; mcp_servers?: string[] };
@@ -837,8 +844,15 @@ export class AirspaceScene {
       } else if (r.from_zone) {
         const z = zones.find((x) => x.id === r.from_zone);
         if (z) for (const s of this.zoneMembers(z)) if (s.kind === 'agent') this.addGate(s.id, r, 0.66);
+      } else {
+        global.push(r);
       }
     }
+    // Along the upper-right of the tower's ring (the top is where the holding count sits).
+    this.hubGates = global.map((rule, i) => {
+      const a = -Math.PI / 4 + i * 0.42;
+      return { rule, x: this.hub[0] + Math.cos(a) * (this.hubR + 22), y: this.hub[1] + Math.sin(a) * (this.hubR + 22) };
+    });
 
     this.zoneBoxes = [];
     for (const z of zones) {
@@ -898,7 +912,7 @@ export class AirspaceScene {
         break;
       }
       case 'flight.decision': {
-        if (e.rule_id && (e.decision === 'deny' || e.decision === 'hold')) {
+        if (e.rule_id && (e.decision === 'deny' || e.decision === 'hold' || e.decision === 'mutate' || e.decision === 'flagged')) {
           const hits = this.ruleHits.get(e.rule_id) ?? [];
           hits.push(e.ts);
           this.ruleHits.set(e.rule_id, hits);
@@ -1224,6 +1238,7 @@ export class AirspaceScene {
     }
 
     this.drawHub(now, held);
+    for (const g of this.hubGates) this.drawGate(g.x, g.y, g.rule, 10, this.hovered === `hubgate:${g.rule.id}`);
 
     for (const s of this.stations.values()) {
       ctx.globalAlpha = dim(s.id);
@@ -1273,7 +1288,7 @@ export class AirspaceScene {
 
   private drawGate(x: number, y: number, rule: Rule, r: number, hot: boolean): void {
     const ctx = this.ctx;
-    const c = rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : STATUS_COLORS.ok;
+    const c = gateColor(rule);
     const hits = this.ruleHits.get(rule.id)?.length ?? 0;
     if (hits) {
       ctx.beginPath();
@@ -1338,10 +1353,22 @@ export class AirspaceScene {
 
   private drawGateGlyph(x: number, y: number, rule: Rule, k: number): void {
     const ctx = this.ctx;
-    const c = rule.effect === 'deny' ? STATUS_COLORS.denied : rule.effect === 'require_approval' ? STATUS_COLORS.held : STATUS_COLORS.ok;
+    const c = gateColor(rule);
     ctx.fillStyle = hex(c);
     ctx.strokeStyle = hex(c);
-    if (rule.effect === 'deny') {
+    if (rule.effect === 'inspect') {
+      // Magnifier: content inspection.
+      ctx.beginPath();
+      ctx.arc(x - 1 * k, y - 1 * k, 3.4 * k, 0, Math.PI * 2);
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 1.5 * k, y + 1.5 * k);
+      ctx.lineTo(x + 4.5 * k, y + 4.5 * k);
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (rule.effect === 'deny') {
       roundRect(ctx, x - 5 * k, y - 1.5 * k, 10 * k, 3 * k, 1.5 * k);
       ctx.fill();
     } else if (rule.effect === 'require_approval') {
@@ -1673,6 +1700,7 @@ export class AirspaceScene {
     for (const s of this.stations.values()) {
       if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return { kind: 'station', station: this.view(s, now), x: sx, y: sy };
     }
+    for (const g of this.hubGates) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) return { kind: 'gate', rule: g.rule, x: sx, y: sy };
     for (const sp of this.spokes.values()) {
       for (const g of sp.gates) if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) return { kind: 'gate', rule: g.rule, x: sx, y: sy };
     }
@@ -1733,6 +1761,14 @@ export class AirspaceScene {
       this.canvas.style.cursor = this.drawMode || this.gateMode ? 'crosshair' : 'grab';
       this.hoverCb?.({ x: sx, y: sy, station: this.view(s, now) });
       return;
+    }
+    for (const g of this.hubGates) {
+      if ((g.x - x) ** 2 + (g.y - y) ** 2 < 14 * 14) {
+        this.setHovered(`hubgate:${g.rule.id}`);
+        this.canvas.style.cursor = 'pointer';
+        this.hoverCb?.({ x: sx, y: sy, gate: { rule: g.rule, hits: this.ruleHits.get(g.rule.id)?.length ?? 0 } });
+        return;
+      }
     }
     for (const sp of this.spokes.values()) {
       for (const g of sp.gates) {

@@ -252,7 +252,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 
 /* Gate composer */
 .popover.composer { width: 340px; }
-.effects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.effects { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .effect {
   border: 1px solid var(--border-strong); background: #fff; border-radius: 8px; padding: 7px 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
@@ -338,3 +338,10 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .gate-alerts .ar .txt b { color: var(--text); font-weight: 500; }
 .gate-alerts .ar.off { opacity: 0.55; }
 .gate-alerts .ar .btn { padding: 2px 7px; }
+.legend em.gate.inspect { border-color: var(--accent); }
+.effect.inspect.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+.inspect-fields { border-top: 1px solid var(--border); padding-top: 10px; margin-bottom: 4px; }
+.inspect-fields .seg { display: flex; }
+.inspect-fields .seg button { flex: 1; }
+.inspect-fields .check { flex-wrap: wrap; row-gap: 0; }
+.inspect-fields .check .dim { flex-basis: 100%; padding-left: 22px; font-size: 11.5px; }

@@ -38,8 +38,16 @@ export interface PolicyDecision {
   argHash?: string | undefined;
 }
 
+/** An inspect gate that applies to a path (see guardrails/scan.ts). */
+export interface InspectGate {
+  rule: { id: string; name: string; config: import('../guardrails/scan.js').InspectConfig };
+  compiled: import('../guardrails/scan.js').CompiledInspector;
+}
+
 export interface PolicyEngine {
   readonly version: number;
+  /** Content-inspection gates on this path, in priority order. */
+  inspectors?(key: KeyRecord, target: PolicyTarget): InspectGate[];
   evaluate(input: PolicyInput): PolicyDecision | Promise<PolicyDecision>;
   /** Static decision (no args) used to filter MCP tools/list pre-emptively. */
   staticDecision(key: KeyRecord, target: PolicyTarget): 'deny' | 'maybe';

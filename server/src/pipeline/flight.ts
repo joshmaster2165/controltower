@@ -8,7 +8,9 @@ import type { NormalizedError, WireDialect } from '../providers/adapter.js';
 import type { PriceRef } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
-import type { PolicyDecision } from '../policy/engine.js';
+import type { InspectGate, PolicyDecision, PolicyTarget } from '../policy/engine.js';
+import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
+import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
 
@@ -52,6 +54,8 @@ export interface Flight {
     | undefined;
   decision: PolicyDecision | undefined;
   approvalId: string | undefined;
+  /** Inspect gates on this path that look at what comes back. */
+  inspectOut: InspectGate[];
   /** Set when the upstream adapter speaks a different dialect than the client: its native dialect. */
   translateTo: WireDialect | undefined;
   attempts: number;
@@ -95,6 +99,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     route: undefined,
     decision: undefined,
     approvalId: undefined,
+    inspectOut: [],
     translateTo: undefined,
     attempts: 0,
     deployment: undefined,
@@ -137,6 +142,16 @@ export function extractApiKey(req: FastifyRequest): string | undefined {
   const xk = req.headers['x-api-key'];
   if (typeof xk === 'string' && xk) return xk.trim();
   return undefined;
+}
+
+/** Text a model produced, from one stream frame of either dialect (content, text, tool-call arguments). */
+function collectText(v: unknown, out: string[], key?: string): void {
+  if (typeof v === 'string') {
+    if (key === 'content' || key === 'text' || key === 'arguments' || key === 'partial_json' || key === 'thinking') out.push(v);
+    return;
+  }
+  if (Array.isArray(v)) for (const x of v) collectText(x, out, key);
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) collectText(x, out, k);
 }
 
 function toolNames(body: Record<string, unknown>): string[] {
@@ -229,17 +244,18 @@ export class FlightRunner {
 
       // ---- policy ----
       // Policy is evaluated against the primary route; fallbacks stay within the same alias.
+      const target: PolicyTarget = {
+        kind: 'model',
+        name: f.modelRequested,
+        providerId: headProv?.id,
+        providerKind: headProv?.kind,
+        deploymentId: head.id,
+        operation: 'read',
+      };
       let decision = await ctx.policy.evaluate({
         flightId: f.id,
         key,
-        target: {
-          kind: 'model',
-          name: f.modelRequested,
-          providerId: headProv?.id,
-          providerKind: headProv?.kind,
-          deploymentId: head.id,
-          operation: 'read',
-        },
+        target,
         args: { model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body) },
         estInputTokens: f.estInput,
         projectedNanousd: projected,
@@ -296,6 +312,21 @@ export class FlightRunner {
           f.status = outcome.kind === 'denied' ? 'denied' : 'ticketed';
           throw outcome.error;
         }
+      }
+
+      // ---- inspect (what the agent sends) ----
+      const gates = ctx.policy.inspectors?.(key, target) ?? [];
+      if (gates.length) {
+        f.inspectOut = gates.filter((g) => g.compiled.direction !== 'input');
+        const fields = ['messages', 'system', 'input', 'prompt'].filter((k) => body[k] !== undefined);
+        const picked = Object.fromEntries(fields.map((k) => [k, body[k]]));
+        const r = runInspectors(gates, 'input', picked);
+        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
+        if (r.blocked) {
+          f.status = 'denied';
+          throw E.contentBlocked(blockedMessage(r.blocked, 'request'), r.blocked.ruleId, r.blocked.findings);
+        }
+        if (r.value !== picked) Object.assign(f.body, r.value as Record<string, unknown>);
       }
 
       // ---- dispatch + egress ----
@@ -437,6 +468,26 @@ export class FlightRunner {
             /* forward as-is */
           }
         }
+        if (f.inspectOut.length && f.kind !== 'embeddings') {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(Buffer.from(bodyOut).toString('utf8'));
+          } catch {
+            parsed = undefined;
+          }
+          if (parsed !== undefined) {
+            const r = runInspectors(f.inspectOut, 'output', parsed);
+            emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the response');
+            if (r.blocked) {
+              f.status = 'denied';
+              throw E.contentBlocked(blockedMessage(r.blocked, 'response'), r.blocked.ruleId, r.blocked.findings);
+            }
+            if (r.value !== parsed) {
+              bodyOut = Buffer.from(JSON.stringify(r.value));
+              ctype = 'application/json';
+            }
+          }
+        }
         reply.header('content-type', ctype).status(result.status);
         f.bytesWritten = bodyOut.byteLength;
         await reply.send(Buffer.from(bodyOut));
@@ -488,6 +539,16 @@ export class FlightRunner {
           ? new OaToAnthropicStream(f.modelRequested, f.estInput)
           : null;
 
+    // Streamed replies can only be inspected after delivery: collect the text for a flag-only scan.
+    const seen: string[] = [];
+    let seenChars = 0;
+    const collect = (parsed: Record<string, unknown> | null | undefined): void => {
+      if (!parsed || seenChars > MAX_SCAN_CHARS) return;
+      collectText(parsed, seen);
+      seenChars = seen.reduce((n, x) => n + x.length, 0);
+    };
+    const inspecting = f.inspectOut.length > 0;
+
     const write = async (chunk: Uint8Array | string): Promise<void> => {
       if (res.writableEnded || res.destroyed) return;
       f.bytesWritten += typeof chunk === 'string' ? chunk.length : chunk.byteLength;
@@ -505,6 +566,7 @@ export class FlightRunner {
             if (xform) {
               const parsed = (ev.parsed as Record<string, unknown> | undefined) ?? parseSseData(ev.raw);
               if (!parsed) break;
+              if (inspecting) collect(parsed);
               const r = xform.feed(parsed);
               if (r.hasContent && f.t.ttft == null) {
                 f.t.ttft = Date.now();
@@ -514,6 +576,7 @@ export class FlightRunner {
               break;
             }
             if (ev.usageOnly && !clientWantsUsage) break;
+            if (inspecting) collect((ev.parsed as Record<string, unknown> | undefined) ?? parseSseData(ev.raw));
             if (ev.hasContent && f.t.ttft == null) {
               f.t.ttft = Date.now();
               if (f.deployment) this.ctx.registry.recordTtft(f.deployment.id, f.t.ttft - f.t.start);
@@ -555,6 +618,10 @@ export class FlightRunner {
       if (!res.writableEnded) res.end();
     }
     if (f.status === 'client_aborted' && f.usageSource !== 'provider') f.usageSource = 'estimated_partial';
+    if (inspecting && seen.length) {
+      const r = runInspectors(f.inspectOut, 'output', seen.join(''), { streamed: true });
+      emitInspectOutcomes(this.ctx.bus, f.id, r.outcomes, 'in the response', true);
+    }
   }
 
   private account(f: Flight): void {

@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
 import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type LinkState } from '../airspace/scene';
 import { hex } from '../airspace/colors';
-import { api, ApiError, type AlertChannel, type AlertRule, type Rule, type Topology, type Zone } from '../api';
+import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type InspectConfig, type Rule, type Topology, type Zone } from '../api';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from './Alerts';
 import { ApprovalCard } from './Tower';
 
@@ -455,6 +455,9 @@ export function AirspacePage() {
         <span>
           <em className="gate hold" /> approval gate
         </span>
+        <span>
+          <em className="gate inspect" /> inspect gate
+        </span>
         <span className={`pill ${wsState === 'live' ? 'live' : 'warn'}`}>
           <i className="led" /> {wsState}
         </span>
@@ -801,13 +804,14 @@ function ZonePopover({ x, y, zone, zones, rules, onClose, onChanged }: { x: numb
 
 function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onChanged }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; alerts: AlertRule[]; channels: AlertChannel[]; onClose: () => void; onChanged: () => void }) {
   const [alertForm, setAlertForm] = useState<AlertRule | 'new' | null>(null);
+  const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both' } : DEFAULT_INSPECT);
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
   const total = (stats?.approved ?? 0) + (stats?.denied ?? 0);
   const rate = total ? (stats!.approved / total) * 100 : null;
   const save = async () => {
-    await api.patch(`/admin/api/rules/${rule.id}`, { effect, config: { reason: reason || undefined, hold_ms: Math.max(0, Number(hold)) * 1000 } });
+    await api.patch(`/admin/api/rules/${rule.id}`, { effect, config: { reason: reason || undefined, hold_ms: Math.max(0, Number(hold)) * 1000, ...(effect === 'inspect' ? inspect : {}) } });
     onChanged();
     onClose();
   };
@@ -834,6 +838,7 @@ function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onCha
           <option value="allow">allow (open gate)</option>
           <option value="deny">deny (barrier)</option>
           <option value="require_approval">require approval (checkpoint)</option>
+          <option value="inspect">inspect content (guardrail)</option>
         </select>
       </div>
       {effect === 'require_approval' && (
@@ -842,6 +847,7 @@ function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onCha
           <input className="input" type="number" min={0} max={55} value={hold} onChange={(e) => setHold(e.target.value)} />
         </div>
       )}
+      {effect === 'inspect' && <InspectFields value={inspect} onChange={setInspect} />}
       <div className="field">
         <label>Reason shown to the agent</label>
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
@@ -916,14 +922,109 @@ function GateAlerts({ rule, alerts, channels, form, setForm }: { rule: Rule; ale
   );
 }
 
+let detectorCache: DetectorInfo[] | null = null;
+function useDetectors(): DetectorInfo[] {
+  const [d, setD] = useState<DetectorInfo[]>(detectorCache ?? []);
+  useEffect(() => {
+    if (detectorCache) return;
+    void api.get<{ detectors: DetectorInfo[] }>('/admin/api/guardrails/detectors').then((r) => {
+      detectorCache = r.detectors;
+      setD(r.detectors);
+    });
+  }, []);
+  return d;
+}
+
+export const DEFAULT_INSPECT: InspectConfig = { detectors: ['secrets'], action: 'block', direction: 'input' };
+
+export function inspectSummary(c: InspectConfig): string {
+  const ids = c.detectors ?? [];
+  const what = [
+    ids.includes('secrets') ? 'secrets' : '',
+    ids.includes('injection') ? 'prompt injection' : '',
+    ids.some((d) => d !== 'secrets' && d !== 'injection') || ids.includes('pii') ? 'personal data' : '',
+    c.keywords?.length ? 'keywords' : '',
+  ].filter(Boolean);
+  const verb = c.action === 'mask' ? 'mask' : c.action === 'block' ? 'block' : 'flag';
+  const where = c.direction === 'input' ? 'in what agents send' : c.direction === 'output' ? 'in what comes back' : 'both ways';
+  return `${verb} ${what.join(', ') || 'nothing yet'} ${where}`;
+}
+
+function InspectFields({ value, onChange }: { value: InspectConfig; onChange: (v: InspectConfig) => void }) {
+  const detectors = useDetectors();
+  const ids = value.detectors ?? [];
+  const pii = detectors.filter((d) => d.category === 'pii');
+  const has = (id: string) => ids.includes(id);
+  const toggle = (id: string) => onChange({ ...value, detectors: has(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+  const [kw, setKw] = useState((value.keywords ?? []).join(', '));
+  return (
+    <div className="inspect-fields">
+      <div className="field">
+        <label>Look for</label>
+        <label className="check">
+          <input type="checkbox" checked={has('secrets')} onChange={() => toggle('secrets')} /> Secrets & credentials
+          <span className="dim">API keys, tokens, private keys, connection strings</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={has('injection')} onChange={() => toggle('injection')} /> Prompt injection
+          <span className="dim">Instructions hidden in tool results and documents</span>
+        </label>
+        <div className="dim" style={{ margin: '4px 0 4px' }}>Personal data</div>
+        <div className="chips">
+          {pii.map((d) => (
+            <button key={d.id} type="button" className={`chip warn ${has(d.id) ? 'on' : ''}`} onClick={() => toggle(d.id)}>
+              {d.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>Keywords (optional, comma-separated)</label>
+        <input
+          className="input"
+          value={kw}
+          placeholder="Project Falcon, acquisition"
+          onChange={(e) => {
+            setKw(e.target.value);
+            onChange({ ...value, keywords: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) });
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>When found</label>
+        <div className="seg">
+          {(['mask', 'block', 'flag'] as const).map((a) => (
+            <button key={a} type="button" className={value.action === a ? 'on' : ''} onClick={() => onChange({ ...value, action: a })}>
+              {a === 'mask' ? 'Mask it' : a === 'block' ? 'Block' : 'Flag only'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>Check</label>
+        <div className="seg">
+          {(['input', 'output', 'both'] as const).map((d) => (
+            <button key={d} type="button" className={value.direction === d ? 'on' : ''} onClick={() => onChange({ ...value, direction: d })}>
+              {d === 'input' ? 'What agents send' : d === 'output' ? 'What comes back' : 'Both'}
+            </button>
+          ))}
+        </div>
+        {value.direction !== 'input' && <div className="hint">Tool results and complete model replies are checked before the agent sees them. Streamed model replies can only be checked after delivery, so there a match is flagged.</div>}
+      </div>
+    </div>
+  );
+}
+
 const EFFECTS: Array<{ id: Rule['effect']; label: string; hint: string; cls: string }> = [
   { id: 'deny', label: 'Block', hint: 'Requests on this path are refused with a 403 the agent can read.', cls: 'deny' },
   { id: 'require_approval', label: 'Require approval', hint: 'Requests wait at the gate until someone approves in the Tower.', cls: 'hold' },
+  { id: 'inspect', label: 'Inspect', hint: 'Scan what passes for secrets, personal data or prompt injection — mask it, block it, or flag it. Runs alongside the other gates.', cls: 'inspect' },
   { id: 'allow', label: 'Allow', hint: 'Explicitly allow this path (takes precedence over broader gates below it).', cls: 'allow' },
 ];
 
 function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreated }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; channels: AlertChannel[]; onClose: () => void; onCreated: () => void }) {
   const [notify, setNotify] = useState(false);
+  const [inspect, setInspect] = useState<InspectConfig>(DEFAULT_INSPECT);
   const [notifyChannels, setNotifyChannels] = useState<string[]>(channels.filter((c) => c.enabled).map((c) => c.id));
   const [from, setFrom] = useState(draft.from);
   const [to, setTo] = useState(draft.to);
@@ -944,11 +1045,11 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
           const d = topology.deployments.find((x) => x.id === to.slice(4));
           return d?.public_name ?? d?.upstream_model ?? '?';
         })();
-  const verb = effect === 'deny' ? 'Block' : effect === 'require_approval' ? 'Require approval for' : 'Allow';
-  const sentence = `${verb} ${agentLabel} → ${destLabel}`;
+  const verb = effect === 'deny' ? 'Block' : effect === 'require_approval' ? 'Require approval for' : effect === 'inspect' ? 'Inspect' : 'Allow';
+  const sentence = effect === 'inspect' ? `Inspect ${agentLabel} → ${destLabel}: ${inspectSummary(inspect)}` : `${verb} ${agentLabel} → ${destLabel}`;
 
   const create = async () => {
-    if (from === 'all' && !to) {
+    if (from === 'all' && !to && effect !== 'inspect') {
       setErr('Pick an agent or a destination — a gate on everything would stop all traffic.');
       return;
     }
@@ -971,6 +1072,14 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
     const config: Record<string, unknown> = {};
     if (reason.trim()) config.reason = reason.trim();
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
+    if (effect === 'inspect') {
+      if (!(inspect.detectors?.length || inspect.keywords?.length)) {
+        setErr('Pick at least one thing to look for.');
+        setBusy(false);
+        return;
+      }
+      Object.assign(config, inspect);
+    }
     body.config = config;
     try {
       const created = await api.post<{ id: string }>('/admin/api/rules', body);
@@ -1071,13 +1180,14 @@ function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreat
           <input className="input" type="number" min={0} max={55} value={hold} onChange={(e) => setHold(e.target.value)} />
         </div>
       )}
+      {effect === 'inspect' && <InspectFields value={inspect} onChange={setInspect} />}
       <div className="field">
         <label>Reason shown to the agent (optional)</label>
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
       </div>
       <div className="field">
         <label className="check">
-          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Alert me when this gate {effect === 'deny' ? 'blocks something' : effect === 'require_approval' ? 'holds a request' : 'lets something through'}
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Alert me when this gate {effect === 'deny' ? 'blocks something' : effect === 'require_approval' ? 'holds a request' : effect === 'inspect' ? 'finds something' : 'lets something through'}
         </label>
         {notify &&
           channels.map((c) => (

@@ -12,6 +12,7 @@
 - **See it.** Agents, models, MCP servers and their tools on one interactive map. Every connection shows its state — active, idle, unused, holding, blocked — so it stays readable at hundreds of agents. Drag nodes to arrange the map (the arrangement is saved and shared), pan and zoom, and click any node to trace everything it connects to.
 - **Draw the rules.** Lasso stations into a zone, click a boundary, pick *allow / deny / require approval / allow with limits*. YAML is the *output*, for review and Git.
 - **Stop it.** Approvals hold the agent's request at the gate; a human clicks approve in the **Tower** and the flight continues. Unanswered holds turn into a resumable ticket, never a silent timeout.
+- **Inspect it.** *Inspect gates* scan what passes along a path — prompts, model replies, MCP tool arguments and tool results — for secrets, personal data, prompt injection or your own keywords, and mask it, block it, or flag it.
 - **Hear about it.** Put an alert on any gate — *blocked*, *held for approval*, *approved*, *rejected*, *not answered*, *approval misused* — firing every time or only when it repeats (e.g. 5× in 10 min). Alerts land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
@@ -64,9 +65,19 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 | **Flight** | One request — an LLM call or a tool call. |
 | **Gate** | A rule on a zone boundary: open, barrier, checkpoint (approval), toll (limits). |
 | **Tower** | The approvals queue. |
+| **Inspect gate** | A guardrail on a path: what to look for, which direction, and whether to mask, block or flag. Runs alongside access gates. |
 | **Alert** | A notification rule on a gate: which outcomes, how often, where to send it. |
 | **Ledger** | Cost, tokens, latency. |
 | **Flight Recorder** | Replay and *simulate* — what would this rule have done to yesterday's traffic? |
+
+## Inspect gates (guardrails)
+
+Pick **Inspect** when adding a gate. A gate with no agent or destination covers everything and sits on the tower itself.
+
+- **Detectors**: secrets and credentials (AWS, GitHub, Slack, Stripe, OpenAI, Anthropic and Google keys, JWTs, private keys, connection strings with passwords, Control Tower keys); personal data (email, phone, card numbers with a Luhn check, US SSN, IBAN with its checksum, IP address); prompt injection (ignore-your-instructions phrasing, role overrides, system-prompt extraction, chat-template markup, "send the credentials to…"); and your own keywords.
+- **Direction**: what agents send (prompts, tool arguments), what comes back (model replies, tool results), or both. Scanning tool results is where indirect prompt injection and data leaks are caught before the model reads them.
+- **Action**: *mask* replaces the match with a placeholder such as `[EMAIL]` or `[SECRET:AWS_KEY]`; *block* returns `400 content_blocked` with a message the agent can act on (for MCP, an `isError` tool result); *flag* lets it through and records it. Every match shows on the map and can trigger an alert (`blocked`, `masked`, `flagged`).
+- **Honest limits**: detectors are pattern-based and catch well-formed, common cases, not deliberate evasion. Streamed model replies are checked after delivery, so on a stream a match is flagged, never masked or blocked. Findings record which detectors matched and how often — never the matched text.
 
 ## Alerts
 

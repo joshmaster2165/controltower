@@ -218,12 +218,26 @@ export interface Rule {
   to_zone: string | null;
   target_kind: 'model' | 'tool' | 'any';
   match: Record<string, unknown>;
-  effect: 'allow' | 'deny' | 'require_approval' | 'allow_with_limits';
-  config: { reason?: string; hold_ms?: number; binding?: string; bind_fields?: string[]; window?: { uses?: number; ttl_ms?: number } };
+  effect: 'allow' | 'deny' | 'require_approval' | 'allow_with_limits' | 'inspect';
+  config: { reason?: string; hold_ms?: number; binding?: string; bind_fields?: string[]; window?: { uses?: number; ttl_ms?: number } } & InspectConfig;
   priority: number;
   enabled: boolean;
   revision: number;
   demo: boolean;
+}
+
+export interface InspectConfig {
+  detectors?: string[] | undefined;
+  keywords?: string[] | undefined;
+  patterns?: Array<{ name: string; regex: string }> | undefined;
+  action?: 'block' | 'mask' | 'flag' | undefined;
+  direction?: 'input' | 'output' | 'both' | undefined;
+}
+
+export interface DetectorInfo {
+  id: string;
+  category: 'secret' | 'pii' | 'injection';
+  label: string;
 }
 
 export interface PolicyBundle {
@@ -254,7 +268,7 @@ export interface Approval {
   demo: boolean;
 }
 
-export type AlertTrigger = 'blocked' | 'held' | 'approved' | 'rejected' | 'unanswered' | 'allowed' | 'scope_mismatch';
+export type AlertTrigger = 'blocked' | 'held' | 'approved' | 'rejected' | 'unanswered' | 'allowed' | 'scope_mismatch' | 'masked' | 'flagged';
 
 export const ALERT_TRIGGERS: Array<{ id: AlertTrigger; label: string; hint: string }> = [
   { id: 'blocked', label: 'Blocked', hint: 'the gate refused a request' },
@@ -264,6 +278,8 @@ export const ALERT_TRIGGERS: Array<{ id: AlertTrigger; label: string; hint: stri
   { id: 'unanswered', label: 'Not answered', hint: 'nobody answered before the hold ran out' },
   { id: 'allowed', label: 'Allowed', hint: 'an allow gate let a request through' },
   { id: 'scope_mismatch', label: 'Approval misused', hint: 'an approval was replayed with different arguments' },
+  { id: 'masked', label: 'Masked', hint: 'an inspect gate masked sensitive content' },
+  { id: 'flagged', label: 'Flagged', hint: 'an inspect gate found sensitive content and let it through' },
 ];
 
 export interface AlertItem {

@@ -21,7 +21,7 @@ import { seedDemo, seedDemoPolicy } from './demo/seed.js';
 import { DemoFleet } from './demo/fleet.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
-import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts } from './demo/mcp-servers.js';
+import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts, seedDemoInspectGates } from './demo/mcp-servers.js';
 import { AlertService } from './alerts/alerts.js';
 
 async function main(): Promise<void> {
@@ -117,6 +117,7 @@ async function main(): Promise<void> {
     await seedDemoPolicy(db.write);
     await seedDemoMcp(db.write, `http://127.0.0.1:${config.port}`);
     await seedDemoMcpPolicy(db.write);
+    await seedDemoInspectGates(db.write);
     await seedDemoAlerts(db.write);
     await mcp.reload();
     await registry.reload();

@@ -20,13 +20,14 @@ function dur(s: number): string {
 const TRIGGER_LABEL = Object.fromEntries(ALERT_TRIGGERS.map((t) => [t.id, t.label])) as Record<AlertTrigger, string>;
 
 export function triggerTone(t: string): 'danger' | 'warn' | 'ok' {
-  return t === 'blocked' || t === 'rejected' || t === 'scope_mismatch' || t === 'mixed' ? 'danger' : t === 'held' || t === 'unanswered' ? 'warn' : 'ok';
+  return t === 'blocked' || t === 'rejected' || t === 'scope_mismatch' || t === 'mixed' ? 'danger' : t === 'held' || t === 'unanswered' || t === 'masked' || t === 'flagged' ? 'warn' : 'ok';
 }
 
 /** What a gate most likely wants to hear about. */
 export function defaultTriggers(effect: Rule['effect'] | undefined): AlertTrigger[] {
   if (effect === 'deny') return ['blocked'];
   if (effect === 'require_approval') return ['held', 'unanswered'];
+  if (effect === 'inspect') return ['blocked', 'masked', 'flagged'];
   if (effect === 'allow' || effect === 'allow_with_limits') return ['allowed'];
   return ['blocked', 'held'];
 }
@@ -108,6 +109,7 @@ export function AlertRuleForm({ gate, gates, channels, existing, compact, onDone
   const shown = chosen?.effect === 'deny' ? ALERT_TRIGGERS.filter((t) => ['blocked', 'scope_mismatch'].includes(t.id))
     : chosen?.effect === 'require_approval' ? ALERT_TRIGGERS.filter((t) => ['held', 'approved', 'rejected', 'unanswered', 'scope_mismatch'].includes(t.id))
     : chosen?.effect === 'allow' ? ALERT_TRIGGERS.filter((t) => t.id === 'allowed')
+    : chosen?.effect === 'inspect' ? ALERT_TRIGGERS.filter((t) => ['blocked', 'masked', 'flagged'].includes(t.id))
     : ALERT_TRIGGERS;
 
   return (

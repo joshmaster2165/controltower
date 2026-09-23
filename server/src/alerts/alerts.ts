@@ -21,7 +21,7 @@ import type { Versioned } from '../util/versioned.js';
  * delivery happen off the hot path.
  */
 
-export const ALERT_TRIGGERS = ['blocked', 'held', 'approved', 'rejected', 'unanswered', 'allowed', 'scope_mismatch'] as const;
+export const ALERT_TRIGGERS = ['blocked', 'held', 'approved', 'rejected', 'unanswered', 'allowed', 'scope_mismatch', 'masked', 'flagged'] as const;
 export type AlertTrigger = (typeof ALERT_TRIGGERS)[number];
 
 const PAST: Record<AlertTrigger, string> = {
@@ -32,6 +32,8 @@ const PAST: Record<AlertTrigger, string> = {
   unanswered: 'not answered in time',
   allowed: 'allowed',
   scope_mismatch: 'replayed an approval with different arguments',
+  masked: 'had sensitive content masked',
+  flagged: 'flagged for sensitive content',
 };
 
 export type ChannelKind = 'slack' | 'webhook';
@@ -247,7 +249,8 @@ export class AlertService {
         if (!e.rule_id) return;
         const f = this.flights.get(e.flight_id);
         if (f) f.gateId = e.rule_id;
-        const trigger: AlertTrigger | null = e.decision === 'deny' ? (e.reason === 'scope_mismatch' ? 'scope_mismatch' : 'blocked') : e.decision === 'hold' ? 'held' : e.decision === 'allow' ? 'allowed' : null;
+        const trigger: AlertTrigger | null =
+          e.decision === 'deny' ? (e.reason === 'scope_mismatch' ? 'scope_mismatch' : 'blocked') : e.decision === 'hold' ? 'held' : e.decision === 'allow' ? 'allowed' : e.decision === 'mutate' ? 'masked' : e.decision === 'flagged' ? 'flagged' : null;
         if (trigger) this.hit(e.flight_id, e.rule_id, trigger, e.ts, e.reason);
         return;
       }

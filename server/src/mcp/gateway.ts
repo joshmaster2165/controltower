@@ -7,6 +7,8 @@ import { extractApiKey, newFlight, type Flight } from '../pipeline/flight.js';
 import { McpUpstreamError, type McpTool } from './upstream.js';
 import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js';
 import type { PolicyTarget } from '../policy/engine.js';
+import { describeFindings, runInspectors } from '../guardrails/scan.js';
+import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 
 /**
  * The MCP gateway. Agents point their MCP client at /mcp (all servers, tools
@@ -313,12 +315,35 @@ export class McpGateway {
         }
       }
 
+      // ---- inspect the arguments ----
+      const gates = ctx.policy.inspectors?.(key, target) ?? [];
+      let callArgs = args;
+      if (gates.length) {
+        const r = runInspectors(gates, 'input', args);
+        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool arguments');
+        if (r.blocked) {
+          complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });
+          return blocked('content_blocked', blockedMessage(r.blocked, 'tool arguments'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
+        }
+        callArgs = r.value as Record<string, unknown>;
+      }
+
       // ---- dispatch ----
       f.t.upstreamSent = Date.now();
       const client = ctx.mcp.client(server);
-      const result = await client.callTool(toolName, args, f.abort.signal);
+      let result = await client.callTool(toolName, callArgs, f.abort.signal);
       if (f.t.ttfb == null) f.t.ttfb = Date.now();
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: server.id, provider_id: server.id, upstream_model: toolName, outcome: 'ok', status: 200, ttfb_ms: f.t.ttfb - f.t.start });
+      // ---- inspect the result: what the model is about to read ----
+      if (gates.length) {
+        const r = runInspectors(gates, 'output', result);
+        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool result');
+        if (r.blocked) {
+          complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });
+          return blocked('content_blocked', blockedMessage(r.blocked, 'tool result'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
+        }
+        result = r.value as typeof result;
+      }
       const bytes = JSON.stringify(result).length;
       complete(result.isError ? 'error' : 'ok', 200, result.isError ? { code: 'tool_error', message: 'tool returned isError' } : undefined, bytes);
       return result;

@@ -4,6 +4,24 @@ import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { PolicyService } from '../policy/policy.js';
 import type { ApprovalService } from '../policy/approvals.js';
+import { validatePattern, type InspectConfig } from '../guardrails/scan.js';
+import { detectorCatalog } from '../guardrails/detectors.js';
+
+const EFFECTS = ['allow', 'deny', 'require_approval', 'allow_with_limits', 'inspect'];
+
+function inspectConfigError(c: InspectConfig): string | null {
+  if (c.action && !['block', 'mask', 'flag'].includes(c.action)) return 'action must be block | mask | flag';
+  if (c.direction && !['input', 'output', 'both'].includes(c.direction)) return 'direction must be input | output | both';
+  const known = new Set(['secrets', 'pii', 'injection', ...detectorCatalog().map((d) => d.id)]);
+  const unknown = (c.detectors ?? []).filter((d) => !known.has(d));
+  if (unknown.length) return `unknown detector(s): ${unknown.join(', ')}`;
+  for (const p of c.patterns ?? []) {
+    const err = validatePattern(p.regex ?? '');
+    if (err) return `pattern "${p.name}": ${err}`;
+  }
+  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length)) return 'an inspect gate needs at least one detector, keyword or pattern';
+  return null;
+}
 
 /** Zones, rules (gates), approvals and grants. */
 export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
@@ -30,6 +48,8 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     }
     return { ...snap, enforcement: ctx.config.mode === 'on', rule_stats: byRule };
   });
+
+  app.get('/admin/api/guardrails/detectors', { preHandler: guard }, async () => ({ detectors: detectorCatalog() }));
 
   // ---- zones ----
   app.post('/admin/api/zones', { preHandler: guard }, async (req, reply) => {
@@ -82,9 +102,11 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
       priority?: number;
     };
     const effect = b.effect;
-    if (!effect || !['allow', 'deny', 'require_approval', 'allow_with_limits'].includes(effect)) {
-      return reply.status(400).send({ error: { code: 'invalid', message: 'effect must be allow | deny | require_approval | allow_with_limits' } });
+    if (!effect || !EFFECTS.includes(effect)) {
+      return reply.status(400).send({ error: { code: 'invalid', message: `effect must be ${EFFECTS.join(' | ')}` } });
     }
+    const bad = effect === 'inspect' ? inspectConfigError(b.config ?? {}) : null;
+    if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
     if (b.from_zone && !policy.zones.has(b.from_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'from_zone not found' } });
     if (b.to_zone && !policy.zones.has(b.to_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'to_zone not found' } });
     const id = `rule_${ulid()}`;
@@ -125,8 +147,16 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     if ('to_zone' in b) patch.to_zone = (b.to_zone as string | null) ?? null;
     if (typeof b.target_kind === 'string') patch.target_kind = b.target_kind;
     if (b.match && typeof b.match === 'object') patch.match = JSON.stringify(b.match);
-    if (typeof b.effect === 'string') patch.effect = b.effect;
-    if (b.config && typeof b.config === 'object') patch.config = JSON.stringify({ ...r.config, ...(b.config as object) });
+    if (typeof b.effect === 'string') {
+      if (!EFFECTS.includes(b.effect)) return reply.status(400).send({ error: { code: 'invalid', message: `effect must be ${EFFECTS.join(' | ')}` } });
+      patch.effect = b.effect;
+    }
+    if (b.config && typeof b.config === 'object') {
+      const merged = { ...r.config, ...(b.config as object) };
+      const bad = (patch.effect ?? r.effect) === 'inspect' ? inspectConfigError(merged) : null;
+      if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
+      patch.config = JSON.stringify(merged);
+    }
     if (typeof b.priority === 'number') patch.priority = b.priority;
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     await ctx.db.write.updateTable('rules').set(patch).where('id', '=', id).execute();

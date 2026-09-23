@@ -253,3 +253,66 @@ export interface Approval {
   grant_id: string | null;
   demo: boolean;
 }
+
+export type AlertTrigger = 'blocked' | 'held' | 'approved' | 'rejected' | 'unanswered' | 'allowed' | 'scope_mismatch';
+
+export const ALERT_TRIGGERS: Array<{ id: AlertTrigger; label: string; hint: string }> = [
+  { id: 'blocked', label: 'Blocked', hint: 'the gate refused a request' },
+  { id: 'held', label: 'Held for approval', hint: 'a request is waiting in the Tower' },
+  { id: 'approved', label: 'Approved', hint: 'someone approved a held request' },
+  { id: 'rejected', label: 'Rejected', hint: 'an approver denied a held request' },
+  { id: 'unanswered', label: 'Not answered', hint: 'nobody answered before the hold ran out' },
+  { id: 'allowed', label: 'Allowed', hint: 'an allow gate let a request through' },
+  { id: 'scope_mismatch', label: 'Approval misused', hint: 'an approval was replayed with different arguments' },
+];
+
+export interface AlertItem {
+  id: string;
+  alert_rule_id: string;
+  rule_id: string | null;
+  trigger: AlertTrigger | 'mixed';
+  title: string;
+  detail: {
+    gate: { id: string; name: string; effect: string } | null;
+    agents: Array<{ name: string; count: number }>;
+    destinations: Array<{ name: string; count: number }>;
+    reason: string | null;
+    flights: string[];
+    digest: boolean;
+    window_s: number;
+  };
+  count: number;
+  first_at: number;
+  last_at: number;
+  deliveries: Array<{ channel_id: string; name: string; kind: string; ok: boolean; status?: number; error?: string; attempts: number; pending?: boolean }>;
+  read: boolean;
+  demo: boolean;
+}
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  rule_id: string | null;
+  gate_name: string | null;
+  triggers: AlertTrigger[];
+  threshold: number;
+  window_s: number;
+  cooldown_s: number;
+  channels: string[];
+  enabled: boolean;
+  demo: boolean;
+  last_fired_at: number | null;
+  fired_24h: number;
+}
+
+export interface AlertChannel {
+  id: string;
+  name: string;
+  kind: 'slack' | 'webhook';
+  target_hint: string;
+  has_secret: boolean;
+  enabled: boolean;
+  last_status: 'ok' | 'error' | null;
+  last_error: string | null;
+  last_sent_at: number | null;
+}

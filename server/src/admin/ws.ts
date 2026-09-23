@@ -35,6 +35,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
     const unsubApprovals = ctx.approvalsVersion.onChange((v) => send({ type: 'approvals', version: v }));
     const unsubPolicy = ctx.policy.onChange?.(() => send({ type: 'topology', version: ctx.registry.version })) ?? (() => undefined);
     const unsubMcp = ctx.mcp.onChange(() => send({ type: 'topology', version: ctx.registry.version }));
+    const unsubAlerts = ctx.alertsVersion.onChange((v) => send({ type: 'alerts', version: v }));
 
     socket.on('message', (raw) => {
       let msg: WsClientMessage | undefined;
@@ -52,6 +53,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       unsubApprovals();
       unsubPolicy();
       unsubMcp();
+      unsubAlerts();
     });
   });
 }

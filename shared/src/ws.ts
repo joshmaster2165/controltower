@@ -8,6 +8,7 @@ export const WsServerMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('events'), events: z.array(FlightEvent) }),
   z.object({ type: z.literal('topology'), version: z.number() }),
   z.object({ type: z.literal('approvals'), version: z.number() }),
+  z.object({ type: z.literal('alerts'), version: z.number() }),
 ]);
 export type WsServerMessage = z.infer<typeof WsServerMessage>;
 

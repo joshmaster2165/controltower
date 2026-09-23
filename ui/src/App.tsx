@@ -11,11 +11,13 @@ import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
 import { LedgerPage } from './pages/Ledger';
+import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { api } from './api';
 
 const NAV: Array<{ id: Route; label: string }> = [
   { id: 'airspace', label: 'Airspace' },
   { id: 'tower', label: 'Tower' },
+  { id: 'alerts', label: 'Alerts' },
   { id: 'ledger', label: 'Ledger' },
   { id: 'flights', label: 'Flights' },
   { id: 'keys', label: 'Keys' },
@@ -34,6 +36,7 @@ export function App() {
   const setRoute = useStore((s) => s.setRoute);
   const setMe = useStore((s) => s.setMe);
   const pending = useStore((s) => s.approvals.length);
+  const unreadAlerts = useStore((s) => s.unreadAlerts);
 
   useEffect(() => {
     void useStore.getState().boot();
@@ -65,6 +68,7 @@ export function App() {
             <a key={n.id} href={`#/${n.id}`} className={route === n.id ? 'active' : ''} onClick={(e) => { e.preventDefault(); setRoute(n.id); }}>
               {n.label}
               {n.id === 'tower' && pending > 0 && <span className="badge">{pending}</span>}
+              {n.id === 'alerts' && unreadAlerts > 0 && route !== 'alerts' && <span className="badge alert">{unreadAlerts > 99 ? '99+' : unreadAlerts}</span>}
             </a>
           ))}
         </nav>
@@ -89,7 +93,9 @@ export function App() {
         {route === 'mcp' && <McpPage />}
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
+        {route === 'alerts' && <AlertsPage />}
       </main>
+      <AlertToasts />
     </div>
   );
 }

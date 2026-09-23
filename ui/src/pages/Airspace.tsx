@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
 import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo, type LinkState } from '../airspace/scene';
 import { hex } from '../airspace/colors';
-import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
+import { api, ApiError, type AlertChannel, type AlertRule, type Rule, type Topology, type Zone } from '../api';
+import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from './Alerts';
 import { ApprovalCard } from './Tower';
 
 const SWATCHES = ['#1f5eff', '#0b3d91', '#0e9aa7', '#6366f1', '#1a9e6b', '#d9860b', '#d3374e', '#7c3aed'];
@@ -31,6 +32,17 @@ const STATE_LABEL: Record<LinkState, string> = {
 };
 
 const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', unknown: 'unrouted' } as const;
+
+/** Place a side panel near the click, fully on screen; it scrolls if taller than the room left. */
+function panelPos(x: number, y: number, h: number): CSSProperties {
+  const room = window.innerHeight - 52;
+  const top = Math.max(12, Math.min(y - 40, room - h));
+  return { left: Math.max(12, Math.min(x, window.innerWidth - 740)), top, maxHeight: room - top - 12 };
+}
+
+function alertedGates(rules: AlertRule[]): string[] {
+  return rules.filter((r) => r.enabled && r.rule_id).map((r) => r.rule_id!);
+}
 
 function destRef(id: string): string {
   const t = useStore.getState().topology;
@@ -61,6 +73,8 @@ export function AirspacePage() {
   const sceneRef = useRef<AirspaceScene | null>(null);
   const topology = useStore((s) => s.topology);
   const policy = useStore((s) => s.policy);
+  const alertRules = useStore((s) => s.alertRules);
+  const alertChannels = useStore((s) => s.alertChannels);
   const approvals = useStore((s) => s.approvals);
   const counters = useStore((s) => s.counters);
   const feed = useStore((s) => s.feed);
@@ -139,6 +153,7 @@ export function AirspacePage() {
         const st = useStore.getState();
         if (st.topology) scene.setTopology(st.topology);
         if (st.policy) scene.setPolicy(st.policy);
+        scene.setAlertedGates(alertedGates(st.alertRules));
         unsub = onFlightEvent((e) => scene.handle(e));
 
         // Arrangement is shared (server); camera is per viewer (localStorage).
@@ -214,6 +229,9 @@ export function AirspacePage() {
   useEffect(() => {
     if (policy && sceneRef.current) sceneRef.current.setPolicy(policy);
   }, [policy]);
+  useEffect(() => {
+    sceneRef.current?.setAlertedGates(alertedGates(alertRules));
+  }, [alertRules]);
   useEffect(() => {
     sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
   }, [showTower, focusId, topology, policy]);
@@ -341,6 +359,7 @@ export function AirspacePage() {
           draft={popover.draft}
           topology={topology}
           zones={policy?.zones ?? []}
+          channels={alertChannels}
           onClose={() => setPopover(null)}
           onCreated={() => {
             setPopover(null);
@@ -376,6 +395,8 @@ export function AirspacePage() {
           desc={describeRule(policy.rules.find((r) => r.id === popover.rule.id) ?? popover.rule, topology, policy.zones)}
           zones={policy.zones}
           stats={policy.rule_stats[popover.rule.id]}
+          alerts={alertRules.filter((a) => a.rule_id === popover.rule.id)}
+          channels={alertChannels}
           onClose={() => setPopover(null)}
           onChanged={() => void refreshPolicy()}
         />
@@ -778,7 +799,8 @@ function ZonePopover({ x, y, zone, zones, rules, onClose, onChanged }: { x: numb
   );
 }
 
-function GatePopover({ x, y, rule, desc, stats, onClose, onChanged }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; onClose: () => void; onChanged: () => void }) {
+function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onChanged }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; alerts: AlertRule[]; channels: AlertChannel[]; onClose: () => void; onChanged: () => void }) {
+  const [alertForm, setAlertForm] = useState<AlertRule | 'new' | null>(null);
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
@@ -800,7 +822,7 @@ function GatePopover({ x, y, rule, desc, stats, onClose, onChanged }: { x: numbe
     onClose();
   };
   return (
-    <div className="popover" style={{ left: Math.min(x, window.innerWidth - 340), top: Math.min(y + 8, window.innerHeight - 360) }}>
+    <div className="popover composer" style={panelPos(x, y, 560)}>
       <div className="t">{rule.name}</div>
       <div className="hint" style={{ marginBottom: 8 }}>
         {desc}
@@ -824,6 +846,7 @@ function GatePopover({ x, y, rule, desc, stats, onClose, onChanged }: { x: numbe
         <label>Reason shown to the agent</label>
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
       </div>
+      <GateAlerts rule={{ ...rule, effect }} alerts={alerts} channels={channels} form={alertForm} setForm={setAlertForm} />
       {rate != null && (
         <div className="hint" style={{ marginBottom: 8, color: rate >= 95 && total >= 20 ? 'var(--warn)' : undefined }}>
           {stats!.approved} approved / {stats!.denied} denied ({rate.toFixed(0)}%){rate >= 95 && total >= 20 ? ' — this gate is noise; consider auto-allow.' : ''}
@@ -847,13 +870,61 @@ function GatePopover({ x, y, rule, desc, stats, onClose, onChanged }: { x: numbe
   );
 }
 
+function GateAlerts({ rule, alerts, channels, form, setForm }: { rule: Rule; alerts: AlertRule[]; channels: AlertChannel[]; form: AlertRule | 'new' | null; setForm: (f: AlertRule | 'new' | null) => void }) {
+  const refresh = useStore((s) => s.refreshAlerts);
+  const labels: Record<string, string> = { blocked: 'blocked', held: 'held', approved: 'approved', rejected: 'rejected', unanswered: 'not answered', allowed: 'allowed', scope_mismatch: 'approval misused' };
+  const remove = async (a: AlertRule) => {
+    await api.del(`/admin/api/alert-rules/${a.id}`);
+    void refresh();
+  };
+  const toggle = async (a: AlertRule) => {
+    await api.patch(`/admin/api/alert-rules/${a.id}`, { enabled: !a.enabled });
+    void refresh();
+  };
+  return (
+    <div className="gate-alerts">
+      <div className="gh">
+        <BellIcon size={13} /> Alerts
+      </div>
+      {form === null && alerts.length === 0 && <div className="hint" style={{ marginBottom: 6 }}>Nobody is told when this gate triggers.</div>}
+      {form === null &&
+        alerts.map((a) => (
+          <div key={a.id} className={`ar ${a.enabled ? '' : 'off'}`}>
+            <div className="txt">
+              <b>{a.triggers.map((t) => labels[t] ?? t).join(', ')}</b> · {conditionText(a)}
+              <br />
+              {notifyText(a, channels)}
+            </div>
+            <button className="btn sm ghost" onClick={() => setForm(a)}>
+              Edit
+            </button>
+            <button className="btn sm ghost" onClick={() => void toggle(a)}>
+              {a.enabled ? 'Pause' : 'Resume'}
+            </button>
+            <button className="btn sm ghost danger-text" aria-label="Remove alert" onClick={() => void remove(a)}>
+              ×
+            </button>
+          </div>
+        ))}
+      {form === null && (
+        <button className="btn sm" onClick={() => setForm('new')}>
+          Add alert
+        </button>
+      )}
+      {form !== null && <AlertRuleForm compact gate={rule} gates={[]} channels={channels} existing={form === 'new' ? undefined : form} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
+    </div>
+  );
+}
+
 const EFFECTS: Array<{ id: Rule['effect']; label: string; hint: string; cls: string }> = [
   { id: 'deny', label: 'Block', hint: 'Requests on this path are refused with a 403 the agent can read.', cls: 'deny' },
   { id: 'require_approval', label: 'Require approval', hint: 'Requests wait at the gate until someone approves in the Tower.', cls: 'hold' },
   { id: 'allow', label: 'Allow', hint: 'Explicitly allow this path (takes precedence over broader gates below it).', cls: 'allow' },
 ];
 
-function GateComposer({ x, y, draft, topology, zones, onClose, onCreated }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; onClose: () => void; onCreated: () => void }) {
+function GateComposer({ x, y, draft, topology, zones, channels, onClose, onCreated }: { x: number; y: number; draft: GateDraft; topology: Topology; zones: Zone[]; channels: AlertChannel[]; onClose: () => void; onCreated: () => void }) {
+  const [notify, setNotify] = useState(false);
+  const [notifyChannels, setNotifyChannels] = useState<string[]>(channels.filter((c) => c.enabled).map((c) => c.id));
   const [from, setFrom] = useState(draft.from);
   const [to, setTo] = useState(draft.to);
   const [tool, setTool] = useState(draft.tool ?? '');
@@ -902,7 +973,11 @@ function GateComposer({ x, y, draft, topology, zones, onClose, onCreated }: { x:
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
     body.config = config;
     try {
-      await api.post('/admin/api/rules', body);
+      const created = await api.post<{ id: string }>('/admin/api/rules', body);
+      if (notify) {
+        await api.post('/admin/api/alert-rules', { rule_id: created.id, triggers: defaultTriggers(effect), threshold: 1, cooldown_s: 300, channels: notifyChannels });
+        void useStore.getState().refreshAlerts();
+      }
       onCreated();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -912,7 +987,7 @@ function GateComposer({ x, y, draft, topology, zones, onClose, onCreated }: { x:
   };
 
   return (
-    <div className="popover composer" style={{ left: Math.max(12, Math.min(x, window.innerWidth - 740)), top: Math.max(12, Math.min(y - 40, window.innerHeight - 52 - 600)) }}>
+    <div className="popover composer" style={panelPos(x, y, 600)}>
       <div className="t">New gate</div>
       <div className="field">
         <label>From</label>
@@ -999,6 +1074,18 @@ function GateComposer({ x, y, draft, topology, zones, onClose, onCreated }: { x:
       <div className="field">
         <label>Reason shown to the agent (optional)</label>
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this gate exists" />
+      </div>
+      <div className="field">
+        <label className="check">
+          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Alert me when this gate {effect === 'deny' ? 'blocks something' : effect === 'require_approval' ? 'holds a request' : 'lets something through'}
+        </label>
+        {notify &&
+          channels.map((c) => (
+            <label key={c.id} className="check" style={{ marginLeft: 22 }}>
+              <input type="checkbox" checked={notifyChannels.includes(c.id)} onChange={() => setNotifyChannels(notifyChannels.includes(c.id) ? notifyChannels.filter((x) => x !== c.id) : [...notifyChannels, c.id])} /> {c.name}
+            </label>
+          ))}
+        {notify && <div className="hint">Console inbox{channels.length ? ' plus the channels ticked above' : ''}; at most one alert per 5 min, the rest summarised. Fine-tune it by clicking the gate later.</div>}
       </div>
       <div className="summary">{sentence}</div>
       {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}

@@ -28,6 +28,7 @@ const INK_DIM = '#5b6b82';
 const INK_FAINT = '#8a98ad';
 const LINE_IDLE = '#c9d3e1';
 const LINE_UNUSED = '#dfe5ee';
+const ACCENT_HEX = '#1f5eff';
 
 export type StationKind = 'agent' | 'model' | 'mcp' | 'unknown';
 export type ToolOp = 'read' | 'write' | 'admin' | 'unknown';
@@ -245,6 +246,7 @@ export class AirspaceScene {
   private zoneBoxes: Array<{ zone: Zone; x: number; y: number; w: number; h: number; chip: { x: number; y: number; w: number; h: number } }> = [];
   private topology: Topology | null = null;
   private policy: PolicyBundle | null = null;
+  private alerted = new Set<string>();
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
@@ -655,6 +657,12 @@ export class AirspaceScene {
   setPolicy(p: PolicyBundle): void {
     this.policy = p;
     this.layout();
+  }
+
+  /** Gates that have an alert rule get a bell on their marker. */
+  setAlertedGates(ids: Iterable<string>): void {
+    this.alerted = new Set(ids);
+    this.dirty = true;
   }
 
   private stationKey(s: Station): string {
@@ -1288,6 +1296,7 @@ export class AirspaceScene {
     ctx.lineWidth = 2;
     ctx.stroke();
     this.drawGateGlyph(x, y, rule, r / 10);
+    if (this.alerted.has(rule.id)) this.drawBell(x + r * 0.78, y + r * 0.78, r >= 9 ? 5.5 : 3.5);
     if (hits && r >= 9) {
       const label = String(hits);
       ctx.font = `700 9.5px ${FONT}`;
@@ -1301,6 +1310,30 @@ export class AirspaceScene {
       ctx.fillText(label, x + r - 2 + tw / 2, y - r - 0.5);
       ctx.textAlign = 'left';
     }
+  }
+
+  private drawBell(x: number, y: number, rad: number): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fillStyle = ACCENT_HEX;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    if (rad < 5) return;
+    const k = rad / 5.5;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(x - 2.6 * k, y + 1.4 * k);
+    ctx.quadraticCurveTo(x - 2.4 * k, y - 2.8 * k, x, y - 2.8 * k);
+    ctx.quadraticCurveTo(x + 2.4 * k, y - 2.8 * k, x + 2.6 * k, y + 1.4 * k);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(x - 3 * k, y + 1.2 * k, 6 * k, 0.9 * k);
+    ctx.beginPath();
+    ctx.arc(x, y + 2.7 * k, 0.9 * k, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawGateGlyph(x: number, y: number, rule: Rule, k: number): void {

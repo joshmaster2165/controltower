@@ -21,7 +21,8 @@ import { seedDemo, seedDemoPolicy } from './demo/seed.js';
 import { DemoFleet } from './demo/fleet.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
-import { seedDemoMcp, seedDemoMcpPolicy } from './demo/mcp-servers.js';
+import { seedDemoMcp, seedDemoMcpPolicy, seedDemoAlerts } from './demo/mcp-servers.js';
+import { AlertService } from './alerts/alerts.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -55,6 +56,18 @@ async function main(): Promise<void> {
     policyRevision: () => policy.version,
   });
 
+  const alertsVersion = new Versioned();
+  const alerts = new AlertService(db.write, secrets, alertsVersion, {
+    publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
+    gate: (id) => {
+      const r = policy.rules.find((x) => x.id === id);
+      return r ? { name: r.name, effect: r.effect } : undefined;
+    },
+    log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger),
+  });
+  await alerts.reload();
+  bus.subscribe(alerts.push);
+
   const spend = new SpendTracker();
   const budgets = new Budgets(db.write, spend);
   await budgets.reload();
@@ -77,6 +90,8 @@ async function main(): Promise<void> {
     approvals,
     approvalsVersion,
     mcp,
+    alerts,
+    alertsVersion,
     demo: undefined,
     startedAt: Date.now(),
     shuttingDown: false,
@@ -86,6 +101,7 @@ async function main(): Promise<void> {
   const full = ctx as AppContext;
   logRef = app.log;
   approvals.start();
+  alerts.start();
 
   if (mk.source === 'generated') {
     app.log.warn(`Generated a new master key at ${mk.file}. BACK IT UP: provider credentials are unreadable without it.`);
@@ -101,9 +117,11 @@ async function main(): Promise<void> {
     await seedDemoPolicy(db.write);
     await seedDemoMcp(db.write, `http://127.0.0.1:${config.port}`);
     await seedDemoMcpPolicy(db.write);
+    await seedDemoAlerts(db.write);
     await mcp.reload();
     await registry.reload();
     await policy.reload();
+    await alerts.reload();
     // Demo approver: answers held flights after ~8–12 s unless a human got there first.
     bus.subscribe((e) => {
       if (e.t !== 'flight.held' || e.budget_ms === 0) return;
@@ -137,6 +155,7 @@ async function main(): Promise<void> {
     full.demo?.stop();
     full.approvals.drain();
     approvals.stop();
+    alerts.stop();
     mcp.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);

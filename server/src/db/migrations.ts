@@ -312,3 +312,57 @@ CREATE TABLE mcp_servers (
 );
 `,
 });
+
+migrations.push({
+  version: 4,
+  name: 'alerts',
+  sqlite: `
+CREATE TABLE alert_channels (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  config_enc   TEXT NOT NULL,
+  target_hint  TEXT NOT NULL DEFAULT '',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  last_status  TEXT,
+  last_error   TEXT,
+  last_sent_at INTEGER,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
+CREATE TABLE alert_rules (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  rule_id       TEXT,
+  triggers      TEXT NOT NULL DEFAULT '[]',
+  threshold     INTEGER NOT NULL DEFAULT 1,
+  window_s      INTEGER NOT NULL DEFAULT 300,
+  cooldown_s    INTEGER NOT NULL DEFAULT 300,
+  channels      TEXT NOT NULL DEFAULT '[]',
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  demo          INTEGER NOT NULL DEFAULT 0,
+  last_fired_at INTEGER,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX alert_rules_rule ON alert_rules(rule_id);
+
+CREATE TABLE alerts (
+  id            TEXT PRIMARY KEY,
+  alert_rule_id TEXT NOT NULL,
+  rule_id       TEXT,
+  trigger       TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  detail        TEXT NOT NULL DEFAULT '{}',
+  count         INTEGER NOT NULL DEFAULT 1,
+  first_at      INTEGER NOT NULL,
+  last_at       INTEGER NOT NULL,
+  deliveries    TEXT NOT NULL DEFAULT '[]',
+  read_at       INTEGER,
+  demo          INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX alerts_last_at ON alerts(last_at);
+CREATE INDEX alerts_unread ON alerts(read_at, last_at);
+`,
+});

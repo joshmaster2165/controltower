@@ -138,7 +138,9 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const id = (req.params as { id: string }).id;
     const res = await ctx.db.write.deleteFrom('rules').where('id', '=', id).executeTakeFirst();
     if (Number(res.numDeletedRows) === 0) return reply.status(404).send({ error: { code: 'not_found', message: 'rule not found' } });
+    await ctx.db.write.deleteFrom('alert_rules').where('rule_id', '=', id).execute();
     await policy.reload();
+    await ctx.alerts.reload();
     return { ok: true };
   });
 

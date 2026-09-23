@@ -162,3 +162,19 @@ export async function seedDemoMcpPolicy(db: Kysely<Database>): Promise<void> {
       .execute();
   }
 }
+
+/** Demo alert rules on the two tool gates, so the Alerts inbox fills up on its own. */
+export async function seedDemoAlerts(db: Kysely<Database>): Promise<void> {
+  const now = Date.now();
+  const rules = [
+    { id: 'alr_demo_sandbox_merge', name: 'Sandbox keeps trying to merge', rule_id: 'rule_demo_sandbox_repo', triggers: ['blocked'], threshold: 3, window_s: 300, cooldown_s: 600 },
+    { id: 'alr_demo_crm_delete', name: 'CRM deletions waiting for approval', rule_id: 'rule_demo_crm_delete', triggers: ['held', 'unanswered'], threshold: 1, window_s: 300, cooldown_s: 300 },
+  ];
+  for (const r of rules) {
+    await db
+      .insertInto('alert_rules')
+      .values({ ...r, triggers: JSON.stringify(r.triggers), channels: '[]', enabled: 1, demo: 1, last_fired_at: null, created_at: now, updated_at: now })
+      .onConflict((oc) => oc.column('id').doNothing())
+      .execute();
+  }
+}

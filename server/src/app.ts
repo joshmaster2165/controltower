@@ -13,6 +13,7 @@ import { providerRoutes } from './admin/providers.js';
 import { playgroundRoutes } from './admin/playground.js';
 import { policyRoutes } from './admin/policy.js';
 import { mcpAdminRoutes } from './admin/mcp.js';
+import { alertRoutes } from './admin/alerts.js';
 import { McpGateway } from './mcp/gateway.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 
@@ -54,6 +55,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await playgroundRoutes(a, full);
     await policyRoutes(a, full);
     await mcpAdminRoutes(a, full);
+    await alertRoutes(a, full);
     await wsRoutes(a, full);
   });
 
@@ -64,9 +66,13 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
       root: uiDir,
       prefix: '/',
       index: false,
-      cacheControl: true,
-      maxAge: "1y",
-      immutable: true,
+      // Only content-hashed build output may be cached forever. index.html (and
+      // anything unhashed) must revalidate, or browsers keep loading a console
+      // whose asset files no longer exist after an upgrade.
+      cacheControl: false,
+      setHeaders: (reply, filePath) => {
+        reply.header('cache-control', filePath.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
     });
     app.get('/', async (_req, reply) => {
       reply.header('cache-control', 'no-store');

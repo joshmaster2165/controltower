@@ -15,6 +15,7 @@ import type { SecretBox } from './crypto/secrets.js';
 import type { Versioned } from './util/versioned.js';
 import type { DemoFleet } from './demo/fleet.js';
 import type { McpRegistry } from './mcp/registry.js';
+import type { AlertService } from './alerts/alerts.js';
 
 /** Everything a request handler may touch. Built once in main.ts. */
 export interface AppContext {
@@ -35,6 +36,9 @@ export interface AppContext {
   /** Bumped whenever the approvals queue changes; the console re-fetches. */
   approvalsVersion: Versioned;
   mcp: McpRegistry;
+  alerts: AlertService;
+  /** Bumped when an alert fires or alert configuration changes. */
+  alertsVersion: Versioned;
   demo: DemoFleet | undefined;
   log: FastifyBaseLogger;
   startedAt: number;

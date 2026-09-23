@@ -70,6 +70,9 @@ function open(): void {
       case 'approvals':
         void store.refreshApprovals();
         break;
+      case 'alerts':
+        scheduleAlerts();
+        break;
       case 'hello':
         break;
     }
@@ -84,6 +87,16 @@ function open(): void {
   ws.onerror = () => {
     /* onclose follows */
   };
+}
+
+// An alert firing bumps the version twice (recorded, then delivered): coalesce.
+let alertsTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleAlerts(): void {
+  if (alertsTimer) return;
+  alertsTimer = setTimeout(() => {
+    alertsTimer = null;
+    void useStore.getState().refreshAlerts();
+  }, 250);
 }
 
 function dispatch(e: FlightEvent): void {

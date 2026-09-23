@@ -12,6 +12,7 @@
 - **See it.** Agents, models, MCP servers and their tools on one interactive map. Every connection shows its state — active, idle, unused, holding, blocked — so it stays readable at hundreds of agents. Drag nodes to arrange the map (the arrangement is saved and shared), pan and zoom, and click any node to trace everything it connects to.
 - **Draw the rules.** Lasso stations into a zone, click a boundary, pick *allow / deny / require approval / allow with limits*. YAML is the *output*, for review and Git.
 - **Stop it.** Approvals hold the agent's request at the gate; a human clicks approve in the **Tower** and the flight continues. Unanswered holds turn into a resumable ticket, never a silent timeout.
+- **Hear about it.** Put an alert on any gate — *blocked*, *held for approval*, *approved*, *rejected*, *not answered*, *approval misused* — firing every time or only when it repeats (e.g. 5× in 10 min). Alerts land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
 > Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL), API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace, zones and gates drawn on the map, human approvals with hold → ticket → grant, the MCP tool gateway, and demo mode. Not yet: embeddings, Flight Recorder replay/simulate, the Ledger page, Slack notifications. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
@@ -63,8 +64,19 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 | **Flight** | One request — an LLM call or a tool call. |
 | **Gate** | A rule on a zone boundary: open, barrier, checkpoint (approval), toll (limits). |
 | **Tower** | The approvals queue. |
+| **Alert** | A notification rule on a gate: which outcomes, how often, where to send it. |
 | **Ledger** | Cost, tokens, latency. |
 | **Flight Recorder** | Replay and *simulate* — what would this rule have done to yesterday's traffic? |
+
+## Alerts
+
+Click a gate on the Airspace and choose **Add alert**, tick *Alert me* when creating a gate, or use the **Alerts** page (which also holds the inbox and the channels).
+
+- **Triggers**: `blocked`, `held`, `approved`, `rejected` (by an approver), `unanswered` (hold or approval expired), `allowed` (allow gates), `scope_mismatch` (an approval redeemed with different arguments — a security event).
+- **Condition**: every time, or *N times within M minutes*. After firing, the rule stays quiet for its cooldown and then sends one digest of what happened meanwhile.
+- **Channels**: the console inbox (always, with a nav badge and live toasts), Slack incoming webhooks (also Mattermost / Rocket.Chat), and generic webhooks. Channel URLs and secrets are encrypted at rest and never returned by the API.
+- **Webhook payload**: `POST` JSON `{ "type": "controltower.alert", "title", "trigger", "count", "gate": {id, name, effect}, "agents": [{name, count}], "destinations": [...], "reason", "flights": [ids], "console_url", ... }`. With a signing secret, `x-ct-signature: t=<unix>,v1=<hex>` where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Delivery retries twice on network errors, 408, 429 and 5xx.
+- Alerts carry names and counts only — never prompts, tool arguments or responses. Set `CT_PUBLIC_URL` so links in Slack and webhooks point at your console.
 
 ## What is actually enforced
 
@@ -81,7 +93,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed a mock provider and run a synthetic agent fleet |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
-| `CT_PUBLIC_URL` | — | Public URL, used for signed approval links and the ingress probe |
+| `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |
 

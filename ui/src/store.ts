@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { FlightEvent } from '@controltower/shared';
-import { api, setCsrf, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
+import { api, setCsrf, type AlertChannel, type AlertItem, type AlertRule, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
 
-export type Route = 'airspace' | 'tower' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'playground' | 'ledger';
+export type Route = 'airspace' | 'tower' | 'alerts' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'playground' | 'ledger';
 
 interface FeedItem {
   id: string;
@@ -20,6 +20,13 @@ interface State {
   topology: Topology | null;
   policy: PolicyBundle | null;
   approvals: Approval[];
+  alerts: AlertItem[];
+  unreadAlerts: number;
+  alertRules: AlertRule[];
+  alertChannels: AlertChannel[];
+  /** Alerts that fired while this tab was open, shown as toasts until dismissed. */
+  toasts: Array<AlertItem & { repeats?: number }>;
+  alertsLoaded: boolean;
   wsState: 'connecting' | 'live' | 'offline';
   feed: FeedItem[];
   counters: { flights: number; ok: number; errors: number; denied: number; cost_nanousd: number; tokens: number };
@@ -29,6 +36,8 @@ interface State {
   refreshTopology(): Promise<void>;
   refreshPolicy(): Promise<void>;
   refreshApprovals(): Promise<void>;
+  refreshAlerts(): Promise<void>;
+  dismissToast(id: string): void;
   setWs(s: State['wsState']): void;
   onEvent(e: FlightEvent): void;
 }
@@ -43,6 +52,12 @@ export const useStore = create<State>((set, get) => ({
   topology: null,
   policy: null,
   approvals: [],
+  alerts: [],
+  unreadAlerts: 0,
+  alertRules: [],
+  alertChannels: [],
+  toasts: [],
+  alertsLoaded: false,
   wsState: 'offline',
   feed: [],
   counters: { flights: 0, ok: 0, errors: 0, denied: 0, cost_nanousd: 0, tokens: 0 },
@@ -57,13 +72,13 @@ export const useStore = create<State>((set, get) => ({
       me = null;
     }
     set({ status, me, booted: true });
-    if (me?.email) await Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals()]);
+    if (me?.email) await Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
 
   setMe(me) {
     setCsrf(me?.csrf ?? null);
     set({ me });
-    if (me?.email) void Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals()]);
+    if (me?.email) void Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
 
   setRoute(route) {
@@ -96,6 +111,33 @@ export const useStore = create<State>((set, get) => ({
     } catch {
       /* not signed in */
     }
+  },
+
+  async refreshAlerts() {
+    try {
+      const [a, r, c] = await Promise.all([
+        api.get<{ alerts: AlertItem[]; unread: number }>('/admin/api/alerts?limit=100'),
+        api.get<{ rules: AlertRule[] }>('/admin/api/alert-rules'),
+        api.get<{ channels: AlertChannel[] }>('/admin/api/alert-channels'),
+      ]);
+      const prev = get();
+      const known = new Set(prev.alerts.map((x) => x.id));
+      // Toast only what fired after this tab loaded, never the backlog.
+      const fresh = prev.alertsLoaded ? a.alerts.filter((x) => !known.has(x.id) && !x.read) : [];
+      // One toast per alert rule: a repeat replaces the previous toast and bumps its counter.
+      let toasts = prev.toasts;
+      for (const f of [...fresh].reverse()) {
+        const same = toasts.find((t) => t.alert_rule_id === f.alert_rule_id);
+        toasts = [{ ...f, repeats: (same?.repeats ?? 0) + (same ? 1 : 0) }, ...toasts.filter((t) => t !== same)];
+      }
+      set({ alerts: a.alerts, unreadAlerts: a.unread, alertRules: r.rules, alertChannels: c.channels, alertsLoaded: true, toasts: toasts.slice(0, 3) });
+    } catch {
+      /* not signed in */
+    }
+  },
+
+  dismissToast(id) {
+    set({ toasts: get().toasts.filter((t) => t.id !== id) });
   },
 
   setWs(wsState) {

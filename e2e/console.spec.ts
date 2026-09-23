@@ -127,4 +127,12 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await page.getByRole('link', { name: 'Airspace' }).click();
   await expect(page.locator('.airspace canvas')).toBeVisible();
   await expect(page.locator('.legend .pill.live')).toBeVisible({ timeout: 15_000 });
+
+  // ---- Alerts: a rule on every gate, notifying the console ----
+  await page.getByRole('link', { name: 'Alerts' }).click();
+  await page.getByRole('button', { name: 'New alert' }).click();
+  await field(page, /^Gate$/).selectOption({ label: 'Any gate' });
+  await page.getByRole('button', { name: 'Add alert', exact: true }).click();
+  await expect(page.locator('.rule-list')).toContainText('Alert on any gate');
+  await expect(page.locator('.rule-list')).toContainText('Notifies Console');
 });

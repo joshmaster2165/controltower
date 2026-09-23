@@ -271,6 +271,51 @@ export interface McpServersTable {
   updated_at: number;
 }
 
+export interface AlertChannelsTable {
+  id: string;
+  name: string;
+  kind: string;
+  config_enc: string;
+  target_hint: string;
+  enabled: Bool;
+  last_status: string | null;
+  last_error: string | null;
+  last_sent_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AlertRulesTable {
+  id: string;
+  name: string;
+  rule_id: string | null;
+  triggers: Json;
+  threshold: number;
+  window_s: number;
+  cooldown_s: number;
+  channels: Json;
+  enabled: Bool;
+  demo: Bool;
+  last_fired_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AlertsTable {
+  id: string;
+  alert_rule_id: string;
+  rule_id: string | null;
+  trigger: string;
+  title: string;
+  detail: Json;
+  count: number;
+  first_at: number;
+  last_at: number;
+  deliveries: Json;
+  read_at: number | null;
+  demo: Bool;
+}
+
 export interface SchemaMigrationsTable {
   version: number;
   name: string;
@@ -297,6 +342,9 @@ export interface Database {
   tickets: TicketsTable;
   grants: GrantsTable;
   mcp_servers: McpServersTable;
+  alert_channels: AlertChannelsTable;
+  alert_rules: AlertRulesTable;
+  alerts: AlertsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

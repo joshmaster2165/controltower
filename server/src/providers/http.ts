@@ -34,9 +34,9 @@ export interface UpstreamResponse {
 
 export async function sendUpstream(
   provider: string,
-  req: { url: string; method: 'POST' | 'GET'; headers: Record<string, string>; body?: string | Uint8Array },
+  req: { url: string; method: 'POST' | 'GET' | 'DELETE'; headers: Record<string, string>; body?: string | Uint8Array },
   signal: AbortSignal,
-  opts: { headersTimeoutMs?: number | undefined } = {},
+  opts: { headersTimeoutMs?: number | undefined; bodyTimeoutMs?: number | undefined } = {},
 ): Promise<{ ok: true; res: UpstreamResponse } | { ok: false; err: NormalizedError }> {
   try {
     const res = await request(req.url, {
@@ -46,7 +46,7 @@ export async function sendUpstream(
       signal,
       dispatcher: agentFor(req.url),
       headersTimeout: opts.headersTimeoutMs ?? HEADERS_TIMEOUT_MS,
-      bodyTimeout: BODY_IDLE_TIMEOUT_MS,
+      bodyTimeout: opts.bodyTimeoutMs ?? BODY_IDLE_TIMEOUT_MS,
     });
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(res.headers)) {

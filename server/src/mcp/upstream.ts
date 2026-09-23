@@ -93,9 +93,16 @@ export class McpUpstream {
     }
   }
 
+  /** Forget the session — after telling the server, so a stateful server is not left holding it. */
   reset(): void {
+    const sid = this.sessionId;
     this.initialized = false;
     this.sessionId = undefined;
+    if (!sid) return;
+    const headers: Record<string, string> = { ...this.headers(), 'mcp-session-id': sid };
+    void sendUpstream(this.slug, { url: this.url, method: 'DELETE', headers }, AbortSignal.timeout(5000))
+      .then((r) => (r.ok ? r.res.body.dump() : undefined))
+      .catch(() => undefined); // 405 is fine: the server does not support explicit termination
   }
 
   async listTools(): Promise<McpTool[]> {
@@ -157,7 +164,8 @@ export class McpUpstream {
     const onAbort = () => ctrl.abort(signal?.reason ?? new Error('aborted'));
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
-      const r = await sendUpstream(this.slug, { url: this.url, method: 'POST', headers: this.headers(), body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) }, ctrl.signal);
+      // A tool may legitimately work for longer than the default idle timeout: honour the server's own timeout.
+      const r = await sendUpstream(this.slug, { url: this.url, method: 'POST', headers: this.headers(), body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) }, ctrl.signal, { headersTimeoutMs: this.timeoutMs, bodyTimeoutMs: this.timeoutMs });
       if (!r.ok) {
         if (r.err.code === 'provider_timeout' || ctrl.signal.aborted) throw new McpUpstreamError(`${this.slug}: ${method} timed out`, 'timeout');
         throw new McpUpstreamError(`${this.slug}: ${r.err.message}`, 'unreachable');

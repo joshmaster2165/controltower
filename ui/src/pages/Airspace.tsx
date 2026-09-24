@@ -9,6 +9,7 @@ import { ApprovalCard } from './Tower';
 import { type GateDraft, alertedGates, destRef, describeRule } from './airspace/shared';
 import { BringInside, GettingStarted, Tooltip, FocusPanel, ZoneCreatePopover, ZonePopover } from './airspace/panels';
 import { GatePopover, type SimResult, GateComposer } from './airspace/gates';
+import { PolicyImport } from './airspace/PolicyImport';
 
 type Popover =
   | { kind: 'compose'; draft: GateDraft; x: number; y: number }
@@ -210,6 +211,7 @@ export function AirspacePage() {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [policyImport, setPolicyImport] = useState(false);
   const [layer, setLayerState] = useState<'all' | 'active' | 'gateway' | 'outside'>(() => {
     try {
       const v = localStorage.getItem('ct.airspace.layer');
@@ -358,6 +360,14 @@ export function AirspacePage() {
                 <b>Paths as CSV</b>
                 <span>For a spreadsheet</span>
               </a>
+              <a role="menuitem" href="/admin/api/policy/export" download onClick={() => setExportOpen(false)}>
+                <b>Policy as YAML</b>
+                <span>Zones and gates as code, for Git and review</span>
+              </a>
+              <button role="menuitem" onClick={() => { setExportOpen(false); setPolicyImport(true); }}>
+                <b>Import policy…</b>
+                <span>Apply a policy YAML, with a preview first</span>
+              </button>
             </div>
           )}
         </div>
@@ -558,6 +568,7 @@ export function AirspacePage() {
         </span>
         {policy && !policy.enforcement && <span className="pill warn">enforcement off</span>}
       </div>
+      {policyImport && <PolicyImport onClose={() => setPolicyImport(false)} onApplied={() => void refreshPolicy()} />}
     </div>
   );
 }

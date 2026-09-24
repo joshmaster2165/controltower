@@ -4,26 +4,13 @@ import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { PolicyService } from '../policy/policy.js';
 import type { ApprovalService } from '../policy/approvals.js';
-import { validatePattern, type InspectConfig } from '../guardrails/scan.js';
 import { detectorCatalog } from '../guardrails/detectors.js';
+import { inspectConfigError } from '../guardrails/validate.js';
 import { simulate } from '../policy/simulate.js';
+import { applyPolicyImport, exportPolicy, planPolicyImport, policyYaml } from '../policy/yaml.js';
 import type { RuleRecord } from '../policy/policy.js';
 
 const EFFECTS = ['allow', 'deny', 'require_approval', 'allow_with_limits', 'inspect'];
-
-function inspectConfigError(c: InspectConfig): string | null {
-  if (c.action && !['block', 'mask', 'flag'].includes(c.action)) return 'action must be block | mask | flag';
-  if (c.direction && !['input', 'output', 'both'].includes(c.direction)) return 'direction must be input | output | both';
-  const known = new Set(['secrets', 'pii', 'injection', ...detectorCatalog().map((d) => d.id)]);
-  const unknown = (c.detectors ?? []).filter((d) => !known.has(d));
-  if (unknown.length) return `unknown detector(s): ${unknown.join(', ')}`;
-  for (const p of c.patterns ?? []) {
-    const err = validatePattern(p.regex ?? '');
-    if (err) return `pattern "${p.name}": ${err}`;
-  }
-  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length)) return 'an inspect gate needs at least one detector, keyword or pattern';
-  return null;
-}
 
 /** Zones, rules (gates), approvals and grants. */
 export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
@@ -91,6 +78,26 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
       demo: false,
     };
     return simulate({ db: ctx.db.read, policy, registry: ctx.registry, mcp: ctx.mcp }, draft, { replaceRuleId: existing?.id, windowHours: b.hours });
+  });
+
+  // ---- policy as code ----
+  app.get('/admin/api/policy/export', { preHandler: guard }, async (req, reply) => {
+    if ((req.query as { format?: string }).format === 'json') return exportPolicy(ctx);
+    const stamp = new Date().toISOString().slice(0, 10);
+    return reply.header('content-type', 'application/yaml; charset=utf-8').header('content-disposition', `attachment; filename="controltower-policy-${stamp}.yaml"`).send(policyYaml(ctx));
+  });
+
+  // Preview (apply: false) or apply a policy file. merge adds and updates by name; replace also removes what the file leaves out.
+  app.post('/admin/api/policy/import', { preHandler: guard, bodyLimit: 2 * 1024 * 1024 }, async (req, reply) => {
+    const b = (req.body ?? {}) as { yaml?: string; mode?: string; apply?: boolean };
+    if (typeof b.yaml !== 'string') return reply.status(400).send({ error: { code: 'invalid', message: 'yaml (the policy file contents) is required' } });
+    const mode = b.mode === 'replace' ? 'replace' : 'merge';
+    const plan = planPolicyImport(ctx, b.yaml, mode);
+    const { rows: _rows, ...summary } = plan;
+    if (!b.apply) return { ...summary, applied: false };
+    if (plan.errors.length) return reply.status(400).send({ ...summary, applied: false, error: { code: 'invalid', message: plan.errors[0] } });
+    await applyPolicyImport(ctx, plan);
+    return { ...summary, applied: true };
   });
 
   // ---- zones ----

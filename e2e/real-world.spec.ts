@@ -479,6 +479,41 @@ test('Map, simulate, inventory export, ledger and metrics all reflect the real t
   expect(metrics).toContain('controltower_mcp_server_up{server="files"} 1');
 });
 
+test('Policy as code: export zones and gates as YAML, edit, preview, apply, replace', async () => {
+  // Export: readable YAML that references agents, models and servers by name.
+  const yamlText = (await admin.get<string>('/admin/api/policy/export')).body;
+  expect(yamlText).toContain('zones:');
+  expect(yamlText).toContain('name: Sandbox');
+  expect(yamlText).toContain('agent:rw-sandbox-intern');
+  expect(yamlText).toContain('model:pricey-gpt');
+  const original = (await admin.get('/admin/api/policy/export?format=json')).body.doc;
+
+  // Re-importing what was exported changes nothing.
+  const same = (await admin.post('/admin/api/policy/import', { yaml: yamlText, mode: 'replace' })).body;
+  expect(same.errors).toEqual([]);
+  expect([...same.zones.create, ...same.zones.update, ...same.zones.remove, ...same.gates.create, ...same.gates.update, ...same.gates.remove]).toEqual([]);
+
+  // Add a gate by name (JSON is valid YAML), preview it, apply it, and it is enforced.
+  const edited = { ...original, gates: [...original.gates, { name: 'No mini for the OpenAI agent', match: { agents: ['rw-openai-agent'], models: ['gpt-4.1-mini'] }, target: 'model', effect: 'deny', priority: 1 }] };
+  const preview = (await admin.post('/admin/api/policy/import', { yaml: JSON.stringify(edited), mode: 'merge' })).body;
+  expect(preview).toMatchObject({ errors: [], applied: false, gates: { create: ['No mini for the OpenAI agent'] } });
+  const chat = () =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${oaiAgent.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] }) });
+  expect((await chat()).status).toBe(200);
+  expect((await admin.post('/admin/api/policy/import', { yaml: JSON.stringify(edited), mode: 'merge', apply: true })).body.applied).toBe(true);
+  expect((await chat()).status).toBe(403);
+
+  // Unknown references are refused, and nothing changes.
+  const bad = await admin.post('/admin/api/policy/import', { yaml: 'gates:\n  - name: Typo\n    match: { agents: [no-such-agent] }\n    effect: deny\n', mode: 'merge', apply: true });
+  expect(bad.status).toBe(400);
+  expect(bad.body.errors.join(' ')).toContain('no agent named "no-such-agent"');
+
+  // Replace with the original file: the added gate is removed and the agent is let through again.
+  const back = (await admin.post('/admin/api/policy/import', { yaml: yamlText, mode: 'replace', apply: true })).body;
+  expect(back.gates.remove).toEqual(['No mini for the OpenAI agent']);
+  expect((await chat()).status).toBe(200);
+});
+
 test('LiteLLM import: a real config becomes working providers, models and aliases', async () => {
   const up = await openAiUpstream({ reply: 'Hello from the imported model' });
   upstreams.push(up);

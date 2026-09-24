@@ -16,14 +16,14 @@
 **Control Tower** is an open-source AI gateway with a live map of agent traffic. Point your agents at it like you would any OpenAI-compatible endpoint; every model call and every MCP tool call becomes a *flight* on the **Airspace**. Draw **zones** around systems, put **gates** on the boundaries, and require a human to approve a flight before it crosses. It is an enforcement point, not a dashboard: a gate that says *no* returns a 403 to the agent.
 
 - **See it.** Agents, models, MCP servers and their tools on one interactive map. Every connection shows its state — active, idle, unused, holding, blocked — so it stays readable at hundreds of agents. Drag nodes to arrange the map (the arrangement is saved and shared), pan and zoom, and click any node to trace everything it connects to.
-- **Draw the rules.** Lasso stations into a zone, click a boundary, pick *allow / deny / require approval / allow with limits*. YAML is the *output*, for review and Git.
+- **Draw the rules.** Lasso stations into a zone, click a boundary, pick *allow / deny / require approval / allow with limits*. Export the result as YAML for review and Git, and apply YAML back with a preview first.
 - **Try before you enforce.** *Simulate* replays the last 24 hours of recorded traffic through a draft gate — "would block 37 requests from 4 agents, hold 12, stop $4.10 of spend" — and highlights the affected paths on the map. On an existing gate, *Impact* shows what it actually changed.
 - **Stop it.** Approvals hold the agent's request at the gate; a human clicks approve in the **Tower** and the flight continues. Unanswered holds turn into a resumable ticket, never a silent timeout.
 - **Inspect it.** *Inspect gates* scan what passes along a path — prompts, model replies, MCP tool arguments and tool results — for secrets, personal data, prompt injection or your own keywords, and mask it, block it, or flag it.
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, YAML policy import/export, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -110,6 +110,24 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 In the gate composer, **Simulate on last 24 h** replays recorded flights through the current gates and through the gates with your draft added, and reports only the flights whose outcome changes: how many would be blocked, held for approval or let through, by which agents, to which targets, and the spend that blocked requests accounted for. On an existing gate, **Impact in the last 24 h** compares the gates without it to the gates with it; after changing its effect, **Simulate this change** shows the difference. Affected paths are drawn dashed on the map with their counts until the panel closes.
 
 Limits, shown with each result: tool arguments and bodies are not stored, so argument conditions can't be replayed and inspect gates can't be simulated; held requests count as held, not guessed approved. The replay covers up to 200,000 recent flights and yields to live traffic as it runs. API: `POST /admin/api/policy/simulate`.
+
+## Policy as code
+
+Zones and gates are drawn on the map, and they are also a YAML file. **Airspace → Export → Policy as YAML** downloads it; **Import policy…** applies one, after showing exactly which zones and gates it adds, changes or removes.
+
+```yaml
+zones:
+  - name: AI Labs sandbox
+    members: [agent:labs-prototype]        # agent:, model:, provider:, mcp:, http:, tool:
+gates:
+  - name: AI Labs may not merge code
+    from: AI Labs sandbox
+    target: tool
+    match: { servers: [github], tools: [github__merge_pr] }
+    effect: deny                           # allow | deny | require_approval | allow_with_limits | inspect
+```
+
+Everything is referenced by name, so a file exported from one install applies to another that has the same agents, models and tool servers, and it reads well in a pull request. *Merge* adds and updates by name; *Replace* makes the policy match the file exactly. References that don't resolve stop the import with a list of what to fix. Demo zones and gates are never exported or touched. API: `GET /admin/api/policy/export`, `POST /admin/api/policy/import` with `{yaml, mode, apply}`.
 
 ## Coming from LiteLLM
 
@@ -246,7 +264,7 @@ Everything is configured in the browser. Environment variables exist for operato
 ## Roadmap
 
 - **v0.1 — see it and stop it**: gateway (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/v1/messages`), OpenAI-compatible + Anthropic adapters, keys/limits/budgets, pricing and cost, live Airspace, zones + gates + approvals, MCP gateway, demo mode, Docker image.
-- **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓. Still to come: Flight Recorder replay, YAML policy import/export, email approvals.
+- **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓. Still to come: Flight Recorder replay, email approvals.
 - **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
 
 ## License

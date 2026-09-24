@@ -23,7 +23,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -81,7 +81,7 @@ Step-by-step guides with screenshots, in [`docs/`](docs/README.md):
 |---|---|---|---|
 | [Getting started](docs/getting-started.md) | [Providers and models](docs/providers-and-models.md) | [The Airspace: gates and approvals](docs/airspace.md) | [Configuration](docs/configuration.md) |
 | [Install](docs/install.md) | [Keys, budgets and limits](docs/keys.md) | [Policy as code](docs/policy-as-code.md) | [Config file](docs/config-file.md) |
-| [Connect your agents](docs/connect-agents.md) | [MCP tool servers](docs/mcp.md) | [Alerts](docs/alerts.md) | [Migrating from LiteLLM](docs/migrating-from-litellm.md) |
+| [Connect your agents](docs/connect-agents.md) | [MCP tool servers](docs/mcp.md) | [Alerts](docs/alerts.md) | [All docs](docs/README.md) |
 | [Demo mode](docs/demo.md) | [HTTP APIs and observed traffic](docs/http-apis.md) | [Monitoring](docs/monitoring.md) | [What is enforced](docs/threat-model.md) |
 
 ## Run from source
@@ -231,8 +231,8 @@ Everything is configured in the browser. Environment variables exist for operato
 | Variable | Default | Purpose |
 |---|---|---|
 | `CT_PORT` | `4000` | Listen port (falls back to `PORT`, which most platforms set). `--port` wins. |
-| `CT_CONFIG` | — | LiteLLM-format config applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
-| `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `LITELLM_MASTER_KEY` and `general_settings.master_key` work too. |
+| `CT_CONFIG` | — | [Config file](docs/config-file.md) applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
+| `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `master_key` in the config file works too. |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |

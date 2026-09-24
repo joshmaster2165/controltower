@@ -80,6 +80,19 @@ Health checks:
 
 On `SIGTERM` the server stops accepting requests, turns every request waiting for approval into a ticket the agent can retry, lets streams finish (up to 15 s), then flushes and exits.
 
+## Behind a corporate proxy
+
+If the server reaches the internet only through a proxy, set the standard variables; Control Tower's own calls — to model providers, MCP servers, HTTP APIs, alert channels and token endpoints — then go through it (HTTPS by tunnelling):
+
+```bash
+docker run -p 4000:4000 -v controltower-data:/data \
+  -e HTTPS_PROXY=http://proxy.corp.example:3128 \
+  -e NO_PROXY=.corp.example,10.0.0.0/8 \
+  ghcr.io/joshmaster2165/controltower
+```
+
+`HTTP_PROXY` covers `http://` targets (and `https://` ones when `HTTPS_PROXY` isn't set). `NO_PROXY` lists hosts that are reached directly — typically internal model servers and MCP servers. Lowercase names work too. The server's own address is never proxied, and the startup log says which proxy is in use (without credentials).
+
 ## From source
 
 Needs Node 24 and pnpm.

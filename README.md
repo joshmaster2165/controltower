@@ -242,6 +242,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
 | `CT_SMTP_URL`, `CT_SMTP_FROM` | — | Default SMTP server and sender for email alerts and approvals (`smtp://user:pass@host:587`) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Route Control Tower's own outbound calls through a corporate proxy |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render, Fly.io and Railway |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |

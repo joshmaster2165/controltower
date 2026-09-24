@@ -55,6 +55,7 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_MAX_HELD` | `500` | Most requests held at once; beyond it, requests get a ticket immediately |
 | `CT_SMTP_URL` | — | Default SMTP server for email alert channels: `smtp://user:password@host:587` or `smtps://…:465` |
 | `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Send Control Tower's own outbound calls — to providers, MCP servers, HTTP APIs and alert channels — through a proxy. See [Install](install.md#behind-a-corporate-proxy) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_LOG_LEVEL` | `info` (`debug` from source) | `debug`, `info`, `warn` or `error`. `LITELLM_LOG=DEBUG` and `--detailed_debug` work too |
 | `CT_RETENTION_DAYS` | `30` | Days to keep flights (one row per request); `0` keeps them forever. Daily spend and usage history is always kept |

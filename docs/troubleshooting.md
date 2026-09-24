@@ -42,6 +42,8 @@ location / {
 
 **The container can't write `/data`.** The image fixes the ownership of a root-owned volume at startup. If your platform runs containers with a fixed non-root user and read-only ownership, make the volume writable by uid 1000 (`node`).
 
+**Providers time out behind a corporate firewall.** Set `HTTPS_PROXY` (and `NO_PROXY` for internal hosts) so Control Tower's own calls go through your proxy — see [Install](install.md#behind-a-corporate-proxy).
+
 **Port 4000 is taken.** Publish another host port (`-p 8080:4000`) or set `--port` / `CT_PORT` / `PORT`.
 
 **`--config` or `--policy` stops startup.** The log says what's wrong: a file that can't be read or parsed, or a policy naming an agent, model or zone that doesn't exist. Nothing is half-applied; fix the file and restart.

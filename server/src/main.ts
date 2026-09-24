@@ -30,6 +30,7 @@ import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
 import { smtpFromEnv } from './alerts/email.js';
 import { startRetention } from './db/retention.js';
+import { describeProxy, outboundProxyFromEnv, useOutboundProxy } from './net/proxy.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
@@ -64,6 +65,8 @@ async function main(): Promise<void> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const uiDir = config.uiDir ?? [path.resolve(here, '../../ui/dist'), path.resolve(here, '../ui')].find((p) => fs.existsSync(path.join(p, 'index.html')));
 
+  const proxy = outboundProxyFromEnv(process.env, config.port);
+  useOutboundProxy(proxy);
   const mk = loadOrCreateMasterKey(config.dataDir, config.masterKeyEnv);
   const secrets = new SecretBox(mk);
   const db = openSqlite(config.dataDir);
@@ -205,6 +208,7 @@ async function main(): Promise<void> {
     throw err;
   }
   for (const n of config.notices) app.log.warn(n);
+  if (proxy) app.log.info({ no_proxy: proxy.noProxy }, `outbound requests go through ${describeProxy(proxy)}`);
   // In a container, a data directory on the image's own filesystem disappears with the container.
   if (fs.existsSync('/.dockerenv') || process.env.CT_IN_CONTAINER === '1') {
     try {

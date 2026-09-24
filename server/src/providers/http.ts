@@ -1,4 +1,5 @@
-import { Agent, request, type Dispatcher } from 'undici';
+import { request, type Dispatcher } from 'undici';
+import { newAgent } from '../net/proxy.js';
 import { networkError, timeoutError, type NormalizedError } from './adapter.js';
 
 /**
@@ -9,13 +10,13 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const HEADERS_TIMEOUT_MS = 60_000;
 const BODY_IDLE_TIMEOUT_MS = 60_000;
 
-const agents = new Map<string, Agent>();
+const agents = new Map<string, Dispatcher>();
 
-function agentFor(url: string): Agent {
+function agentFor(url: string): Dispatcher {
   const origin = new URL(url).origin;
   let a = agents.get(origin);
   if (!a) {
-    a = new Agent({
+    a = newAgent({
       connections: 128,
       pipelining: 1,
       keepAliveTimeout: 30_000,

@@ -16,6 +16,7 @@
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
     "demo:gif": "node scripts/demo-gif.mjs",
+    "load:fleet": "node scripts/load-fleet.mjs",
     "docs:build": "node scripts/build-docs.mjs",
     "docs:screenshots": "playwright test -c scripts/docs/playwright.config.ts",
     "start": "node server/dist/server.mjs",

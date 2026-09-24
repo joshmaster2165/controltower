@@ -26,7 +26,7 @@ Print it (or save as PDF) for a security review, or download it as Markdown for 
 
 ## Prometheus metrics
 
-`GET /metrics` serves the Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with that bearer token (a signed-in admin can also open it).
+`GET /metrics` serves the Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with that bearer token (a signed-in admin or the admin key can also open it).
 
 ```yaml
 scrape_configs:
@@ -50,3 +50,22 @@ Labels are bounded: a model name the gateway doesn't know is reported as `other`
 ## Health checks
 
 `/healthz` and `/health/liveliness` for liveness, `/readyz` and `/health/readiness` for readiness, and `/health` (admin or agent key) to check every connected provider. See [Install](install.md#any-container-platform).
+
+## Load testing
+
+`pnpm load:fleet` (from a checkout) drives a fleet of agents against a running server and measures the gateway and the Airspace under that load. Point it at a server started in demo mode, so the models, MCP servers and HTTP API it calls are the built-in stand-ins and nothing leaves the machine:
+
+```bash
+CT_DEMO=1 CT_ADMIN_KEY=… pnpm start
+pnpm load:fleet --admin-key "$CT_ADMIN_KEY" --agents 1500 --rps 300 --duration 60
+```
+
+It creates `--agents` keys (named `load-*`, replaced on each run) across `--types` agent types (60) and `--teams` teams (12), a few big agents with many copies and a long tail of small ones. It then sends `--rps` requests a second — chat, MCP tool calls and HTTP API calls — and halfway through opens the Airspace in a headless browser. The report in `load-report/` has:
+
+| | |
+|---|---|
+| Traffic | Achieved rate, statuses, client latency, and gateway overhead from `/metrics` |
+| Map | Time to first draw, topology size, stations drawn, frame rate, live-update rate and bandwidth, memory |
+
+A screenshot of the map under load is saved next to it. `--no-browser` skips the map.
+

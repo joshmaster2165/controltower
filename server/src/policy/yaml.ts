@@ -40,7 +40,7 @@ export interface GateDoc {
   from?: string;
   to?: string;
   target?: RuleRecord['targetKind'];
-  match?: { agents?: string[]; deployments?: string[]; servers?: string[]; models?: string[]; tools?: string[]; operations?: RuleMatch['operations']; args?: RuleMatch['args'] };
+  match?: { agents?: string[]; groups?: string[]; deployments?: string[]; servers?: string[]; models?: string[]; tools?: string[]; operations?: RuleMatch['operations']; args?: RuleMatch['args'] };
   effect: RuleRecord['effect'];
   config?: RuleConfig;
   priority?: number;
@@ -61,7 +61,11 @@ function names(ctx: AppContext) {
     return d.publicName ?? `${r.providers.get(d.providerId)?.slug ?? 'unknown'}/${d.upstreamModel}`;
   };
   const agents = new Map<string, string[]>();
-  for (const k of r.keysById.values()) agents.set(k.name, [...(agents.get(k.name) ?? []), k.id]);
+  const groups = new Set<string>();
+  for (const k of r.keysById.values()) {
+    agents.set(k.name, [...(agents.get(k.name) ?? []), k.id]);
+    if (k.agentId) groups.add(k.agentId);
+  }
   const deployments = new Map<string, string>();
   for (const d of r.deployments.values()) {
     if (d.publicName) deployments.set(d.publicName, d.id);
@@ -80,6 +84,8 @@ function names(ctx: AppContext) {
           const k = r.keysById.get(id);
           return k ? `agent:${k.name}` : undefined;
         }
+        case 'group':
+          return groups.has(id) ? station : undefined;
         case 'deployment': {
           const n = depName(id);
           return n ? `model:${n}` : undefined;
@@ -103,15 +109,17 @@ function names(ctx: AppContext) {
     /** Reference → station id, or an error message. */
     station(ref: string): { id: string } | { error: string } {
       const i = ref.indexOf(':');
-      if (i < 1) return { error: `"${ref}" is not a member reference (use agent:, model:, provider:, mcp:, http: or tool:)` };
+      if (i < 1) return { error: `"${ref}" is not a member reference (use agent:, group:, model:, provider:, mcp:, http: or tool:)` };
       const kind = ref.slice(0, i);
       const name = ref.slice(i + 1).trim();
       switch (kind) {
         case 'agent': {
           const ids = agents.get(name) ?? [];
           if (ids.length === 1) return { id: `key:${ids[0]}` };
-          return { error: ids.length ? `${ids.length} agents are named "${name}"; rename one to reference it` : `no agent named "${name}"` };
+          return { error: ids.length ? `${ids.length} agents are named "${name}"; rename one, or reference them together as group:<agent id>` : `no agent named "${name}"` };
         }
+        case 'group':
+          return groups.has(name) ? { id: `group:${name}` } : { error: `no keys carry the agent id "${name}"` };
         case 'model': {
           const id = deployments.get(name);
           return id ? { id: `deployment:${id}` } : { error: `no model named "${name}"` };
@@ -132,6 +140,7 @@ function names(ctx: AppContext) {
       }
     },
     agentName: (id: string) => r.keysById.get(id)?.name,
+    group: (agentId: string) => (groups.has(agentId) ? agentId : undefined),
     agentId: (name: string) => {
       const ids = agents.get(name) ?? [];
       return ids.length === 1 ? ids[0] : undefined;
@@ -178,6 +187,7 @@ export function exportPolicy(ctx: AppContext): { doc: PolicyDoc; warnings: strin
         );
       const match = clean({
         agents: list(m.keys, n.agentName, 'agent'),
+        groups: list(m.groups, n.group, 'agent group'),
         deployments: list(m.deployments, n.deploymentName, 'model'),
         servers: list(m.mcp_servers, n.serverSlug, 'tool server'),
         models: nonEmpty(m.models),
@@ -337,8 +347,8 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
     }
     const m = (g.match ?? {}) as NonNullable<GateDoc['match']>;
     if (typeof m !== 'object' || Array.isArray(m)) return fail(`Gate "${name}": match must be a mapping.`);
-    for (const k of Object.keys(m)) if (!['agents', 'deployments', 'servers', 'models', 'tools', 'operations', 'args'].includes(k)) fail(`Gate "${name}": unknown match field "${k}".`);
-    for (const k of ['agents', 'deployments', 'servers', 'models', 'tools', 'operations'] as const) if (m[k] !== undefined && !strings(m[k])) fail(`Gate "${name}": match.${k} must be a list of strings.`);
+    for (const k of Object.keys(m)) if (!['agents', 'groups', 'deployments', 'servers', 'models', 'tools', 'operations', 'args'].includes(k)) fail(`Gate "${name}": unknown match field "${k}".`);
+    for (const k of ['agents', 'groups', 'deployments', 'servers', 'models', 'tools', 'operations'] as const) if (m[k] !== undefined && !strings(m[k])) fail(`Gate "${name}": match.${k} must be a list of strings.`);
     const resolve = (xs: string[] | undefined, f: (x: string) => string | undefined, problem: (x: string) => string) =>
       (xs ?? []).flatMap((x) => {
         const id = f(x);
@@ -350,6 +360,7 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
     if (m.args !== undefined && (!Array.isArray(m.args) || m.args.some((a) => !a || typeof a.path !== 'string' || typeof a.op !== 'string'))) fail(`Gate "${name}": match.args must be a list of {path, op, value}.`);
     const match: RuleMatch = clean({
       keys: resolve(m.agents, n.agentId, n.agentProblem),
+      groups: resolve(m.groups, n.group, (x) => `no keys carry the agent id "${x}"`),
       deployments: resolve(m.deployments, n.deploymentId, (x) => `no model named "${x}"`),
       mcp_servers: resolve(m.servers, n.serverId, (x) => `no tool server with slug "${x}"`),
       models: m.models,

@@ -38,6 +38,8 @@ export interface ArgConstraint {
 export interface RuleMatch {
   /** Specific agents (API key ids). Empty = any agent (subject to from_zone). */
   keys?: string[];
+  /** Agent groups: every key carrying one of these agent ids. A key matches if it is in `keys` or in one of these. */
+  groups?: string[];
   /** Specific model deployments. */
   deployments?: string[];
   /** Specific MCP tool servers. */
@@ -182,10 +184,11 @@ export class PolicyService implements PolicyEngine {
   }
 
   /** Zones containing a station, by explicit membership or attribute match. */
-  zonesForStation(stationKey: string, attrs: { team?: string | undefined; project?: string | undefined; tags?: string[] | undefined; providerKind?: string | undefined } = {}): ZoneRecord[] {
+  zonesForStation(stationKey: string | string[], attrs: { team?: string | undefined; project?: string | undefined; tags?: string[] | undefined; providerKind?: string | undefined } = {}): ZoneRecord[] {
     const out: ZoneRecord[] = [];
+    const ids = typeof stationKey === 'string' ? [stationKey] : stationKey;
     for (const z of this.zones.values()) {
-      if (z.stations.has(stationKey)) {
+      if (ids.some((id) => z.stations.has(id))) {
         out.push(z);
         continue;
       }
@@ -199,7 +202,8 @@ export class PolicyService implements PolicyEngine {
   }
 
   sourceZones(key: KeyRecord): ZoneRecord[] {
-    return this.zonesForStation(`key:${key.id}`, { team: key.team, project: key.project, tags: key.tags });
+    // A key is a member through its own station or through its agent's group.
+    return this.zonesForStation(key.agentId ? [`key:${key.id}`, `group:${key.agentId}`] : `key:${key.id}`, { team: key.team, project: key.project, tags: key.tags });
   }
 
   targetZones(target: PolicyTarget): ZoneRecord[] {
@@ -222,7 +226,7 @@ export class PolicyService implements PolicyEngine {
     if (r.fromZone && !src.has(r.fromZone)) return 'no';
     if (r.toZone && !dst.has(r.toZone)) return 'no';
     // Station-level scope: gates drawn directly on the Airspace between a specific agent and destination.
-    if (r.match.keys?.length && !r.match.keys.includes(key.id)) return 'no';
+    if ((r.match.keys?.length || r.match.groups?.length) && !r.match.keys?.includes(key.id) && !(key.agentId && r.match.groups?.includes(key.agentId))) return 'no';
     const dests = [...(r.match.deployments ?? []), ...(r.match.mcp_servers ?? [])];
     if (dests.length) {
       const id = target.kind === 'model' ? target.deploymentId : target.mcpServerId;

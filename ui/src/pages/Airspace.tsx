@@ -3,7 +3,8 @@ import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
 import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo } from '../airspace/scene';
-import { api, ApiError, type Rule, type Zone } from '../api';
+import { agentGroups, agentRef } from '../airspace/groups';
+import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
 import { Icon } from '../components/Icon';
 import { ApprovalCard } from './Tower';
 import { type GateDraft, alertedGates, destRef, describeRule } from './airspace/shared';
@@ -110,13 +111,13 @@ export function AirspacePage() {
             setPopover(null);
             applyFocus(focusRef.current === c.station.id ? null : c.station.id);
           } else if (c.kind === 'lane') {
-            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: `key:${c.stationId}`, to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
+            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: agentRef(c.stationId), to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
           } else if (c.kind === 'tool') {
             setPopover({ kind: 'compose', draft: { from: 'all', to: `mcp:${c.serverId}`, tool: c.tool }, x: c.x, y: c.y });
           } else if (c.kind === 'connect') {
-            setPopover({ kind: 'compose', draft: { from: `key:${c.agentId}`, to: destRef(c.destId), tool: c.tool }, x: c.x, y: c.y });
+            setPopover({ kind: 'compose', draft: { from: agentRef(c.agentId), to: destRef(c.destId), tool: c.tool }, x: c.x, y: c.y });
           } else if (c.kind === 'context') {
-            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: `key:${c.stationId}`, to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
+            setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: agentRef(c.stationId), to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
           } else if (c.kind === 'zone') setPopover({ kind: 'zone', zone: c.zone, x: c.x, y: c.y });
           else if (c.kind === 'gate') setPopover({ kind: 'gate', rule: c.rule, x: c.x, y: c.y });
           else {
@@ -276,7 +277,7 @@ export function AirspacePage() {
     if (!scene) return;
     const now = new Date();
     const t = useStore.getState().topology;
-    const sub = `${now.toLocaleString()} · ${t?.keys.length ?? 0} agents · ${t?.deployments.length ?? 0} models · ${t?.mcp_servers.length ?? 0} tool servers · ${policy?.rules.length ?? 0} gates`;
+    const sub = `${now.toLocaleString()} · ${agentCount(t)} · ${t?.deployments.length ?? 0} models · ${t?.mcp_servers.length ?? 0} tool servers · ${policy?.rules.length ?? 0} gates`;
     const blob = await scene.exportPng('Control Tower · agent data-flow map', sub);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -321,7 +322,7 @@ export function AirspacePage() {
 
   const stationKeyFor = (id: string) => {
     const s = sceneRef.current?.stationList().find((x) => x.id === id);
-    return s?.kind === 'agent' ? `key:${id}` : s?.kind === 'mcp' ? `mcp:${id}` : `deployment:${id}`;
+    return s?.kind === 'agent' ? agentRef(id) : s?.kind === 'mcp' ? `mcp:${id}` : `deployment:${id}`;
   };
 
   const pendingHere = approvals.filter((a) => a.status === 'pending');
@@ -600,4 +601,12 @@ export function AirspacePage() {
       {policyImport && <PolicyImport onClose={() => setPolicyImport(false)} onApplied={() => void refreshPolicy()} />}
     </div>
   );
+}
+
+/** "60 agents (1,500 keys)" when keys share agent ids, else "12 agents". */
+function agentCount(t: Topology | null): string {
+  const keys = t?.keys.length ?? 0;
+  const groups = t ? agentGroups(t.keys) : new Map();
+  const agents = keys - [...groups.values()].reduce((n, ks: unknown[]) => n + ks.length - 1, 0);
+  return `${agents.toLocaleString()} agent${agents === 1 ? '' : 's'}${agents < keys ? ` (${keys.toLocaleString()} keys)` : ''}`;
 }

@@ -43,7 +43,8 @@ interface State {
   refreshAlerts(): Promise<void>;
   dismissToast(id: string): void;
   setWs(s: State['wsState']): void;
-  onEvent(e: FlightEvent): void;
+  /** Live events, a frame at a time: counters and the feed update once per frame. */
+  onEvents(es: FlightEvent[]): void;
 }
 
 const started = new Map<string, { key: string; model: string; ts: number }>();
@@ -156,45 +157,45 @@ export const useStore = create<State>((set, get) => ({
     set({ wsState });
   },
 
-  onEvent(e) {
+  onEvents(es) {
     const s = get();
-    let item: FeedItem | null = null;
     const c = { ...s.counters };
-    if (e.t === 'flight.started') {
-      started.set(e.flight_id, { key: e.key_name, model: e.model_requested, ts: e.ts });
-      c.flights++;
-    } else if (e.t === 'flight.completed') {
-      const st = started.get(e.flight_id);
-      started.delete(e.flight_id);
-      const key = st?.key ?? 'agent';
-      const model = st?.model ?? 'model';
-      if (e.status === 'ok') c.ok++;
-      else if (e.status === 'error') c.errors++;
-      else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') c.denied++;
-      if (e.cost_nanousd) c.cost_nanousd += e.cost_nanousd;
-      if (e.usage) c.tokens += e.usage.input + e.usage.output;
-      if (e.status !== 'ok') {
-        item = {
-          id: e.flight_id,
-          ts: e.ts,
-          kind: e.status === 'error' ? 'error' : e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed' ? 'denied' : 'info',
-          text: `${key} → ${model}`,
-          meta: e.error?.code ?? e.status,
-        };
+    const items: FeedItem[] = [];
+    for (const e of es) {
+      let item: FeedItem | null = null;
+      if (e.t === 'flight.started') {
+        started.set(e.flight_id, { key: e.key_name, model: e.model_requested, ts: e.ts });
+        c.flights++;
+      } else if (e.t === 'flight.completed') {
+        const st = started.get(e.flight_id);
+        started.delete(e.flight_id);
+        const key = st?.key ?? 'agent';
+        const model = st?.model ?? 'model';
+        if (e.status === 'ok') c.ok++;
+        else if (e.status === 'error') c.errors++;
+        else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') c.denied++;
+        if (e.cost_nanousd) c.cost_nanousd += e.cost_nanousd;
+        if (e.usage) c.tokens += e.usage.input + e.usage.output;
+        if (e.status !== 'ok') {
+          item = {
+            id: e.flight_id,
+            ts: e.ts,
+            kind: e.status === 'error' ? 'error' : e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed' ? 'denied' : 'info',
+            text: `${key} → ${model}`,
+            meta: e.error?.code ?? e.status,
+          };
+        }
+      } else if (e.t === 'flight.held') {
+        const st = started.get(e.flight_id);
+        item = { id: e.flight_id + ':held', ts: e.ts, kind: 'held', text: `${st?.key ?? 'agent'} holding at gate`, meta: e.summary.slice(0, 40) };
+      } else if (e.t === 'flight.decision' && e.decision === 'deny') {
+        const st = started.get(e.flight_id);
+        item = { id: e.flight_id + ':deny', ts: e.ts, kind: 'denied', text: `${st?.key ?? 'agent'} → ${st?.model ?? ''}`, meta: e.reason ?? 'denied by policy' };
       }
-    } else if (e.t === 'flight.held') {
-      const st = started.get(e.flight_id);
-      item = { id: e.flight_id + ':held', ts: e.ts, kind: 'held', text: `${st?.key ?? 'agent'} holding at gate`, meta: e.summary.slice(0, 40) };
-    } else if (e.t === 'flight.decision' && e.decision === 'deny') {
-      const st = started.get(e.flight_id);
-      item = { id: e.flight_id + ':deny', ts: e.ts, kind: 'denied', text: `${st?.key ?? 'agent'} → ${st?.model ?? ''}`, meta: e.reason ?? 'denied by policy' };
+      if (item) items.unshift(item);
     }
-    if (item) {
-      const feed = [item, ...s.feed].slice(0, 8);
-      set({ counters: c, feed });
-    } else {
-      set({ counters: c });
-    }
+    if (items.length) set({ counters: c, feed: [...items, ...s.feed].slice(0, 8) });
+    else set({ counters: c });
   },
 }));
 

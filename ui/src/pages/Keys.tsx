@@ -12,7 +12,7 @@ export function KeysPage() {
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
+  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
   const load = async () => {
@@ -29,6 +29,7 @@ export function KeysPage() {
     try {
       const body: Record<string, unknown> = {
         name: form.name,
+        agent_id: form.agent_id.trim() || undefined,
         team: form.team || undefined,
         project: form.project || undefined,
         allowed_models: form.allowed_models.split(',').map((s) => s.trim()).filter(Boolean),
@@ -38,7 +39,7 @@ export function KeysPage() {
       const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
-      setForm({ name: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
+      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
       await load();
       await refreshTopology();
     } catch (err) {
@@ -97,6 +98,11 @@ export function KeysPage() {
           <div className="field">
             <label>Name (agent)</label>
             <input className="input" autoFocus required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="invoice-bot" />
+          </div>
+          <div className="field">
+            <label>Agent ID (optional)</label>
+            <input className="input" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })} placeholder="invoice-bot" />
+            <div className="hint">Keys with the same agent ID are copies of one agent (replicas, workers, one key per tenant): the map draws them as one station, and a gate on it covers every copy. Defaults to the name.</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="field">

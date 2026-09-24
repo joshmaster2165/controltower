@@ -8,7 +8,7 @@ The Airspace is a live map of every agentic data flow: agents on the left, the t
 
 | On the map | Meaning |
 |---|---|
-| **Station** | An agent (one key), a model, an MCP tool server with its tools, an HTTP API with its routes, or a system seen outside the gateway |
+| **Station** | An agent (one key, or every key sharing an [agent ID](keys.md#many-copies-of-one-agent), drawn once with a ×N count), a model, an MCP tool server with its tools, an HTTP API with its routes, or a system seen outside the gateway |
 | **Line** | A path an agent uses. **Solid** = through the gateway, enforceable. **Dashed** = reported by the agent's SDK or OpenTelemetry, *seen but not enforced* |
 | Line state | **active** (last minute) · **idle** (last 24 h) · **no traffic** · **holding** (waiting for approval) · **blocked** |
 | **Zone** | A coloured region grouping stations — *Sales*, *AI Labs sandbox*, *Frontier models* |

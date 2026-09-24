@@ -13,6 +13,7 @@ Every agent gets its own key. The key is how Control Tower knows *who* is callin
 | Field | What it does |
 |---|---|
 | **Name (agent)** | The agent's name on the map and in every report |
+| **Agent ID** | Optional. Keys with the same agent ID are [copies of one agent](#many-copies-of-one-agent). Defaults to the name |
 | **Team**, **Project** | Labels for grouping spend, for zones (a zone can match every key of a team) and for alerts |
 | **Allowed models** | Comma-separated globs, e.g. `gpt-4.1*, claude-*-haiku*`. Empty means any model. Other models get `403 model_not_allowed` |
 | **Requests per minute** | Rate limit; over it, `429 rate_limit_exceeded` |
@@ -29,6 +30,7 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
 ```json
 {
   "name": "support-bot",
+  "agent_id": "support-bot",
   "team": "support",
   "project": "zendesk-triage",
   "tags": ["customer-facing"],
@@ -56,6 +58,14 @@ curl -X POST http://localhost:4000/key/generate \
 ```
 
 Also `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` and `POST /key/delete` (by `keys` or `key_aliases`). `budget_duration` takes `1d`, `7d`, `30d` or `1mo`; `duration` takes values like `30d` for an expiry; `"key": "sk-…"` keeps an existing value.
+
+## Many copies of one agent
+
+An agent that runs as several copies — replicas behind a load balancer, one worker per queue, one key per customer tenant — should still get a key per copy, so each can be limited, rotated and traced on its own. Give the copies the same **agent ID**:
+
+- The [Airspace](airspace.md) draws them as **one station** with a ×N count, so 1,500 keys of 60 agents read as 60 agents.
+- A gate drawn on that station covers **every copy**, including copies added later; in a [policy file](policy-as-code.md) it is `match: { groups: [support-bot] }`, and a zone member is `group:support-bot`.
+- Flights, the Ledger and budgets still count each key separately.
 
 ## Team and project budgets
 

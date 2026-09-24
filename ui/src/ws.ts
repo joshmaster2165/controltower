@@ -58,10 +58,10 @@ function open(): void {
     const store = useStore.getState();
     switch (msg.type) {
       case 'event':
-        dispatch(msg.event);
+        dispatch([msg.event]);
         break;
       case 'events':
-        for (const e of msg.events) dispatch(e);
+        dispatch(msg.events);
         break;
       case 'topology':
         void store.refreshTopology();
@@ -99,14 +99,17 @@ function scheduleAlerts(): void {
   }, 250);
 }
 
-function dispatch(e: FlightEvent): void {
-  if (isDuplicate(e)) return;
-  useStore.getState().onEvent(e);
-  for (const l of listeners) {
-    try {
-      l(e);
-    } catch (err) {
-      console.error('[ws] listener error', err);
+function dispatch(events: FlightEvent[]): void {
+  const fresh = events.filter((e) => !isDuplicate(e));
+  if (!fresh.length) return;
+  useStore.getState().onEvents(fresh);
+  for (const e of fresh) {
+    for (const l of listeners) {
+      try {
+        l(e);
+      } catch (err) {
+        console.error('[ws] listener error', err);
+      }
     }
   }
 }

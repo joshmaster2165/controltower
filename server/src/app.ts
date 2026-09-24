@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import type { AppContext } from './context.js';
 import { gatewayRoutes } from './gateway/routes.js';
 import { compatRoutes } from './gateway/compat.js';
-import { authRoutes, loadSession } from './admin/auth.js';
+import { authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
 import { timingSafeEqual } from 'node:crypto';
 import { adminRoutes } from './admin/routes.js';
 import { wsRoutes } from './admin/ws.js';
@@ -52,7 +52,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     const auth = req.headers.authorization ?? '';
     const presented = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
     const tokenOk = !!token && presented.length === token.length && timingSafeEqual(Buffer.from(presented), Buffer.from(token));
-    if (!tokenOk && !(await loadSession(full, req))) {
+    if (!tokenOk && !hasAdminKey(full, req) && !(await loadSession(full, req))) {
       return reply
         .status(401)
         .header('www-authenticate', 'Bearer')

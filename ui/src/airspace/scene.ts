@@ -1,6 +1,7 @@
 import type { FlightEvent } from '@controltower/shared';
-import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, Zone } from '../api';
+import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, TopologyKey, Zone } from '../api';
 import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, providerLook, STATUS_COLORS } from './colors';
+import { agentGroups, agentRef, groupStation, keyStations } from './groups';
 
 /**
  * The Airspace — a live map of the agentic ecosystem (Canvas 2D).
@@ -71,6 +72,8 @@ export interface Station {
   protocol?: 'mcp' | 'http' | undefined;
   /** Observed systems only: reported by agents, not proxied, so never enforced. */
   obs?: { target: string; kind: string; bypass: boolean; lastSeen: number; count24h: number; errors24h: number } | undefined;
+  /** An agent group: how many keys (copies of the agent) it stands for. */
+  copies?: number;
 }
 
 export type LinkState = 'active' | 'idle' | 'unused' | 'holding' | 'blocked';
@@ -282,6 +285,10 @@ export class AirspaceScene {
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private obsEdges: ObservedEdge[] = [];
+  /** Key id → the station drawing it: its agent group when several keys share an agent id, else the key. */
+  private keyStation = new Map<string, string>();
+  /** Agent station → the keys it stands for (one for a plain key, all copies for a group). */
+  private stationKeys = new Map<string, TopologyKey[]>();
   /** The region below the tower holding observed systems (world coordinates). */
   private obsBand: { x: number; y: number; w: number; h: number; left: number } | null = null;
   /** Agent → observed system, drawn straight across (not through the tower). */
@@ -719,7 +726,21 @@ export class AirspaceScene {
       }
       return s;
     };
-    for (const k of t.keys) upsert(k.id, 'agent', k.name, [k.team, k.project].filter(Boolean).join(' · ') || 'agent', agentColor(k.agent_id ?? k.id));
+    const groups = agentGroups(t.keys);
+    this.keyStation = keyStations(t.keys, groups);
+    this.stationKeys.clear();
+    for (const k of t.keys) {
+      if (k.agent_id && groups.has(k.agent_id)) continue;
+      upsert(k.id, 'agent', k.name, [k.team, k.project].filter(Boolean).join(' · ') || 'agent', agentColor(k.agent_id ?? k.id));
+      this.stationKeys.set(k.id, [k]);
+    }
+    for (const [agentId, keys] of groups) {
+      const id = groupStation(agentId);
+      const teams = [...new Set(keys.map((k) => k.team).filter(Boolean))];
+      const sub = `${teams.length > 1 ? `${teams.length} teams` : (teams[0] ?? 'agent')} · ${keys.length.toLocaleString()} keys`;
+      upsert(id, 'agent', agentId, sub, agentColor(agentId)).copies = keys.length;
+      this.stationKeys.set(id, keys);
+    }
     const provById = new Map(t.providers.map((p) => [p.id, p]));
     for (const d of t.deployments) {
       const prov = provById.get(d.provider_id);
@@ -749,10 +770,22 @@ export class AirspaceScene {
       const st = upsert(o.id, 'observed', label, sub, o.bypass ? 0xd3374e : 0x64748b);
       st.obs = { target: o.target, kind: o.kind, bypass: o.bypass, lastSeen: o.last_seen, count24h: o.count_24h, errors24h: o.errors_24h };
     }
-    this.obsEdges = t.observed?.edges ?? [];
+    this.obsEdges = this.mergeByStation(t.observed?.edges ?? [], (e) => e.target_id, (into, e) => {
+      into.count_24h += e.count_24h;
+      into.errors_24h += e.errors_24h;
+      into.writes_24h += e.writes_24h;
+      into.last_seen = Math.max(into.last_seen, e.last_seen);
+    });
     for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
 
-    this.edges = t.edges ?? [];
+    this.edges = this.mergeByStation(t.edges ?? [], (e) => `${e.target_id}|${e.tool ?? ''}`, (into, e) => {
+      into.requests += e.requests;
+      into.errors += e.errors;
+      into.denied += e.denied;
+      into.cost_nanousd += e.cost_nanousd;
+      into.last_ts = Math.max(into.last_ts, e.last_ts);
+      if (e.recent_ts?.length) (into.recent_ts ??= []).push(...e.recent_ts);
+    });
     this.used24h.clear();
     // Seed the per-minute counters from the server, so traffic from just before the map opened reads as active.
     const seeded = new Set<string>();
@@ -784,6 +817,24 @@ export class AirspaceScene {
     this.layout();
   }
 
+  /** Per-key rows re-keyed by the station that draws each key, rows landing on the same station and target summed. */
+  private mergeByStation<E extends { key_id: string }>(rows: E[], target: (e: E) => string, add: (into: E, e: E) => void): E[] {
+    const out = new Map<string, E>();
+    for (const e of rows) {
+      const key_id = this.keyStation.get(e.key_id) ?? e.key_id;
+      const k = `${key_id}>${target(e)}`;
+      const into = out.get(k);
+      if (into) add(into, e);
+      else out.set(k, { ...e, key_id, ...('recent_ts' in e && Array.isArray(e.recent_ts) ? { recent_ts: [...e.recent_ts] } : {}) });
+    }
+    return [...out.values()];
+  }
+
+  /** The station that draws a key's traffic. */
+  private stationOf(keyId: string): string {
+    return this.keyStation.get(keyId) ?? keyId;
+  }
+
   setPolicy(p: PolicyBundle): void {
     this.policy = p;
     this.layout();
@@ -796,7 +847,7 @@ export class AirspaceScene {
     } else {
       const m = new Map<string, { deny: number; hold: number; allow: number }>();
       for (const l of lanes) {
-        for (const id of [l.key_id, l.target_id]) {
+        for (const id of [this.stationOf(l.key_id), l.target_id]) {
           const c = m.get(id) ?? { deny: 0, hold: 0, allow: 0 };
           c.deny += l.deny;
           c.hold += l.hold;
@@ -816,7 +867,7 @@ export class AirspaceScene {
   }
 
   private stationKey(s: Station): string {
-    return s.kind === 'agent' ? `key:${s.id}` : s.kind === 'mcp' ? `mcp:${s.id}` : `deployment:${s.id}`;
+    return s.kind === 'agent' ? agentRef(s.id) : s.kind === 'mcp' ? `mcp:${s.id}` : `deployment:${s.id}`;
   }
 
   private zoneMembers(z: Zone): Station[] {
@@ -834,17 +885,14 @@ export class AirspaceScene {
         continue;
       }
       if (s.kind === 'agent') {
-        const k = t?.keys.find((x) => x.id === s.id);
+        // A group is in the zone when any of its keys is (the policy engine decides per key).
         const m = z.match as { teams?: string[]; projects?: string[]; tags?: string[] };
-        if (k && ((m.teams?.length && k.team && m.teams.includes(k.team)) || (m.projects?.length && k.project && m.projects.includes(k.project)) || (m.tags?.length && k.tags.some((tg) => m.tags!.includes(tg))))) out.push(s);
+        const inZone = (k: TopologyKey) =>
+          z.stations.includes(`key:${k.id}`) || (m.teams?.length && k.team && m.teams.includes(k.team)) || (m.projects?.length && k.project && m.projects.includes(k.project)) || (m.tags?.length && k.tags.some((tg) => m.tags!.includes(tg)));
+        if ((this.stationKeys.get(s.id) ?? []).some(inZone)) out.push(s);
       }
     }
     return out;
-  }
-
-  private zonesOf(s: Station): Zone[] {
-    if (!this.policy) return [];
-    return this.policy.zones.filter((z) => this.zoneMembers(z).some((x) => x.id === s.id));
   }
 
   private ensureUnknown(): Station {
@@ -881,10 +929,12 @@ export class AirspaceScene {
     this.holdR = 70;
 
     const zones = this.policy?.zones ?? [];
-    const rank = (s: Station) => {
-      const zs = this.zonesOf(s);
-      return zs.length ? zones.findIndex((z) => z.id === zs[0]!.id) : 999;
-    };
+    // Each station sorts under the first zone it belongs to (computed once: this runs inside a sort).
+    const firstZone = new Map<string, number>();
+    zones.forEach((z, i) => {
+      for (const s of this.zoneMembers(z)) if (!firstZone.has(s.id)) firstZone.set(s.id, i);
+    });
+    const rank = (s: Station) => firstZone.get(s.id) ?? 999;
     const kindRank = (s: Station) => (s.kind === 'model' ? 0 : s.kind === 'mcp' ? 1 : s.kind === 'observed' ? 3 : 2);
     const place = (list: Station[], x: number, side: 'left' | 'right') => {
       list.sort((a, b) => rank(a) - rank(b) || kindRank(a) - kindRank(b) || a.label.localeCompare(b.label));
@@ -1004,7 +1054,7 @@ export class AirspaceScene {
     const global: Rule[] = [];
     for (const r of this.policy?.rules ?? []) {
       if (!r.enabled) continue;
-      const m = r.match as { tools?: string[]; keys?: string[]; deployments?: string[]; mcp_servers?: string[] };
+      const m = r.match as { tools?: string[]; keys?: string[]; groups?: string[]; deployments?: string[]; mcp_servers?: string[] };
       const toolGlobs = m.tools;
       const toZone = r.to_zone ? zones.find((x) => x.id === r.to_zone) : undefined;
       if (toolGlobs?.length) {
@@ -1014,9 +1064,10 @@ export class AirspaceScene {
         continue;
       }
       const destIds = [...(m.deployments ?? []), ...(m.mcp_servers ?? [])];
-      if (m.keys?.length) {
-        // Scoped to specific agents: the gate sits on each agent's line.
-        for (const k of m.keys) this.addGate(k, r, 0.66);
+      if (m.keys?.length || m.groups?.length) {
+        // Scoped to specific agents: the gate sits on each agent's line (once per station, however many of its keys it names).
+        const ids = new Set([...(m.keys ?? []).map((k) => this.stationOf(k)), ...(m.groups ?? []).map(groupStation)]);
+        for (const id of ids) this.addGate(id, r, 0.66);
         continue;
       }
       if (destIds.length) {
@@ -1189,7 +1240,7 @@ export class AirspaceScene {
     this.dirty = true;
     switch (e.t) {
       case 'flight.started': {
-        const agent = this.stations.get(e.key_id);
+        const agent = this.stations.get(this.stationOf(e.key_id));
         if (!agent) return;
         const destId = e.deployment_id ?? e.mcp_server_id;
         const dest = (destId && this.stations.get(destId)) || (destId ? undefined : this.ensureUnknown());
@@ -1863,6 +1914,17 @@ export class AirspaceScene {
     const ctx = this.ctx;
     const hot = this.hovered === `station:${s.id}` || this.focusId === s.id;
     const st = this.stateOf(s, now);
+    // An agent group is a small stack of cards: one agent, several copies.
+    if (s.copies && s.headH >= 40) {
+      for (const d of s.copies > 2 ? [6, 3] : [3]) {
+        roundRect(ctx, s.x + d, s.y - d, s.w, s.h, 10);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fill();
+        ctx.strokeStyle = '#e1e7ef';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
     ctx.save();
     ctx.shadowColor = `rgba(15,27,45,${hot ? 0.14 : 0.07})`;
     ctx.shadowBlur = hot ? 16 : 10;
@@ -1909,7 +1971,22 @@ export class AirspaceScene {
     ctx.font = `600 ${compact ? 11.5 : 12.5}px ${FONT}`;
     ctx.fillStyle = INK;
     const titleY = s.y + (compact ? head / 2 + 4 : head / 2 - 2);
-    ctx.fillText(fitText(ctx, s.label, right - tx - statusW), tx, titleY);
+    // A group's copy count rides on the title line, so it survives compact cards.
+    const copies = s.copies ? `×${s.copies.toLocaleString()}` : '';
+    ctx.font = `600 10.5px ${FONT}`;
+    const copiesW = copies ? ctx.measureText(copies).width + 12 : 0;
+    ctx.font = `600 ${compact ? 11.5 : 12.5}px ${FONT}`;
+    const title = fitText(ctx, s.label, right - tx - statusW - copiesW);
+    ctx.fillText(title, tx, titleY);
+    if (copies) {
+      const cx = tx + ctx.measureText(title).width + 5;
+      ctx.font = `600 10.5px ${FONT}`;
+      roundRect(ctx, cx, titleY - 11, copiesW - 4, 15, 7.5);
+      ctx.fillStyle = rgba(s.color, 0.12);
+      ctx.fill();
+      ctx.fillStyle = hex(s.color);
+      ctx.fillText(copies, cx + 4, titleY);
+    }
     if (!compact) {
       ctx.font = `400 11px ${FONT}`;
       ctx.fillStyle = INK_DIM;

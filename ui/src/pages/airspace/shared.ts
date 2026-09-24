@@ -60,7 +60,7 @@ export function destRef(id: string): string {
 
 /** Plain-language description of what a gate covers. */
 export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string {
-  const m = r.match as { keys?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
+  const m = r.match as { keys?: string[]; groups?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
   const keyName = (id: string) => t?.keys.find((k) => k.id === id)?.name ?? id;
   const depName = (id: string) => {
     const d = t?.deployments.find((x) => x.id === id);
@@ -68,7 +68,8 @@ export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string
   };
   const mcpName = (id: string) => t?.mcp_servers.find((x) => x.id === id)?.name ?? id;
   const zoneName = (id: string) => zones.find((z) => z.id === id)?.name ?? id;
-  const from = m.keys?.length ? m.keys.map(keyName).join(', ') : r.from_zone ? `${zoneName(r.from_zone)} agents` : 'any agent';
+  const who = [...(m.keys ?? []).map(keyName), ...(m.groups ?? []).map((g) => `${g} (every copy)`)];
+  const from = who.length ? who.join(', ') : r.from_zone ? `${zoneName(r.from_zone)} agents` : 'any agent';
   let to = 'anything';
   if (m.deployments?.length) to = m.deployments.map(depName).join(', ');
   else if (m.mcp_servers?.length) to = m.mcp_servers.map(mcpName).join(', ');

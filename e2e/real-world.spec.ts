@@ -270,6 +270,48 @@ test('Zones: a gate drawn between two zones blocks only the agents inside them',
   expect(other.choices[0]!.message.content).toBeTruthy();
 });
 
+test('Agent groups: a gate or zone on an agent covers every copy of it, and nothing else', async ({ page }) => {
+  // Two copies of one agent (same agent id, a key each) and a different agent.
+  const copies = [await key('rw-worker-1', { agent_id: 'rw-worker' }), await key('rw-worker-2', { agent_id: 'rw-worker' })];
+  const other = await key('rw-other-agent', { agent_id: 'rw-other' });
+  const chat = (k: string) =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+
+  const gate = await admin.post('/admin/api/rules', { name: 'Workers may not use mini', effect: 'deny', target_kind: 'model', match: { groups: ['rw-worker'], models: ['gpt-4.1-mini'] }, priority: 5 });
+  expect(gate.status).toBe(201);
+  expect((await chat(copies[0]!.key)).status).toBe(403);
+  expect((await chat(copies[1]!.key)).status).toBe(403);
+  expect((await chat(other.key)).status).toBe(200);
+  // A copy added later is covered too.
+  const third = await key('rw-worker-3', { agent_id: 'rw-worker' });
+  expect((await chat(third.key)).status).toBe(403);
+
+  // Zones hold a group as one member; policy as code refers to it as group:<agent id>.
+  const zone = (await admin.post('/admin/api/zones', { name: 'Workers', stations: ['group:rw-worker'] })).body.id;
+  const yamlText = (await admin.get<string>('/admin/api/policy/export')).body;
+  expect(yamlText).toContain('group:rw-worker');
+  expect(yamlText).toMatch(/groups:\s*\n\s*- rw-worker/);
+  const bad = await admin.post('/admin/api/policy/import', { yaml: 'gates:\n  - name: Typo\n    match: { groups: [no-such-agent] }\n    effect: deny\n', mode: 'merge' });
+  expect(bad.body.errors.join(' ')).toContain('no keys carry the agent id "no-such-agent"');
+
+  expect((await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`)).status).toBeLessThan(300);
+  expect((await admin.call('DELETE', `/admin/api/zones/${zone}`)).status).toBeLessThan(300);
+  expect((await chat(copies[0]!.key)).status).toBe(200);
+
+  // The map draws the three copies as one station.
+  await page.goto(`${CT}/`);
+  await field(page, /^Email/).fill(EMAIL);
+  await field(page, /^Password/).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  const station = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene?: { stations: Map<string, { id: string; label: string; copies?: number }> } }).__ctScene;
+      const all = [...(s?.stations.values() ?? [])];
+      return { group: all.find((x) => x.id === 'group:rw-worker')?.copies ?? 0, copiesDrawnAlone: all.filter((x) => /^rw-worker-/.test(x.label)).length };
+    });
+  await expect.poll(station).toEqual({ group: 3, copiesDrawnAlone: 0 });
+});
+
 // ---------------------------------------------------------------- gates on models
 let alertHook: Upstream;
 const ALERT_SECRET = 'whsec-real-world-test';

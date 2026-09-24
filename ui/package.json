@@ -1,6 +1,6 @@
 {
   "name": "@controltower/ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Control Tower console: Airspace map, Admin, Tower, Ledger.",

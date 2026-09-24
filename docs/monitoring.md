@@ -65,7 +65,7 @@ It creates `--agents` keys (named `load-*`, replaced on each run) across `--type
 | | |
 |---|---|
 | Traffic | Achieved rate, statuses, client latency, and gateway overhead from `/metrics` |
-| Map | Time to first draw, topology size, stations drawn, frame rate, live-update rate and bandwidth, memory |
+| Map | Time to first draw, topology size, stations drawn, frame rate, live updates per second and bandwidth by message type (as decoded; on the wire the WebSocket is compressed), memory |
 
 A screenshot of the map under load is saved next to it. `--no-browser` skips the map.
 

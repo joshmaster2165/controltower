@@ -10,6 +10,7 @@ import type { Budgets } from './limits/budgets.js';
 import type { FlightBus } from './events/bus.js';
 import type { DbSink } from './events/db-sink.js';
 import type { EventRing } from './events/ring.js';
+import type { LiveFrames } from './admin/live.js';
 import type { PolicyEngine } from './policy/engine.js';
 import type { Approvals } from './policy/approvals.js';
 import type { SecretBox } from './crypto/secrets.js';
@@ -37,6 +38,8 @@ export interface AppContext {
   bus: FlightBus;
   dbSink: DbSink;
   ring: EventRing;
+  /** Summed live frames for the console's WebSocket. */
+  live: LiveFrames;
   policy: PolicyEngine;
   approvals: Approvals;
   /** Bumped whenever the approvals queue changes; the console re-fetches. */

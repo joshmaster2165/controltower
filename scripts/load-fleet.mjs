@@ -189,14 +189,19 @@ if (BROWSER) {
   try {
   await page.addInitScript(() => {
     const w = window;
-    w.__ws = { messages: 0, bytes: 0 };
+    w.__ws = { messages: 0, bytes: 0, byType: {} };
     const Native = window.WebSocket;
     window.WebSocket = class extends Native {
       constructor(...a) {
         super(...a);
         this.addEventListener('message', (e) => {
           w.__ws.messages++;
-          w.__ws.bytes += typeof e.data === 'string' ? e.data.length : 0;
+          const n = typeof e.data === 'string' ? e.data.length : 0;
+          w.__ws.bytes += n;
+          const type = (typeof e.data === 'string' && /"type":"(\w+)"/.exec(e.data.slice(0, 40))?.[1]) || 'other';
+          const b = (w.__ws.byType[type] ??= { messages: 0, bytes: 0 });
+          b.messages++;
+          b.bytes += n;
         });
       }
     };
@@ -216,7 +221,7 @@ if (BROWSER) {
   await page.waitForTimeout(1500);
   const sample = await page.evaluate(async () => {
     const w = window;
-    const ws0 = { ...w.__ws };
+    const ws0 = { ...w.__ws, byType: JSON.parse(JSON.stringify(w.__ws.byType)) };
     let frames = 0;
     const t0 = performance.now();
     await new Promise((res) => {
@@ -236,6 +241,9 @@ if (BROWSER) {
       fps: frames / secs,
       ws_messages_per_s: (w.__ws.messages - ws0.messages) / secs,
       ws_kb_per_s: (w.__ws.bytes - ws0.bytes) / 1024 / secs,
+      ws_by_type: Object.fromEntries(
+        Object.entries(w.__ws.byType).map(([t, v]) => [t, { per_s: Number(((v.messages - (ws0.byType[t]?.messages ?? 0)) / secs).toFixed(1)), kb_per_s: Number(((v.bytes - (ws0.byType[t]?.bytes ?? 0)) / 1024 / secs).toFixed(1)) }]),
+      ),
       topology_ms: topo ? topo.duration : null,
       topology_kb: topo ? (topo.encodedBodySize || topo.transferSize) / 1024 : null,
       stations: stations.length,
@@ -301,7 +309,7 @@ const md = [
         row('Map: stations (agents)', `${map.stations} (${map.agent_stations})`),
         row('Map: height', `${map.map_height_px} px (viewport 900)`),
         row('Map: frame rate', `${map.fps.toFixed(0)} fps`),
-        row('Map: live updates', `${map.ws_messages_per_s.toFixed(0)} messages/s, ${map.ws_kb_per_s.toFixed(0)} KB/s`),
+        row('Map: live updates', `${map.ws_messages_per_s.toFixed(0)} messages/s, ${map.ws_kb_per_s.toFixed(0)} KB/s (${Object.entries(map.ws_by_type).map(([t, v]) => `${t}: ${v.per_s}/s, ${v.kb_per_s} KB/s`).join('; ')})`),
         row('Map: JS heap', map.js_heap_mb ? `${map.js_heap_mb.toFixed(0)} MB` : 'n/a'),
       ]
     : []),

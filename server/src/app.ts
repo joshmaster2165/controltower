@@ -41,7 +41,8 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   const full = ctx as AppContext;
 
   await app.register(fastifyCookie);
-  await app.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024 } });
+  // Live frames repeat the same ids every second: compressed, a busy map costs a few KB/s. Small messages go as they are.
+  await app.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024, perMessageDeflate: { threshold: 1024 } } });
 
   app.get('/healthz', async () => ({ ok: true }));
 

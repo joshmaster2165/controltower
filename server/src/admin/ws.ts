@@ -1,18 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { FlightEvent, WsClientMessage, WsServerMessage } from '@controltower/shared';
+import type { WsClientMessage, WsServerMessage } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { loadSession } from './auth.js';
 
 const MAX_BUFFERED = 1024 * 1024;
-/** Live events go out in one frame per tick rather than one per event: at hundreds of calls a second, per-event frames swamp the browser. */
+/** Topology notices are coalesced to one per frame. */
 const FRAME_MS = 100;
 
 /**
- * /admin/ws — pushes every flight event to the console, batched per
- * FRAME_MS, and topology changes coalesced to one notice per frame. The map
- * is best-effort: a socket that falls more than 1 MB behind has frames
- * dropped rather than stalling the server.
+ * /admin/ws — live traffic for the console as summed frames (see LiveFrames:
+ * a tick a second, plus the full events of held, denied and failed flights),
+ * and topology changes coalesced to one notice per frame. The map is
+ * best-effort: a socket that falls more than 1 MB behind has frames dropped
+ * rather than stalling the server.
  */
 export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   app.get('/admin/ws', { websocket: true }, async (socket: WebSocket, req) => {
@@ -29,18 +30,11 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
     };
 
     send({ type: 'hello', server_time: Date.now(), version: ctx.config.version });
-    const backfill = ctx.ring.since(Date.now() - 15_000);
-    if (backfill.length) send({ type: 'events', events: backfill });
+    for (const m of ctx.live.backlog()) send(m);
     send({ type: 'topology', version: ctx.registry.version });
 
-    let batch: FlightEvent[] = [];
     let topologyChanged = false;
     const timer = setInterval(() => {
-      if (batch.length) {
-        const events = batch;
-        batch = [];
-        send(events.length === 1 ? { type: 'event', event: events[0]! } : { type: 'events', events });
-      }
       if (topologyChanged) {
         topologyChanged = false;
         send({ type: 'topology', version: ctx.registry.version });
@@ -51,10 +45,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       topologyChanged = true;
     };
 
-    const unsubBus = ctx.bus.subscribe((e) => {
-      // Past the socket's backlog the frame would be dropped anyway; don't grow the batch without bound.
-      if (batch.length < 20_000) batch.push(e);
-    });
+    const unsubBus = ctx.live.subscribe(send);
     const unsubReg = ctx.registry.onChange(topology);
     const unsubApprovals = ctx.approvalsVersion.onChange((v) => send({ type: 'approvals', version: v }));
     const unsubPolicy = ctx.policy.onChange?.(topology) ?? (() => undefined);

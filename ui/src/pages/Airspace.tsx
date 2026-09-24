@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
-import { onFlightEvent } from '../ws';
+import { onFlightEvent, onLiveTick } from '../ws';
 import { AirspaceScene, type AgentLevel, type ClickInfo, type FocusSummary, type HoverInfo } from '../airspace/scene';
 import { agentGroups, agentRef } from '../airspace/groups';
 import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
@@ -153,9 +153,16 @@ export function AirspacePage() {
           /* private mode */
         }
         // While replaying, the map shows the recording; live events wait.
-        unsub = onFlightEvent((e) => {
-          if (!replayingRef.current) scene.handle(e);
+        const unsubEvents = onFlightEvent((e) => {
+          if (!replayingRef.current) scene.handle(e, false);
         });
+        const unsubTicks = onLiveTick((t) => {
+          if (!replayingRef.current) scene.ingestTick(t);
+        });
+        unsub = () => {
+          unsubEvents();
+          unsubTicks();
+        };
 
         // Arrangement is shared (server); camera is per viewer (localStorage).
         scene.onLayoutChange((positions) => {

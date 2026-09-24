@@ -2,9 +2,30 @@ import { z } from 'zod';
 import { FlightEvent } from './events.js';
 
 /** Messages the server pushes over /admin/ws. */
+/**
+ * One second of traffic, summed: what the live map and counters need from the
+ * calls that went fine. `paths` rows are [key id, target id (deployment or
+ * tool server; null if unrouted), tool, calls started]; `rules` counts gate
+ * decisions (deny, hold, inspect) per gate.
+ */
+export const LiveTick = z.object({
+  type: z.literal('tick'),
+  ts: z.number(),
+  ms: z.number(),
+  totals: z.object({ flights: z.number(), ok: z.number(), errors: z.number(), denied: z.number(), cost_nanousd: z.number(), tokens: z.number() }),
+  paths: z.array(z.tuple([z.string(), z.string().nullable(), z.string().nullable(), z.number()])),
+  rules: z.record(z.string(), z.number()),
+});
+export type LiveTick = z.infer<typeof LiveTick>;
+
+/**
+ * Live updates: a `tick` every second counts all traffic; `events` carries the
+ * full events of flights a person should see — held, denied or failed — within
+ * 100 ms. Events never count toward totals (the ticks already do).
+ */
 export const WsServerMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), server_time: z.number(), version: z.string() }),
-  z.object({ type: z.literal('event'), event: FlightEvent }),
+  LiveTick,
   z.object({ type: z.literal('events'), events: z.array(FlightEvent) }),
   z.object({ type: z.literal('topology'), version: z.number() }),
   z.object({ type: z.literal('approvals'), version: z.number() }),

@@ -12,6 +12,7 @@ import { Budgets } from './limits/budgets.js';
 import { FlightBus } from './events/bus.js';
 import { DbSink } from './events/db-sink.js';
 import { EventRing } from './events/ring.js';
+import { LiveFrames } from './admin/live.js';
 import { PolicyService } from './policy/policy.js';
 import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
@@ -80,6 +81,7 @@ async function main(): Promise<void> {
   const ring = new EventRing();
   bus.subscribe(dbSink.push);
   bus.subscribe(ring.push);
+  const live = new LiveFrames(bus);
 
   const mcp = new McpRegistry(db.write, secrets);
   await mcp.reload();
@@ -169,6 +171,7 @@ async function main(): Promise<void> {
     bus,
     dbSink,
     ring,
+    live,
     policy,
     approvals,
     approvalsVersion,
@@ -284,6 +287,7 @@ async function main(): Promise<void> {
     observed.stop();
     mcp.stop();
     http.stop();
+    live.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);
     dbSink.flush();

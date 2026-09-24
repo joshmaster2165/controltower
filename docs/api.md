@@ -129,7 +129,7 @@ All paths are under `/admin/api`.
 | GET | `/topology` | Everything on the map: keys, models, servers, zones, connections |
 | GET, PUT | `/airspace/layout` | The saved arrangement of the map |
 | GET | `/export/dataflow` | The data-flow inventory (`?format=md\|csv`, `hours`) |
-| GET (WebSocket) | `/admin/ws` | Live flight events for the console |
+| GET (WebSocket) | `/admin/ws` | Live traffic for the console: a `tick` each second (totals, calls per path, gate hits) and `events` for held, denied and failed flights |
 
 ### Setup helpers
 

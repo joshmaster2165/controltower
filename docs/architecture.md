@@ -56,7 +56,7 @@ Deletes run in chunks of 5,000 rows and yield between them, so live traffic does
 
 ## The live map
 
-Flight events are pushed to the console over a WebSocket, batched into one frame every 100 ms so a busy gateway doesn't flood the browser; the map draws them and keeps per-minute counts. When the map opens, it is seeded with the last minute of traffic from the database, so what is active shows as active immediately. Arrangements you make by dragging stations are saved on the server and shared by everyone.
+Live traffic reaches the console over a WebSocket as a summary a second — totals, calls per path (agent → model or tool) and gate hits — plus the full events of flights a person should see (held, denied, failed) within 100 ms. A gateway doing 300 calls a second costs each open console about 4 KB/s (compressed), however many agents it has. The map draws them and keeps per-minute counts. When the map opens, it is seeded with the last minute of traffic from the database, so what is active shows as active immediately. Arrangements you make by dragging stations are saved on the server and shared by everyone.
 
 ## Scale and limits
 

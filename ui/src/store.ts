@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { FlightEvent } from '@controltower/shared';
+import type { FlightEvent, LiveTick } from '@controltower/shared';
 import { api, setCsrf, type AlertChannel, type AlertItem, type AlertRule, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
 
 export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'http' | 'playground' | 'welcome' | 'ledger';
@@ -43,8 +43,10 @@ interface State {
   refreshAlerts(): Promise<void>;
   dismissToast(id: string): void;
   setWs(s: State['wsState']): void;
-  /** Live events, a frame at a time: counters and the feed update once per frame. */
+  /** Full events of held, denied and failed flights: the feed. */
   onEvents(es: FlightEvent[]): void;
+  /** A second of traffic, summed: the counters. */
+  onTick(t: LiveTick): void;
 }
 
 const started = new Map<string, { key: string; model: string; ts: number }>();
@@ -157,25 +159,29 @@ export const useStore = create<State>((set, get) => ({
     set({ wsState });
   },
 
+  onTick(t) {
+    const c = { ...get().counters };
+    c.flights += t.totals.flights;
+    c.ok += t.totals.ok;
+    c.errors += t.totals.errors;
+    c.denied += t.totals.denied;
+    c.cost_nanousd += t.totals.cost_nanousd;
+    c.tokens += t.totals.tokens;
+    set({ counters: c });
+  },
+
   onEvents(es) {
     const s = get();
-    const c = { ...s.counters };
     const items: FeedItem[] = [];
     for (const e of es) {
       let item: FeedItem | null = null;
       if (e.t === 'flight.started') {
         started.set(e.flight_id, { key: e.key_name, model: e.model_requested, ts: e.ts });
-        c.flights++;
       } else if (e.t === 'flight.completed') {
         const st = started.get(e.flight_id);
         started.delete(e.flight_id);
         const key = st?.key ?? 'agent';
         const model = st?.model ?? 'model';
-        if (e.status === 'ok') c.ok++;
-        else if (e.status === 'error') c.errors++;
-        else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') c.denied++;
-        if (e.cost_nanousd) c.cost_nanousd += e.cost_nanousd;
-        if (e.usage) c.tokens += e.usage.input + e.usage.output;
         if (e.status !== 'ok') {
           item = {
             id: e.flight_id,
@@ -194,8 +200,7 @@ export const useStore = create<State>((set, get) => ({
       }
       if (item) items.unshift(item);
     }
-    if (items.length) set({ counters: c, feed: [...items, ...s.feed].slice(0, 8) });
-    else set({ counters: c });
+    if (items.length) set({ feed: [...items, ...s.feed].slice(0, 8) });
   },
 }));
 

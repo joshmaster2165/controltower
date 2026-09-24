@@ -1,4 +1,4 @@
-import type { FlightEvent } from '@controltower/shared';
+import type { FlightEvent, LiveTick } from '@controltower/shared';
 import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, TopologyKey, Zone } from '../api';
 import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, providerLook, STATUS_COLORS } from './colors';
 import { agentGroups, agentRef, groupStation, isTeam, keyStations, teamStation } from './groups';
@@ -1506,7 +1506,49 @@ export class AirspaceScene {
     this.dirty = true;
   }
 
-  handle(e: FlightEvent): void {
+  /**
+   * A second of live traffic, summed per path: each call becomes a point in the
+   * per-minute counts, spread over the second it happened in.
+   */
+  ingestTick(t: LiveTick): void {
+    if (!this.ready) return;
+    const from = t.ts - t.ms;
+    const spread = (n: number, into: number[]) => {
+      for (let i = 0; i < n; i++) into.push(from + ((i + 0.5) * t.ms) / n);
+    };
+    for (const [keyId, target, tool, n] of t.paths) {
+      const agent = this.stations.get(this.stationOf(keyId));
+      if (!agent) continue;
+      const dest = target ? this.stations.get(target) : this.ensureUnknown();
+      spread(n, agent.recent);
+      agent.lastAt = t.ts;
+      spread(n, this.hubRecent);
+      if (!dest) continue;
+      spread(n, dest.recent);
+      dest.lastAt = t.ts;
+      this.livePairs.set(`${agent.id}>${dest.id}`, t.ts);
+      if (tool) {
+        const row = dest.tools.find((r) => r.name === tool);
+        if (row) {
+          spread(n, row.recent);
+          row.lastAt = t.ts;
+        }
+        this.liveToolPairs.set(`${agent.id}>${dest.id}|${tool}`, t.ts);
+      }
+    }
+    for (const [rule, n] of Object.entries(t.rules)) spread(n, this.ruleHits.get(rule) ?? this.ruleHits.set(rule, []).get(rule)!);
+    // Points arrive a second at a time; keep each list in time order for pruning.
+    for (const s of this.stations.values()) if (s.recent.length > 1 && s.recent[s.recent.length - 1]! < s.recent[s.recent.length - 2]!) s.recent.sort((a, b) => a - b);
+    if (this.focusId) this.relatedCache = null;
+    this.dirty = true;
+  }
+
+  /**
+   * One flight event. Live, only held, denied and failed flights arrive this way
+   * and their traffic is already counted by ticks (`counted` false); a replay
+   * sends every event and counts it here.
+   */
+  handle(e: FlightEvent, counted = true): void {
     if (!this.ready) return;
     const now = Date.now();
     if (now - e.ts > STALE_MS) return;
@@ -1517,6 +1559,8 @@ export class AirspaceScene {
         if (!agent) return;
         const destId = e.deployment_id ?? e.mcp_server_id;
         const dest = (destId && this.stations.get(destId)) || (destId ? undefined : this.ensureUnknown());
+        this.live.set(e.flight_id, { agent: agent.id, key: e.key_id, dest: dest?.id, held: false });
+        if (!counted) break;
         agent.recent.push(e.ts);
         agent.lastAt = e.ts;
         this.hubRecent.push(e.ts);
@@ -1534,11 +1578,10 @@ export class AirspaceScene {
           }
           if (this.focusId) this.relatedCache = null;
         }
-        this.live.set(e.flight_id, { agent: agent.id, key: e.key_id, dest: dest?.id, held: false });
         break;
       }
       case 'flight.decision': {
-        if (e.rule_id && (e.decision === 'deny' || e.decision === 'hold' || e.decision === 'mutate' || e.decision === 'flagged')) {
+        if (counted && e.rule_id && (e.decision === 'deny' || e.decision === 'hold' || e.decision === 'mutate' || e.decision === 'flagged')) {
           const hits = this.ruleHits.get(e.rule_id) ?? [];
           hits.push(e.ts);
           this.ruleHits.set(e.rule_id, hits);

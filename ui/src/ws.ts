@@ -1,13 +1,38 @@
-import type { FlightEvent, WsServerMessage } from '@controltower/shared';
+import type { FlightEvent, LiveTick, WsServerMessage } from '@controltower/shared';
 import { useStore } from './store';
 
 type Listener = (e: FlightEvent) => void;
 const listeners = new Set<Listener>();
+const tickListeners = new Set<(t: LiveTick) => void>();
 
-/** Subscribe to live flight events (used by the Airspace scene). */
+/**
+ * Subscribe to the full events of flights a person should see — held, denied,
+ * failed (used by the Airspace scene). They are never counted: ticks count.
+ */
 export function onFlightEvent(fn: Listener): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+/** Subscribe to the per-second summary of all traffic. */
+export function onLiveTick(fn: (t: LiveTick) => void): () => void {
+  tickListeners.add(fn);
+  return () => tickListeners.delete(fn);
+}
+
+// Reconnects replay the last seconds of ticks; count each once.
+let lastTick = 0;
+function dispatchTick(t: LiveTick): void {
+  if (t.ts <= lastTick) return;
+  lastTick = t.ts;
+  useStore.getState().onTick(t);
+  for (const l of tickListeners) {
+    try {
+      l(t);
+    } catch (err) {
+      console.error('[ws] listener error', err);
+    }
+  }
 }
 
 let socket: WebSocket | null = null;
@@ -57,8 +82,8 @@ function open(): void {
     }
     const store = useStore.getState();
     switch (msg.type) {
-      case 'event':
-        dispatch([msg.event]);
+      case 'tick':
+        dispatchTick(msg);
         break;
       case 'events':
         dispatch(msg.events);

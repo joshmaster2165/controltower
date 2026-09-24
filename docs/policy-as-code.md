@@ -72,6 +72,20 @@ gates:
 
 A reference that doesn't resolve — an agent that doesn't exist, a zone the file doesn't define, an unknown detector — stops the import with a list of what to fix, and nothing changes. Demo zones and gates are never exported, changed or removed.
 
+## At startup (GitOps)
+
+Keep the policy in Git and apply it every time the server starts:
+
+```bash
+controltower --config config.yaml --policy policy.yaml
+docker run … -v $(pwd)/policy.yaml:/app/policy.yaml ghcr.io/joshmaster2165/controltower --policy /app/policy.yaml
+```
+
+- By default the file is **merged**: its zones and gates are added or updated by name, and everything else is left alone.
+- With `CT_POLICY_MODE=replace` the policy is made to match the file exactly — a gate deleted from the file is deleted on the next start.
+- A file with errors stops startup and lists them, so a broken policy is never half-applied.
+- The policy is applied after `--config`, so it can name the models and agents the config creates.
+
 ## From CI
 
 ```bash

@@ -19,6 +19,7 @@ import { buildApp } from './app.js';
 import { startDemo } from './demo/control.js';
 import { BootConfigError, loadBootConfig } from './importers/boot.js';
 import { applyAdminKey } from './admin/admin-key.js';
+import { BootPolicyError, loadBootPolicy } from './policy/boot.js';
 import { startupBanner } from './banner.js';
 import { isSetupComplete } from './admin/auth.js';
 import type { AppContext } from './context.js';
@@ -38,6 +39,8 @@ Usage: controltower [options]            (docker: pass the same options after th
   --config, -c <file>   load a LiteLLM-format config.yaml at startup (models, fallbacks,
                         aliases, MCP servers, master_key, Slack alerting)
   --model <p/model>     serve one model with credentials from the environment
+  --policy <file>       apply a policy YAML (zones and gates) at startup; CT_POLICY_MODE=replace
+                        makes the policy match the file
   --port <n>            listen port (default 4000; also CT_PORT or PORT)
   --host <addr>         listen address (default 0.0.0.0)
   --detailed_debug      verbose logs (also --debug, LITELLM_LOG=DEBUG)
@@ -189,6 +192,15 @@ async function main(): Promise<void> {
     throw err;
   }
   await applyAdminKey(full);
+  try {
+    await loadBootPolicy(full);
+  } catch (err) {
+    if (err instanceof BootPolicyError) {
+      app.log.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
   for (const n of config.notices) app.log.warn(n);
   // In a container, a data directory on the image's own filesystem disappears with the container.
   if (fs.existsSync('/.dockerenv') || process.env.CT_IN_CONTAINER === '1') {

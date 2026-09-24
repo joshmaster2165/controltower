@@ -359,6 +359,42 @@ test('Restart with an edited config: nothing duplicated, edits applied, keys kep
   expect(kept.choices[0]!.message.content).toBeTruthy();
 });
 
+test('`--policy` applies a policy file at every start; a bad one stops startup', async () => {
+  const policyPath = path.join(dataDir, 'policy.yaml');
+  fs.writeFileSync(
+    policyPath,
+    'zones:\n  - name: Extra models\n    members: [model:gpt-4o-extra]\ngates:\n  - name: Nobody uses the extra model\n    to: Extra models\n    target: model\n    effect: deny\n    config: { reason: Retired }\n',
+  );
+  await stopServer();
+  await startServer(['--config', configPath, '--policy', policyPath, '--port', String(PORT)]);
+  const call = (model: string) =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${virtualKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hi' }] }) });
+  const denied = await master('/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'gpt-4o-extra', messages: [{ role: 'user', content: 'hi' }] }) });
+  expect(denied.status).toBe(403);
+  expect((await denied.json()).error.message).toContain('Retired');
+  expect((await call('gpt-4o')).status).toBe(200);
+
+  // Restarting with the same file changes nothing and duplicates nothing.
+  await stopServer();
+  await startServer(['--config', configPath, '--policy', policyPath, '--port', String(PORT)]);
+  const exported = await (await master('/admin/api/policy/export?format=json')).json();
+  expect(exported.doc.gates.filter((g: { name: string }) => g.name === 'Nobody uses the extra model')).toHaveLength(1);
+
+  // A policy that names an unknown agent stops startup and says why.
+  const bad = path.join(dataDir, 'bad-policy.yaml');
+  fs.writeFileSync(bad, 'gates:\n  - name: Typo\n    match: { agents: [no-such-agent] }\n    effect: deny\n');
+  await stopServer();
+  const p = spawn('node', ['server/dist/server.mjs', '--config', configPath, '--policy', bad, '--port', String(PORT + 2)], {
+    env: { ...process.env, LITELLM_MASTER_KEY: MASTER, OPENAI_API_KEY: 'x', ANTHROPIC_API_KEY: 'x', FILES_MCP_TOKEN: 'x', CT_DATA_DIR: dataDir, CT_UI_DIR: path.resolve('ui/dist') },
+  });
+  let out = '';
+  p.stdout!.on('data', (d: Buffer) => (out += d.toString()));
+  p.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+  expect(await new Promise<number | null>((r) => p.once('exit', r))).toBe(1);
+  expect(out).toContain('no agent named');
+  await startServer();
+});
+
 test('`--model provider/model` quick start and a bad config file', async () => {
   await stopServer();
   await startServer(['--model', 'openai/gpt-4.1-mini', '--port', String(PORT)]);

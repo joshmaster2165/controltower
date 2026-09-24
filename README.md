@@ -232,6 +232,7 @@ Everything is configured in the browser. Environment variables exist for operato
 |---|---|---|
 | `CT_PORT` | `4000` | Listen port (falls back to `PORT`, which most platforms set). `--port` wins. |
 | `CT_CONFIG` | — | [Config file](docs/config-file.md) applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
+| `CT_POLICY` | — | [Policy file](docs/policy-as-code.md) (zones and gates) applied at every start (also `--policy`); `CT_POLICY_MODE=replace` makes the policy match it |
 | `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `master_key` in the config file works too. |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |

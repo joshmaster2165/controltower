@@ -9,6 +9,7 @@ controltower [options]            (docker: pass the same options after the image
 
   --config, -c <file>   load a LiteLLM-format config.yaml at startup
   --model, -m <p/model> serve one model with credentials from the environment
+  --policy <file>       apply a policy YAML (zones and gates) at startup
   --port, -p <n>        listen port (default 4000)
   --host <addr>         listen address (default 0.0.0.0)
   --detailed_debug      verbose logs (also --debug)
@@ -44,6 +45,8 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_ADMIN_KEY` | — | [Admin key](#admin-key). `LITELLM_MASTER_KEY` works too |
 | `UI_USERNAME`, `UI_PASSWORD` | `admin`, the admin key | Console sign-in created from the admin key |
 | `CT_CONFIG` | — | LiteLLM-format config applied at every start. Also `CONFIG_FILE_PATH` or `--config` |
+| `CT_POLICY` | — | [Policy file](policy-as-code.md#at-startup-gitops) applied at every start. Also `--policy` |
+| `CT_POLICY_MODE` | `merge` | `replace` makes the policy match the file exactly |
 | `CT_PUBLIC_URL` | detected | Public URL for links in alerts and approval messages. Detected on Render, Fly.io and Railway |
 | `CT_DEMO` | `0` | `1` starts the demo fleet at boot (or use **Get started → Start the demo fleet**) |
 | `CT_AUTO_MODELS` | `1` | Add a model the first time a connected provider is asked for it; `0` requires every model under **Models** |

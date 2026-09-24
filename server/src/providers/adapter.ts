@@ -4,13 +4,15 @@ import type { ProviderRecord, DeploymentRecord } from '../registry.js';
 /**
  * Provider adapter contract.
  *
- * Two inbound dialects reach the gateway. An adapter declares which it speaks
- * natively; the pipeline translates only when the inbound dialect differs
- * from the adapter's native one, otherwise the body is forwarded with auth
- * injection and a model rename (this is what keeps Claude Code's
- * cache_control / thinking / tool_use semantics intact).
+ * Three inbound dialects reach the gateway. An adapter declares which it
+ * speaks natively; the pipeline translates chat ↔ messages when the inbound
+ * dialect differs from the adapter's native one, otherwise the body is
+ * forwarded with auth injection and a model rename (this is what keeps
+ * Claude Code's cache_control / thinking / tool_use semantics intact).
+ * OpenAI's Responses API is never translated: only adapters that speak it
+ * natively can serve it.
  */
-export type WireDialect = 'openai-chat' | 'anthropic-messages';
+export type WireDialect = 'openai-chat' | 'openai-responses' | 'anthropic-messages';
 
 export interface NormalizedError {
   /** Stable machine code, e.g. provider_rate_limited. */

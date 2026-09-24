@@ -346,9 +346,14 @@ function previewArgs(flight: Flight): Record<string, unknown> {
     const body = a.body === undefined ? '' : typeof a.body === 'string' ? a.body : JSON.stringify(a.body);
     return body.length > 4000 ? { ...a, body: `${body.slice(0, 4000)}… (${Math.round(body.length / 1024)} KB, truncated)` } : a;
   }
-  const msgs = flight.body.messages as Array<{ role?: string; content?: unknown }> | undefined;
-  const last = msgs?.filter((m) => m.role === 'user').pop();
-  const text = typeof last?.content === 'string' ? last.content : last?.content != null ? JSON.stringify(last.content) : '';
-  const tools = Array.isArray(flight.body.tools) ? (flight.body.tools as Array<{ function?: { name?: string }; name?: string }>).map((t) => t.function?.name ?? t.name).filter(Boolean) : [];
-  return { model: flight.modelRequested, stream: flight.stream, max_tokens: flight.body.max_tokens, last_user_message: text.slice(0, 500), tools };
+  // Chat and Messages carry `messages`; the Responses API carries `input` (a string or input items).
+  const input = flight.body.input;
+  const msgs = (Array.isArray(flight.body.messages) ? flight.body.messages : Array.isArray(input) ? input : []) as Array<{ role?: string; content?: unknown }>;
+  const last = msgs.filter((m) => m.role === 'user').pop();
+  const partsText = (c: unknown) => (Array.isArray(c) ? c.map((p: { text?: unknown }) => (typeof p?.text === 'string' ? p.text : '')).join(' ').trim() : '');
+  const text = typeof input === 'string' ? input : typeof last?.content === 'string' ? last.content : partsText(last?.content) || (last?.content != null ? JSON.stringify(last.content) : '');
+  const tools = Array.isArray(flight.body.tools) ? (flight.body.tools as Array<{ function?: { name?: string }; name?: string; type?: string }>).map((t) => t.function?.name ?? t.name ?? t.type).filter(Boolean) : [];
+  const maxTokens = flight.body.max_tokens ?? flight.body.max_output_tokens;
+  const instructions = typeof flight.body.instructions === 'string' ? flight.body.instructions.slice(0, 200) : undefined;
+  return { model: flight.modelRequested, stream: flight.stream, max_tokens: maxTokens, ...(instructions ? { instructions } : {}), last_user_message: text.slice(0, 500), tools };
 }

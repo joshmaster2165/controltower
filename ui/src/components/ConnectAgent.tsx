@@ -60,7 +60,7 @@ export function ConnectAgent({ keyId, secret }: { keyId: string; secret: string 
 
       {tab === 'openai' && (
         <>
-          <p className="connect-note">No code changes: the official OpenAI SDKs for Python and Node read these variables, as do most frameworks built on them. Set them where the agent runs.</p>
+          <p className="connect-note">No code changes: the official OpenAI SDKs for Python and Node read these variables, as do most frameworks built on them — including the OpenAI Agents SDK and Codex, whose Responses API calls go through too. Set them where the agent runs.</p>
           <CodeBlock
             title="Environment"
             code={`export OPENAI_BASE_URL=${origin}/v1

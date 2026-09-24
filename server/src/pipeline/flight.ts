@@ -131,6 +131,7 @@ export function estimateInputTokens(body: Record<string, unknown>): number {
     }
   }
   if (typeof body.system === 'string') chars += body.system.length;
+  if (typeof body.instructions === 'string') chars += body.instructions.length;
   if (Array.isArray(body.tools)) chars += JSON.stringify(body.tools).length;
   if (typeof body.input === 'string') chars += body.input.length;
   else if (Array.isArray(body.input)) chars += JSON.stringify(body.input).length;
@@ -140,7 +141,7 @@ export function estimateInputTokens(body: Record<string, unknown>): number {
 /** Text a model produced, from one stream frame of either dialect (content, text, tool-call arguments). */
 function collectText(v: unknown, out: string[], key?: string): void {
   if (typeof v === 'string') {
-    if (key === 'content' || key === 'text' || key === 'arguments' || key === 'partial_json' || key === 'thinking') out.push(v);
+    if (key === 'content' || key === 'text' || key === 'arguments' || key === 'partial_json' || key === 'thinking' || key === 'delta') out.push(v);
     return;
   }
   if (Array.isArray(v)) for (const x of v) collectText(x, out, key);
@@ -167,13 +168,14 @@ function isGatewayError(e: unknown): e is GatewayError {
 export class FlightRunner {
   constructor(private readonly ctx: AppContext) {}
 
-  /** Entry for /v1/chat/completions (openai-chat) and /v1/messages (anthropic-messages). */
+  /** Entry for /v1/chat/completions (openai-chat), /v1/responses (openai-responses) and /v1/messages (anthropic-messages). */
   async runChat(req: FastifyRequest, reply: FastifyReply, dialect: WireDialect, runOpts: RunOptions = {}): Promise<void> {
     const ctx = this.ctx;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const embeddings = runOpts.kind === 'embeddings';
     if (embeddings) body.stream = false;
-    const f = newFlight(embeddings ? 'embeddings' : dialect === 'anthropic-messages' ? 'messages' : 'chat', dialect, body);
+    const kind = embeddings ? 'embeddings' : dialect === 'anthropic-messages' ? 'messages' : dialect === 'openai-responses' ? 'responses' : 'chat';
+    const f = newFlight(kind, dialect, body);
     reply.header('x-ct-flight-id', f.id);
 
     // ServerResponse 'close' fires when the connection drops OR when the response
@@ -194,6 +196,8 @@ export class FlightRunner {
       if (!f.modelRequested) throw E.badRequest('Missing required field: model.');
       if (embeddings) {
         if (typeof body.input !== 'string' && !Array.isArray(body.input)) throw E.badRequest('Missing required field: input (string or array).');
+      } else if (dialect === 'openai-responses') {
+        if (body.input !== undefined && typeof body.input !== 'string' && !Array.isArray(body.input)) throw E.badRequest('Field input must be a string or an array of input items.');
       } else if (!Array.isArray(body.messages)) throw E.badRequest('Missing required field: messages (array).');
       f.estInput = estimateInputTokens(body);
 
@@ -313,7 +317,7 @@ export class FlightRunner {
       const gates = ctx.policy.inspectors?.(key, target) ?? [];
       if (gates.length) {
         f.inspectOut = gates.filter((g) => g.compiled.direction !== 'input');
-        const fields = ['messages', 'system', 'input', 'prompt'].filter((k) => body[k] !== undefined);
+        const fields = ['messages', 'system', 'instructions', 'input', 'prompt'].filter((k) => body[k] !== undefined);
         const picked = Object.fromEntries(fields.map((k) => [k, body[k]]));
         const r = runInspectors(gates, 'input', picked);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
@@ -363,7 +367,7 @@ export class FlightRunner {
       team: f.key.team,
       project: f.key.project,
       kind: f.kind,
-      dialect: f.dialect === 'anthropic-messages' ? 'anthropic-messages' : 'openai-chat',
+      dialect: f.dialect,
       stream: f.stream,
       model_requested: f.modelRequested,
       alias_id: f.route.alias?.id,
@@ -377,8 +381,21 @@ export class FlightRunner {
 
   private async dispatch(f: Flight, reply: FastifyReply): Promise<void> {
     const ctx = this.ctx;
-    const candidates = f.route!.candidates.slice(0, MAX_ATTEMPTS);
+    let candidates = f.route!.candidates.slice(0, MAX_ATTEMPTS);
     let lastErr: NormalizedError | undefined;
+    // The Responses API is forwarded, never translated: only providers that speak it can serve it.
+    if (f.dialect === 'openai-responses') {
+      const speaks = (providerId: string) => {
+        const prov = ctx.registry.providers.get(providerId);
+        return !!prov && !!ctx.adapters.get(prov.kind)?.nativeDialects.has('openai-responses');
+      };
+      const served = candidates.filter((d) => speaks(d.providerId));
+      if (!served.length) {
+        const prov = ctx.registry.providers.get(candidates[0]?.providerId ?? '');
+        throw E.badRequest(`"${f.modelRequested}" is served by ${prov?.name ?? 'a provider'}, which does not support the Responses API. Call it through /v1/chat/completions instead.`);
+      }
+      candidates = served;
+    }
 
     for (const dep of candidates) {
       const prov = ctx.registry.providers.get(dep.providerId);

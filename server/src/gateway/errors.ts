@@ -65,6 +65,8 @@ export function errorBody(dialect: WireDialect, e: GatewayError): Record<string,
 export function errorFrame(dialect: WireDialect, e: GatewayError): string {
   const body = errorBody(dialect, e);
   if (dialect === 'anthropic-messages') return `event: error\ndata: ${JSON.stringify(body)}\n\n`;
+  // Responses API streams carry typed events; errors are {type: 'error', code, message, param}.
+  if (dialect === 'openai-responses') return `event: error\ndata: ${JSON.stringify({ type: 'error', code: e.code, message: e.message, param: null })}\n\n`;
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 

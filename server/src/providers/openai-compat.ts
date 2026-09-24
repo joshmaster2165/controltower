@@ -7,6 +7,7 @@ import {
   type SendOptions,
   type UpstreamCtx,
   type UpstreamEvent,
+  type WireDialect,
 } from './adapter.js';
 import { readBodyText, sendUpstream } from './http.js';
 import type { ProviderRecord } from '../registry.js';
@@ -37,9 +38,11 @@ function authStyle(p: ProviderRecord): AuthStyle {
   return p.creds.api_key ? 'bearer' : 'none';
 }
 
-export function buildUrl(p: ProviderRecord, path: 'chat/completions' | 'embeddings' | 'models', model?: string): string {
+export function buildUrl(p: ProviderRecord, path: 'chat/completions' | 'embeddings' | 'responses' | 'models', model?: string): string {
   const base = baseUrl(p);
   if (p.kind === 'azure-openai') {
+    // Azure serves the Responses API on its v1 surface, addressed by deployment name in the body.
+    if (path === 'responses') return `${base}/openai/v1/responses`;
     const ver = (p.extra.api_version as string | undefined) ?? '2024-10-21';
     if (path === 'models') return `${base}/openai/models?api-version=${ver}`;
     return `${base}/openai/deployments/${encodeURIComponent(model ?? '')}/${path}?api-version=${ver}`;
@@ -95,19 +98,39 @@ export function mapUsage(u: OpenAIUsage | undefined | null): Usage | undefined {
   return out;
 }
 
+/** Responses API usage: input/output tokens with cached and reasoning details. */
+interface ResponsesUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number };
+  output_tokens_details?: { reasoning_tokens?: number };
+}
+
+export function mapResponsesUsage(u: ResponsesUsage | undefined | null): Usage | undefined {
+  if (!u || typeof u.input_tokens !== 'number') return undefined;
+  return mapUsage({
+    prompt_tokens: u.input_tokens,
+    completion_tokens: u.output_tokens ?? 0,
+    prompt_tokens_details: { cached_tokens: u.input_tokens_details?.cached_tokens ?? 0 },
+    completion_tokens_details: { reasoning_tokens: u.output_tokens_details?.reasoning_tokens ?? 0 },
+  });
+}
+
 export class OpenAICompatAdapter implements ProviderAdapter {
-  readonly nativeDialects: ReadonlySet<'openai-chat' | 'anthropic-messages'> = new Set(['openai-chat']);
+  readonly nativeDialects: ReadonlySet<WireDialect> = new Set(['openai-chat', 'openai-responses']);
   readonly caps = { streamUsage: 'probe' as const, embeddings: true, listModels: true };
 
   constructor(readonly kind: 'openai' | 'azure-openai' | 'openai-compatible') {}
 
   async send(ctx: UpstreamCtx, body: Record<string, unknown>, opts: SendOptions): Promise<AdapterResult> {
     const p = ctx.provider;
-    const path = opts.stream || Array.isArray(body.messages) ? 'chat/completions' : 'embeddings';
-    const url = buildUrl(p, body.input !== undefined && body.messages === undefined ? 'embeddings' : path, opts.upstreamModel);
+    const responses = opts.inboundDialect === 'openai-responses';
+    const path = responses ? 'responses' : opts.stream || Array.isArray(body.messages) ? 'chat/completions' : 'embeddings';
+    const url = buildUrl(p, !responses && body.input !== undefined && body.messages === undefined ? 'embeddings' : path, opts.upstreamModel);
     const headers = buildHeaders(p);
 
-    const wantUsage = opts.stream && p.streamUsageSupported !== false;
+    // The Responses API always reports usage (in response.completed); stream_options is chat-only.
+    const wantUsage = opts.stream && !responses && p.streamUsageSupported !== false;
     const outBody: Record<string, unknown> = { ...body, model: opts.upstreamModel };
     if (opts.stream && wantUsage) {
       outBody.stream_options = { ...((body.stream_options as Record<string, unknown>) ?? {}), include_usage: true };
@@ -145,14 +168,15 @@ export class OpenAICompatAdapter implements ProviderAdapter {
       const text = await readBodyText(res.body, 32 * 1024 * 1024);
       let usage: Usage | undefined;
       try {
-        usage = mapUsage((JSON.parse(text) as { usage?: OpenAIUsage }).usage);
+        const j = JSON.parse(text) as { usage?: OpenAIUsage & ResponsesUsage };
+        usage = responses ? mapResponsesUsage(j.usage) : mapUsage(j.usage);
       } catch {
         /* pass through as-is */
       }
       return { kind: 'json', status: res.status, contentType: ctype || 'application/json', body: Buffer.from(text), usage };
     }
 
-    return { kind: 'stream', status: res.status, contentType: 'text/event-stream', events: this.tap(res.body, ctx) };
+    return { kind: 'stream', status: res.status, contentType: 'text/event-stream', events: responses ? this.tapResponses(res.body, ctx) : this.tap(res.body, ctx) };
   }
 
   private async *tap(body: AsyncIterable<Uint8Array | Buffer>, ctx: UpstreamCtx): AsyncIterable<UpstreamEvent> {
@@ -200,6 +224,36 @@ export class OpenAICompatAdapter implements ProviderAdapter {
         // Usage stays unknown → the pipeline estimates and labels it.
       }
     }
+    yield { t: 'done' };
+  }
+
+  /** Responses API stream: typed events; usage arrives in response.completed (or .incomplete / .failed). */
+  private async *tapResponses(body: AsyncIterable<Uint8Array | Buffer>, ctx: UpstreamCtx): AsyncIterable<UpstreamEvent> {
+    const parser = new SseParser();
+    const handle = (f: { raw: Uint8Array; data: string }): UpstreamEvent[] => {
+      if (!f.data) return [{ t: 'frame', raw: f.raw, hasContent: false }];
+      let j: { type?: string; delta?: unknown; response?: { usage?: ResponsesUsage; error?: { message?: string } | null }; message?: string } | undefined;
+      try {
+        j = JSON.parse(f.data) as typeof j;
+      } catch {
+        return [{ t: 'frame', raw: f.raw, hasContent: false }];
+      }
+      const out: UpstreamEvent[] = [];
+      if (j?.type === 'error') {
+        out.push({ t: 'error', err: { code: 'provider_stream_error', message: j.message ?? 'upstream stream error', httpStatus: 502, fallback: false, cooldown: false } });
+        return out;
+      }
+      const usage = mapResponsesUsage(j?.response?.usage);
+      if (usage) out.push({ t: 'usage', usage, final: true });
+      const hasContent = typeof j?.type === 'string' && j.type.endsWith('.delta') && typeof j.delta === 'string' && j.delta.length > 0;
+      out.push({ t: 'frame', raw: f.raw, hasContent, parsed: j });
+      return out;
+    };
+    for await (const chunk of body) {
+      if (ctx.signal.aborted) return;
+      for (const f of parser.push(chunk)) for (const ev of handle(f)) yield ev;
+    }
+    for (const f of parser.end()) for (const ev of handle(f)) yield ev;
     yield { t: 'done' };
   }
 

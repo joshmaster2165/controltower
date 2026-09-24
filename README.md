@@ -23,7 +23,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat and embeddings, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, YAML policy import/export, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, `/metrics`, a LiteLLM config importer, the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, YAML policy import/export, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -59,6 +59,8 @@ Then, in the browser:
    export OPENAI_API_KEY=ct_sk_…
    export ANTHROPIC_BASE_URL=http://localhost:4000      # Claude Code: ANTHROPIC_AUTH_TOKEN=ct_sk_…
    ```
+
+   The OpenAI Agents SDK and Codex use the Responses API: `/v1/responses` is forwarded to OpenAI, Azure OpenAI and OpenAI-compatible providers, with the same keys, gates, approvals and accounting. (Claude and Gemini models don't have a Responses API; call them through `/v1/chat/completions` or `/v1/messages`.)
 
    Model names stay as they are: the first time an agent asks for a model a connected provider serves (`gpt-4.1-mini`, `claude-sonnet-4-5`, a model on your Ollama…), Control Tower adds it and prices it. Pin a provider with `<provider>/<model>`. **Models** is for extras: renaming, aliases with fallbacks, price overrides.
 4. **MCP servers** → register tool servers; point MCP clients at `http://localhost:4000/mcp` with the same key. Tools a key may not use are not listed.
@@ -137,7 +139,7 @@ LiteLLM's proxy setup steps work here as written: same config file, same flags, 
 
 Prefer clicking? **Models → Import from LiteLLM** takes the same file, shows what it becomes, and imports it once.
 
-**What differs.** There is no Postgres: data lives in SQLite under `/data`, so `DATABASE_URL`, `LITELLM_SALT_KEY` and `STORE_MODEL_IN_DB` are not needed (the server says so if they're set). Credentials are encrypted with `/data/master.key`. It runs as one process, so `--num_workers` does nothing. Keys stored in LiteLLM's database can't be read out of it; recreate them with `/key/generate` and the same `key` value. Not implemented yet: `/v1/responses`, `/spend/*`, team/user/organization endpoints, callbacks and guardrails from the config, `include` files, context-window and content-policy fallbacks, and LiteLLM's Prometheus metric names (see [Metrics](#metrics) for ours).
+**What differs.** There is no Postgres: data lives in SQLite under `/data`, so `DATABASE_URL`, `LITELLM_SALT_KEY` and `STORE_MODEL_IN_DB` are not needed (the server says so if they're set). Credentials are encrypted with `/data/master.key`. It runs as one process, so `--num_workers` does nothing. Keys stored in LiteLLM's database can't be read out of it; recreate them with `/key/generate` and the same `key` value. Not implemented yet: `/spend/*`, team/user/organization endpoints, callbacks and guardrails from the config, `include` files, context-window and content-policy fallbacks, and LiteLLM's Prometheus metric names (see [Metrics](#metrics) for ours).
 
 ## Inspect gates (guardrails)
 

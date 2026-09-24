@@ -17,6 +17,10 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     app.post(`${prefix}/embeddings`, async (req, reply) => {
       await runner.runChat(req, reply, 'openai-chat', { kind: 'embeddings' });
     });
+    // OpenAI's Responses API (Agents SDK, Codex): forwarded to providers that speak it.
+    app.post(`${prefix}/responses`, async (req, reply) => {
+      await runner.runChat(req, reply, 'openai-responses');
+    });
   }
   // Azure OpenAI style (LlamaIndex's AzureOpenAI, Cursor's Azure mode): the model is in the path.
   const azure = (kind: 'chat' | 'embeddings') => async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {

@@ -151,6 +151,45 @@ test('Anthropic SDK (and Claude Code’s path) → /v1/messages → Anthropic, p
   expect(flights.every((f) => f.cost_nanousd > 0)).toBe(true);
 });
 
+test('OpenAI Responses API (Agents SDK, Codex) → /v1/responses → OpenAI-compatible provider, JSON and streaming', async () => {
+  const agent = await key('rw-responses-agent');
+  const client = new OpenAI({ baseURL: `${CT}/v1`, apiKey: agent.key });
+
+  const r = await client.responses.create({ model: 'gpt-4.1-mini', instructions: 'Be brief.', input: 'hi' });
+  expect(r.output_text).toBe('Hello from the OpenAI-compatible upstream');
+  expect(r.usage?.input_tokens).toBe(21);
+
+  let text = '';
+  let completed = false;
+  const stream = await client.responses.create({ model: 'gpt-4.1-mini', input: [{ role: 'user', content: 'hi' }], stream: true });
+  for await (const ev of stream) {
+    if (ev.type === 'response.output_text.delta') text += ev.delta;
+    if (ev.type === 'response.completed') completed = true;
+  }
+  expect(text.trim()).toBe('Hello from the OpenAI-compatible upstream');
+  expect(completed).toBe(true);
+
+  // Forwarded as a Responses call with the provider's credential; no chat-only fields added.
+  const calls = oai.calls.filter((c) => c.path.endsWith('/v1/responses'));
+  expect(calls).toHaveLength(2);
+  for (const c of calls) {
+    expect(c.headers.authorization).toBe('Bearer sk-upstream-secret');
+    expect(JSON.parse(c.body)).not.toHaveProperty('stream_options');
+  }
+
+  // Models on providers without a Responses API get a clear answer instead of a translation.
+  const claude = await client.responses.create({ model: 'claude-sonnet-4-5', input: 'hi' }).then(() => undefined, (e: unknown) => e as { status: number; message: string });
+  expect(claude?.status).toBe(400);
+  expect(claude?.message).toContain('/v1/chat/completions');
+
+  // Recorded as responses flights, with the provider's usage (cached tokens split out) and a price.
+  const flights = await flightsFor(agent.id, (f) => f.filter((x) => x.status === 'ok').length >= 2);
+  const ok = flights.filter((f) => f.status === 'ok');
+  expect(ok.every((f) => f.kind === 'responses')).toBe(true);
+  expect(ok.every((f) => f.in_tokens === 16 && f.out_tokens === 9 && f.usage_source === 'provider')).toBe(true);
+  expect(ok.every((f) => f.cost_nanousd > 0)).toBe(true);
+});
+
 test('Fallback: an alias skips a rate-limited deployment and answers from the next one', async () => {
   const flaky = await openAiUpstream({ rateLimited: true });
   const steady = await openAiUpstream({ reply: 'Hello from the steady upstream' });

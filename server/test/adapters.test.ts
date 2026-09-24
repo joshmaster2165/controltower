@@ -3,6 +3,7 @@ import type { AdapterResult, UpstreamCtx, UpstreamEvent } from '../src/providers
 import { GeminiAdapter } from '../src/providers/gemini.js';
 import { BedrockAdapter } from '../src/providers/bedrock.js';
 import { VertexAdapter } from '../src/providers/vertex.js';
+import { mapResponsesUsage } from '../src/providers/openai-compat.js';
 import type { DeploymentRecord, ProviderRecord } from '../src/registry.js';
 import { fakeBedrock, fakeGemini, fakeServiceAccount, fakeVertex, type FakeServer } from './fakes.js';
 
@@ -158,5 +159,19 @@ describe('VertexAdapter', () => {
     const out = await collect(s);
     expect(contentOf(out.chunks)).toBe('Hello from Claude on Vertex');
     expect(out.usage && out.usage.t === 'usage' ? out.usage.usage : null).toMatchObject({ input: 6, output: 5 });
+  });
+});
+
+describe('Responses API usage', () => {
+  it('splits cached input and reasoning output like chat usage', () => {
+    expect(mapResponsesUsage({ input_tokens: 100, output_tokens: 40, input_tokens_details: { cached_tokens: 30 }, output_tokens_details: { reasoning_tokens: 15 } })).toEqual({
+      input: 70,
+      output: 25,
+      cacheRead: 30,
+      cacheWrite: 0,
+      reasoning: 15,
+    });
+    expect(mapResponsesUsage({ input_tokens: 5, output_tokens: 2 })).toEqual({ input: 5, output: 2, cacheRead: 0, cacheWrite: 0 });
+    expect(mapResponsesUsage(null)).toBeUndefined();
   });
 });

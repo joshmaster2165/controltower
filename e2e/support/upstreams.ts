@@ -58,6 +58,7 @@ export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLi
     const path = (req.url ?? '').replace(/\?.*$/, '');
     if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { object: 'list', data: models.map((id) => ({ id, object: 'model', owned_by: 'test' })) });
     if (path.endsWith('/embeddings')) return json(res, 200, { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] }], model: 'text-embedding-3-small', usage: { prompt_tokens: 3, total_tokens: 3 } });
+    if (path.endsWith('/responses')) return responsesApi(res, body, reply);
     if (!path.endsWith('/chat/completions')) return json(res, 404, { error: { message: 'not found' } });
     if (opts.failing) return json(res, 500, { error: { message: 'The server had an error while processing your request.', type: 'server_error' } });
     if (opts.rateLimited) {
@@ -79,6 +80,29 @@ export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLi
     if (b.stream_options?.include_usage) res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: b.model, choices: [], usage })}\n\n`);
     res.end('data: [DONE]\n\n');
   });
+}
+
+/** OpenAI's Responses API: a response object, or its typed SSE events ending in response.completed. */
+function responsesApi(res: http.ServerResponse, body: string, reply: string): void {
+  const b = JSON.parse(body || '{}') as { model: string; stream?: boolean };
+  const id = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
+  const msgId = `msg_${crypto.randomUUID().replace(/-/g, '')}`;
+  const usage = { input_tokens: 21, input_tokens_details: { cached_tokens: 5 }, output_tokens: 9, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 30 };
+  const base = { id, object: 'response', created_at: Math.floor(Date.now() / 1000), model: b.model, parallel_tool_calls: true, tool_choice: 'auto', tools: [], text: { format: { type: 'text' } } };
+  const message = { type: 'message', id: msgId, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: reply, annotations: [] }] };
+  if (!b.stream) return json(res, 200, { ...base, status: 'completed', output: [message], usage });
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+  let seq = 0;
+  const send = (type: string, data: Record<string, unknown>) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: seq++, ...data })}\n\n`);
+  send('response.created', { response: { ...base, status: 'in_progress', output: [], usage: null } });
+  send('response.output_item.added', { output_index: 0, item: { ...message, status: 'in_progress', content: [] } });
+  send('response.content_part.added', { item_id: msgId, output_index: 0, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } });
+  for (const word of reply.split(' ')) send('response.output_text.delta', { item_id: msgId, output_index: 0, content_index: 0, delta: `${word} ` });
+  send('response.output_text.done', { item_id: msgId, output_index: 0, content_index: 0, text: reply });
+  send('response.content_part.done', { item_id: msgId, output_index: 0, content_index: 0, part: message.content[0] });
+  send('response.output_item.done', { output_index: 0, item: message });
+  send('response.completed', { response: { ...base, status: 'completed', output: [message], usage } });
+  res.end();
 }
 
 /** Anthropic Messages API, as api.anthropic.com speaks it (JSON and SSE). */

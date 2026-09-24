@@ -8,5 +8,5 @@
     "noEmit": true,
     "exactOptionalPropertyTypes": false
   },
-  "include": ["**/*.ts", "../playwright.config.ts"]
+  "include": ["**/*.ts", "../playwright.config.ts", "../scripts/docs/*.ts"]
 }

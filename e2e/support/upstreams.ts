@@ -23,7 +23,7 @@ export interface Upstream {
   close(): Promise<void>;
 }
 
-function serve(handler: (req: http.IncomingMessage, res: http.ServerResponse, body: string) => void | Promise<void>): Promise<Upstream> {
+function serve(handler: (req: http.IncomingMessage, res: http.ServerResponse, body: string) => void | Promise<void>, port = 0): Promise<Upstream> {
   const calls: Recorded[] = [];
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -38,7 +38,7 @@ function serve(handler: (req: http.IncomingMessage, res: http.ServerResponse, bo
     });
   });
   return new Promise((resolve) =>
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
       resolve({ url: `http://127.0.0.1:${port}`, calls, close: () => new Promise((r) => server.close(() => r())) });
     }),
@@ -51,7 +51,7 @@ const json = (res: http.ServerResponse, status: number, v: unknown) => {
 };
 
 /** OpenAI Chat Completions, as api.openai.com speaks it. `rateLimited` answers every chat call with 429. */
-export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLimited?: boolean; failing?: boolean } = {}): Promise<Upstream> {
+export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLimited?: boolean; failing?: boolean; port?: number } = {}): Promise<Upstream> {
   const models = opts.models ?? ['gpt-4.1-mini', 'text-embedding-3-small'];
   const reply = opts.reply ?? 'Hello from the OpenAI-compatible upstream';
   return serve((req, res, body) => {
@@ -79,7 +79,7 @@ export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLi
     res.write(`data: ${JSON.stringify(chunk({}, 'stop'))}\n\n`);
     if (b.stream_options?.include_usage) res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: b.model, choices: [], usage })}\n\n`);
     res.end('data: [DONE]\n\n');
-  });
+  }, opts.port);
 }
 
 /** OpenAI's Responses API: a response object, or its typed SSE events ending in response.completed. */
@@ -135,7 +135,7 @@ export function anthropicUpstream(opts: { reply?: string } = {}): Promise<Upstre
  * in stateful mode (session ids, SSE responses) — what real servers run.
  * Requires `Authorization: Bearer <token>` so we can prove credential injection.
  */
-export function mcpUpstream(token: string): Promise<Upstream & { deleted: string[] }> {
+export function mcpUpstream(token: string, port = 0): Promise<Upstream & { deleted: string[] }> {
   const deleted: string[] = [];
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const build = () => {
@@ -166,7 +166,7 @@ export function mcpUpstream(token: string): Promise<Upstream & { deleted: string
       await build().connect(transport);
     }
     await transport.handleRequest(req, res, parsed);
-  }).then((u) => ({ ...u, deleted }));
+  }, port).then((u) => ({ ...u, deleted }));
 }
 
 /** Captures webhook deliveries (alerts). */

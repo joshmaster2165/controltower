@@ -1,0 +1,308 @@
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { mcpUpstream, openAiUpstream, type Upstream } from '../../e2e/support/upstreams';
+import { field } from '../../e2e/support/ui';
+
+/**
+ * Drives real Control Tower servers through the steps the docs describe and
+ * saves what the console shows. Local stand-ins are used only where a real
+ * service would sit on this machine anyway (Ollama on :11434, an MCP server
+ * on :3001), so every screenshot is exactly what a user sees.
+ */
+test.describe.configure({ mode: 'serial' });
+
+const REPO = path.resolve(__dirname, '../..');
+const OUT = path.join(REPO, 'docs/images');
+fs.mkdirSync(OUT, { recursive: true });
+
+async function startServer(port: number, env: Record<string, string>): Promise<{ url: string; stop: () => Promise<void> }> {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-docs-'));
+  const p: ChildProcess = spawn('node', ['server/dist/server.mjs', '--port', String(port)], {
+    cwd: REPO,
+    env: { ...process.env, CT_DATA_DIR: data, CT_UI_DIR: path.join(REPO, 'ui/dist'), CT_LOG_LEVEL: 'warn', CT_DEMO: '0', ...env },
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  const url = `http://localhost:${port}`;
+  await expect.poll(async () => (await fetch(`${url}/health/liveliness`).catch(() => undefined))?.status, { timeout: 20_000 }).toBe(200);
+  return {
+    url,
+    stop: async () => {
+      const done = new Promise((r) => p.once('exit', r));
+      p.kill('SIGTERM');
+      await done;
+      fs.rmSync(data, { recursive: true, force: true });
+    },
+  };
+}
+
+/** Save a screenshot; with `el`, outline it first so the docs can say "the highlighted button". */
+async function shot(page: Page, name: string, opts: { el?: Locator; clip?: Locator; pad?: number } = {}): Promise<void> {
+  await page.waitForTimeout(250);
+  const handle = opts.el ? await opts.el.elementHandle() : null;
+  if (handle) await handle.evaluate((e: HTMLElement) => { e.dataset.docsMark = e.style.outline; e.style.outline = '3px solid #ff6a3d'; e.style.outlineOffset = '3px'; });
+  let clip;
+  if (opts.clip) {
+    const b = (await opts.clip.boundingBox())!;
+    const pad = opts.pad ?? 16;
+    const vp = page.viewportSize()!;
+    const x = Math.max(0, b.x - pad), y = Math.max(0, b.y - pad);
+    clip = { x, y, width: Math.min(vp.width - x, b.width + pad * 2), height: Math.min(vp.height - y, b.height + pad * 2) };
+  }
+  await page.screenshot({ path: path.join(OUT, `${name}.png`), ...(clip ? { clip } : {}) });
+  if (handle) await handle.evaluate((e: HTMLElement) => { e.style.outline = e.dataset.docsMark ?? ''; e.style.outlineOffset = ''; });
+}
+
+/** Sidebar link by name; links with a badge read "Tower 3", so a trailing count is allowed. */
+const nav = (page: Page, name: string) => page.getByRole('link', { name: new RegExp(`^${name}( \\d+)?$`) }).click();
+
+// ------------------------------------------------------------ a fresh install
+test('fresh install: first run, a provider, a key, the first request', async ({ page }) => {
+  const ollama: Upstream = await openAiUpstream({ port: 11434, models: ['llama3.2', 'qwen2.5:7b', 'nomic-embed-text'], reply: 'Hi! I am running on your own machine through Control Tower.' });
+  const files = await mcpUpstream('files-token', 3001);
+  const ct = await startServer(4000, {});
+  try {
+    // First run: create the admin account.
+    await page.goto(ct.url);
+    await expect(page.getByRole('heading', { name: /Set up your tower/ })).toBeVisible();
+    await field(page, /^Email/).fill('you@example.com');
+    await field(page, /^Password/).fill('a-long-admin-password');
+    await shot(page, 'setup-admin');
+    await page.getByRole('button', { name: /Create admin/ }).click();
+
+    // Get started: three steps.
+    await expect(page.getByRole('heading', { name: 'Get started' })).toBeVisible();
+    await shot(page, 'get-started');
+
+    // Providers: the catalogue, then the OpenAI form as you'd fill it in.
+    await nav(page, 'Providers');
+    await page.waitForTimeout(400);
+    await shot(page, 'providers-catalog');
+    await page.locator('button.card', { hasText: 'OpenAI' }).first().click();
+    const form = page.locator('form.card');
+    await field(form, /^API key$/).fill('sk-proj-••••••••••••••••••••');
+    await shot(page, 'provider-openai-form', { clip: form });
+    await form.getByRole('button', { name: 'Cancel' }).click().catch(() => page.keyboard.press('Escape'));
+
+    // A local Ollama, connected for real.
+    await nav(page, 'Providers');
+    await page.locator('button.card', { hasText: 'Ollama' }).first().click();
+    await field(page.locator('form.card'), /^Base URL$/).fill('http://localhost:11434/v1');
+    await page.locator('form.card').getByRole('button', { name: /Connect & test/ }).click();
+    await expect(page.getByText(/Connected in \d+ ms/).first()).toBeVisible();
+    await shot(page, 'provider-connected');
+
+    // Keys: create one for an agent, and the connect panel it opens.
+    await nav(page, 'Keys');
+    await page.getByRole('button', { name: 'Create key', exact: true }).click();
+    await field(page, /Name \(agent\)/).fill('support-bot');
+    await field(page, /^Team/).fill('support');
+    await field(page, /Monthly budget/).fill('50');
+    await shot(page, 'key-create', { clip: page.locator('form.card') });
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.locator('.keybox')).toBeVisible();
+    const secret = (await page.locator('.keybox').innerText()).trim();
+    await expect(page.locator('.connect-status')).toContainText("Waiting for this agent's first request");
+    await shot(page, 'key-connect-panel');
+
+    // The agent's first request (what the OpenAI SDK sends), and the panel turns green.
+    const r = await fetch(`${ct.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'llama3.2', messages: [{ role: 'user', content: 'Where are you running?' }] }),
+    });
+    expect(r.status).toBe(200);
+    await expect(page.locator('.connect-status')).toContainText('Connected');
+    await shot(page, 'key-connected', { clip: page.locator('.connect-agent') });
+
+    // Playground.
+    await nav(page, 'Playground');
+    await field(page, /^Model$/).selectOption('llama3.2');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('pre').first()).toContainText('own machine');
+    await shot(page, 'playground');
+
+    // Models: added on first use.
+    await nav(page, 'Models');
+    await page.waitForTimeout(300);
+    await shot(page, 'models');
+
+    // MCP: register a tool server.
+    await nav(page, 'MCP servers');
+    await page.getByRole('button', { name: /Add server/ }).click();
+    await field(page, /^Name$/).fill('Files');
+    await field(page, /^Slug/).fill('files');
+    await field(page, /Streamable HTTP endpoint/).fill('http://localhost:3001/mcp');
+    await field(page, /^Auth$/).selectOption('bearer');
+    await field(page, /^Token/).fill('files-token');
+    await shot(page, 'mcp-add', { clip: page.locator('form.card') });
+    await page.getByRole('button', { name: 'Add & test' }).click();
+    await expect(page.getByText('read_file').first()).toBeVisible();
+    await shot(page, 'mcp-server');
+
+    // Flights and the map with the first agent on it.
+    await nav(page, 'Flights');
+    await page.waitForTimeout(500);
+    await shot(page, 'flights');
+    await nav(page, 'Airspace');
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => (window as unknown as { __ctScene?: { fit(): void } }).__ctScene?.fit());
+    await page.waitForTimeout(600);
+    await shot(page, 'airspace-first-agent');
+  } finally {
+    await ct.stop();
+    await ollama.close();
+    await files.close();
+  }
+});
+
+// ------------------------------------------------------------ the demo fleet
+const ADMIN_KEY = 'docs-screenshots-admin-key-0123456789';
+
+/** Screen position of a station on the Airspace canvas (dx/dy in map units from its top-left corner). */
+async function stationAt(page: Page, label: string, dx = 60, dy = 20): Promise<[number, number]> {
+  let pt: [number, number] | null = null;
+  await expect
+    .poll(async () => {
+      pt = await page.evaluate(
+        ([l, x, y]) => {
+          const s = (window as unknown as { __ctScene?: any }).__ctScene;
+          const st = s ? [...s.stations.values()].find((v: any) => v.label === l) : undefined;
+          if (!st) return null;
+          const c = s.getCamera();
+          const r = s.canvas.getBoundingClientRect();
+          return [(st.x + x) * c.k + c.x + r.left, (st.y + y) * c.k + c.y + r.top] as [number, number];
+        },
+        [label, dx, dy] as const,
+      );
+      return pt !== null;
+    })
+    .toBe(true);
+  return pt!;
+}
+
+test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ page }) => {
+  const ct = await startServer(4000, { CT_DEMO: '1', CT_ADMIN_KEY: ADMIN_KEY });
+  const hideToasts = () => page.addStyleTag({ content: '.toasts { display: none !important; }' });
+  try {
+    await page.goto(ct.url);
+    await field(page, /^Email or username/).fill('admin');
+    await field(page, /^Password/).fill(ADMIN_KEY);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('link', { name: 'Airspace', exact: true })).toBeVisible();
+    await nav(page, 'Airspace');
+    await hideToasts();
+    await page.waitForTimeout(20_000); // let the fleet build up traffic
+    const fit = () => page.evaluate(() => (window as unknown as { __ctScene: { fit(): void } }).__ctScene.fit());
+    await fit();
+    await shot(page, 'airspace');
+
+    // Trace one agent.
+    const [ax, ay] = await stationAt(page, 'support-triage');
+    await page.mouse.click(ax, ay);
+    await page.waitForTimeout(700);
+    await shot(page, 'airspace-trace');
+    await page.keyboard.press('Escape');
+
+    // A gate: drag from the agent to a tool server, pick the tool and the effect.
+    await page.getByRole('button', { name: 'Add gate' }).click();
+    const [sx, sy] = await stationAt(page, 'support-triage');
+    const [tx, ty] = await stationAt(page, 'Salesforce', 50, 16);
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(tx, ty, { steps: 12 });
+    await page.mouse.up();
+    const pop = page.locator('.popover').filter({ hasText: 'New gate' });
+    const tool = pop.locator('select').nth(2);
+    const opt = (await tool.locator('option').allTextContents()).find((o) => o.includes('search_contacts'))!;
+    await tool.selectOption({ label: opt });
+    await pop.getByRole('button', { name: 'Require approval', exact: true }).click();
+    await shot(page, 'gate-composer', { clip: pop, pad: 8 });
+    await pop.getByRole('button', { name: 'Inspect', exact: true }).click();
+    await page.waitForTimeout(300);
+    await shot(page, 'gate-inspect', { clip: pop, pad: 8 });
+    await pop.getByRole('button', { name: 'Block', exact: true }).first().click();
+    await pop.getByRole('button', { name: /Simulate on last 24 h/ }).click();
+    await expect(pop.getByRole('button', { name: /Simulate again/ })).toBeVisible();
+    await pop.evaluate((el) => (el.scrollTop = el.scrollHeight));
+    await page.waitForTimeout(500);
+    await shot(page, 'gate-simulate', { clip: pop, pad: 8 });
+    await pop.getByRole('button', { name: 'Require approval', exact: true }).click();
+    const add = pop.getByRole('button', { name: 'Add gate', exact: true });
+    await add.scrollIntoViewIfNeeded();
+    await add.click();
+    await page.getByRole('button', { name: 'Add gate', exact: true }).first().click(); // leave add-gate mode
+
+    // The held call, in the approvals drawer and in the Tower.
+    await page.getByRole('button', { name: /^Approvals/ }).click();
+    await expect(page.locator('.tower-drawer .approval').filter({ hasText: 'support-triage' }).first()).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(400);
+    await shot(page, 'approvals-drawer');
+    await nav(page, 'Tower');
+    await hideToasts();
+    await page.waitForTimeout(600);
+    await shot(page, 'tower');
+
+    // A zone: lasso two agents.
+    await nav(page, 'Airspace');
+    if (await page.locator('.tower-drawer').isVisible()) await page.getByRole('button', { name: /^Approvals/ }).click();
+    await hideToasts();
+    await page.waitForTimeout(1200);
+    await fit();
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: 'Draw zone' }).click();
+    const [m1x, m1y] = await stationAt(page, 'market-research', -12, -12);
+    const [m2x, m2y] = await stationAt(page, 'support-triage', 220, 60);
+    await page.mouse.move(m1x, m1y);
+    await page.mouse.down();
+    for (const [x, y] of [[m2x, m1y], [m2x, m2y], [m1x, m2y], [m1x, m1y]]) await page.mouse.move(x!, y!, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    const zonePop = page.locator('.popover').last();
+    await zonePop.locator('input').first().fill('Customer-facing agents');
+    await shot(page, 'zone-create');
+    await page.keyboard.press('Escape');
+
+    // Policy as YAML.
+    await page.getByRole('button', { name: 'Export' }).click();
+    await shot(page, 'export-menu', { clip: page.locator('.menu'), pad: 8 });
+    await page.getByRole('menuitem', { name: /Import policy/ }).click();
+    await page.getByLabel('Policy YAML').fill('zones:\n  - name: Customer-facing agents\n    members: [agent:support-triage, agent:market-research]\ngates:\n  - name: Customer-facing agents never merge code\n    from: Customer-facing agents\n    target: tool\n    match: { servers: [github], tools: [github__merge_pr] }\n    effect: deny\n');
+    await page.getByRole('button', { name: 'Preview' }).click();
+    await expect(page.getByRole('button', { name: /^Apply/ })).toBeVisible();
+    await shot(page, 'policy-import', { clip: page.locator('.pi'), pad: 8 });
+    await page.getByRole('button', { name: 'Close' }).click();
+
+    // Monitoring pages.
+    for (const [link, name] of [['Alerts', 'alerts'], ['Ledger', 'ledger'], ['Inventory', 'inventory'], ['Flights', 'flights-demo'], ['Models', 'models-aliases'], ['Keys', 'keys'], ['HTTP APIs', 'http-apis'], ['MCP servers', 'mcp-servers-demo']] as const) {
+      await nav(page, link);
+      await hideToasts();
+      await page.waitForTimeout(900);
+      await shot(page, name);
+    }
+
+    // The connect panel's other tabs.
+    await nav(page, 'Keys');
+    await page.getByRole('button', { name: 'Create key', exact: true }).click();
+    await field(page, /Name \(agent\)/).fill('coding-agent');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    const panel = page.locator('.connect-agent');
+    await expect(panel).toBeVisible();
+    await panel.getByRole('button', { name: /Claude Code/ }).click();
+    await shot(page, 'connect-claude-code', { clip: panel });
+    await panel.getByRole('button', { name: /MCP clients/ }).click();
+    await shot(page, 'connect-mcp', { clip: panel });
+
+    // LiteLLM config import.
+    await nav(page, 'Models');
+    await page.getByRole('button', { name: /Import from LiteLLM/ }).click();
+    await page.locator('.import-card textarea').fill('model_list:\n  - model_name: gpt-4o\n    litellm_params:\n      model: openai/gpt-4o\n      api_key: os.environ/OPENAI_API_KEY\n  - model_name: claude-sonnet\n    litellm_params:\n      model: anthropic/claude-sonnet-4-5\n      api_key: os.environ/ANTHROPIC_API_KEY\nlitellm_settings:\n  fallbacks: [{"gpt-4o": ["claude-sonnet"]}]\n');
+    await page.getByRole('button', { name: 'Preview import' }).click();
+    await page.waitForTimeout(700);
+    await shot(page, 'litellm-import', { clip: page.locator('.import-card'), pad: 8 });
+  } finally {
+    await ct.stop();
+  }
+});

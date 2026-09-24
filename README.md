@@ -1,7 +1,7 @@
 <p align="center">
   <img src="ui/public/logo-wordmark.svg" alt="Control Tower" width="320"><br/>
   The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.<br/>
-  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="docs/README.md">Docs</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
@@ -46,7 +46,8 @@ Just exploring? `CT_DEMO=1` (or *Start the demo fleet* on the Get started page) 
   fly volumes create controltower_data --size 1
   fly deploy --config deploy/fly.toml
   ```
-- **Anywhere that runs containers:** use `ghcr.io/joshmaster2165/controltower`, mount a volume at `/data`, and send traffic to port 4000 (or the `PORT` the platform sets — the image honours it). Links in alerts use `CT_PUBLIC_URL`; on Render and Fly it is detected automatically.
+- **Railway:** deploy the image `ghcr.io/joshmaster2165/controltower` and attach a volume at `/data` — five clicks, [step by step](docs/install.md#railway).
+- **Anywhere that runs containers:** use `ghcr.io/joshmaster2165/controltower`, mount a volume at `/data`, and send traffic to port 4000 (or the `PORT` the platform sets — the image honours it). Links in alerts use `CT_PUBLIC_URL`; on Render, Fly and Railway it is detected automatically.
 
 Then, in the browser:
 
@@ -71,6 +72,17 @@ from openai import OpenAI
 client = OpenAI(base_url="http://localhost:4000/v1", api_key="ct_sk_...")
 client.chat.completions.create(model="gpt-4.1-mini", messages=[{"role": "user", "content": "hello tower"}])
 ```
+
+## Documentation
+
+Step-by-step guides with screenshots, in [`docs/`](docs/README.md):
+
+| Start | Set up | Control | Reference |
+|---|---|---|---|
+| [Getting started](docs/getting-started.md) | [Providers and models](docs/providers-and-models.md) | [The Airspace: gates and approvals](docs/airspace.md) | [Configuration](docs/configuration.md) |
+| [Install](docs/install.md) | [Keys, budgets and limits](docs/keys.md) | [Policy as code](docs/policy-as-code.md) | [Config file](docs/config-file.md) |
+| [Connect your agents](docs/connect-agents.md) | [MCP tool servers](docs/mcp.md) | [Alerts](docs/alerts.md) | [Migrating from LiteLLM](docs/migrating-from-litellm.md) |
+| [Demo mode](docs/demo.md) | [HTTP APIs and observed traffic](docs/http-apis.md) | [Monitoring](docs/monitoring.md) | [What is enforced](docs/threat-model.md) |
 
 ## Run from source
 
@@ -257,7 +269,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
-| `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render and Fly.io |
+| `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render, Fly.io and Railway |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |
 

@@ -8,6 +8,10 @@ import { LAT_BUCKETS } from '../events/db-sink.js';
 import { classifyOperation } from '../mcp/gateway.js';
 import { recentRoutes } from './http.js';
 import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
+import { ADMIN_KEY_ID } from './admin-key.js';
+import { PLAYGROUND_KEY_ID } from './playground.js';
+
+const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID]);
 
 /**
  * Admin API. Read endpoints feed the console; write endpoints mutate the DB
@@ -79,9 +83,13 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       last_ts: Number(e.last_ts),
     }));
 
+    // Built-in keys (console playground, admin key) only appear once they have carried traffic.
+    const active = new Set([...edges.map((e) => e.key_id), ...lanes.map((l) => l.key_id)]);
+    const shown = [...r.keysById.values()].filter((k) => !BUILT_IN_KEYS.has(k.id) || active.has(k.id));
+
     return {
       version: r.version,
-      keys: [...r.keysById.values()].map((k) => ({
+      keys: shown.map((k) => ({
         id: k.id,
         name: k.name,
         agent_id: k.agentId,

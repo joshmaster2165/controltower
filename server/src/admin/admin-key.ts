@@ -12,7 +12,7 @@ import { hashApiKey } from '../crypto/apikeys.js';
  * The console sign-in is only created on a fresh install; its password then follows
  * the admin key (or UI_PASSWORD) on every boot, so rotating the key rotates it.
  */
-const KEY_ID = 'key_admin_master';
+export const ADMIN_KEY_ID = 'key_admin_master';
 const ENV_ADMIN = 'env_admin_email';
 
 export async function applyAdminKey(ctx: AppContext): Promise<void> {
@@ -20,7 +20,7 @@ export async function applyAdminKey(ctx: AppContext): Promise<void> {
   const w = ctx.db.write;
   const now = Date.now();
   if (!key) {
-    await w.updateTable('api_keys').set({ enabled: 0 }).where('id', '=', KEY_ID).execute();
+    await w.updateTable('api_keys').set({ enabled: 0 }).where('id', '=', ADMIN_KEY_ID).execute();
     await ctx.registry.reload();
     return;
   }
@@ -29,7 +29,7 @@ export async function applyAdminKey(ctx: AppContext): Promise<void> {
   await w
     .insertInto('api_keys')
     .values({
-      id: KEY_ID,
+      id: ADMIN_KEY_ID,
       name: 'master-key',
       key_hash: hashApiKey(key),
       key_prefix: key.slice(0, 6),

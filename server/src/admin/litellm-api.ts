@@ -9,6 +9,7 @@ import { generateApiKey, hashApiKey } from '../crypto/apikeys.js';
 import { usableKey } from '../gateway/key.js';
 import { planLiteLLMImport } from '../importers/litellm.js';
 import { applyImportPlan } from '../importers/apply.js';
+import { ADMIN_KEY_ID } from './admin-key.js';
 
 /**
  * LiteLLM's key and model management API, on Control Tower's data model, so
@@ -19,7 +20,7 @@ import { applyImportPlan } from '../importers/apply.js';
  * Written from LiteLLM's documented request and response shapes; no LiteLLM code.
  */
 type Period = 'daily' | 'weekly' | 'monthly' | 'total';
-const PROTECTED = new Set(['key_admin_master']);
+const PROTECTED = new Set([ADMIN_KEY_ID]);
 const DAY = 86_400_000;
 
 class ApiError extends Error {

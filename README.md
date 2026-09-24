@@ -4,6 +4,11 @@
   <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
+<p align="center">
+  <img src="docs/media/controltower-demo.gif" alt="The Control Tower console: a live map of agents, models, MCP tool servers and APIs; clicking an agent traces its connections; dragging from the agent to a Salesforce tool adds a require-approval gate; the next call holds at the gate and is approved in the Tower." width="100%"><br/>
+  <sub>The real console with the demo fleet: <b>see</b> every flow, <b>trace</b> an agent, <b>draw a gate</b>, <b>approve</b> the held call. Recorded with <code>pnpm demo:gif</code>.</sub>
+</p>
+
 ---
 
 **Mission:** map and document every agentic dataflow across your environment — which agents reach which models, MCP servers, tools and integrations — while enforcing permissions and security on those flows and monitoring usage and spend.

@@ -15,6 +15,7 @@
     "typecheck": "pnpm -r typecheck && tsc -p e2e",
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
+    "demo:gif": "node scripts/demo-gif.mjs",
     "start": "node server/dist/server.mjs",
     "prices:import": "tsx scripts/import-litellm-prices.ts",
     "pack:npm": "pnpm build && node scripts/build-npm.mjs && cd dist-npm && npm pack"
@@ -29,7 +30,9 @@
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.2",
     "esbuild": "^0.28.2",
+    "gifenc": "^1.0.3",
     "openai": "^7.23.0",
+    "pngjs": "^7.0.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1",

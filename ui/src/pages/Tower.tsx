@@ -48,7 +48,7 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
     <div className={`approval ${pending ? '' : 'done'}`}>
       <div className="h">
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: pending ? 'var(--warn)' : a.status === 'approved' ? 'var(--ok)' : 'var(--danger)' }} />
-        {a.key_name} → {a.target.name}
+        <span className="t">{a.key_name} → {a.target.name}</span>
         {a.waiters > 1 && <span className="tag">{a.waiters} waiting</span>}
         {pending ? <Countdown until={Date.now() < holdUntil ? holdUntil : a.expires_at} label={Date.now() < holdUntil ? 'holding' : 'expires in'} /> : <span className="cd">{a.status}{a.resolved_by ? ` · ${a.resolved_by}` : ''}</span>}
       </div>

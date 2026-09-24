@@ -162,6 +162,8 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
   animation: slide 0.25s ease-out;
 }
 .approval .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.approval .h .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.approval .h .tag, .approval .h .cd { flex: none; white-space: nowrap; }
 .approval .h .cd { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--warn); }
 .approval .s { color: var(--text-dim); font-size: 12.5px; margin: 4px 0 6px; }
 .approval .scope { font-size: 12px; color: #6b4300; background: #fff8ec; border-radius: 6px; padding: 5px 8px; margin-bottom: 8px; }

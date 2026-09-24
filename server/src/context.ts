@@ -11,6 +11,7 @@ import type { FlightBus } from './events/bus.js';
 import type { DbSink } from './events/db-sink.js';
 import type { EventRing } from './events/ring.js';
 import type { LiveFrames } from './admin/live.js';
+import type { PathsStore } from './events/paths.js';
 import type { PolicyEngine } from './policy/engine.js';
 import type { Approvals } from './policy/approvals.js';
 import type { SecretBox } from './crypto/secrets.js';
@@ -40,6 +41,8 @@ export interface AppContext {
   ring: EventRing;
   /** Summed live frames for the console's WebSocket. */
   live: LiveFrames;
+  /** Every connection agents have used, with first and last use. */
+  paths: PathsStore;
   policy: PolicyEngine;
   approvals: Approvals;
   /** Bumped whenever the approvals queue changes; the console re-fetches. */

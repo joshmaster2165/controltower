@@ -19,7 +19,7 @@ const CHUNK = 5000;
 /** Hourly rollups, observed traffic, the alert inbox and approval decisions. */
 const HISTORY_DAYS = 90;
 
-type Table = 'flights' | 'flight_events' | 'observed_hourly' | 'alerts' | 'approvals' | 'tickets' | 'grants' | 'sessions' | 'usage_hourly';
+type Table = 'flights' | 'flight_events' | 'observed_hourly' | 'paths' | 'alerts' | 'approvals' | 'tickets' | 'grants' | 'sessions' | 'usage_hourly';
 
 async function deleteChunked(db: Kysely<Database>, table: Table, where: ReturnType<typeof sql>): Promise<number> {
   let total = 0;
@@ -44,6 +44,8 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   if (policy.eventsDays > 0) await run('flight_events', sql`ts < ${now - policy.eventsDays * DAY}`);
   await run('usage_hourly', sql`bucket < ${new Date(history).toISOString().slice(0, 13)}`);
   await run('observed_hourly', sql`bucket < ${history}`);
+  // A connection unused for 90 days counts as new again when it comes back.
+  await run('paths', sql`last_seen < ${history}`);
   await run('alerts', sql`last_at < ${history}`);
   await run('approvals', sql`status != 'pending' AND requested_at < ${history}`);
   await run('tickets', sql`expires_at < ${now - 7 * DAY}`);

@@ -36,6 +36,22 @@ With hundreds of agents the map starts at the **organization level**: one statio
 
 **Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
 
+## What needs attention
+
+**Attention** in the toolbar lists what needs a person on the map you are looking at — the whole organization or a [view](#views-one-part-of-the-organization-at-a-time) — most urgent first, and dims everything else while it is open. The badge counts the items that matter most.
+
+| Item | When |
+|---|---|
+| **Waiting for approval** | Calls held at a gate right now |
+| **Blocked now** | Calls denied by a gate in the last minute |
+| **Outside the gateway** | Agents calling a model provider directly: no gates or budgets apply (see [HTTP APIs and observed traffic](http-apis.md)) |
+| **Failing** | A model or tool server with at least 5% of its calls failing in the last minute |
+| **Destructive tools with no gate** | A delete, merge, payment or other destructive tool in use that no gate can deny, hold or inspect |
+| **New connections** | An agent that reached a model or tool it had not used before, in the last day. Needs a day of history first, so a new install doesn't flag everything |
+| **Unusual traffic** | A station at 30 calls a minute or more and over three times its usual rate. Needs an hour of history |
+
+Pick an item to jump to it: its team opens if it is folded, and it is centred and traced; close the trace to come back to the list. **Busiest now** lists the stations with the most calls in the last minute.
+
 ## Views: one part of the organization at a time
 
 A **view** is a named part of the organization, such as *Engineering* or *Marketing*: a set of teams with a map of its own. Create one with **+ New view** under Airspace in the sidebar: name it, pick a colour and tick its teams. Each view is then a link under Airspace, and everyone sees it.

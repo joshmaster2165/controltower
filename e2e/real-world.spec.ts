@@ -379,6 +379,12 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
   await page.getByRole('button', { name: 'Leave view' }).click();
   await expect.poll(async () => (await drawnAgents()).length).toBeGreaterThan(3);
   expect((await admin.call('DELETE', `/admin/api/airspace/views/${opsView.body.id}`)).status).toBe(200);
+
+  // Attention: what needs a person on this map, and the busiest stations right now.
+  await page.getByRole('button', { name: 'Attention' }).click();
+  await expect(page.locator('.attention-panel')).toContainText('Needs attention');
+  await page.locator('.attention-panel').getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.attention-panel')).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- gates on models

@@ -15,6 +15,7 @@ import type { FlightEvent } from '@controltower/shared';
 import { ReplayBar } from './airspace/Replay';
 import { MapSearch } from './airspace/MapSearch';
 import { ViewEditor } from './airspace/ViewEditor';
+import { AttentionPanel, type Attention } from './airspace/Attention';
 
 const LEVEL_KEY = 'ct.airspace.level';
 
@@ -79,6 +80,21 @@ export function AirspacePage() {
   viewRef.current = view;
   const [viewCounters, setViewCounters] = useState({ flights: 0, errors: 0, denied: 0, cost_nanousd: 0 });
   const [editing, setEditing] = useState<AirspaceView | 'new' | null>(null);
+  // What needs a person, recomputed every second; the panel lights those stations and dims the rest.
+  const [attention, setAttention] = useState<Attention>({ items: [], busiest: [] });
+  const [attentionOpen, setAttentionOpenState] = useState(false);
+  const attentionOpenRef = useRef(false);
+  const setAttentionOpen = (v: boolean) => {
+    attentionOpenRef.current = v;
+    setAttentionOpenState(v);
+    const sc = sceneRef.current;
+    if (!sc) return;
+    if (v) {
+      const a = sc.attention();
+      setAttention(a);
+      sc.setHighlight(a.items.flatMap((i) => (i.also ? [i.stationId, i.also] : [i.stationId])));
+    } else sc.setHighlight(null);
+  };
   useEffect(() => {
     if (routeParam === 'new') setEditing('new');
   }, [routeParam]);
@@ -228,6 +244,9 @@ export function AirspacePage() {
       if (!sc) return;
       setStats(sc.stats());
       if (focusRef.current) setFocus(sc.focusSummary(focusRef.current));
+      const a = sc.attention();
+      setAttention(a);
+      if (attentionOpenRef.current) sc.setHighlight(a.items.flatMap((i) => (i.also ? [i.stationId, i.also] : [i.stationId])));
     }, 1000);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') applyFocus(null);
@@ -339,8 +358,8 @@ export function AirspacePage() {
   };
   const showSimulation = useCallback((r: SimResult | null) => sceneRef.current?.setSimulation(r ? r.lanes : null), []);
   useEffect(() => {
-    sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
-  }, [showTower, focusId, topology, policy]);
+    sceneRef.current?.setRightInset(showTower || focusId || attentionOpen ? 372 : 0);
+  }, [showTower, focusId, attentionOpen, topology, policy]);
 
   const chooseLevel = (v: AgentLevel) => {
     sceneRef.current?.setLevel(v);
@@ -486,7 +505,22 @@ export function AirspacePage() {
         <button className={`btn ${replay ? 'active' : ''}`} onClick={() => (replay ? exitReplay() : startReplay())} title="Flight Recorder: play past traffic back on the map" aria-label="Replay">
           <Icon name="play" size={15} /> <span className="lbl">Replay</span>
         </button>
-        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }} title="Approvals" aria-label="Approvals">
+        <button
+          className={`btn ${attentionOpen && !focusId ? 'active' : ''}`}
+          onClick={() => {
+            applyFocus(null);
+            setShowTower(false);
+            setAttentionOpen(!attentionOpen);
+          }}
+          title="What needs attention on this map: holds, blocks, direct provider calls, ungated destructive tools, new connections, spikes"
+          aria-label="Attention"
+        >
+          <Icon name="activity" size={15} /> <span className="lbl">Attention</span>{' '}
+          {attention.items.some((i) => i.severity >= 2) && (
+            <span className={`badge ${attention.items.some((i) => i.severity === 3) ? 'alert' : 'warn'}`}>{attention.items.filter((i) => i.severity >= 2).length}</span>
+          )}
+        </button>
+        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setAttentionOpen(false); setShowTower((v) => !v); }} title="Approvals" aria-label="Approvals">
           <Icon name="tower" size={15} /> <span className="lbl">Approvals</span> {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
       </div>
@@ -506,6 +540,19 @@ export function AirspacePage() {
 
       {focus ? (
         <FocusPanel summary={focus} onClose={() => applyFocus(null)} onPick={(id) => applyFocus(id)} />
+      ) : attentionOpen ? (
+        <AttentionPanel
+          data={attention}
+          onClose={() => setAttentionOpen(false)}
+          onPick={(item) => {
+            const id = sceneRef.current?.reveal(item.ref, 372);
+            if (id) revealed(id);
+          }}
+          onPickStation={(id) => {
+            const got = sceneRef.current?.reveal(`station:${id}`, 372);
+            if (got) revealed(got);
+          }}
+        />
       ) : (
         showTower && (
           <div className="tower-drawer">
@@ -602,7 +649,7 @@ export function AirspacePage() {
 
       {hover && !popover && <Tooltip hover={hover} />}
 
-      <div className="map-controls" style={{ right: showTower || focusId ? 388 : 16 }}>
+      <div className="map-controls" style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
         <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
         <span className="sep" />
         {level.teams >= 2 && (

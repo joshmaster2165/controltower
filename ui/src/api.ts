@@ -131,6 +131,8 @@ export interface TopologyEdge {
   keys?: number;
   /** The last minute of calls: [bucket start (ms), calls] in 5-second buckets. */
   recent?: Array<[number, number]>;
+  /** When the agent first used this connection. */
+  first_ts?: number;
 }
 export interface Topology {
   version: number;
@@ -143,6 +145,8 @@ export interface Topology {
   observed?: { targets: ObservedTarget[]; edges: ObservedEdge[] };
   /** Named parts of the organization, each a set of teams with a map of its own. */
   views?: AirspaceView[];
+  /** Since when connections have been recorded (null: no traffic yet). */
+  paths_since?: number | null;
 }
 
 export interface AirspaceView {

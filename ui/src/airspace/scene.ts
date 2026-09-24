@@ -66,6 +66,8 @@ export interface Station {
   userToggled: boolean;
   recent: number[];
   denials: number[];
+  /** Failed calls in the last minute. */
+  errors: number[];
   lastAt: number;
   held: number;
   /** Tool servers only: 'http' for a plain HTTP API (rows are routes), else MCP. */
@@ -82,6 +84,18 @@ export interface Station {
   teamOf?: string | undefined;
 }
 
+/** Something on the map that needs a person; `ref` goes to reveal(). */
+export interface AttentionItem {
+  kind: 'holding' | 'blocked' | 'bypass' | 'errors' | 'ungated' | 'new' | 'spike';
+  severity: 1 | 2 | 3;
+  stationId: string;
+  /** A second station the item is about (the destination of a new connection). */
+  also?: string;
+  ref: string;
+  title: string;
+  detail: string;
+}
+
 /** How agents are drawn: one station per team (opening into its agents), or one per agent. */
 export type AgentLevel = 'teams' | 'agents';
 
@@ -93,6 +107,8 @@ export interface SearchHit {
   kind: 'team' | 'agent' | 'key' | 'model' | 'mcp' | 'tool' | 'observed';
 }
 
+/** A day of recorded history before any connection counts as new. */
+const LEARNING_MS = 24 * 3600_000;
 /** Above this many agents, 'auto' draws teams. */
 const AUTO_TEAMS_ABOVE = 24;
 /** Height of the header over an opened team's agents. */
@@ -314,6 +330,8 @@ export class AirspaceScene {
   /** Agent station → the keys it stands for (one for a plain key, all copies for a group, a whole team). */
   private stationKeys = new Map<string, TopologyKey[]>();
   private levelPref: AgentLevel | 'auto' = 'auto';
+  /** Stations to keep lit while nothing is traced (the attention list); the rest recede. */
+  private highlight: Set<string> | null = null;
   /** A view's teams (null: the whole organization), and the keys it draws. */
   private scope: Set<string> | null = null;
   private keys: TopologyKey[] = [];
@@ -912,6 +930,100 @@ export class AirspaceScene {
     this.camCb?.({ ...this.cam });
   }
 
+  // ------------------------------------------------------------ attention
+
+  /** Keep these stations lit and dim the rest (null: everything lit). */
+  setHighlight(ids: Iterable<string> | null): void {
+    this.highlight = ids ? new Set(ids) : null;
+    this.dirty = true;
+  }
+
+  /**
+   * What needs a person, most urgent first: calls waiting for approval, calls
+   * blocked or failing now, agents calling a provider directly, destructive
+   * tools in use with no gate, connections never used before, and traffic far
+   * above its usual rate. Plus the busiest stations right now.
+   */
+  attention(): { items: AttentionItem[]; busiest: Array<{ id: string; label: string; kind: StationKind; rpm: number }> } {
+    const now = Date.now();
+    const items: AttentionItem[] = [];
+    const t = this.topology;
+    const since = t?.paths_since ?? null;
+    const agents = [...this.stations.values()].filter((s) => s.kind === 'agent');
+    const dests = [...this.stations.values()].filter((s) => s.kind === 'model' || s.kind === 'mcp');
+    const ago = (ts: number) => {
+      const m = Math.round((now - ts) / 60_000);
+      return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+    };
+    const where = (s: Station) => (s.team ? `team ${s.label}` : s.label);
+
+    for (const s of agents) {
+      if (s.held) items.push({ kind: 'holding', severity: 3, stationId: s.id, ref: `station:${s.id}`, title: `${where(s)}: ${s.held} waiting for approval`, detail: 'Held at a gate until someone approves or denies' });
+      if (s.denials.length) items.push({ kind: 'blocked', severity: 3, stationId: s.id, ref: `station:${s.id}`, title: `${where(s)}: ${s.denials.length} blocked in the last minute`, detail: `${s.recent.length ? Math.round((100 * s.denials.length) / s.recent.length) : 100}% of its calls` });
+    }
+    for (const s of this.stations.values()) {
+      if (s.kind === 'observed' && s.obs?.bypass && s.obs.count24h > 0)
+        items.push({ kind: 'bypass', severity: 3, stationId: s.id, ref: `station:${s.id}`, title: `${s.label} called directly, skipping the gateway`, detail: `${s.obs.count24h.toLocaleString()} call${s.obs.count24h === 1 ? '' : 's'} in 24 h, last ${ago(s.obs.lastSeen)} — no gates or budgets apply` });
+    }
+    for (const s of dests) {
+      // A handful of failures a minute on a busy model is normal; a real share of its calls failing is not.
+      if (s.errors.length >= 3 && s.errors.length >= 0.05 * s.recent.length) items.push({ kind: 'errors', severity: 2, stationId: s.id, ref: `station:${s.id}`, title: `${s.label}: ${s.errors.length} failed calls in the last minute`, detail: `${s.recent.length ? Math.round((100 * s.errors.length) / s.recent.length) : 100}% of its calls` });
+      // Destructive tools in use with no gate that could stop them.
+      for (const row of s.tools) {
+        if (row.op !== 'admin' || (!row.count24h && !row.recent.length) || this.toolGated(s, row)) continue;
+        items.push({ kind: 'ungated', severity: 2, stationId: s.id, ref: `tool:${s.id}|${row.name}`, title: `${s.label} → ${row.name} has no gate`, detail: `A destructive ${s.protocol === 'http' ? 'route' : 'tool'} used ${row.count24h.toLocaleString()} time${row.count24h === 1 ? '' : 's'} in 24 h` });
+      }
+    }
+    // Connections first used in the last day — once there is a day of history to compare with.
+    if (since !== null && now - since > LEARNING_MS) {
+      for (const e of this.edges) {
+        if (!e.first_ts || now - e.first_ts > 24 * 3600_000 || e.first_ts - since < LEARNING_MS) continue;
+        const a = this.stations.get(e.key_id);
+        const d = this.stations.get(e.target_id);
+        if (!a || !d) continue;
+        items.push({ kind: 'new', severity: 2, stationId: a.id, ref: e.tool ? `tool:${d.id}|${e.tool}` : `station:${a.id}`, title: `${a.label} → ${d.label}${e.tool ? ` · ${e.tool}` : ''}: new connection`, detail: `First used ${ago(e.first_ts)} · ${e.requests.toLocaleString()} call${e.requests === 1 ? '' : 's'} since`, also: d.id });
+      }
+    }
+    // Far above the usual rate (averaged over the history there is, up to a day).
+    const window = Math.min(24 * 3600_000, since === null ? 0 : now - since);
+    if (window > 3600_000) {
+      const perMin = new Map<string, number>();
+      for (const e of this.edges) {
+        perMin.set(e.key_id, (perMin.get(e.key_id) ?? 0) + e.requests);
+        perMin.set(e.target_id, (perMin.get(e.target_id) ?? 0) + e.requests);
+      }
+      for (const s of [...agents, ...dests]) {
+        const usual = (perMin.get(s.id) ?? 0) / (window / 60_000);
+        const rate = s.recent.length;
+        if (rate >= 30 && rate > 3 * usual) items.push({ kind: 'spike', severity: 1, stationId: s.id, ref: `station:${s.id}`, title: `${where(s)}: ${rate.toLocaleString()} calls/min`, detail: usual >= 1 ? `${Math.round(rate / usual)}× its usual ${Math.round(usual)}/min` : 'Usually close to idle' });
+      }
+    }
+    items.sort((a, b) => b.severity - a.severity);
+    const busiest = [...agents, ...dests]
+      .filter((s) => s.recent.length)
+      .sort((a, b) => b.recent.length - a.recent.length)
+      .slice(0, 6)
+      .map((s) => ({ id: s.id, label: where(s), kind: s.kind, rpm: s.recent.length }));
+    return { items, busiest };
+  }
+
+  /** Whether any gate that can stop or hold a call could apply to this tool. */
+  private toolGated(server: Station, row: ToolRow): boolean {
+    if (row.gates.length) return true;
+    for (const r of this.policy?.rules ?? []) {
+      if (!r.enabled || r.effect === 'allow' || r.target_kind === 'model') continue;
+      const m = r.match as { tools?: string[]; mcp_servers?: string[]; deployments?: string[]; operations?: string[] };
+      if (m.deployments?.length) continue;
+      if (m.tools?.length && !m.tools.some((g) => globMatch(g, row.full))) continue;
+      if (m.mcp_servers?.length && !m.mcp_servers.includes(server.id)) continue;
+      if (m.operations?.length && !m.operations.includes(row.op)) continue;
+      const to = r.to_zone ? this.policy?.zones.find((z) => z.id === r.to_zone) : undefined;
+      if (to && !this.zoneMembers(to).some((x) => x.id === server.id)) continue;
+      return true;
+    }
+    return false;
+  }
+
   setFocus(id: string | null): void {
     this.focusId = id && this.stations.has(id) ? id : null;
     this.relatedCache = null;
@@ -921,7 +1033,7 @@ export class AirspaceScene {
   // ---------------------------------------------------------------- topology
 
   private blank(id: string, kind: StationKind, label: string, sub: string, color: number, slug = ''): Station {
-    return { id, kind, label, sub, slug, color, x: 0, y: 0, w: 0, h: 0, headH: 46, px: 0, py: 0, tools: [], expanded: true, userToggled: false, recent: [], denials: [], lastAt: 0, held: 0 };
+    return { id, kind, label, sub, slug, color, x: 0, y: 0, w: 0, h: 0, headH: 46, px: 0, py: 0, tools: [], expanded: true, userToggled: false, recent: [], denials: [], errors: [], lastAt: 0, held: 0 };
   }
 
   setTopology(t: Topology): void {
@@ -1543,6 +1655,7 @@ export class AirspaceScene {
     for (const s of this.stations.values()) {
       s.recent.length = 0;
       s.denials.length = 0;
+      s.errors.length = 0;
       s.held = 0;
       for (const r of s.tools) r.recent.length = 0;
     }
@@ -1665,6 +1778,10 @@ export class AirspaceScene {
       case 'flight.completed': {
         const f = this.live.get(e.flight_id);
         if (f?.held) this.adjustHeld(f, -1);
+        if (f && e.status === 'error') {
+          this.stations.get(f.agent)?.errors.push(e.ts);
+          if (f.dest) this.stations.get(f.dest)?.errors.push(e.ts);
+        }
         this.live.delete(e.flight_id);
         break;
       }
@@ -1718,7 +1835,7 @@ export class AirspaceScene {
     const fid = this.focusId ?? hoverId;
     if (!fid) {
       if (this.hovered?.startsWith('obs:')) return new Set(this.hovered.slice(4).split('>'));
-      return null;
+      return this.highlight;
     }
     if (this.relatedCache?.id === fid) return this.relatedCache.set;
     const f = this.stations.get(fid);
@@ -1848,6 +1965,7 @@ export class AirspaceScene {
     for (const s of this.stations.values()) {
       prune(s.recent, cutoff);
       prune(s.denials, cutoff);
+      prune(s.errors, cutoff);
       for (const r of s.tools) prune(r.recent, cutoff);
     }
     for (const [k, v] of this.ruleHits) {

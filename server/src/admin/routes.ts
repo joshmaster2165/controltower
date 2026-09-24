@@ -93,7 +93,12 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       for (const [b, n] of recent) m.recent.set(b, (m.recent.get(b) ?? 0) + n);
       m.keys.add(e.key_id);
     }
-    const edges = [...merged.values()].map(({ keys, recent, ...e }) => ({ ...e, keys: keys.size, recent: [...recent].sort((a, b) => a[0] - b[0]) }));
+    const edges = [...merged.values()].map(({ keys, recent, ...e }) => {
+      const k = r.keysById.get(e.key_id);
+      // When this agent first used this connection (the map flags recent ones as new).
+      const first = ctx.paths.get(k?.agentId ?? e.key_id, e.target_id, e.tool)?.first;
+      return { ...e, keys: keys.size, recent: [...recent].sort((a, b) => a[0] - b[0]), ...(first ? { first_ts: first } : {}) };
+    });
 
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.
     const active = new Set(edgeRows.rows.map((e) => e.key_id));
@@ -149,6 +154,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       edges,
       observed: await ctx.observed.summary(since),
       views: await loadViews(ctx),
+      // Since when connections have been recorded: a connection is only "new" once there is history to compare with.
+      paths_since: ctx.paths.since,
     };
   });
 

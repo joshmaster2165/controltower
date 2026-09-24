@@ -50,6 +50,7 @@ Everything lives in SQLite in the data directory (`controltower.db`, write-ahead
 | Flights (one row per request) | 30 days — `CT_RETENTION_DAYS`, `0` keeps them forever |
 | Flight event trails | 7 days — `CT_EVENT_RETENTION_DAYS` |
 | Hourly rollups, observed traffic, the alert inbox, decided approvals | 90 days |
+| Connections agents have used (agent → model or tool, with first and last use) | 90 days after last use; one coming back later counts as new |
 | Daily rollups (spend and usage history) | Forever |
 
 Deletes run in chunks of 5,000 rows and yield between them, so live traffic doesn't wait. A team budget created today counts spend from flights that are still retained.

@@ -366,6 +366,14 @@ export interface ObservedHourlyTable {
   last_seen: number;
 }
 
+export interface PathsTable {
+  agent: string;
+  target: string;
+  tool: string;
+  first_seen: number;
+  last_seen: number;
+}
+
 export interface SchemaMigrationsTable {
   version: number;
   name: string;
@@ -398,6 +406,7 @@ export interface Database {
   alerts: AlertsTable;
   observed_targets: ObservedTargetsTable;
   observed_hourly: ObservedHourlyTable;
+  paths: PathsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

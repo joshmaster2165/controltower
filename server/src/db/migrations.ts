@@ -443,3 +443,26 @@ ALTER TABLE alert_channels ADD COLUMN source TEXT;
 ALTER TABLE alert_rules ADD COLUMN source TEXT;
 `,
 });
+
+// Every connection an agent has used — agent → model or tool server → tool — with when it was
+// first and last used, so a connection never seen before stands out on the map. Filled from the
+// flights already recorded, so an upgrade doesn't flag every existing connection as new.
+migrations.push({
+  version: 9,
+  name: 'paths',
+  sqlite: `
+CREATE TABLE paths (
+  agent      TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  tool       TEXT NOT NULL DEFAULT '',
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL,
+  PRIMARY KEY (agent, target, tool)
+);
+INSERT INTO paths (agent, target, tool, first_seen, last_seen)
+  SELECT COALESCE(agent_id, key_id), COALESCE(mcp_server_id, deployment_id), COALESCE(tool, ''), MIN(ts), MAX(ts)
+  FROM flights
+  WHERE key_id IS NOT NULL AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
+  GROUP BY 1, 2, 3;
+`,
+});

@@ -44,9 +44,15 @@ importers:
       gifenc:
         specifier: ^1.0.3
         version: 1.0.3
+      highlight.js:
+        specifier: ^11.12.0
+        version: 11.12.0
       mailparser:
         specifier: ^3.9.28
         version: 3.9.28
+      marked:
+        specifier: ^18.0.14
+        version: 18.0.14
       openai:
         specifier: ^7.23.0
         version: 7.23.0(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.11.0)(ws@8.21.3)(zod@4.6.5)
@@ -1123,6 +1129,10 @@ packages:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
     hasBin: true
 
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
+    engines: {node: '>=12.0.0'}
+
   hono@4.13.8:
     resolution: {integrity: sha512-/Gng7NfoykZl2pjukW5Z6+8Yxm3BPRf86GTbQnt0SbySkvax4fyL4H3HhY1cCpBGmiW9XDRFzRV+CXK2W8QudQ==}
     engines: {node: '>=16.9.0'}
@@ -1292,6 +1302,11 @@ packages:
   mailparser@3.9.28:
     resolution: {integrity: sha512-O7oCYzWW9YH5lHk/y3Z8R8dFnUq8wqaH146BuU2NDt/3MGjdfMLzGF2Ft7WksTCeq00covNKpwxQabcG3zJFqQ==}
     engines: {node: '>=20.0.0'}
+
+  marked@18.0.14:
+    resolution: {integrity: sha512-mBHK6FBHuBAlhgRe88w9F0O1AbwwXJUcQibUbC/QcdTbVGAD7aWza+xt3N6oT/jCZx3/OMeS+8rnuiHZcQ9s7A==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -2685,6 +2700,8 @@ snapshots:
 
   he@1.2.0: {}
 
+  highlight.js@11.12.0: {}
+
   hono@4.13.8: {}
 
   html-to-text@10.0.1:
@@ -2839,6 +2856,8 @@ snapshots:
       nodemailer: 10.0.10
       punycode.js: 2.3.1
       tlds: 1.261.0
+
+  marked@18.0.14: {}
 
   math-intrinsics@1.1.0: {}
 

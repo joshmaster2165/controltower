@@ -43,7 +43,7 @@ Usage: controltower [options]            (docker: pass the same options after th
   --detailed_debug      verbose logs (also --debug, LITELLM_LOG=DEBUG)
   --version             print the version
 
-Environment: CT_ADMIN_KEY or LITELLM_MASTER_KEY sets the admin key; see the README for every CT_* setting.`;
+Environment: CT_ADMIN_KEY or LITELLM_MASTER_KEY sets the admin key. Every setting:\nhttps://github.com/joshmaster2165/controltower/blob/main/docs/configuration.md`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -190,6 +190,16 @@ async function main(): Promise<void> {
   }
   await applyAdminKey(full);
   for (const n of config.notices) app.log.warn(n);
+  // In a container, a data directory on the image's own filesystem disappears with the container.
+  if (fs.existsSync('/.dockerenv') || process.env.CT_IN_CONTAINER === '1') {
+    try {
+      if (fs.statSync(config.dataDir).dev === fs.statSync('/').dev) {
+        app.log.warn(`${config.dataDir} is not on a volume: the database and master key are lost when this container is removed. Mount one, e.g. -v controltower-data:${config.dataDir}`);
+      }
+    } catch {
+      /* data dir checks are advisory */
+    }
+  }
   approvals.start();
   alerts.start();
   observed.start();

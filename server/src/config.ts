@@ -97,7 +97,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     demo: bool(env.CT_DEMO),
     autoModels: bool(env.CT_AUTO_MODELS, true),
     mode: env.CT_MODE === 'off' ? 'off' : 'on',
-    publicUrl: env.CT_PUBLIC_URL || env.RENDER_EXTERNAL_URL || (env.FLY_APP_NAME ? `https://${env.FLY_APP_NAME}.fly.dev` : undefined),
+    // Detected on Render, Fly.io and Railway (once the service has a public domain).
+    publicUrl:
+      env.CT_PUBLIC_URL ||
+      env.RENDER_EXTERNAL_URL ||
+      (env.FLY_APP_NAME ? `https://${env.FLY_APP_NAME}.fly.dev` : undefined) ||
+      (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : undefined),
     metricsToken: env.CT_METRICS_TOKEN || undefined,
     masterKeyEnv: env.CT_MASTER_KEY || undefined,
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),

@@ -69,6 +69,33 @@ test('first run: the setup guide, and a demo fleet that starts and stops without
   const topo = async () => page.evaluate(async () => (await fetch('/admin/api/topology')).json());
   expect((await topo()).keys.map((k: { name: string }) => k.name)).toContain('support-triage');
 
+  // The demo approver decides demo agents' holds only: a real agent held by a real gate waits for a person.
+  const held = await page.evaluate(async () => {
+    const me = await (await fetch('/admin/api/me')).json();
+    const h = { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' };
+    const k = await (await fetch('/admin/api/keys', { method: 'POST', headers: h, body: JSON.stringify({ name: 'real-agent' }) })).json();
+    const rule = await (await fetch('/admin/api/rules', { method: 'POST', headers: h, body: JSON.stringify({ name: 'Real agent needs a person', target_kind: 'model', match: { keys: [k.id] }, effect: 'require_approval', config: { hold_ms: 16_000 }, priority: 1 }) })).json();
+    (window as unknown as { __cleanup: string[] }).__cleanup = [`/admin/api/rules/${rule.id}`, `/admin/api/keys/${k.id}`];
+    const call = fetch('/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${k.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5', messages: [{ role: 'user', content: 'hi' }] }) }).then((r) => r.status);
+    (window as unknown as { __realCall: Promise<number> }).__realCall = call;
+    return k.id as string;
+  });
+  await page.waitForTimeout(13_500); // past the demo approver's 8–12 s
+  const pending = await page.evaluate(async (keyId) => {
+    const r = await (await fetch('/admin/api/approvals?status=pending')).json();
+    return r.approvals.filter((a: { key_id: string }) => a.key_id === keyId).map((a: { id: string }) => a.id);
+  }, held);
+  expect(pending).toHaveLength(1);
+  await page.evaluate(async (id) => {
+    const me = await (await fetch('/admin/api/me')).json();
+    await fetch(`/admin/api/approvals/${id}/decide`, { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ action: 'deny' }) });
+  }, pending[0]);
+  expect(await page.evaluate(() => (window as unknown as { __realCall: Promise<number> }).__realCall)).toBe(403);
+  await page.evaluate(async () => {
+    const me = await (await fetch('/admin/api/me')).json();
+    for (const u of (window as unknown as { __cleanup: string[] }).__cleanup) await fetch(u, { method: 'DELETE', headers: { 'x-ct-csrf': me.csrf } });
+  });
+
   page.once('dialog', (d) => void d.accept());
   await page.getByRole('button', { name: 'Stop demo and clear it' }).click();
   await expect(page.getByRole('button', { name: 'Start the demo fleet' })).toBeVisible({ timeout: 30_000 });
@@ -172,7 +199,7 @@ test('first boot, three cloud providers, playground round-trips, keys, flights, 
   await expect(page.locator('.legend .pill.live')).toBeVisible({ timeout: 15_000 });
 
   // ---- Alerts: a rule on every gate, notifying the console ----
-  await page.getByRole('link', { name: 'Alerts', exact: true }).click();
+  await page.getByRole('link', { name: /^Alerts( \d+)?$/ }).click();
   await page.getByRole('button', { name: 'New alert' }).click();
   await field(page, /^Gate$/).selectOption({ label: 'Any gate' });
   await page.getByRole('button', { name: 'Add alert', exact: true }).click();

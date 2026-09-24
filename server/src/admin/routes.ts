@@ -72,6 +72,17 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       FROM flights
       WHERE ts >= ${since} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
       GROUP BY key_id, target, tool`.execute(ctx.db.read);
+    // The last minute of calls per connection, so a map opened now shows what is active now.
+    const recentRows = await sql<{ key_id: string; target: string; tool: string | null; ts: number }>`
+      SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool, ts
+      FROM flights
+      WHERE ts >= ${Date.now() - 60_000} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
+      ORDER BY ts DESC LIMIT 2000`.execute(ctx.db.read);
+    const recentTs = new Map<string, number[]>();
+    for (const r of recentRows.rows) {
+      const k = `${r.key_id}|${r.target}|${r.tool ?? ''}`;
+      recentTs.set(k, [...(recentTs.get(k) ?? []), Number(r.ts)]);
+    }
     const edges = edgeRows.rows.map((e) => ({
       key_id: e.key_id,
       target_id: e.target!,
@@ -81,6 +92,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       denied: Number(e.denied),
       cost_nanousd: Number(e.cost),
       last_ts: Number(e.last_ts),
+      recent_ts: recentTs.get(`${e.key_id}|${e.target}|${e.tool ?? ''}`) ?? [],
     }));
 
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.

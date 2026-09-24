@@ -161,7 +161,13 @@ export function TowerPage() {
             <h2>Recent decisions</h2>
           </div>
           <div className="card" style={{ padding: 0 }}>
-            <table className="table">
+            <table className="table fixed">
+              <colgroup>
+                <col style={{ width: 104 }} />
+                <col />
+                <col style={{ width: 112 }} />
+                <col style={{ width: '32%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>When</th>

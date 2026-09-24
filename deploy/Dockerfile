@@ -34,6 +34,7 @@ COPY --from=build --chown=node:node /app/server/package.json ./package.json
 COPY --chown=node:node LICENSE ./LICENSE
 COPY --chmod=755 deploy/entrypoint.sh /usr/local/bin/ct-entrypoint
 ENV NODE_ENV=production \
+    CT_IN_CONTAINER=1 \
     CT_HOST=0.0.0.0 \
     CT_DATA_DIR=/data \
     CT_UI_DIR=/app/ui

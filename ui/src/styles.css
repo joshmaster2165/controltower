@@ -63,6 +63,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
   display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px;
   border: 1px solid var(--border-strong); background: #fff; cursor: pointer;
   font-weight: 500; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s; color: var(--text);
+  white-space: nowrap;
 }
 .btn:hover { background: #f6f8fc; border-color: #aebbcd; }
 .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -85,6 +86,8 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .error { color: var(--danger); font-size: 13px; }
 
 .table { width: 100%; border-collapse: collapse; }
+.table.fixed { table-layout: fixed; }
+.ellipsis { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table th { text-align: left; font-weight: 600; color: var(--text-dim); font-size: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: #f8fafd; }
 .table th:first-child { border-top-left-radius: var(--radius); }
 .table th:last-child { border-top-right-radius: var(--radius); }
@@ -121,7 +124,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .hud .stat .value { font-size: 18px; }
 .hud .btn { pointer-events: auto; }
 .legend { position: absolute; left: 16px; bottom: 14px; display: flex; gap: 14px; font-size: 12px; color: var(--text-dim); align-items: center; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .tooltip {
   position: absolute; pointer-events: none; background: var(--bg-panel); border: 1px solid var(--border-strong);
@@ -192,7 +195,8 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 }
 .airspace-caption b { color: var(--text-dim); font-weight: 600; }
 .legend {
-  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; box-shadow: var(--shadow);
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 16px; padding: 6px 14px; box-shadow: var(--shadow);
+  flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 32px);
 }
 .legend .sep { width: 1px; height: 14px; background: var(--border); }
 .legend em.gate { width: 12px; height: 12px; border-radius: 50%; display: inline-block; background: #fff; border: 2px solid; box-sizing: border-box; }

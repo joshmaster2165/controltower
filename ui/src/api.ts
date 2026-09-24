@@ -140,6 +140,8 @@ export interface TopologyEdge {
   denied: number;
   cost_nanousd: number;
   last_ts: number;
+  /** Timestamps of this connection's calls in the last minute. */
+  recent_ts?: number[];
 }
 export interface Topology {
   version: number;

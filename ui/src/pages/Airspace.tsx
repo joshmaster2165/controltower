@@ -382,8 +382,8 @@ export function AirspacePage() {
           <button className="btn sm" onClick={() => location.reload()}>Reload</button>
         </div>
       )}
-      {drawMode && <div className="mode-banner">Drag a lasso around the stations that belong together</div>}
-      {gateMode && (
+      {drawMode && !popover && <div className="mode-banner">Drag a lasso around the stations that belong together</div>}
+      {gateMode && !popover && (
         <div className="mode-banner">
           Drag from an agent to a model, tool server or a single tool to gate that path · or click any line or tool row
         </div>
@@ -535,11 +535,11 @@ export function AirspacePage() {
         <button className="legend-toggle" onClick={toggleLegend} aria-expanded={legendOpen} title={legendOpen ? 'Hide legend' : 'Show legend'}>
           Legend
         </button>
-        <span>
-          <em className="ln active" /> active (last min)
+        <span title="Traffic in the last minute">
+          <em className="ln active" /> active
         </span>
-        <span>
-          <em className="ln idle" /> idle (24h)
+        <span title="Traffic in the last 24 hours, none in the last minute">
+          <em className="ln idle" /> idle
         </span>
         <span>
           <em className="ln unused" /> no traffic
@@ -551,17 +551,17 @@ export function AirspacePage() {
           <em className="ln blocked" /> blocked
         </span>
         <span className="sep" />
-        <span>
-          <em className="gate deny" /> deny gate
+        <span title="Gate that blocks">
+          <em className="gate deny" /> deny
         </span>
-        <span>
-          <em className="gate hold" /> approval gate
+        <span title="Gate that holds calls for a human">
+          <em className="gate hold" /> approval
         </span>
-        <span>
-          <em className="gate inspect" /> inspect gate
+        <span title="Gate that scans content">
+          <em className="gate inspect" /> inspect
         </span>
-        <span>
-          <i className="obs-line" /> observed, not enforced
+        <span title="Reported by SDK or OpenTelemetry; not through the gateway, so gates can't stop it">
+          <i className="obs-line" /> observed only
         </span>
         <span className={`pill ${wsState === 'live' ? 'live' : 'warn'}`}>
           <i className="led" /> {wsState}

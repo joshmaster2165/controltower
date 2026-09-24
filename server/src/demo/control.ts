@@ -63,11 +63,16 @@ export async function startDemo(ctx: AppContext): Promise<void> {
   await seedDemoAlerts(ctx.db.write);
   await seedDemoHttp(ctx.db.write, ctx.secrets, base);
   await reloadAll(ctx);
-  // Demo approver: answers held flights after ~8–12 s unless a human got there first.
+  // Demo approver: answers demo agents' held flights after ~8–12 s unless a human got there first.
+  // Never anyone else's: a real agent held by a real gate waits for a real person, demo or not.
   unsubscribeApprover = ctx.bus.subscribe((e) => {
     if (e.t !== 'flight.held' || e.budget_ms === 0) return;
     const t = setTimeout(() => {
-      void ctx.approvals.decide(e.approval_id, 'demo-approver', Math.random() < 0.85 ? 'approve' : 'deny', { note: 'auto-decided by the demo approver' }).catch(() => undefined);
+      void (async () => {
+        const row = await ctx.db.read.selectFrom('approvals').select(['demo', 'status']).where('id', '=', e.approval_id).executeTakeFirst();
+        if (row?.demo !== 1 || row.status !== 'pending') return;
+        await ctx.approvals.decide(e.approval_id, 'demo-approver', Math.random() < 0.85 ? 'approve' : 'deny', { note: 'auto-decided by the demo approver' });
+      })().catch(() => undefined);
     }, 8000 + Math.random() * 4000);
     t.unref?.();
   });

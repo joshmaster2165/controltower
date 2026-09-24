@@ -754,14 +754,32 @@ export class AirspaceScene {
 
     this.edges = t.edges ?? [];
     this.used24h.clear();
+    // Seed the per-minute counters from the server, so traffic from just before the map opened reads as active.
+    const seeded = new Set<string>();
+    const seed = (id: string, into: { recent: number[]; lastAt: number }, ts: number[]) => {
+      if (!ts.length || (into.recent.length && !seeded.has(id))) return;
+      seeded.add(id);
+      into.recent.push(...ts);
+      into.recent.sort((a, b) => a - b);
+      into.lastAt = Math.max(into.lastAt, ...ts);
+    };
     for (const e of this.edges) {
       this.used24h.add(e.key_id);
       this.used24h.add(e.target_id);
-      if (e.tool) {
-        const row = this.stations.get(e.target_id)?.tools.find((r) => r.name === e.tool);
-        if (row) row.count24h += e.requests;
-      }
+      const row = e.tool ? this.stations.get(e.target_id)?.tools.find((r) => r.name === e.tool) : undefined;
+      if (row) row.count24h += e.requests;
+      const ts = e.recent_ts ?? [];
+      if (!ts.length) continue;
+      const agent = this.stations.get(e.key_id);
+      const dest = this.stations.get(e.target_id);
+      if (agent) seed(agent.id, agent, ts);
+      if (dest) seed(dest.id, dest, ts);
+      if (row) seed(`${e.target_id}|${e.tool}`, row, ts);
+      const last = Math.max(...ts);
+      if (agent && dest) this.livePairs.set(`${agent.id}>${dest.id}`, Math.max(this.livePairs.get(`${agent.id}>${dest.id}`) ?? 0, last));
+      if (agent && dest && e.tool) this.liveToolPairs.set(`${agent.id}>${dest.id}|${e.tool}`, Math.max(this.liveToolPairs.get(`${agent.id}>${dest.id}|${e.tool}`) ?? 0, last));
     }
+    if (!this.hubRecent.length) this.hubRecent.push(...this.edges.flatMap((e) => e.recent_ts ?? []).sort((x, y) => x - y));
     this.relatedCache = null;
     this.layout();
   }

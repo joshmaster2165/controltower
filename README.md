@@ -23,7 +23,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also by email and Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also by email and Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -111,7 +111,7 @@ For UI development with hot reload run `pnpm dev:ui` in a second terminal and op
 | **Inspect gate** | A guardrail on a path: what to look for, which direction, and whether to mask, block or flag. Runs alongside access gates. |
 | **Alert** | A notification rule on a gate: which outcomes, how often, where to send it. |
 | **Ledger** | Cost, tokens, latency. |
-| **Flight Recorder** | Replay and *simulate* — what would this rule have done to yesterday's traffic? |
+| **Flight Recorder** | **Replay** past traffic on the map, and *simulate* — what would this rule have done to yesterday's traffic? |
 
 ## Document it
 
@@ -250,7 +250,7 @@ Everything is configured in the browser. Environment variables exist for operato
 ## Roadmap
 
 - **v0.1 — see it and stop it**: gateway (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/v1/messages`), OpenAI-compatible + Anthropic adapters, keys/limits/budgets, pricing and cost, live Airspace, zones + gates + approvals, MCP gateway, demo mode, Docker image.
-- **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓. Still to come: Flight Recorder replay.
+- **v0.2 — understand it** (shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓, Flight Recorder replay ✓.
 - **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
 
 ## License

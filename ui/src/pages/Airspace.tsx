@@ -10,6 +10,8 @@ import { type GateDraft, alertedGates, destRef, describeRule } from './airspace/
 import { BringInside, GettingStarted, Tooltip, FocusPanel, ZoneCreatePopover, ZonePopover } from './airspace/panels';
 import { GatePopover, type SimResult, GateComposer } from './airspace/gates';
 import { PolicyImport } from './airspace/PolicyImport';
+import type { FlightEvent } from '@controltower/shared';
+import { ReplayBar } from './airspace/Replay';
 
 type Popover =
   | { kind: 'compose'; draft: GateDraft; x: number; y: number }
@@ -132,7 +134,10 @@ export function AirspacePage() {
         } catch {
           /* private mode */
         }
-        unsub = onFlightEvent((e) => scene.handle(e));
+        // While replaying, the map shows the recording; live events wait.
+        unsub = onFlightEvent((e) => {
+          if (!replayingRef.current) scene.handle(e);
+        });
 
         // Arrangement is shared (server); camera is per viewer (localStorage).
         scene.onLayoutChange((positions) => {
@@ -212,6 +217,26 @@ export function AirspacePage() {
   }, [alertRules]);
   const [exportOpen, setExportOpen] = useState(false);
   const [policyImport, setPolicyImport] = useState(false);
+  const [replay, setReplay] = useState(false);
+  const replayingRef = useRef(false);
+  const replayReset = useCallback(() => sceneRef.current?.resetActivity(), []);
+  const replayEmit = useCallback((e: FlightEvent) => sceneRef.current?.handle(e), []);
+  const startReplay = () => {
+    replayingRef.current = true;
+    setReplay(true);
+  };
+  const exitReplay = useCallback(() => {
+    replayingRef.current = false;
+    setReplay(false);
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.resetActivity();
+    // Back to live: reseed the last minute of real traffic.
+    void useStore.getState().refreshTopology().then(() => {
+      const t = useStore.getState().topology;
+      if (t) scene.setTopology(t);
+    });
+  }, []);
   const [layer, setLayerState] = useState<'all' | 'active' | 'gateway' | 'outside'>(() => {
     try {
       const v = localStorage.getItem('ct.airspace.layer');
@@ -339,8 +364,8 @@ export function AirspacePage() {
           </button>
         </div>
         <div className="menu-wrap">
-          <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen}>
-            <Icon name="download" size={15} /> Export
+          <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} title="Export" aria-label="Export">
+            <Icon name="download" size={15} /> <span className="lbl">Export</span>
           </button>
           {exportOpen && (
             <div className="menu" role="menu" onMouseLeave={() => setExportOpen(false)}>
@@ -371,6 +396,9 @@ export function AirspacePage() {
             </div>
           )}
         </div>
+        <button className={`btn ${replay ? 'active' : ''}`} onClick={() => (replay ? exitReplay() : startReplay())} title="Flight Recorder: play past traffic back on the map" aria-label="Replay">
+          <Icon name="play" size={15} /> <span className="lbl">Replay</span>
+        </button>
         <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }}>
           <Icon name="tower" size={15} /> Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
@@ -568,6 +596,7 @@ export function AirspacePage() {
         </span>
         {policy && !policy.enforcement && <span className="pill warn">enforcement off</span>}
       </div>
+      {replay && <ReplayBar emit={replayEmit} reset={replayReset} onExit={exitReplay} />}
       {policyImport && <PolicyImport onClose={() => setPolicyImport(false)} onApplied={() => void refreshPolicy()} />}
     </div>
   );

@@ -124,6 +124,7 @@ All paths are under `/admin/api`.
 | GET | `/flights` | Recent flights (`?limit`, `before`, `status`, `key_id`, `kind`) |
 | GET | `/flights/:id` | One flight with its events |
 | GET | `/events/recent` | The latest flight events |
+| GET | `/replay` | Flights in a window, compact, for replay (`?from`, `to` in epoch ms) |
 | GET | `/ledger/summary` | Spend, requests and tokens by key and model (`?window=1h\|24h\|7d\|30d`) |
 | GET | `/topology` | Everything on the map: keys, models, servers, zones, connections |
 | GET, PUT | `/airspace/layout` | The saved arrangement of the map |

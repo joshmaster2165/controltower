@@ -200,6 +200,16 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
     await fit();
     await shot(page, 'airspace');
 
+    // Flight Recorder: the last hour played back.
+    await page.getByRole('button', { name: 'Replay' }).click();
+    const bar = page.locator('.replay');
+    await expect(bar).toContainText(/of [\d,]+ flights/);
+    await bar.getByLabel('Speed').selectOption('10');
+    await page.waitForTimeout(2500);
+    await shot(page, 'replay');
+    await bar.getByRole('button', { name: 'Back to live' }).click();
+    await page.waitForTimeout(800);
+
     // Trace one agent.
     const [ax, ay] = await stationAt(page, 'support-triage');
     await page.mouse.click(ax, ay);

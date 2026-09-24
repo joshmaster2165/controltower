@@ -23,6 +23,7 @@ import { HttpGateway } from './http/gateway.js';
 import { httpAdminRoutes } from './admin/http.js';
 import { litellmApiRoutes } from './admin/litellm-api.js';
 import { budgetRoutes } from './admin/budgets.js';
+import { replayRoutes } from './admin/replay.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 import { mountDemoHttpApis } from './demo/http-apis.js';
 
@@ -92,6 +93,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await httpAdminRoutes(a, full);
     await litellmApiRoutes(a, full);
     await budgetRoutes(a, full);
+    await replayRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
     await exportRoutes(a, full);

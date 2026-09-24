@@ -329,3 +329,25 @@ test('HTTP APIs: register, call through the gateway, gate deletes', async ({ pag
     upstream.close();
   }
 });
+
+test('Flight Recorder: replay the last hour on the map, then back to live', async ({ page }) => {
+  await signIn(page);
+  const window = await page.evaluate(async () => (await fetch(`/admin/api/replay?from=${Date.now() - 3600_000}&to=${Date.now()}`)).json());
+  expect(window.flights.length).toBeGreaterThan(0);
+  expect(window.flights[0]).toHaveLength(11);
+
+  await page.getByRole('link', { name: 'Airspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Replay' }).click();
+  const bar = page.locator('.replay');
+  await expect(bar).toContainText(`of ${window.flights.length.toLocaleString()} flights`);
+  // It plays by itself: flights are handed to the map as the cursor moves.
+  await bar.getByLabel('Speed').selectOption('10000');
+  await expect.poll(async () => Number(((await bar.locator('.replay-count').innerText()).match(/^([\d,]+) of/)?.[1] ?? '0').replace(/,/g, '')), { timeout: 20_000 }).toBeGreaterThan(0);
+  // Scrubbing to the start rewinds.
+  const pause = bar.getByRole('button', { name: 'Pause' });
+  if (await pause.isVisible()) await pause.click();
+  await bar.getByLabel('Time').press('Home');
+  await expect(bar.locator('.replay-count')).toContainText(/^0 of/);
+  await bar.getByRole('button', { name: 'Back to live' }).click();
+  await expect(bar).toBeHidden();
+});

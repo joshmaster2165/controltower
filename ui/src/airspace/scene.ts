@@ -1165,6 +1165,23 @@ export class AirspaceScene {
 
   // ------------------------------------------------------------------ events
 
+  /** Forget all live activity (per-minute counts, held flights, recent denials) — before and after a replay. */
+  resetActivity(): void {
+    for (const s of this.stations.values()) {
+      s.recent.length = 0;
+      s.denials.length = 0;
+      s.held = 0;
+      for (const r of s.tools) r.recent.length = 0;
+    }
+    this.livePairs.clear();
+    this.liveToolPairs.clear();
+    this.live.clear();
+    this.ruleHits.clear();
+    this.hubRecent.length = 0;
+    this.relatedCache = null;
+    this.dirty = true;
+  }
+
   handle(e: FlightEvent): void {
     if (!this.ready) return;
     const now = Date.now();

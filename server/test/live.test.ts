@@ -57,7 +57,7 @@ describe('live frames', () => {
     const tick = got[0] as LiveTick;
     expect(tick.type).toBe('tick');
     expect(tick.totals).toEqual({ flights: 51, ok: 51, errors: 0, denied: 0, cost_nanousd: 500, tokens: 255 });
-    expect(tick.paths).toEqual(expect.arrayContaining([['k1', 'dep1', null, 25], ['k2', 'dep1', null, 25], ['k1', 'srv', 'search', 1]]));
+    expect(tick.paths).toEqual(expect.arrayContaining([['k1', 'dep1', null, 25, 0, 0, 250], ['k2', 'dep1', null, 25, 0, 0, 250], ['k1', 'srv', 'search', 1, 0, 0, 0]]));
 
     // A quiet second sends nothing.
     vi.advanceTimersByTime(1000);

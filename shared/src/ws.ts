@@ -5,15 +5,16 @@ import { FlightEvent } from './events.js';
 /**
  * One second of traffic, summed: what the live map and counters need from the
  * calls that went fine. `paths` rows are [key id, target id (deployment or
- * tool server; null if unrouted), tool, calls started]; `rules` counts gate
- * decisions (deny, hold, inspect) per gate.
+ * tool server; null if unrouted), tool, calls started, errors, blocked, spend
+ * in nanousd] — outcomes are counted in the second the call finished; `rules`
+ * counts gate decisions (deny, hold, inspect) per gate.
  */
 export const LiveTick = z.object({
   type: z.literal('tick'),
   ts: z.number(),
   ms: z.number(),
   totals: z.object({ flights: z.number(), ok: z.number(), errors: z.number(), denied: z.number(), cost_nanousd: z.number(), tokens: z.number() }),
-  paths: z.array(z.tuple([z.string(), z.string().nullable(), z.string().nullable(), z.number()])),
+  paths: z.array(z.tuple([z.string(), z.string().nullable(), z.string().nullable(), z.number(), z.number(), z.number(), z.number()])),
   rules: z.record(z.string(), z.number()),
 });
 export type LiveTick = z.infer<typeof LiveTick>;

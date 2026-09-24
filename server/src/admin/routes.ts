@@ -4,14 +4,16 @@ import { sql } from 'kysely';
 import type { AppContext } from '../context.js';
 import { requireAdmin, isSetupComplete } from './auth.js';
 import { generateApiKey } from '../crypto/apikeys.js';
-import { LAT_BUCKETS } from '../events/db-sink.js';
 import { classifyOperation } from '../mcp/gateway.js';
 import { recentRoutes } from './http.js';
 import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 import { ADMIN_KEY_ID } from './admin-key.js';
 import { PLAYGROUND_KEY_ID } from './playground.js';
+import { loadViews } from './views.js';
 
 const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID]);
+/** Width of the buckets the map's last minute is seeded from. */
+const RECENT_BUCKET_MS = 5000;
 
 /**
  * Admin API. Read endpoints feed the console; write endpoints mutate the DB
@@ -41,26 +43,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/topology', { preHandler: guard }, async () => {
     const r = ctx.registry;
     const since = Date.now() - 24 * 3600 * 1000;
-    const sinceBucket = new Date(since).toISOString().slice(0, 13);
     const routes = await recentRoutes(ctx);
-    const lanes = await ctx.db.read
-      .selectFrom('usage_hourly')
-      .select(['key_id', 'deployment_id', 'kind'])
-      .select((eb) => [
-        eb.fn.sum<number>('requests').as('requests'),
-        eb.fn.sum<number>('errors').as('errors'),
-        eb.fn.sum<number>('denied').as('denied'),
-        eb.fn.sum<number>('held').as('held'),
-        eb.fn.sum<number>('cost_nanousd').as('cost_nanousd'),
-        eb.fn.sum<number>('in_tokens').as('in_tokens'),
-        eb.fn.sum<number>('out_tokens').as('out_tokens'),
-        eb.fn.sum<number>('lat_sum_ms').as('lat_sum_ms'),
-        eb.fn.sum<number>('lat_count').as('lat_count'),
-      ])
-      .where('bucket', '>=', sinceBucket)
-      .groupBy(['key_id', 'deployment_id', 'kind'])
-      .execute();
-
     // Connectivity: who actually talked to what (model, tool server, tool) in the last 24h.
     const edgeRows = await sql<{ key_id: string; target: string | null; tool: string | null; requests: number; errors: number; denied: number; cost: number; last_ts: number }>`
       SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool,
@@ -72,31 +55,48 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       FROM flights
       WHERE ts >= ${since} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
       GROUP BY key_id, target, tool`.execute(ctx.db.read);
-    // The last minute of calls per connection, so a map opened now shows what is active now.
-    const recentRows = await sql<{ key_id: string; target: string; tool: string | null; ts: number }>`
-      SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool, ts
+    // The last minute of calls per connection in 5-second buckets, so a map opened now shows what is active now.
+    const recentRows = await sql<{ key_id: string; target: string; tool: string | null; b: number; n: number }>`
+      SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool, (ts / ${RECENT_BUCKET_MS}) * ${RECENT_BUCKET_MS} AS b, COUNT(*) AS n
       FROM flights
       WHERE ts >= ${Date.now() - 60_000} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
-      ORDER BY ts DESC LIMIT 2000`.execute(ctx.db.read);
-    const recentTs = new Map<string, number[]>();
-    for (const r of recentRows.rows) {
-      const k = `${r.key_id}|${r.target}|${r.tool ?? ''}`;
-      recentTs.set(k, [...(recentTs.get(k) ?? []), Number(r.ts)]);
+      GROUP BY key_id, target, tool, b`.execute(ctx.db.read);
+    const recentBy = new Map<string, Array<[number, number]>>();
+    for (const row of recentRows.rows) {
+      const k = `${row.key_id}|${row.target}|${row.tool ?? ''}`;
+      const list = recentBy.get(k) ?? recentBy.set(k, []).get(k)!;
+      list.push([Number(row.b), Number(row.n)]);
     }
-    const edges = edgeRows.rows.map((e) => ({
-      key_id: e.key_id,
-      target_id: e.target!,
-      tool: e.tool ?? undefined,
-      requests: Number(e.requests),
-      errors: Number(e.errors),
-      denied: Number(e.denied),
-      cost_nanousd: Number(e.cost),
-      last_ts: Number(e.last_ts),
-      recent_ts: recentTs.get(`${e.key_id}|${e.target}|${e.tool ?? ''}`) ?? [],
-    }));
+    // One row per agent and team rather than per key: copies of an agent (same agent id and team)
+    // are drawn as one station at every level, so their rows are summed here. `key_id` is one of
+    // the copies (the map resolves it to the agent's station); `keys` counts them.
+    const bucketOf = (keyId: string) => {
+      const k = r.keysById.get(keyId);
+      return k?.agentId ? `a:${k.agentId}|${k.team ?? ''}` : `k:${keyId}`;
+    };
+    const merged = new Map<string, { key_id: string; target_id: string; tool?: string; requests: number; errors: number; denied: number; cost_nanousd: number; last_ts: number; recent: Map<number, number>; keys: Set<string> }>();
+    for (const e of edgeRows.rows) {
+      // A deleted key's history stays in Flights and the Ledger; the map has no station to draw it from.
+      if (!r.keysById.has(e.key_id)) continue;
+      const k = `${bucketOf(e.key_id)}>${e.target}|${e.tool ?? ''}`;
+      const recent = recentBy.get(`${e.key_id}|${e.target}|${e.tool ?? ''}`) ?? [];
+      const m = merged.get(k);
+      if (!m) {
+        merged.set(k, { key_id: e.key_id, target_id: e.target!, ...(e.tool ? { tool: e.tool } : {}), requests: Number(e.requests), errors: Number(e.errors), denied: Number(e.denied), cost_nanousd: Number(e.cost), last_ts: Number(e.last_ts), recent: new Map(recent), keys: new Set([e.key_id]) });
+        continue;
+      }
+      m.requests += Number(e.requests);
+      m.errors += Number(e.errors);
+      m.denied += Number(e.denied);
+      m.cost_nanousd += Number(e.cost);
+      m.last_ts = Math.max(m.last_ts, Number(e.last_ts));
+      for (const [b, n] of recent) m.recent.set(b, (m.recent.get(b) ?? 0) + n);
+      m.keys.add(e.key_id);
+    }
+    const edges = [...merged.values()].map(({ keys, recent, ...e }) => ({ ...e, keys: keys.size, recent: [...recent].sort((a, b) => a[0] - b[0]) }));
 
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.
-    const active = new Set([...edges.map((e) => e.key_id), ...lanes.map((l) => l.key_id)]);
+    const active = new Set(edgeRows.rows.map((e) => e.key_id));
     const shown = [...r.keysById.values()].filter((k) => !BUILT_IN_KEYS.has(k.id) || active.has(k.id));
 
     return {
@@ -148,20 +148,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       ],
       edges,
       observed: await ctx.observed.summary(since),
-      lanes: lanes.map((l) => ({
-        key_id: l.key_id,
-        deployment_id: l.deployment_id,
-        kind: l.kind,
-        requests: Number(l.requests ?? 0),
-        errors: Number(l.errors ?? 0),
-        denied: Number(l.denied ?? 0),
-        held: Number(l.held ?? 0),
-        cost_nanousd: Number(l.cost_nanousd ?? 0),
-        in_tokens: Number(l.in_tokens ?? 0),
-        out_tokens: Number(l.out_tokens ?? 0),
-        avg_ms: Number(l.lat_count ?? 0) > 0 ? Number(l.lat_sum_ms ?? 0) / Number(l.lat_count ?? 0) : null,
-      })),
-      lat_buckets: LAT_BUCKETS,
+      views: await loadViews(ctx),
     };
   });
 

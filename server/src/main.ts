@@ -151,6 +151,7 @@ async function main(): Promise<void> {
   });
   bus.subscribe(metrics.push);
   const observedVersion = new Versioned();
+  const viewsVersion = new Versioned();
   const observed = new ObservedStore(db.write, observedVersion);
 
   const adapters = new Adapters();
@@ -182,6 +183,7 @@ async function main(): Promise<void> {
     metrics,
     observed,
     observedVersion,
+    viewsVersion,
     demo: undefined,
     startedAt,
     shuttingDown: false,

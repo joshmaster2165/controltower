@@ -101,19 +101,6 @@ export interface TopologyAlias {
   strategy: string;
   targets: Array<{ deploymentId: string; priority: number; weight: number }>;
 }
-export interface TopologyLane {
-  key_id: string;
-  deployment_id: string;
-  kind: string;
-  requests: number;
-  errors: number;
-  denied: number;
-  held: number;
-  cost_nanousd: number;
-  in_tokens: number;
-  out_tokens: number;
-  avg_ms: number | null;
-}
 export interface TopologyMcpTool {
   name: string;
   /** read | write | admin (destructive) | unknown */
@@ -140,8 +127,10 @@ export interface TopologyEdge {
   denied: number;
   cost_nanousd: number;
   last_ts: number;
-  /** Timestamps of this connection's calls in the last minute. */
-  recent_ts?: number[];
+  /** Copies of the agent this row sums (keys with the same agent id and team). */
+  keys?: number;
+  /** The last minute of calls: [bucket start (ms), calls] in 5-second buckets. */
+  recent?: Array<[number, number]>;
 }
 export interface Topology {
   version: number;
@@ -152,7 +141,15 @@ export interface Topology {
   mcp_servers: TopologyMcpServer[];
   edges: TopologyEdge[];
   observed?: { targets: ObservedTarget[]; edges: ObservedEdge[] };
-  lanes: TopologyLane[];
+  /** Named parts of the organization, each a set of teams with a map of its own. */
+  views?: AirspaceView[];
+}
+
+export interface AirspaceView {
+  id: string;
+  name: string;
+  color: string;
+  teams: string[];
 }
 
 /** A system agents reach without going through Control Tower (reported via SDK / OpenTelemetry). */

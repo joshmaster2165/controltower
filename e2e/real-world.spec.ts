@@ -359,6 +359,26 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
   await admin.call('DELETE', `/admin/api/rules/${teamGate.body.id}`);
   await admin.call('DELETE', `/admin/api/zones/${opsZone}`);
   expect((await chat(opsKey.key)).status).toBe(200);
+
+  // Views: one part of the organization on a map of its own, a link under Airspace.
+  const opsView = await admin.post('/admin/api/airspace/views', { name: 'Ops', teams: ['rw-ops'] });
+  expect(opsView.status).toBe(201);
+  expect((await admin.post('/admin/api/airspace/views', { name: 'ops', teams: ['real-world'] })).status).toBe(400);
+  expect((await admin.get('/admin/api/topology')).body.views.map((v: { name: string }) => v.name)).toContain('Ops');
+  await page.reload();
+  await page.getByRole('link', { name: 'Ops', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#/airspace/${opsView.body.id}$`));
+  const drawnAgents = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene?: { stations: Map<string, { kind: string; label: string }> } }).__ctScene;
+      return [...(s?.stations.values() ?? [])].filter((x) => x.kind === 'agent').map((x) => x.label).sort();
+    });
+  await expect.poll(drawnAgents).toEqual(['rw-ops-agent', 'rw-ops-helper', 'rw-ops-third']);
+  await expect(page.locator('.view-seg')).toContainText('Ops');
+  // Leaving the view brings the whole organization back.
+  await page.getByRole('button', { name: 'Leave view' }).click();
+  await expect.poll(async () => (await drawnAgents()).length).toBeGreaterThan(3);
+  expect((await admin.call('DELETE', `/admin/api/airspace/views/${opsView.body.id}`)).status).toBe(200);
 });
 
 // ---------------------------------------------------------------- gates on models

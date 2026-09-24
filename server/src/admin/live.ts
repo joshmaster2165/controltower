@@ -65,11 +65,7 @@ export class LiveFrames {
     switch (e.t) {
       case 'flight.started': {
         this.totals.flights++;
-        const target = e.deployment_id ?? e.mcp_server_id ?? null;
-        const k = `${e.key_id}|${target ?? ''}|${e.tool ?? ''}`;
-        const row = this.paths.get(k);
-        if (row) row[3]++;
-        else this.paths.set(k, [e.key_id, target, e.tool ?? null, 1]);
+        this.path(e)[3]++;
         this.pending.set(e.flight_id, e as FlightStarted & { t: 'flight.started' });
         if (this.pending.size > MAX_PENDING) this.pending.delete(this.pending.keys().next().value!);
         break;
@@ -93,6 +89,14 @@ export class LiveFrames {
         else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') t.denied++;
         if (e.cost_nanousd) t.cost_nanousd += e.cost_nanousd;
         if (e.usage) t.tokens += e.usage.input + e.usage.output;
+        // Outcomes per path too, so a view of part of the organization can count its own traffic.
+        const s = this.pending.get(e.flight_id);
+        if (s && (e.status !== 'ok' || e.cost_nanousd)) {
+          const row = this.path(s);
+          if (e.status === 'error') row[4]++;
+          else if (e.status === 'denied' || e.status === 'rejected' || e.status === 'ticketed') row[5]++;
+          if (e.cost_nanousd) row[6] += e.cost_nanousd;
+        }
         // A failed call goes to the console's feed.
         if (e.status !== 'ok' && e.status !== 'client_aborted') this.promote(e.flight_id);
         this.forward(e);
@@ -103,6 +107,15 @@ export class LiveFrames {
       default:
         break;
     }
+  }
+
+  /** This second's row for a flight's path. */
+  private path(s: Extract<FlightEvent, { t: 'flight.started' }>): LiveTick['paths'][number] {
+    const target = s.deployment_id ?? s.mcp_server_id ?? null;
+    const k = `${s.key_id}|${target ?? ''}|${s.tool ?? ''}`;
+    let row = this.paths.get(k);
+    if (!row) this.paths.set(k, (row = [s.key_id, target, s.tool ?? null, 0, 0, 0, 0]));
+    return row;
   }
 
   /** From now on this flight's events go out in full, starting with its start. */

@@ -36,6 +36,19 @@ With hundreds of agents the map starts at the **organization level**: one statio
 
 **Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
 
+## Views: one part of the organization at a time
+
+A **view** is a named part of the organization, such as *Engineering* or *Marketing*: a set of teams with a map of its own. Create one with **+ New view** under Airspace in the sidebar: name it, pick a colour and tick its teams. Each view is then a link under Airspace, and everyone sees it.
+
+In a view:
+
+- The map shows only its teams' agents and the models, tool servers, tools and outside systems they reach. Until its agents have made any calls, every model and tool server is shown, so a first gate can be drawn.
+- **Flights**, **Spend**, **Blocked · errors** and **Holding** count only its traffic, from the moment the view is opened; the approvals drawer lists only its requests.
+- Live traffic from other teams is left out, and search finds only what is in the view.
+- Teams / Agents, opening teams, gates and zones work as on the whole map. A view with a single team always shows its agents.
+
+The header shows the view's name; **⋯** edits it and **×** returns to the whole organization. Each view has its own link (`#/airspace/<view id>`) to share. Views decide what the map shows, not who may see it.
+
 ## Flight Recorder: replay past traffic
 
 **Replay** plays a past window — the last hour, 6 hours, 24 hours or 7 days — back on the map: every recorded call travels its path again, holds wait at their gates and blocked calls turn red, compressed 10× to 10,000×. Play, pause, change speed or drag the scrubber to any moment; quiet stretches are skipped. Live traffic waits while you watch and the map returns to it with **Back to live**.

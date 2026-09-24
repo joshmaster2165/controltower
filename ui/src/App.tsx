@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useStore, type Route } from './store';
 import { connectWs, disconnectWs } from './ws';
 import { SetupPage, LoginPage } from './pages/Auth';
@@ -62,11 +62,16 @@ function readCollapsed(): boolean {
   }
 }
 
+const NO_VIEWS: never[] = [];
+
 export function App() {
   const booted = useStore((s) => s.booted);
   const status = useStore((s) => s.status);
   const me = useStore((s) => s.me);
   const route = useStore((s) => s.route);
+  const routeParam = useStore((s) => s.routeParam);
+  // Select the stored array itself: a fresh `[]` from the selector would re-render forever.
+  const views = useStore((s) => s.topology?.views) ?? NO_VIEWS;
   const wsState = useStore((s) => s.wsState);
   const setRoute = useStore((s) => s.setRoute);
   const setMe = useStore((s) => s.setMe);
@@ -119,13 +124,14 @@ export function App() {
               <div className="nav-group-label">{g.group}</div>
               {g.items.map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
+                const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
+                  <Fragment key={n.id}>
                   <a
-                    key={n.id}
                     href={`#/${n.id}`}
-                    className={route === n.id ? 'active' : ''}
+                    className={route === n.id && !inView ? 'active' : ''}
                     title={collapsed ? `${n.label} — ${n.hint}` : n.hint}
-                    aria-current={route === n.id ? 'page' : undefined}
+                    aria-current={route === n.id && !inView ? 'page' : undefined}
                     onClick={(e) => {
                       e.preventDefault();
                       setRoute(n.id);
@@ -135,6 +141,39 @@ export function App() {
                     <span className="nav-label">{n.label}</span>
                     {count > 0 && <span className={`badge ${n.id === 'alerts' ? 'alert' : ''}`}>{count > 99 ? '99+' : count}</span>}
                   </a>
+                  {n.id === 'airspace' && !collapsed && (
+                    // Views: one part of the organization each, with a map of its own.
+                    <div className="nav-sub" aria-label="Airspace views">
+                      {views.map((v) => (
+                        <a
+                          key={v.id}
+                          href={`#/airspace/${v.id}`}
+                          className={route === 'airspace' && routeParam === v.id ? 'active' : ''}
+                          aria-current={route === 'airspace' && routeParam === v.id ? 'page' : undefined}
+                          title={`${v.name}: ${v.teams.join(', ')}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setRoute('airspace', v.id);
+                          }}
+                        >
+                          <i style={{ background: v.color }} />
+                          <span className="nav-label">{v.name}</span>
+                        </a>
+                      ))}
+                      <a
+                        href="#/airspace/new"
+                        className="nav-add"
+                        title="A map of one part of the organization: pick its teams"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setRoute('airspace', 'new');
+                        }}
+                      >
+                        <span className="nav-label">+ New view</span>
+                      </a>
+                    </div>
+                  )}
+                  </Fragment>
                 );
               })}
             </div>

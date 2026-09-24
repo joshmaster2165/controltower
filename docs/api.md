@@ -126,8 +126,10 @@ All paths are under `/admin/api`.
 | GET | `/events/recent` | The latest flight events |
 | GET | `/replay` | Flights in a window, compact, for replay (`?from`, `to` in epoch ms) |
 | GET | `/ledger/summary` | Spend, requests and tokens by key and model (`?window=1h\|24h\|7d\|30d`) |
-| GET | `/topology` | Everything on the map: keys, models, servers, zones, connections |
+| GET | `/topology` | Everything on the map: keys, models, servers, views, connections per agent and team (gzipped when accepted) |
 | GET, PUT | `/airspace/layout` | The saved arrangement of the map |
+| GET, POST | `/airspace/views` | [Views](airspace.md#views-one-part-of-the-organization-at-a-time): `{name, teams, color?}` |
+| PATCH, DELETE | `/airspace/views/:id` | Change or remove a view |
 | GET | `/export/dataflow` | The data-flow inventory (`?format=md\|csv`, `hours`) |
 | GET (WebSocket) | `/admin/ws` | Live traffic for the console: a `tick` each second (totals, calls per path, gate hits) and `events` for held, denied and failed flights |
 

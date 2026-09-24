@@ -314,6 +314,9 @@ export class AirspaceScene {
   /** Agent station → the keys it stands for (one for a plain key, all copies for a group, a whole team). */
   private stationKeys = new Map<string, TopologyKey[]>();
   private levelPref: AgentLevel | 'auto' = 'auto';
+  /** A view's teams (null: the whole organization), and the keys it draws. */
+  private scope: Set<string> | null = null;
+  private keys: TopologyKey[] = [];
   private level: AgentLevel = 'agents';
   /** Teams opened into their agents while the map shows teams. */
   private openTeams = new Set<string>();
@@ -743,6 +746,27 @@ export class AirspaceScene {
 
   // ------------------------------------------------------------ levels, search
 
+  /**
+   * Show one part of the organization: only these teams' agents, what they reach
+   * and their traffic (null: everything). The map is fitted to what is left.
+   */
+  setScope(teams: string[] | null): void {
+    const next = teams ? new Set(teams) : null;
+    if (next && this.scope && next.size === this.scope.size && [...next].every((t) => this.scope!.has(t))) return;
+    if (!next && !this.scope) return;
+    this.scope = next;
+    this.openTeams.clear();
+    this.resetActivity();
+    if (this.topology) this.setTopology(this.topology);
+    if (this.focusId && !this.stations.has(this.focusId)) this.setFocus(null);
+    this.fit();
+    this.levelCb?.();
+  }
+  /** Whether a key is drawn in the current view. */
+  inScope(keyId: string): boolean {
+    return this.keyStation.has(keyId);
+  }
+
   /** Draw agents per team or per agent; 'auto' draws teams once there are more agents than fit. */
   setLevel(level: AgentLevel | 'auto'): void {
     this.levelPref = level;
@@ -753,7 +777,7 @@ export class AirspaceScene {
     this.levelCb?.();
   }
   getLevel(): { level: AgentLevel; pref: AgentLevel | 'auto'; teams: number } {
-    const teams = new Set((this.topology?.keys ?? []).map((k) => k.team).filter(Boolean)).size;
+    const teams = new Set(this.keys.map((k) => k.team).filter(Boolean)).size;
     return { level: this.level, pref: this.levelPref, teams };
   }
   onLevelChange(cb: () => void): void {
@@ -796,9 +820,9 @@ export class AirspaceScene {
       const i = text.toLowerCase().indexOf(q);
       if (i >= 0) hits.push({ ...h, score: WEIGHT[h.kind] + (i === 0 ? 0 : 1) + text.length / 1000 });
     };
-    const groups = agentGroups(t.keys);
+    const groups = agentGroups(this.keys);
     const teams = new Map<string, number>();
-    for (const k of t.keys) if (k.team) teams.set(k.team, (teams.get(k.team) ?? 0) + 1);
+    for (const k of this.keys) if (k.team) teams.set(k.team, (teams.get(k.team) ?? 0) + 1);
     for (const [team, n] of teams) add({ ref: `team:${team}`, label: team, sub: `team · ${n.toLocaleString()} key${n === 1 ? '' : 's'}`, kind: 'team' }, team);
     for (const [agentId, keys] of groups) {
       const count = new Map<string, number>();
@@ -806,7 +830,7 @@ export class AirspaceScene {
       const team = [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'no team';
       add({ ref: `agent:${groupStation(agentId)}`, label: agentId, sub: `agent · ×${keys.length} · ${team}`, kind: 'agent' }, agentId);
     }
-    for (const k of t.keys) {
+    for (const k of this.keys) {
       const grouped = k.agent_id && groups.has(k.agent_id);
       add({ ref: grouped ? `key:${k.id}` : `agent:${k.id}`, label: k.name, sub: grouped ? `key · copy of ${k.agent_id}` : `agent · ${[k.team, k.project].filter(Boolean).join(' · ') || 'no team'}`, kind: grouped ? 'key' : 'agent' }, k.name);
     }
@@ -840,12 +864,12 @@ export class AirspaceScene {
         if (this.openTeams.has(id)) this.toggleTeam(id);
       } else {
         // Per-agent view: trace the first of its agents.
-        const k = t.keys.find((x) => x.team === id);
+        const k = this.keys.find((x) => x.team === id);
         target = k ? this.stationOf(k.id) : undefined;
       }
     } else if (kind === 'agent' || kind === 'key') {
       const keyIds = kind === 'key' ? [id] : this.agentKeyIds(id);
-      const k = t.keys.find((x) => x.id === keyIds[0]);
+      const k = this.keys.find((x) => x.id === keyIds[0]);
       if (k?.team && this.level === 'teams' && !this.openTeams.has(k.team)) this.toggleTeam(k.team);
       target = k ? this.stationOf(k.id) : undefined;
     } else if (kind === 'station') {
@@ -874,7 +898,7 @@ export class AirspaceScene {
     if (!t) return [];
     if (stationId.startsWith('group:')) {
       const agentId = stationId.slice(6);
-      return t.keys.filter((k) => k.agent_id === agentId).map((k) => k.id);
+      return this.keys.filter((k) => k.agent_id === agentId).map((k) => k.id);
     }
     return [stationId];
   }
@@ -902,6 +926,10 @@ export class AirspaceScene {
 
   setTopology(t: Topology): void {
     this.topology = t;
+    // In a view, only its teams' keys are drawn; everything below works on those.
+    const scope = this.scope;
+    this.keys = scope ? t.keys.filter((k) => !!k.team && scope.has(k.team)) : t.keys;
+    const inKeys = this.keys;
     const keep = new Set<string>();
     const upsert = (id: string, kind: StationKind, label: string, sub: string, color: number, slug = ''): Station => {
       keep.add(id);
@@ -918,21 +946,22 @@ export class AirspaceScene {
       return s;
     };
     // Agents: per agent (a group, or a single key), or per team at the organization level.
-    const groups = agentGroups(t.keys);
-    const agentOf = keyStations(t.keys, groups);
+    const groups = agentGroups(inKeys);
+    const agentOf = keyStations(inKeys, groups);
     const teams = new Map<string, TopologyKey[]>();
-    for (const k of t.keys) if (k.team) (teams.get(k.team) ?? teams.set(k.team, []).get(k.team)!).push(k);
+    for (const k of inKeys) if (k.team) (teams.get(k.team) ?? teams.set(k.team, []).get(k.team)!).push(k);
     const agentCount = new Set(agentOf.values()).size;
-    this.level = this.levelPref === 'auto' ? (agentCount > AUTO_TEAMS_ABOVE && teams.size >= 2 ? 'teams' : 'agents') : this.levelPref;
+    // Teams only mean something with two or more of them (a one-team view always shows its agents).
+    this.level = teams.size < 2 ? 'agents' : this.levelPref === 'auto' ? (agentCount > AUTO_TEAMS_ABOVE ? 'teams' : 'agents') : this.levelPref;
     const oldKeys = this.stationKeys;
     this.keyStation = new Map();
     // A team with a single agent is drawn as that agent: folding it would only hide its name.
     const teamAgents = new Map<string, Set<string>>();
-    for (const k of t.keys) if (k.team) (teamAgents.get(k.team) ?? teamAgents.set(k.team, new Set()).get(k.team)!).add(agentOf.get(k.id)!);
+    for (const k of inKeys) if (k.team) (teamAgents.get(k.team) ?? teamAgents.set(k.team, new Set()).get(k.team)!).add(agentOf.get(k.id)!);
     const folded = (k: TopologyKey) => this.level === 'teams' && !!k.team && !this.openTeams.has(k.team) && teamAgents.get(k.team)!.size > 1;
-    for (const k of t.keys) this.keyStation.set(k.id, folded(k) ? teamStation(k.team!) : agentOf.get(k.id)!);
+    for (const k of inKeys) this.keyStation.set(k.id, folded(k) ? teamStation(k.team!) : agentOf.get(k.id)!);
     this.stationKeys = new Map();
-    for (const k of t.keys) {
+    for (const k of inKeys) {
       const id = this.keyStation.get(k.id)!;
       (this.stationKeys.get(id) ?? this.stationKeys.set(id, []).get(id)!).push(k);
     }
@@ -987,12 +1016,19 @@ export class AirspaceScene {
           pairs.set(nk, Math.max(pairs.get(nk) ?? 0, ts));
         }
     }
+    // In a view: the destinations its agents reach (all of them while they reach none yet, so a first gate can be drawn).
+    const edgesIn = (t.edges ?? []).filter((e) => this.keyStation.has(e.key_id));
+    const obsIn = (t.observed?.edges ?? []).filter((e) => this.keyStation.has(e.key_id));
+    const reached = new Set([...edgesIn.map((e) => e.target_id), ...obsIn.map((e) => e.target_id)]);
+    const shows = (id: string, observed = false) => !scope || reached.has(id) || (!observed && !edgesIn.length);
     const provById = new Map(t.providers.map((p) => [p.id, p]));
     for (const d of t.deployments) {
+      if (!shows(d.id)) continue;
       const prov = provById.get(d.provider_id);
       upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[providerLook(prov)] ?? 0x475569);
     }
     for (const m of t.mcp_servers ?? []) {
+      if (!shows(m.id)) continue;
       const http = m.protocol === 'http';
       const n = m.tools.length;
       const s = upsert(m.id, 'mcp', m.name, http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`, MCP_COLOR, m.slug);
@@ -1005,6 +1041,7 @@ export class AirspaceScene {
     }
     const OBS_KIND: Record<string, string> = { http: 'service', database: 'database', queue: 'queue', model: 'model API', saas: 'SaaS', rpc: 'service', tool: 'tool', other: 'system' };
     for (const o of t.observed?.targets ?? []) {
+      if (!shows(o.id, true)) continue;
       // postgresql://orders-db.internal/orders → "orders", "postgresql · orders-db.internal"
       const uri = /^([\w+.-]+):\/\/([^/]+)(?:\/(.+))?$/.exec(o.target);
       const label = o.system ?? (uri ? (uri[3] ?? uri[2]!) : o.target);
@@ -1016,7 +1053,7 @@ export class AirspaceScene {
       const st = upsert(o.id, 'observed', label, sub, o.bypass ? 0xd3374e : 0x64748b);
       st.obs = { target: o.target, kind: o.kind, bypass: o.bypass, lastSeen: o.last_seen, count24h: o.count_24h, errors24h: o.errors_24h };
     }
-    this.obsEdges = this.mergeByStation(t.observed?.edges ?? [], (e) => e.target_id, (into, e) => {
+    this.obsEdges = this.mergeByStation(obsIn, (e) => e.target_id, (into, e) => {
       into.count_24h += e.count_24h;
       into.errors_24h += e.errors_24h;
       into.writes_24h += e.writes_24h;
@@ -1031,41 +1068,53 @@ export class AirspaceScene {
       if (a) a.held++;
     }
 
-    this.edges = this.mergeByStation(t.edges ?? [], (e) => `${e.target_id}|${e.tool ?? ''}`, (into, e) => {
+    this.edges = this.mergeByStation(edgesIn, (e) => `${e.target_id}|${e.tool ?? ''}`, (into, e) => {
       into.requests += e.requests;
       into.errors += e.errors;
       into.denied += e.denied;
       into.cost_nanousd += e.cost_nanousd;
       into.last_ts = Math.max(into.last_ts, e.last_ts);
-      if (e.recent_ts?.length) (into.recent_ts ??= []).push(...e.recent_ts);
+      if (e.recent?.length) (into.recent ??= []).push(...e.recent);
     });
     this.used24h.clear();
     // Seed the per-minute counters from the server, so traffic from just before the map opened reads as active.
     const seeded = new Set<string>();
+    // Each 5-second bucket's calls become points spread over the bucket (capped so the bucket's end is not in the future).
+    const now = Date.now();
+    const points = (buckets: Array<[number, number]>) => {
+      const out: number[] = [];
+      for (const [b, n] of buckets) {
+        const span = Math.max(1, Math.min(5000, now - b));
+        for (let i = 0; i < n; i++) out.push(b + ((i + 0.5) * span) / n);
+      }
+      return out.sort((a, b) => a - b);
+    };
     const seed = (id: string, into: { recent: number[]; lastAt: number }, ts: number[]) => {
       if (!ts.length || (into.recent.length && !seeded.has(id))) return;
       seeded.add(id);
       into.recent.push(...ts);
       into.recent.sort((a, b) => a - b);
-      into.lastAt = Math.max(into.lastAt, ...ts);
+      into.lastAt = Math.max(into.lastAt, ts[ts.length - 1]!);
     };
+    const hub: number[] = [];
     for (const e of this.edges) {
       this.used24h.add(e.key_id);
       this.used24h.add(e.target_id);
       const row = e.tool ? this.stations.get(e.target_id)?.tools.find((r) => r.name === e.tool) : undefined;
       if (row) row.count24h += e.requests;
-      const ts = e.recent_ts ?? [];
+      const ts = points(e.recent ?? []);
       if (!ts.length) continue;
+      hub.push(...ts);
       const agent = this.stations.get(e.key_id);
       const dest = this.stations.get(e.target_id);
       if (agent) seed(agent.id, agent, ts);
       if (dest) seed(dest.id, dest, ts);
       if (row) seed(`${e.target_id}|${e.tool}`, row, ts);
-      const last = Math.max(...ts);
+      const last = ts[ts.length - 1]!;
       if (agent && dest) this.livePairs.set(`${agent.id}>${dest.id}`, Math.max(this.livePairs.get(`${agent.id}>${dest.id}`) ?? 0, last));
       if (agent && dest && e.tool) this.liveToolPairs.set(`${agent.id}>${dest.id}|${e.tool}`, Math.max(this.liveToolPairs.get(`${agent.id}>${dest.id}|${e.tool}`) ?? 0, last));
     }
-    if (!this.hubRecent.length) this.hubRecent.push(...this.edges.flatMap((e) => e.recent_ts ?? []).sort((x, y) => x - y));
+    if (!this.hubRecent.length) this.hubRecent.push(...hub.sort((x, y) => x - y));
     this.relatedCache = null;
     this.layout();
   }
@@ -1078,7 +1127,7 @@ export class AirspaceScene {
       const k = `${key_id}>${target(e)}`;
       const into = out.get(k);
       if (into) add(into, e);
-      else out.set(k, { ...e, key_id, ...('recent_ts' in e && Array.isArray(e.recent_ts) ? { recent_ts: [...e.recent_ts] } : {}) });
+      else out.set(k, { ...e, key_id, ...('recent' in e && Array.isArray(e.recent) ? { recent: [...e.recent] } : {}) });
     }
     return [...out.values()];
   }
@@ -1510,15 +1559,21 @@ export class AirspaceScene {
    * A second of live traffic, summed per path: each call becomes a point in the
    * per-minute counts, spread over the second it happened in.
    */
-  ingestTick(t: LiveTick): void {
-    if (!this.ready) return;
+  ingestTick(t: LiveTick): { flights: number; errors: number; denied: number; cost_nanousd: number } {
+    const mine = { flights: 0, errors: 0, denied: 0, cost_nanousd: 0 };
+    if (!this.ready) return mine;
     const from = t.ts - t.ms;
     const spread = (n: number, into: number[]) => {
       for (let i = 0; i < n; i++) into.push(from + ((i + 0.5) * t.ms) / n);
     };
-    for (const [keyId, target, tool, n] of t.paths) {
+    for (const [keyId, target, tool, n, errors, denied, cost] of t.paths) {
+      if (!this.keyStation.has(keyId)) continue; // another part of the organization
+      mine.flights += n;
+      mine.errors += errors;
+      mine.denied += denied;
+      mine.cost_nanousd += cost;
       const agent = this.stations.get(this.stationOf(keyId));
-      if (!agent) continue;
+      if (!agent || !n) continue;
       const dest = target ? this.stations.get(target) : this.ensureUnknown();
       spread(n, agent.recent);
       agent.lastAt = t.ts;
@@ -1541,6 +1596,7 @@ export class AirspaceScene {
     for (const s of this.stations.values()) if (s.recent.length > 1 && s.recent[s.recent.length - 1]! < s.recent[s.recent.length - 2]!) s.recent.sort((a, b) => a - b);
     if (this.focusId) this.relatedCache = null;
     this.dirty = true;
+    return mine;
   }
 
   /**

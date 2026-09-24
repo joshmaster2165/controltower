@@ -53,6 +53,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
     const unsubHttp = ctx.http.onChange(topology);
     const unsubAlerts = ctx.alertsVersion.onChange((v) => send({ type: 'alerts', version: v }));
     const unsubObserved = ctx.observedVersion.onChange(topology);
+    const unsubViews = ctx.viewsVersion.onChange(topology);
 
     socket.on('message', (raw) => {
       let msg: WsClientMessage | undefined;
@@ -74,6 +75,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       unsubHttp();
       unsubAlerts();
       unsubObserved();
+      unsubViews();
     });
   });
 }

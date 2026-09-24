@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { onFlightEvent, onLiveTick } from '../ws';
 import { AirspaceScene, type AgentLevel, type ClickInfo, type FocusSummary, type HoverInfo } from '../airspace/scene';
 import { agentGroups, agentRef } from '../airspace/groups';
-import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
+import { api, ApiError, type AirspaceView, type Rule, type Topology, type Zone } from '../api';
 import { Icon } from '../components/Icon';
 import { ApprovalCard } from './Tower';
 import { type GateDraft, alertedGates, destRef, describeRule } from './airspace/shared';
@@ -14,6 +14,7 @@ import { PolicyImport } from './airspace/PolicyImport';
 import type { FlightEvent } from '@controltower/shared';
 import { ReplayBar } from './airspace/Replay';
 import { MapSearch } from './airspace/MapSearch';
+import { ViewEditor } from './airspace/ViewEditor';
 
 const LEVEL_KEY = 'ct.airspace.level';
 
@@ -70,6 +71,17 @@ export function AirspacePage() {
   const [customLayout, setCustomLayout] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const cameraReady = useRef(false);
+  // A view (#/airspace/<id>) shows one part of the organization: its teams' agents, what they reach, its own traffic.
+  const routeParam = useStore((s) => s.routeParam);
+  const setRoute = useStore((s) => s.setRoute);
+  const view = (routeParam && topology?.views?.find((v) => v.id === routeParam)) || null;
+  const viewRef = useRef<AirspaceView | null>(null);
+  viewRef.current = view;
+  const [viewCounters, setViewCounters] = useState({ flights: 0, errors: 0, denied: 0, cost_nanousd: 0 });
+  const [editing, setEditing] = useState<AirspaceView | 'new' | null>(null);
+  useEffect(() => {
+    if (routeParam === 'new') setEditing('new');
+  }, [routeParam]);
   // Teams or agents; 'auto' (the default) draws teams once a fleet has more agents than fit.
   const [level, setLevelInfo] = useState<{ level: AgentLevel; pref: AgentLevel | 'auto'; teams: number }>({ level: 'agents', pref: 'auto', teams: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +112,7 @@ export function AirspacePage() {
           return;
         }
         sceneRef.current = scene;
+        scene.setScope(viewRef.current?.teams ?? null);
         try {
           const v = localStorage.getItem(LEVEL_KEY);
           if (v === 'teams' || v === 'agents') scene.setLevel(v);
@@ -157,7 +170,10 @@ export function AirspacePage() {
           if (!replayingRef.current) scene.handle(e, false);
         });
         const unsubTicks = onLiveTick((t) => {
-          if (!replayingRef.current) scene.ingestTick(t);
+          if (replayingRef.current) return;
+          const mine = scene.ingestTick(t);
+          if (viewRef.current && (mine.flights || mine.errors || mine.denied || mine.cost_nanousd))
+            setViewCounters((c) => ({ flights: c.flights + mine.flights, errors: c.errors + mine.errors, denied: c.denied + mine.denied, cost_nanousd: c.cost_nanousd + mine.cost_nanousd }));
         });
         unsub = () => {
           unsubEvents();
@@ -238,6 +254,17 @@ export function AirspacePage() {
   useEffect(() => {
     if (policy && sceneRef.current) sceneRef.current.setPolicy(policy);
   }, [policy]);
+  const viewTeams = view?.teams.join('\u0000') ?? null;
+  useEffect(() => {
+    // Counters in a view start when the view is opened.
+    setViewCounters({ flights: 0, errors: 0, denied: 0, cost_nanousd: 0 });
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setScope(viewRef.current?.teams ?? null);
+    setLevelInfo(scene.getLevel());
+    if (focusRef.current && !scene.focusSummary(focusRef.current)) applyFocus(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTeams]);
   useEffect(() => {
     sceneRef.current?.setAlertedGates(alertedGates(alertRules));
   }, [alertRules]);
@@ -366,24 +393,42 @@ export function AirspacePage() {
     return s?.kind === 'agent' ? agentRef(id) : s?.kind === 'mcp' ? `mcp:${id}` : `deployment:${id}`;
   };
 
-  const pendingHere = approvals.filter((a) => a.status === 'pending');
+  const pendingHere = approvals.filter((a) => a.status === 'pending' && (!view || (sceneRef.current?.inScope(a.key_id) ?? true)));
+  const shownCounters = view ? viewCounters : counters;
 
   return (
     <div className="airspace" ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
-      <div className="hud">
+      <div className={`hud ${view ? 'in-view' : ''}`}>
         <div className="hud-strip">
+          {view && (
+            <div className="seg view-seg" title={`Teams: ${view.teams.join(', ')}`}>
+              <div className="label">
+                View · {view.teams.length} team{view.teams.length === 1 ? '' : 's'}
+              </div>
+              <div className="value">
+                <i style={{ background: view.color }} />
+                <span className="view-name">{view.name}</span>
+                <button className="icon-btn sm" onClick={() => setEditing(view)} title="Edit this view" aria-label="Edit view">
+                  <Icon name="more" size={14} />
+                </button>
+                <button className="icon-btn sm" onClick={() => setRoute('airspace')} title="Back to the whole organization" aria-label="Leave view">
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            </div>
+          )}
           <div className="seg">
             <div className="label">Flights</div>
-            <div className="value">{counters.flights.toLocaleString()}</div>
+            <div className="value">{shownCounters.flights.toLocaleString()}</div>
           </div>
           <div className="seg">
             <div className="label">Spend</div>
-            <div className="value">{formatUsd(counters.cost_nanousd)}</div>
+            <div className="value">{formatUsd(shownCounters.cost_nanousd)}</div>
           </div>
           <div className="seg">
             <div className="label">Blocked · errors</div>
-            <div className="value" style={{ color: counters.denied + counters.errors ? 'var(--danger)' : undefined }}>
-              {counters.denied} · {counters.errors}
+            <div className="value" style={{ color: shownCounters.denied + shownCounters.errors ? 'var(--danger)' : undefined }}>
+              {shownCounters.denied} · {shownCounters.errors}
             </div>
           </div>
           <div className="seg">
@@ -441,8 +486,8 @@ export function AirspacePage() {
         <button className={`btn ${replay ? 'active' : ''}`} onClick={() => (replay ? exitReplay() : startReplay())} title="Flight Recorder: play past traffic back on the map" aria-label="Replay">
           <Icon name="play" size={15} /> <span className="lbl">Replay</span>
         </button>
-        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }}>
-          <Icon name="tower" size={15} /> Approvals {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
+        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setShowTower((v) => !v); }} title="Approvals" aria-label="Approvals">
+          <Icon name="tower" size={15} /> <span className="lbl">Approvals</span> {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
         </button>
       </div>
       {initError && (
@@ -659,6 +704,21 @@ export function AirspacePage() {
       </div>
       {replay && <ReplayBar emit={replayEmit} reset={replayReset} onExit={exitReplay} />}
       {policyImport && <PolicyImport onClose={() => setPolicyImport(false)} onApplied={() => void refreshPolicy()} />}
+      {editing && topology && (
+        <ViewEditor
+          view={editing === 'new' ? null : editing}
+          topology={topology}
+          onClose={() => {
+            setEditing(null);
+            if (routeParam === 'new') setRoute('airspace');
+          }}
+          onSaved={(v) => {
+            setEditing(null);
+            void useStore.getState().refreshTopology();
+            setRoute('airspace', v?.id ?? null);
+          }}
+        />
+      )}
     </div>
   );
 }

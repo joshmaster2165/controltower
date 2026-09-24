@@ -240,6 +240,24 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .map-controls .save { font-size: 11.5px; color: var(--text-faint); margin: 0 6px; }
 .airspace canvas { touch-action: none; }
 
+/* A view's name at the start of the HUD strip */
+.hud-strip .view-seg .value { display: flex; align-items: center; gap: 7px; font-size: 16px; }
+.hud-strip .view-seg .value i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.hud-strip .view-seg .view-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn.sm { width: 22px; height: 22px; border-radius: 6px; }
+@media (max-width: 1600px) { .hud.in-view .lbl { display: none; } }
+
+/* View editor */
+.card.view-editor { width: 480px; max-width: 100%; max-height: calc(100vh - 32px); overflow-y: auto; }
+.swatches .swatch { width: 22px; height: 22px; border-radius: 6px; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.swatches .swatch.on { border-color: var(--text); }
+.view-teams { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px; }
+.view-teams label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.view-teams label:hover { background: var(--row-hover, #f7f9fc); }
+.view-teams label.on { background: var(--accent-soft); }
+.view-teams .name { font-weight: 550; }
+.view-teams .hint { margin-left: auto; font-size: 11.5px; }
+
 /* Airspace search */
 .map-search {
   position: relative; width: 210px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px; height: 26px;
@@ -481,6 +499,15 @@ body { font-feature-settings: 'cv11', 'ss01'; }
 .icon-btn:hover { background: #eef2f8; color: var(--text); }
 .collapse-btn { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-faint); cursor: pointer; font-size: 12.5px; }
 .collapse-btn:hover { background: #eef2f8; color: var(--text-dim); }
+
+/* Airspace views under the Airspace link */
+.nav-sub { display: grid; gap: 1px; margin: 2px 0 4px 20px; padding-left: 8px; border-left: 1px solid var(--border); }
+.side-nav .nav-sub a { height: 28px; font-size: 12.5px; gap: 8px; padding: 0 8px; }
+.side-nav .nav-sub a i { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+.side-nav .nav-sub a.active::before { left: -9px; top: 6px; bottom: 6px; }
+.side-nav .nav-sub a.nav-add { color: var(--text-faint); }
+.side-nav .nav-sub a.nav-add:hover { color: var(--accent); }
+.shell.collapsed .nav-sub { display: none; }
 
 .shell.collapsed .nav-label, .shell.collapsed .brand-name { display: none; }
 .shell.collapsed .sidebar .brand { justify-content: center; padding: 0; }

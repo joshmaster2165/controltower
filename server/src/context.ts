@@ -54,6 +54,8 @@ export interface AppContext {
   observed: ObservedStore;
   /** Bumped when observed (non-gateway) systems or paths appear. */
   observedVersion: Versioned;
+  /** Bumped when Airspace views change, so open consoles refresh the map. */
+  viewsVersion: Versioned;
   demo: DemoFleet | undefined;
   log: FastifyBaseLogger;
   startedAt: number;

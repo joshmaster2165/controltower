@@ -9,6 +9,8 @@ import { gatewayRoutes } from './gateway/routes.js';
 import { compatRoutes } from './gateway/compat.js';
 import { authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
 import { timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { adminRoutes } from './admin/routes.js';
 import { wsRoutes } from './admin/ws.js';
 import { providerRoutes } from './admin/providers.js';
@@ -24,6 +26,7 @@ import { httpAdminRoutes } from './admin/http.js';
 import { managementApiRoutes } from './admin/management-api.js';
 import { budgetRoutes } from './admin/budgets.js';
 import { replayRoutes } from './admin/replay.js';
+import { viewRoutes } from './admin/views.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 import { mountDemoHttpApis } from './demo/http-apis.js';
 
@@ -43,6 +46,18 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   await app.register(fastifyCookie);
   // Live frames repeat the same ids every second: compressed, a busy map costs a few KB/s. Small messages go as they are.
   await app.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024, perMessageDeflate: { threshold: 1024 } } });
+
+  // Large console API answers (the map's topology, flight lists, exports) are gzipped when the
+  // browser accepts it. Only /admin/api: gateway traffic is passed through exactly as it came.
+  const gzipAsync = promisify(gzip);
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (typeof payload !== 'string' || payload.length < 16 * 1024 || !req.url.startsWith('/admin/api/')) return payload;
+    if (reply.getHeader('content-encoding') || !/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) return payload;
+    reply.header('content-encoding', 'gzip');
+    reply.header('vary', 'accept-encoding');
+    reply.removeHeader('content-length');
+    return gzipAsync(payload, { level: 6 });
+  });
 
   app.get('/healthz', async () => ({ ok: true }));
 
@@ -95,6 +110,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await managementApiRoutes(a, full);
     await budgetRoutes(a, full);
     await replayRoutes(a, full);
+    await viewRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
     await exportRoutes(a, full);

@@ -141,36 +141,6 @@ gates:
 
 Everything is referenced by name, so a file exported from one install applies to another that has the same agents, models and tool servers, and it reads well in a pull request. *Merge* adds and updates by name; *Replace* makes the policy match the file exactly. References that don't resolve stop the import with a list of what to fix. Demo zones and gates are never exported or touched. API: `GET /admin/api/policy/export`, `POST /admin/api/policy/import` with `{yaml, mode, apply}`.
 
-## Coming from LiteLLM
-
-LiteLLM's proxy setup steps work here as written: same config file, same flags, same master key, same client settings. `e2e/litellm-parity.spec.ts` runs them against a real server with the official OpenAI, Anthropic and MCP SDKs.
-
-| LiteLLM docs | Control Tower |
-|---|---|
-| `litellm --config config.yaml` | `pnpm build && pnpm start --config config.yaml` from a checkout (also `--port`, `--host`, `--detailed_debug`, `--model openai/gpt-4o`, `--help`) |
-| `docker run -v ./config.yaml:/app/config.yaml … --config /app/config.yaml` | `docker run -v ./config.yaml:/app/config.yaml -p 4000:4000 ghcr.io/joshmaster2165/controltower --config /app/config.yaml` |
-| `LITELLM_MASTER_KEY` or `general_settings.master_key` | Same. The master key is the admin API bearer, an all-access key for model calls, and the console password for user `admin` (`UI_USERNAME`/`UI_PASSWORD` override). `CT_ADMIN_KEY` is the native name. |
-| `POST /key/generate` with `models`, `max_budget`, `budget_duration`, `rpm_limit`, `tpm_limit`, `max_parallel_requests`, `duration`, `key_alias`, `metadata`, `object_permission.mcp_servers` | Same request, same response fields. `/key/info`, `/key/update`, `/key/list`, `/key/delete`, `/key/block`, `/key/unblock`, `/key/regenerate` too. A custom `key` (e.g. an existing `sk-…`) is accepted, so agents keep working after a move. |
-| `/model/info`, `/model/new`, `/model/delete` | Same. Models declared in `--config` can't be deleted through the API, as in LiteLLM. |
-| `base_url="http://0.0.0.0:4000"` (no `/v1`) | Both work: `/chat/completions`, `/embeddings`, `/models` answer with and without `/v1`. |
-| `Authorization: Bearer`, `x-litellm-api-key`, Azure `api-key`, `/openai/deployments/<model>/…` | All accepted. |
-| Claude Code with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` | Same, including `/v1/messages/count_tokens` (forwarded to Anthropic for exact counts). |
-| `/health/liveliness`, `/health/readiness`, `/health` | Same paths and shapes. |
-| `/ui` | Redirects to the console. |
-
-**The config file.** With `--config` (or `CT_CONFIG` / `CONFIG_FILE_PATH`), the file is the source of truth for what it declares: it is applied at every start, edits and removals take effect on restart, and nothing is duplicated. Rows it created keep stable ids, so the map and history keep pointing at the same stations. Models, keys and gates added in the console or through the API are separate and stay. A file that can't be read or parsed stops startup, with the reason.
-
-- `model_list` entries become providers (one per distinct endpoint + credential; `credential_list` names are kept) and deployments. Groups with several entries, `order` tiers and `fallbacks` become aliases: `order` maps to priority, `weight`/`rpm`/`tpm` to weight, and `routing_strategy` to weighted, fastest-first or cheapest-first. `input_cost_per_token`/`output_cost_per_token` become per-deployment pricing.
-- Wildcards: `openai/*` connects the provider and adds each model the first time it's requested; `model_name: "*"` does that for every provider whose key is in the environment.
-- `mcp_servers` with an HTTP URL become MCP servers, with `auth_type` (`bearer_token`, `api_key`, `basic`), `auth_value` and `static_headers`.
-- `general_settings.alerting: ["slack"]` with `SLACK_WEBHOOK_URL` creates a Slack alert channel; `alert_types` map to alert rules (`llm_exceptions`, `llm_too_slow`, `budget_alerts`, `cooldown_deployment`, `daily_reports`, and their aliases).
-- Providers: OpenAI, Azure OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, Groq, Mistral, Together, Fireworks, DeepSeek, xAI, OpenRouter, Perplexity, Cerebras, DeepInfra, Ollama, vLLM, LM Studio and any `openai/` + `api_base` endpoint.
-- Secrets: values in the file are used as-is; `os.environ/NAME` (and LiteLLM's default variables such as `OPENAI_API_KEY`) are read from the environment. A provider whose key is missing is skipped with a warning, and the server still starts.
-
-Prefer clicking? **Models → Import from LiteLLM** takes the same file, shows what it becomes, and imports it once.
-
-**What differs.** There is no Postgres: data lives in SQLite under `/data`, so `DATABASE_URL`, `LITELLM_SALT_KEY` and `STORE_MODEL_IN_DB` are not needed (the server says so if they're set). Credentials are encrypted with `/data/master.key`. It runs as one process, so `--num_workers` does nothing. Keys stored in LiteLLM's database can't be read out of it; recreate them with `/key/generate` and the same `key` value. Not implemented yet: `/spend/*`, team/user/organization endpoints, callbacks and guardrails from the config, `include` files, context-window and content-policy fallbacks, and LiteLLM's Prometheus metric names (see [Metrics](#metrics) for ours).
-
 ## Inspect gates (guardrails)
 
 Pick **Inspect** when adding a gate. A gate with no agent or destination covers everything and sits on the tower itself.

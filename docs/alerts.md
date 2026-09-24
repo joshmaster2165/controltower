@@ -1,6 +1,6 @@
 # Alerts
 
-Hear about gates doing their job, providers going down, agents failing or slowing, and budgets running low — in the console, Slack, or any webhook. Alerts carry names and counts, never prompts, tool arguments or responses.
+Hear about gates doing their job, providers going down, agents failing or slowing, and budgets running low — in the console, Slack, email, or any webhook. Alerts carry names and counts, never prompts, tool arguments or responses.
 
 ![Alerts: the activity inbox and alert rules](images/alerts.png)
 
@@ -27,9 +27,24 @@ Three ways:
 
 - **Console** — always: the inbox, a badge in the navigation, and live toasts.
 - **Slack** — an incoming-webhook URL (Mattermost and Rocket.Chat work too).
+- **Email** — one or more recipients, through your SMTP server (set on the channel, or once for the server with `CT_SMTP_URL`).
 - **Webhook** — any URL; add a signing secret to verify deliveries.
 
 Channel URLs and secrets are encrypted at rest and never returned by the API. Set `CT_PUBLIC_URL` so links in messages point at your console (detected on Render, Fly.io and Railway).
+
+### Approving by email
+
+Add an **Email** channel and choose it on an alert for `held` — tick **Alert me** on an approval gate, or **New alert** on the Alerts page.
+
+![An email channel: recipients and the SMTP server](images/email-channel.png)
+
+Each held request becomes an email marked *Approval needed*, with the agent, the target, the gate, its reason, the exact scope of the decision and a **Review & approve** button:
+
+![An approval email](images/email-approval.png)
+
+The button opens that request's card in the console. Approving is always done there, signed in — so a forwarded email, a mail gateway that follows links, or anyone else who sees the message can't approve anything. Like every alert, the email carries names and the scope of the decision, never the request's contents.
+
+SMTP settings: host, port, optional username and password (stored encrypted, never shown again), the *From* address, and whether to use TLS from the start (port 465) — otherwise STARTTLS is used when the server offers it. To set them once for every email channel, start the server with `CT_SMTP_URL=smtp://user:password@smtp.example.com:587` (or `smtps://…:465`) and `CT_SMTP_FROM="Control Tower <tower@example.com>"`. Temporary SMTP failures (4xx, network) are retried; permanent ones (5xx) are reported on the channel.
 
 ### Approving from Slack
 

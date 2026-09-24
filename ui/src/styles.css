@@ -289,6 +289,8 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .channel .kind.slack { background: #f3ecfa; color: #611f69; }
 .channel .kind.webhook { background: var(--accent-soft); color: var(--accent-deep); }
 .channel .kind.console { background: #e7f6ef; color: var(--ok); }
+.channel .kind.email { background: #fff4e5; color: #8a5300; }
+.smtp-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 0 10px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; background: #f8fafd; }
 .btn.danger-text { color: var(--danger); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 

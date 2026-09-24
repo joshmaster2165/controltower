@@ -23,7 +23,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also from Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, email approvals, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also by email and Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway, an HTTP gateway for plain REST APIs, and demo mode. Not yet: Flight Recorder replay, an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -164,9 +164,9 @@ Click a gate on the Airspace and choose **Add alert**, tick *Alert me* when crea
 | Daily summary | `daily`: requests, tokens, spend, blocked / held / masked counts, errors, top spenders, most-failing and slowest models, at a chosen UTC hour; skipped on days without traffic |
 
 - **Condition**: every time, or *N times within M minutes*. After firing, the rule stays quiet for its cooldown and then sends one digest of what happened meanwhile.
-- **Channels**: the console inbox (always, with a nav badge and live toasts), Slack incoming webhooks (also Mattermost / Rocket.Chat), and generic webhooks. Channel URLs and secrets are encrypted at rest and never returned by the API.
+- **Channels**: the console inbox (always, with a nav badge and live toasts), Slack incoming webhooks (also Mattermost / Rocket.Chat), email (SMTP), and generic webhooks. Channel URLs and secrets are encrypted at rest and never returned by the API.
 - **Webhook payload**: `POST` JSON `{ "type": "controltower.alert", "kind", "title", "trigger", "count", "subject": {kind, id, name}, "gate": {id, name, effect}, "agents": [{name, count}], "destinations": [...], "reason", "lines": [...], "flights": [ids], "console_url", ... }`. With a signing secret, `x-ct-signature: t=<unix>,v1=<hex>` where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Delivery retries twice on network errors, 408, 429 and 5xx.
-- **Approvals from Slack**: a `held` alert about one request links straight to that approval card (`/#/tower/<approval id>`) — Slack gets a *Review & approve* button and a "Decision needed: Approve ONE call to … from …" line; webhooks get `approval: {id, scope, url}`. The link only opens the card: approving is always an authenticated action in the console, never a click on a URL (link unfurlers can't approve anything). If someone already decided, the card says who and when.
+- **Approvals by email and Slack**: a `held` alert about one request links straight to that approval card (`/#/tower/<approval id>`) — emails are marked *Approval needed* with a *Review & approve* button ([setup](docs/alerts.md#approving-by-email)), Slack gets the same button and a "Decision needed: Approve ONE call to … from …" line; webhooks get `approval: {id, scope, url}`. The link only opens the card: approving is always an authenticated action in the console, never a click on a URL (link unfurlers can't approve anything). If someone already decided, the card says who and when.
 - Alerts carry names and counts only — never prompts, tool arguments or responses. Set `CT_PUBLIC_URL` so links in Slack and webhooks point at your console.
 
 ## Metrics
@@ -239,6 +239,7 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |
 | `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
 | `CT_MODE` | `on` | `off` disables policy enforcement (kill switch) |
+| `CT_SMTP_URL`, `CT_SMTP_FROM` | — | Default SMTP server and sender for email alerts and approvals (`smtp://user:pass@host:587`) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render, Fly.io and Railway |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
@@ -247,7 +248,7 @@ Everything is configured in the browser. Environment variables exist for operato
 ## Roadmap
 
 - **v0.1 — see it and stop it**: gateway (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/v1/messages`), OpenAI-compatible + Anthropic adapters, keys/limits/budgets, pricing and cost, live Airspace, zones + gates + approvals, MCP gateway, demo mode, Docker image.
-- **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓. Still to come: Flight Recorder replay, email approvals.
+- **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓. Still to come: Flight Recorder replay.
 - **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
 
 ## License

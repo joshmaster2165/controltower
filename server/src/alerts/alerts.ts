@@ -6,6 +6,7 @@ import { formatUsd } from '@controltower/shared';
 import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import type { Versioned } from '../util/versioned.js';
+import { sendEmail, type SmtpConfig } from './email.js';
 
 /**
  * Alerting. An alert rule watches one kind of thing and fires when it has seen
@@ -94,7 +95,7 @@ export interface AlertParams {
   hour?: number | undefined;
 }
 
-export type ChannelKind = 'slack' | 'webhook';
+export type ChannelKind = 'slack' | 'webhook' | 'email';
 
 export interface AlertRuleRecord {
   id: string;
@@ -113,8 +114,12 @@ export interface AlertRuleRecord {
 }
 
 export interface ChannelConfig {
-  url: string;
+  /** slack, webhook */
+  url?: string | undefined;
   secret?: string | undefined;
+  /** email: recipients, and the SMTP server unless CT_SMTP_URL provides one. */
+  to?: string[] | undefined;
+  smtp?: SmtpConfig | undefined;
 }
 
 interface ChannelRecord {
@@ -214,6 +219,8 @@ export interface AlertServiceOptions {
   /** Delays between delivery attempts; attempts = length + 1. */
   retryDelaysMs?: number[];
   timeoutMs?: number;
+  /** Default SMTP server for email channels without their own (CT_SMTP_URL). */
+  smtp?: SmtpConfig | undefined;
 }
 
 const MAX_TRACKED = 20_000;
@@ -722,9 +729,15 @@ export class AlertService {
     let attempts = 0;
     for (let i = 0; i <= delays.length; i++) {
       attempts++;
-      last = await this.post(c, body);
-      // Retry only what might succeed later: network errors, 408, 429 and 5xx.
-      if (last.ok || (last.status && last.status < 500 && last.status !== 408 && last.status !== 429)) break;
+      if (c.kind === 'email') {
+        last = await this.mail(c, p);
+        // SMTP: 5xx is permanent (bad recipient, rejected); 4xx and network errors may pass later.
+        if (last.ok || (last.status && last.status >= 500)) break;
+      } else {
+        last = await this.post(c, body);
+        // Retry only what might succeed later: network errors, 408, 429 and 5xx.
+        if (last.ok || (last.status && last.status < 500 && last.status !== 408 && last.status !== 429)) break;
+      }
       if (i < delays.length) await new Promise((res) => setTimeout(res, delays[i]));
     }
     const at = this.now();
@@ -738,7 +751,15 @@ export class AlertService {
     return { channel_id: c.id, name: c.name, kind: c.kind, ok: last.ok, status: last.status, error: last.error, attempts, at };
   }
 
+  private async mail(c: ChannelRecord, p: AlertPayload): Promise<{ ok: boolean; status?: number | undefined; error?: string | undefined }> {
+    const smtp = c.config.smtp ?? this.opts.smtp;
+    if (!smtp) return { ok: false, status: 554, error: 'No SMTP server: set one on the channel or CT_SMTP_URL' };
+    if (!c.config.to?.length) return { ok: false, status: 554, error: 'No recipients' };
+    return sendEmail(smtp, c.config.to, p, this.opts.timeoutMs ? Math.max(this.opts.timeoutMs, 5000) : 15_000);
+  }
+
   private async post(c: ChannelRecord, body: string): Promise<{ ok: boolean; status?: number | undefined; error?: string | undefined }> {
+    if (!c.config.url) return { ok: false, status: 400, error: 'No URL' };
     const headers: Record<string, string> = { 'content-type': 'application/json', 'user-agent': 'ControlTower-Alerts/1' };
     if (c.kind === 'webhook') {
       headers['x-ct-event'] = 'alert';
@@ -786,6 +807,11 @@ export class AlertService {
       test: true,
     };
     return this.deliver(c, p);
+  }
+
+  /** Whether email channels can rely on CT_SMTP_URL instead of their own server. */
+  get hasDefaultSmtp(): boolean {
+    return !!this.opts.smtp;
   }
 
   encryptConfig(id: string, config: ChannelConfig): string {

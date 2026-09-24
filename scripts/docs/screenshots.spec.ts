@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mcpUpstream, openAiUpstream, type Upstream } from '../../e2e/support/upstreams';
 import { field } from '../../e2e/support/ui';
+import { smtpCapture } from '../../e2e/support/smtp';
 
 /**
  * Drives real Control Tower servers through the steps the docs describe and
@@ -281,6 +282,54 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
       await hideToasts();
       await page.waitForTimeout(900);
       await shot(page, name);
+    }
+
+    // Email approvals: the channel form, and a real approval email as it arrives.
+    const smtp = await smtpCapture();
+    try {
+      await nav(page, 'Alerts');
+      await hideToasts();
+      await page.getByRole('button', { name: 'Add channel' }).click();
+      const form = page.locator('.card').filter({ has: page.getByRole('button', { name: 'Add channel', exact: true }) }).filter({ hasText: 'Recipients' }).or(page.locator('.card').filter({ has: page.getByRole('button', { name: 'Add channel', exact: true }) }).filter({ hasText: 'Webhook' })).first();
+      await form.getByRole('button', { name: 'Email', exact: true }).click();
+      await field(form, /^Name$/).fill('Security on-call');
+      await field(form, /^Recipients/).fill('oncall@example.com, security@example.com');
+      await field(form, /^SMTP host/).fill('smtp.example.com');
+      await field(form, /^Port/).fill('587');
+      await field(form, /^Username/).fill('tower@example.com');
+      await field(form, /^Password/).fill('app-password');
+      await field(form, /^From/).fill('Control Tower <tower@example.com>');
+      await page.setViewportSize({ width: 1280, height: 1100 });
+      await form.scrollIntoViewIfNeeded();
+      await shot(page, 'email-channel', { clip: form, pad: 8 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      // Deliver to the local test server instead.
+      await field(form, /^SMTP host/).fill('127.0.0.1');
+      await field(form, /^Port/).fill(String(smtp.port));
+      await field(form, /^Username/).fill('');
+      await field(form, /^Password/).fill('');
+      await form.getByRole('button', { name: 'Add channel', exact: true }).click();
+      await expect(page.locator('.channel', { hasText: 'Security on-call' })).toBeVisible();
+      const channelId = await page.evaluate(async () => {
+        const r = await (await fetch('/admin/api/alert-channels')).json();
+        return r.channels.find((c: { name: string }) => c.name === 'Security on-call').id as string;
+      });
+      await page.evaluate(async (ch) => {
+        const me = await (await fetch('/admin/api/me')).json();
+        const policy = await (await fetch('/admin/api/policy')).json();
+        const gate = policy.rules.find((g: { name: string }) => /Salesforce contact/i.test(g.name)).id as string;
+        const r = await fetch('/admin/api/alert-rules', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'gate', rule_id: gate, triggers: ['held'], threshold: 1, window_s: 300, cooldown_s: 0, channels: [ch], name: 'Contact deletions by email' }) });
+        return `${r.status} ${await r.text()}`;
+      }, channelId).then((r) => expect(r).toMatch(/^201/));
+      await expect.poll(() => smtp.messages.filter((m) => m.subject?.startsWith('[Approval needed]')).length, { timeout: 90_000 }).toBeGreaterThan(0);
+      const mail = smtp.messages.find((m) => m.subject?.startsWith('[Approval needed]'))!;
+      const inbox = await page.context().newPage();
+      await inbox.setViewportSize({ width: 720, height: 460 });
+      await inbox.setContent(String(mail.html));
+      await inbox.screenshot({ path: path.join(OUT, 'email-approval.png'), fullPage: true });
+      await inbox.close();
+    } finally {
+      await smtp.close();
     }
 
     // A team budget from the Ledger.

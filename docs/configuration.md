@@ -53,6 +53,8 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_MODE` | `on` | `off` stops enforcing gates (everything is allowed and still recorded) — a kill switch |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request waits at an approval gate before becoming a ticket |
 | `CT_MAX_HELD` | `500` | Most requests held at once; beyond it, requests get a ticket immediately |
+| `CT_SMTP_URL` | — | Default SMTP server for email alert channels: `smtp://user:password@host:587` or `smtps://…:465` |
+| `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_LOG_LEVEL` | `info` (`debug` from source) | `debug`, `info`, `warn` or `error`. `LITELLM_LOG=DEBUG` and `--detailed_debug` work too |
 | `CT_SESSION_TTL_MS` | 7 days | Console session lifetime |

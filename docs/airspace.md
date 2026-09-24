@@ -63,7 +63,7 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 - **Approve** within the hold time and the request simply continues; the agent never knows it waited.
 - **Deny** and the agent gets a `403` with the reason.
 - **Nobody answers** in time: the agent gets `403 approval_required` with a **ticket**. Once someone approves, the agent retries the same call with `x-ct-approval: <ticket>` and it goes through **once**. A retry with different arguments is refused and raised as a security event (`scope_mismatch`).
-- Held alerts in Slack or a webhook link straight to the card. Approving is always an authenticated action in the console — a link click never approves anything.
+- Held alerts by [email](alerts.md#approving-by-email), in Slack or to a webhook link straight to the card. Approving is always an authenticated action in the console — a link click never approves anything.
 
 ## Zones
 

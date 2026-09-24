@@ -28,6 +28,7 @@ import { McpRegistry } from './mcp/registry.js';
 import { HttpApiRegistry } from './http/registry.js';
 import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
+import { smtpFromEnv } from './alerts/email.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
   const alertsVersion = new Versioned();
   const alerts = new AlertService(db.write, secrets, alertsVersion, {
     publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
+    smtp: smtpFromEnv(),
     gate: (id) => {
       const r = policy.rules.find((x) => x.id === id);
       return r ? { name: r.name, effect: r.effect } : undefined;

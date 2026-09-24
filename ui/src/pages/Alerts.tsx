@@ -418,17 +418,31 @@ function AlertRow({ a, fresh }: { a: AlertItem; fresh: boolean }) {
 // ------------------------------------------------------------ channels
 
 function ChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const [kind, setKind] = useState<'slack' | 'webhook'>('slack');
+  const [kind, setKind] = useState<'slack' | 'webhook' | 'email'>('slack');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [secret, setSecret] = useState('');
+  const [to, setTo] = useState('');
+  const [smtpDefault, setSmtpDefault] = useState(false);
+  const [ownSmtp, setOwnSmtp] = useState(true);
+  const [smtp, setSmtp] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    void api.get<{ smtp_default: boolean }>('/admin/api/alert-channels').then((r) => {
+      setSmtpDefault(r.smtp_default);
+      setOwnSmtp(!r.smtp_default);
+    });
+  }, []);
   const save = async () => {
     setBusy(true);
     setErr(null);
     try {
-      await api.post('/admin/api/alert-channels', { kind, name: name.trim() || undefined, url: url.trim(), secret: kind === 'webhook' ? secret.trim() || undefined : undefined });
+      const body =
+        kind === 'email'
+          ? { kind, name: name.trim() || undefined, to: to.split(/[,;\s]+/).filter(Boolean), smtp: ownSmtp ? { ...smtp, port: Number(smtp.port) } : undefined }
+          : { kind, name: name.trim() || undefined, url: url.trim(), secret: kind === 'webhook' ? secret.trim() || undefined : undefined };
+      await api.post('/admin/api/alert-channels', body);
       await useStore.getState().refreshAlerts();
       onDone();
     } catch (e) {
@@ -437,29 +451,72 @@ function ChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       setBusy(false);
     }
   };
+  const ready = kind === 'email' ? to.trim() && (!ownSmtp || (smtp.host.trim() && smtp.from.trim())) : url.trim();
   return (
     <div className="card" style={{ marginBottom: 10 }}>
       <div className="seg" style={{ marginBottom: 12 }}>
-        <button type="button" className={kind === 'slack' ? 'on' : ''} onClick={() => setKind('slack')}>
-          Slack
-        </button>
-        <button type="button" className={kind === 'webhook' ? 'on' : ''} onClick={() => setKind('webhook')}>
-          Webhook
-        </button>
+        {(['slack', 'webhook', 'email'] as const).map((k) => (
+          <button key={k} type="button" className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+            {k === 'slack' ? 'Slack' : k === 'webhook' ? 'Webhook' : 'Email'}
+          </button>
+        ))}
       </div>
       <div className="field">
         <label>Name</label>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'slack' ? '#security-alerts' : 'PagerDuty / SIEM'} />
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'slack' ? '#security-alerts' : kind === 'email' ? 'Security on-call' : 'PagerDuty / SIEM'} />
       </div>
-      <div className="field">
-        <label>{kind === 'slack' ? 'Incoming webhook URL' : 'Endpoint URL'}</label>
-        <input className="input mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={kind === 'slack' ? 'https://hooks.slack.com/services/…' : 'https://example.com/hooks/control-tower'} />
-        <div className="hint">
-          {kind === 'slack'
-            ? 'Create one under Slack → Apps → Incoming Webhooks. Mattermost and Rocket.Chat webhooks work too.'
-            : 'Receives a JSON POST per alert. Stored encrypted; only the host is shown afterwards.'}
+      {kind === 'email' ? (
+        <>
+          <div className="field">
+            <label>Recipients</label>
+            <input className="input" value={to} onChange={(e) => setTo(e.target.value)} placeholder="oncall@example.com, security@example.com" />
+            <div className="hint">Held requests arrive with a <b>Review &amp; approve</b> button that opens the request in the console; approving always happens signed in.</div>
+          </div>
+          {smtpDefault && (
+            <label className="check" style={{ marginBottom: 10 }}>
+              <input type="checkbox" checked={!ownSmtp} onChange={(e) => setOwnSmtp(!e.target.checked)} /> Send through this server&apos;s SMTP settings (<code>CT_SMTP_URL</code>)
+            </label>
+          )}
+          {ownSmtp && (
+            <div className="smtp-fields">
+              <div className="field">
+                <label>SMTP host</label>
+                <input className="input mono" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} placeholder="smtp.example.com" />
+              </div>
+              <div className="field">
+                <label>Port</label>
+                <input className="input mono" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>Username</label>
+                <input className="input" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} autoComplete="off" />
+              </div>
+              <div className="field">
+                <label>Password</label>
+                <input className="input" type="password" value={smtp.pass} onChange={(e) => setSmtp({ ...smtp, pass: e.target.value })} autoComplete="new-password" />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>From</label>
+                <input className="input" value={smtp.from} onChange={(e) => setSmtp({ ...smtp, from: e.target.value })} placeholder="Control Tower <tower@example.com>" />
+              </div>
+              <label className="check" style={{ gridColumn: '1 / -1' }}>
+                <input type="checkbox" checked={smtp.secure} onChange={(e) => setSmtp({ ...smtp, secure: e.target.checked, port: e.target.checked ? '465' : '587' })} /> TLS from the start (port 465); otherwise STARTTLS when offered
+              </label>
+              <div className="hint" style={{ gridColumn: '1 / -1' }}>Stored encrypted with the master key; the password is never shown again.</div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="field">
+          <label>{kind === 'slack' ? 'Incoming webhook URL' : 'Endpoint URL'}</label>
+          <input className="input mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={kind === 'slack' ? 'https://hooks.slack.com/services/…' : 'https://example.com/hooks/control-tower'} />
+          <div className="hint">
+            {kind === 'slack'
+              ? 'Create one under Slack → Apps → Incoming Webhooks. Mattermost and Rocket.Chat webhooks work too.'
+              : 'Receives a JSON POST per alert. Stored encrypted; only the host is shown afterwards.'}
+          </div>
         </div>
-      </div>
+      )}
       {kind === 'webhook' && (
         <div className="field">
           <label>Signing secret (optional)</label>
@@ -471,7 +528,7 @@ function ChannelForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       )}
       {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
       <div className="row">
-        <button className="btn sm primary" disabled={busy || !url.trim()} onClick={() => void save()}>
+        <button className="btn sm primary" disabled={busy || !ready} onClick={() => void save()}>
           {busy ? 'Adding…' : 'Add channel'}
         </button>
         <button className="btn sm ghost" onClick={onCancel}>
@@ -511,7 +568,7 @@ function ChannelRow({ c }: { c: AlertChannel }) {
   return (
     <div className={`channel ${c.enabled ? '' : 'off'}`}>
       <div className="h">
-        <span className={`kind ${c.kind}`}>{c.kind === 'slack' ? 'Slack' : 'Webhook'}</span>
+        <span className={`kind ${c.kind}`}>{c.kind === 'slack' ? 'Slack' : c.kind === 'email' ? 'Email' : 'Webhook'}</span>
         <b>{c.name}</b>
         <span className="spacer" />
         {c.last_status && <span className={`status ${c.last_status === 'ok' ? 'ok' : 'error'}`}>{c.last_status === 'ok' ? 'delivering' : 'failing'}</span>}
@@ -519,6 +576,7 @@ function ChannelRow({ c }: { c: AlertChannel }) {
       <div className="dim mono">
         {c.target_hint}
         {c.has_secret ? ' · signed' : ''}
+        {c.kind === 'email' ? (c.smtp ? ` · via ${c.smtp.host}` : ' · via CT_SMTP_URL') : ''}
         {c.last_sent_at ? ` · last sent ${timeAgo(c.last_sent_at)}` : ''}
       </div>
       {c.last_status === 'error' && c.last_error && <div className="error" style={{ fontSize: 12 }}>{c.last_error}</div>}

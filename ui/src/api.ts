@@ -390,9 +390,12 @@ export interface AlertRule {
 export interface AlertChannel {
   id: string;
   name: string;
-  kind: 'slack' | 'webhook';
+  kind: 'slack' | 'webhook' | 'email';
   target_hint: string;
   has_secret: boolean;
+  /** email channels */
+  to?: string[];
+  smtp?: { host: string; port: number; secure: boolean; user: string | null; from: string; has_password: boolean } | null;
   enabled: boolean;
   last_status: 'ok' | 'error' | null;
   last_error: string | null;

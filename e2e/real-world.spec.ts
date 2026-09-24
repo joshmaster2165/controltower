@@ -10,6 +10,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
 import { anthropicUpstream, mcpUpstream, openAiUpstream, webhookReceiver, type Upstream } from './support/upstreams';
 import { field } from './support/ui';
+import { smtpCapture } from './support/smtp';
 
 /**
  * Everything the demo shows, done for real: no demo mode, no demo code.
@@ -428,6 +429,46 @@ test('A human approves in the console, following the link in the alert', async (
   expect(textOf(await pending)).toContain('deleted /tmp/from-the-alert.csv');
   expect(mcp.deleted).toContain('/tmp/from-the-alert.csv');
   await client.close();
+});
+
+test('Email approvals: a held call emails a Review & approve link to its approval card', async () => {
+  const smtp = await smtpCapture({ user: 'mailer', pass: 'smtp-secret' });
+  try {
+    const ch = await admin.post('/admin/api/alert-channels', { kind: 'email', name: 'On-call', to: 'oncall@example.com, security@example.com', smtp: { host: '127.0.0.1', port: smtp.port, from: 'Control Tower <tower@example.com>', user: 'mailer', pass: 'smtp-secret' } });
+    expect(ch.status).toBe(201);
+    const listed = (await admin.get('/admin/api/alert-channels')).body.channels.find((c: { id: string }) => c.id === ch.body.id);
+    expect(listed).toMatchObject({ kind: 'email', to: ['oncall@example.com', 'security@example.com'], smtp: { host: '127.0.0.1', user: 'mailer', has_password: true } });
+    expect(JSON.stringify(listed)).not.toContain('smtp-secret');
+
+    // Send test.
+    const t = await admin.post(`/admin/api/alert-channels/${ch.body.id}/test`);
+    expect(t.body.error ?? '').toBe('');
+    expect(t.body.ok).toBe(true);
+    await expect.poll(() => smtp.messages.length).toBe(1);
+    expect(smtp.messages[0]!.subject).toContain('Test alert');
+
+    // A gate that holds this agent's calls, and an alert that emails when it does.
+    const agent = await key('rw-email-approval');
+    const gate = (await admin.post('/admin/api/rules', { name: 'Emailed approvals', target_kind: 'model', match: { keys: [agent.id] }, effect: 'require_approval', config: { hold_ms: 20_000 }, priority: 1 })).body.id;
+    await admin.post('/admin/api/alert-rules', { kind: 'gate', rule_id: gate, triggers: ['held'], threshold: 1, window_s: 300, cooldown_s: 0, channels: [ch.body.id], name: 'Approvals by email' });
+    const call = fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${agent.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'Refund order 8812' }] }) });
+
+    await expect.poll(() => smtp.messages.length, { timeout: 15_000 }).toBe(2);
+    const mail = smtp.messages[1]!;
+    expect(mail.subject).toMatch(/^\[Approval needed\] /);
+    expect(smtp.envelopes[1]).toEqual(['oncall@example.com', 'security@example.com']);
+    const link = /https?:\/\/[^\s"<]+#\/tower\/(apr_[0-9A-Za-z]+)/.exec(mail.text ?? '');
+    expect(link).not.toBeNull();
+    expect(mail.html).toContain('Review &amp; approve');
+    expect(mail.text).toContain('Approving happens in Control Tower, signed in.');
+    expect(mail.text).not.toContain('Refund order 8812'); // names and scope only, never the request itself
+
+    // The link opens the card; approving is the signed-in action, and the held call continues.
+    expect((await admin.post(`/admin/api/approvals/${link![1]}/decide`, { action: 'approve' })).status).toBe(200);
+    expect((await call).status).toBe(200);
+  } finally {
+    await smtp.close();
+  }
 });
 
 test('MCP: an inspect gate masks personal data in a tool result before the agent reads it', async () => {

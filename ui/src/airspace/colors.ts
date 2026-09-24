@@ -38,15 +38,6 @@ export function providerLook(p: { kind: string; slug?: string } | undefined): st
 
 export const MCP_COLOR = 0x0e7490;
 
-export const CANVAS = {
-  bg: 0xf4f6fa,
-  stationFill: 0xffffff,
-  label: 0x0f1b2d,
-  sub: 0x5b6b82,
-  lane: 0x9fb0c8,
-  gateFill: 0xffffff,
-};
-
 export const STATUS_COLORS = {
   ok: 0x1a9e6b,
   error: 0xd3374e,

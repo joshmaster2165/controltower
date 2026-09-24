@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { request } from 'undici';
 import type { AppContext } from '../context.js';
-import { estimateInputTokens, extractApiKey } from '../pipeline/flight.js';
+import { estimateInputTokens } from '../pipeline/flight.js';
+import { usableKey } from './key.js';
 import { hasAdminKey } from '../admin/auth.js';
 import { E, errorBody } from './errors.js';
 
@@ -13,15 +14,9 @@ import { E, errorBody } from './errors.js';
  *  - /ui — LiteLLM's console path; the console lives at /.
  */
 export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
-  const keyFor = (req: FastifyRequest) => {
-    const presented = extractApiKey(req);
-    const key = presented ? ctx.registry.authenticate(presented) : undefined;
-    return key && key.enabled && !(key.expiresAt && key.expiresAt < Date.now()) ? key : undefined;
-  };
-
   // ---- Anthropic token counting ----
   app.post('/v1/messages/count_tokens', async (req, reply) => {
-    const key = keyFor(req);
+    const key = usableKey(ctx, req);
     if (!key) return reply.status(401).send(errorBody('anthropic-messages', E.unauthorized()));
     const body = (req.body ?? {}) as Record<string, unknown>;
     const model = typeof body.model === 'string' ? body.model : '';
@@ -57,7 +52,7 @@ export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promi
   });
   // Checks every provider that serves a model and reports each model as healthy or not.
   app.get('/health', async (req, reply) => {
-    if (!hasAdminKey(ctx, req) && !keyFor(req)) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
+    if (!hasAdminKey(ctx, req) && !usableKey(ctx, req)) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
     const results = new Map<string, { ok: boolean; error?: string | undefined }>();
     await Promise.all(
       [...ctx.registry.providers.values()].map(async (p) => {

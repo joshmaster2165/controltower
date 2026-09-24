@@ -55,12 +55,3 @@ export interface PolicyEngine {
   onChange?(fn: () => void): () => void;
 }
 
-export class AllowAllPolicy implements PolicyEngine {
-  readonly version = 0;
-  evaluate(): PolicyDecision {
-    return { effect: 'allow' };
-  }
-  staticDecision(): 'deny' | 'maybe' {
-    return 'maybe';
-  }
-}

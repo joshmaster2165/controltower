@@ -35,7 +35,7 @@ async function setup() {
     .run(JSON.stringify({ keys: ['k_bot'], deployments: ['dep_prod'] }));
   const keys = new Map([['k_intern', key('k_intern')], ['k_bot', key('k_bot')]]);
   const registry = { keysById: keys, deployments: new Map([['dep_prod', { publicName: 'prod-model', upstreamModel: 'x' }]]) } as unknown as Registry;
-  const policy = new PolicyService(db.read, registry, () => true);
+  const policy = new PolicyService(db.read, () => true);
   await policy.reload();
   const mcp = { servers: new Map([['mcp_crm', { tools: [{ name: 'delete_contact', annotations: { destructiveHint: true } }] }]]) } as unknown as McpRegistry;
   return { db, policy, deps: { db: db.read, policy, registry, mcp } };

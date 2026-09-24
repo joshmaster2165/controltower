@@ -4,7 +4,6 @@ import { getCsrf } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { CodeBlock } from '../components/CodeBlock';
-import { Icon } from '../components/Icon';
 
 interface Result {
   text: string;

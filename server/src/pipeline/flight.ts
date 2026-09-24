@@ -8,6 +8,7 @@ import type { NormalizedError, WireDialect } from '../providers/adapter.js';
 import type { PriceRef } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
+import { extractApiKey, keyProblem } from '../gateway/key.js';
 import type { InspectGate, PolicyDecision, PolicyTarget } from '../policy/engine.js';
 import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
@@ -136,20 +137,6 @@ export function estimateInputTokens(body: Record<string, unknown>): number {
   return Math.max(1, Math.round(chars / 4));
 }
 
-/**
- * The agent's key: Authorization: Bearer, Anthropic's x-api-key, LiteLLM's
- * x-litellm-api-key (with or without "Bearer "), or Azure's api-key header.
- */
-export function extractApiKey(req: FastifyRequest): string | undefined {
-  const auth = req.headers.authorization;
-  if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
-  for (const h of ['x-api-key', 'x-litellm-api-key', 'api-key'] as const) {
-    const v = req.headers[h];
-    if (typeof v === 'string' && v.trim()) return v.trim().replace(/^bearer\s+/i, '');
-  }
-  return undefined;
-}
-
 /** Text a model produced, from one stream frame of either dialect (content, text, tool-call arguments). */
 function collectText(v: unknown, out: string[], key?: string): void {
   if (typeof v === 'string') {
@@ -215,8 +202,8 @@ export class FlightRunner {
       const key = runOpts.keyOverride ?? (presented ? ctx.registry.authenticate(presented) : undefined);
       if (!key) throw E.unauthorized();
       f.key = key;
-      if (!key.enabled) throw E.keyDisabled();
-      if (key.expiresAt && key.expiresAt < Date.now()) throw E.keyExpired();
+      const problem = keyProblem(key);
+      if (problem) throw problem === 'disabled' ? E.keyDisabled() : E.keyExpired();
 
       // ---- admission ----
       if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);

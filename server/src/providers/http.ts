@@ -75,8 +75,3 @@ export async function readBodyText(body: Dispatcher.ResponseData['body'], cap = 
   }
   return Buffer.concat(chunks).toString('utf8');
 }
-
-export async function closeAllAgents(): Promise<void> {
-  await Promise.all([...agents.values()].map((a) => a.close().catch(() => undefined)));
-  agents.clear();
-}

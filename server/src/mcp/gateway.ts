@@ -3,7 +3,8 @@ import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import type { KeyRecord } from '../registry.js';
 import { globMatch } from '../registry.js';
-import { extractApiKey, newFlight, type Flight } from '../pipeline/flight.js';
+import { newFlight, type Flight } from '../pipeline/flight.js';
+import { usableKey } from '../gateway/key.js';
 import { McpUpstreamError, type McpTool } from './upstream.js';
 import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js';
 import type { PolicyTarget } from '../policy/engine.js';
@@ -105,9 +106,8 @@ export class McpGateway {
     const only = slugParam ? (this.ctx.mcp.bySlug.get(slugParam) ?? null) : null;
     if (slugParam && !only) return reply.status(404).send(rpcError(null, -32004, `Unknown MCP server "${slugParam}"`));
 
-    const presented = extractApiKey(req);
-    const key = presented ? this.ctx.registry.authenticate(presented) : undefined;
-    if (!key || !key.enabled) return reply.status(401).send(rpcError(null, -32001, 'Missing or invalid Control Tower API key. Send it as Authorization: Bearer ct_sk_…'));
+    const key = usableKey(this.ctx, req);
+    if (!key) return reply.status(401).send(rpcError(null, -32001, 'Missing or invalid Control Tower API key. Send it as Authorization: Bearer ct_sk_…'));
 
     const body = req.body as RpcRequest | RpcRequest[] | undefined;
     if (!body || typeof body !== 'object') return reply.status(400).send(rpcError(null, -32700, 'Parse error'));

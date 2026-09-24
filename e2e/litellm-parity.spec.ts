@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { anthropicUpstream, mcpUpstream, openAiUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { field } from './support/ui';
 
 /**
  * LiteLLM's documented setup steps, done against Control Tower exactly as the
@@ -223,12 +224,12 @@ test('Routing from the config: fallbacks, provider wildcards, and a key limited 
   expect(wild.choices[0]!.message.content).toBeTruthy();
 
   const narrow = await (await master('/key/generate', { method: 'POST', body: JSON.stringify({ models: ['gpt-4o'] }) })).json();
-  const denied = await new OpenAI({ baseURL: CT, apiKey: narrow.key, maxRetries: 0 }).chat.completions.create({ model: 'claude-sonnet', messages: [{ role: 'user', content: 'hi' }] }).catch((e: unknown) => e as { status: number });
+  const denied = await new OpenAI({ baseURL: CT, apiKey: narrow.key, maxRetries: 0 }).chat.completions.create({ model: 'claude-sonnet', messages: [{ role: 'user', content: 'hi' }] }).then(() => ({ status: 200 }), (e: unknown) => e as { status: number });
   expect([401, 403]).toContain(denied.status);
 });
 
 test('Slack alerting from the config: an upstream exception reaches Slack', async () => {
-  const err = await new OpenAI({ baseURL: CT, apiKey: virtualKey, maxRetries: 0 }).chat.completions.create({ model: 'broken', messages: [{ role: 'user', content: 'hi' }] }).catch((e: unknown) => e as { status: number });
+  const err = await new OpenAI({ baseURL: CT, apiKey: virtualKey, maxRetries: 0 }).chat.completions.create({ model: 'broken', messages: [{ role: 'user', content: 'hi' }] }).then(() => ({ status: 200 }), (e: unknown) => e as { status: number });
   expect(err.status).toBeGreaterThanOrEqual(500);
   await expect.poll(() => slack.calls.filter((c) => c.path === '/slack').length, { timeout: 15_000 }).toBeGreaterThan(0);
   const body = JSON.parse(slack.calls.find((c) => c.path === '/slack')!.body);
@@ -270,6 +271,28 @@ test('Key management: /key/info, /key/update, /key/list, /key/block, /key/unbloc
   expect((await call('sk-existing-litellm-key-abcdef123456')).status).toBe(401);
 });
 
+test('Blocked and expired keys are refused on every surface: models, MCP, token counting', async () => {
+  const probe = async (k: string) => {
+    const models = (await fetch(`${CT}/v1/models`, { headers: { authorization: `Bearer ${k}` } })).status;
+    const mcpInit = (
+      await fetch(`${CT}/mcp`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'probe', version: '1' } } }),
+      })
+    ).status;
+    const count = (await fetch(`${CT}/v1/messages/count_tokens`, { method: 'POST', headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-sonnet', messages: [] }) })).status;
+    return { models, mcpInit, count };
+  };
+  const short = await (await master('/key/generate', { method: 'POST', body: JSON.stringify({ duration: '1s' }) })).json();
+  expect(await probe(short.key)).toEqual({ models: 200, mcpInit: 200, count: 200 });
+  await new Promise((r) => setTimeout(r, 1200));
+  expect(await probe(short.key)).toEqual({ models: 401, mcpInit: 401, count: 401 });
+
+  const blocked = await (await master('/key/generate', { method: 'POST', body: JSON.stringify({ blocked: true }) })).json();
+  expect(await probe(blocked.key)).toEqual({ models: 401, mcpInit: 401, count: 401 });
+});
+
 test('Model management: /model/info, /model/new, /model/delete (config models stay put)', async () => {
   const info = await (await master('/model/info')).json();
   const names = info.data.map((m: { model_name: string }) => m.model_name);
@@ -305,9 +328,8 @@ test('MCP servers from the config, reached with x-litellm-api-key', async () => 
 test('/ui: sign in as admin with the master key (UI doc)', async ({ page }) => {
   await page.goto(`${CT}/ui`);
   await expect(page).toHaveURL(`${CT}/`);
-  const field = (label: RegExp) => page.locator('.field', { has: page.locator('label', { hasText: label }) }).first().locator('input').first();
-  await field(/^(Email|Username)/).fill('admin');
-  await field(/^Password/).fill(MASTER);
+  await field(page, /^Email or username/).fill('admin');
+  await field(page, /^Password/).fill(MASTER);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('link', { name: 'Airspace', exact: true })).toBeVisible();
 });

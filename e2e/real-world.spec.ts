@@ -9,6 +9,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
 import { anthropicUpstream, mcpUpstream, openAiUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { field } from './support/ui';
 
 /**
  * Everything the demo shows, done for real: no demo mode, no demo code.
@@ -350,9 +351,8 @@ test('A human approves in the console, following the link in the alert', async (
     .toMatch(/#\/tower\/apr_/);
 
   await page.goto(`${CT}/`);
-  const field = (label: RegExp) => page.locator('.field', { has: page.locator('label', { hasText: label }) }).first().locator('input').first();
-  await field(/^Email/).fill(EMAIL);
-  await field(/^Password/).fill(PASSWORD);
+  await field(page, /^Email/).fill(EMAIL);
+  await field(page, /^Password/).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.goto(link.replace(/^https?:\/\/[^/#]+/, CT));
   await expect(page.getByText('files__delete_file').first()).toBeVisible();

@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
-import type { KeyRecord, Registry } from '../registry.js';
+import type { KeyRecord } from '../registry.js';
 import { globMatch } from '../registry.js';
 import type { PolicyDecision, PolicyEngine, PolicyInput, PolicyTarget } from './engine.js';
 import { salientHash, scopeHash } from './hash.js';
@@ -126,7 +126,6 @@ export class PolicyService implements PolicyEngine {
 
   constructor(
     private readonly db: Kysely<Database>,
-    private readonly registry: Registry,
     private readonly enforcement: () => boolean,
   ) {}
 

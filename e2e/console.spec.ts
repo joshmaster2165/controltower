@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { field } from './support/ui';
 
 /**
  * End-to-end: first boot → connect Gemini, Bedrock and Vertex (against fake
@@ -30,12 +31,6 @@ test.afterAll(() => {
 
 const EMAIL = 'e2e@example.com';
 const PASSWORD = 'e2e-password-123';
-
-/** Form controls are wrapped in `.field` with a plain <label>; find the control through its wrapper. */
-function field(scope: Page | Locator, label: string | RegExp): Locator {
-  const pg = 'page' in scope ? scope.page() : scope;
-  return scope.locator('.field', { has: pg.locator('label', { hasText: label }) }).first().locator('input, select, textarea').first();
-}
 
 async function signIn(page: Page) {
   await page.goto('/');

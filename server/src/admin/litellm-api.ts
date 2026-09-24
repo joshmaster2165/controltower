@@ -6,7 +6,7 @@ import type { AppContext } from '../context.js';
 import type { KeyRecord } from '../registry.js';
 import { requireAdmin, hasAdminKey, loadSession } from './auth.js';
 import { generateApiKey, hashApiKey } from '../crypto/apikeys.js';
-import { extractApiKey } from '../pipeline/flight.js';
+import { usableKey } from '../gateway/key.js';
 import { planLiteLLMImport } from '../importers/litellm.js';
 import { applyImportPlan } from '../importers/apply.js';
 
@@ -189,10 +189,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
   app.get('/key/info', async (req, reply) => {
     const q = req.query as { key?: string };
     const admin = hasAdminKey(ctx, req) || !!(await loadSession(ctx, req));
-    const caller = (() => {
-      const p = extractApiKey(req);
-      return p ? ctx.registry.authenticate(p) : undefined;
-    })();
+    const caller = usableKey(ctx, req);
     if (!admin && !caller) return reply.status(401).send({ error: { message: 'Authentication required', type: 'auth_error', code: '401' } });
     const k = q.key ? findKey(q.key) : caller;
     if (!k || (!admin && k.id !== caller?.id)) return reply.status(404).send({ error: { message: 'Key not found', type: 'not_found_error', code: '404' } });

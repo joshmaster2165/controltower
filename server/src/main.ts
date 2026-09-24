@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   await mcp.reload();
   const http = new HttpApiRegistry(db.write, secrets);
   await http.reload();
-  const policy = new PolicyService(db.read, registry, () => config.mode === 'on');
+  const policy = new PolicyService(db.read, () => config.mode === 'on');
   await policy.reload();
   const approvalsVersion = new Versioned();
   let logRef: import('fastify').FastifyBaseLogger | undefined;

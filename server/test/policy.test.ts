@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openSqlite } from '../src/db/index.js';
 import { PolicyService } from '../src/policy/policy.js';
-import type { KeyRecord, Registry } from '../src/registry.js';
+import type { KeyRecord } from '../src/registry.js';
 
 function key(id: string): KeyRecord {
   return { id, name: id, hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined };
@@ -17,7 +17,7 @@ describe('station-scoped gates', () => {
     );
     insert.run('r_deny_pair', 'intern → prod model', JSON.stringify({ keys: ['k_intern'], deployments: ['dep_prod'] }), 'deny', 5, now, now);
     insert.run('r_hold_tool', 'anyone deleting contacts', JSON.stringify({ mcp_servers: ['mcp_crm'], tools: ['crm__delete_contact'] }), 'require_approval', 6, now, now);
-    const policy = new PolicyService(db.read, {} as Registry, () => true);
+    const policy = new PolicyService(db.read, () => true);
     await policy.reload();
 
     const model = (dep: string) => ({ kind: 'model' as const, name: 'smart', deploymentId: dep, operation: 'read' as const });

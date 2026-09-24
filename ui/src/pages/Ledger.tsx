@@ -4,7 +4,6 @@ import { usd } from '../format';
 import { api } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
-import { Icon } from '../components/Icon';
 
 /**
  * Ledger: what the gateway cost and how much it moved. Forms follow the job —

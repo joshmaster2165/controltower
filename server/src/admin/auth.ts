@@ -3,6 +3,7 @@ import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import { timingSafeEqual } from 'node:crypto';
 import { hashPassword, verifyPassword, randomToken } from '../crypto/secrets.js';
+import { extractApiKey } from '../gateway/key.js';
 
 export const SESSION_COOKIE = 'ct_session';
 const CSRF_HEADER = 'x-ct-csrf';
@@ -59,20 +60,10 @@ export async function loadSession(ctx: AppContext, req: FastifyRequest): Promise
   return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at };
 }
 
-/** A bearer token (Authorization or LiteLLM's x-litellm-api-key header), without the "Bearer " prefix. */
-export function bearerToken(req: FastifyRequest): string | undefined {
-  for (const h of [req.headers.authorization, req.headers['x-litellm-api-key']]) {
-    if (typeof h !== 'string' || !h.trim()) continue;
-    const v = h.trim();
-    return /^bearer\s+/i.test(v) ? v.replace(/^bearer\s+/i, '').trim() : v;
-  }
-  return undefined;
-}
-
 /** True when the request carries the admin key (LiteLLM's master key). */
 export function hasAdminKey(ctx: AppContext, req: FastifyRequest): boolean {
   const key = ctx.config.adminKey;
-  const presented = bearerToken(req);
+  const presented = extractApiKey(req);
   if (!key || !presented) return false;
   const a = Buffer.from(presented);
   const b = Buffer.from(key);

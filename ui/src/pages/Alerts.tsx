@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, ALERT_TRIGGERS, type AlertChannel, type AlertItem, type AlertKind, type AlertParams, type AlertRule, type AlertTrigger, type Rule } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
-import { Icon } from '../components/Icon';
 
 export function timeAgo(ts: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));

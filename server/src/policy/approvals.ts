@@ -41,20 +41,6 @@ export type RedeemResult =
   | { ok: true; grantId: string; approvalId: string }
   | { ok: false; reason: RedeemFailReason; approvalId?: string | undefined; retryAfterMs?: number | undefined };
 
-export class NoopApprovals implements Approvals {
-  readonly heldCount = 0;
-  async hold(flight: Flight, decision: PolicyDecision): Promise<HoldOutcome> {
-    return { kind: 'ticketed', error: E.approvalRequired(`CONTROL_TOWER_APPROVAL_REQUIRED: ${decision.summary ?? 'approval required'}`, { ct: { v: 1, status: 'pending', flight_id: flight.id } }) };
-  }
-  async redeem(): Promise<RedeemResult> {
-    return { ok: false, reason: 'unknown' };
-  }
-  async decide(): Promise<{ ok: boolean; status: string }> {
-    return { ok: false, status: 'unsupported' };
-  }
-  drain(): void {}
-}
-
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
 const GRANT_TTL_MS = 10 * 60 * 1000;
 const TICKET_EXTRA_MS = 5 * 60 * 1000;

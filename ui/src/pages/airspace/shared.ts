@@ -23,7 +23,8 @@ export const STATE_LABEL: Record<LinkState, string> = {
 };
 
 export const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', observed: 'observed system', unknown: 'unrouted' } as const;
-export const kindLabel = (s: { kind: keyof typeof KIND_LABEL; protocol?: 'mcp' | 'http' | undefined }) => (s.protocol === 'http' ? 'HTTP API' : KIND_LABEL[s.kind]);
+export const kindLabel = (s: { kind: keyof typeof KIND_LABEL; protocol?: 'mcp' | 'http' | undefined; grouping?: 'team' | 'group' | undefined }) =>
+  s.grouping === 'team' ? 'Team' : s.grouping === 'group' ? 'Agent group' : s.protocol === 'http' ? 'HTTP API' : KIND_LABEL[s.kind];
 
 export function ago(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -60,7 +61,7 @@ export function destRef(id: string): string {
 
 /** Plain-language description of what a gate covers. */
 export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string {
-  const m = r.match as { keys?: string[]; groups?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
+  const m = r.match as { keys?: string[]; groups?: string[]; teams?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
   const keyName = (id: string) => t?.keys.find((k) => k.id === id)?.name ?? id;
   const depName = (id: string) => {
     const d = t?.deployments.find((x) => x.id === id);
@@ -68,7 +69,7 @@ export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string
   };
   const mcpName = (id: string) => t?.mcp_servers.find((x) => x.id === id)?.name ?? id;
   const zoneName = (id: string) => zones.find((z) => z.id === id)?.name ?? id;
-  const who = [...(m.keys ?? []).map(keyName), ...(m.groups ?? []).map((g) => `${g} (every copy)`)];
+  const who = [...(m.keys ?? []).map(keyName), ...(m.groups ?? []).map((g) => `${g} (every copy)`), ...(m.teams ?? []).map((t) => `team ${t}`)];
   const from = who.length ? who.join(', ') : r.from_zone ? `${zoneName(r.from_zone)} agents` : 'any agent';
   let to = 'anything';
   if (m.deployments?.length) to = m.deployments.map(depName).join(', ');

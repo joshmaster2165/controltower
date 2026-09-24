@@ -3,7 +3,7 @@ import { formatUsd } from '@controltower/shared';
 import { useStore } from '../../store';
 import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type InspectConfig, type Rule, type Topology, type Zone } from '../../api';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from '../Alerts';
-import { agentGroups, GROUP_PREFIX, groupStation, isGroup } from '../../airspace/groups';
+import { agentGroups, GROUP_PREFIX, groupStation, isGroup, isTeam, TEAM_PREFIX, teamStation } from '../../airspace/groups';
 import { type GateDraft, panelPos } from './shared';
 
 export function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose, onChanged, onSimulate }: { x: number; y: number; rule: Rule; desc: string; zones: Zone[]; stats: { approved: number; denied: number } | undefined; alerts: AlertRule[]; channels: AlertChannel[]; onClose: () => void; onChanged: () => void; onSimulate: (r: SimResult | null) => void }) {
@@ -323,9 +323,10 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
   const [err, setErr] = useState<string | null>(null);
 
   const groups = useMemo(() => agentGroups(topology.keys), [topology.keys]);
+  const teams = useMemo(() => [...new Set(topology.keys.map((k) => k.team).filter((t): t is string => !!t))].sort(), [topology.keys]);
   const singles = useMemo(() => topology.keys.filter((k) => !k.agent_id || !groups.has(k.agent_id)), [topology.keys, groups]);
   const server = to.startsWith('mcp:') ? topology.mcp_servers.find((m) => m.id === to.slice(4)) : undefined;
-  const agentLabel = from === 'all' ? 'Any agent' : from.startsWith('zone:') ? `${zones.find((z) => z.id === from.slice(5))?.name ?? '?'} agents` : isGroup(from) ? `${from.slice(GROUP_PREFIX.length)} (every copy)` : (topology.keys.find((k) => k.id === from.slice(4))?.name ?? '?');
+  const agentLabel = from === 'all' ? 'Any agent' : from.startsWith('zone:') ? `${zones.find((z) => z.id === from.slice(5))?.name ?? '?'} agents` : isGroup(from) ? `${from.slice(GROUP_PREFIX.length)} (every copy)` : isTeam(from) ? `team ${from.slice(TEAM_PREFIX.length)}` : (topology.keys.find((k) => k.id === from.slice(4))?.name ?? '?');
   const destLabel = !to
     ? 'anything'
     : to.startsWith('mcp:')
@@ -352,6 +353,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
     const body: Record<string, unknown> = { name: sentence, effect, priority: 5, target_kind: 'any' };
     if (from.startsWith('key:')) match.keys = [from.slice(4)];
     if (isGroup(from)) match.groups = [from.slice(GROUP_PREFIX.length)];
+    if (isTeam(from)) match.teams = [from.slice(TEAM_PREFIX.length)];
     if (from.startsWith('zone:')) body.from_zone = from.slice(5);
     if (to.startsWith('dep:')) {
       match.deployments = [to.slice(4)];
@@ -427,6 +429,15 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
               {zones.map((z) => (
                 <option key={z.id} value={`zone:${z.id}`}>
                   {z.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {teams.length > 0 && (
+            <optgroup label="Teams">
+              {teams.map((t) => (
+                <option key={t} value={teamStation(t)}>
+                  {t}
                 </option>
               ))}
             </optgroup>

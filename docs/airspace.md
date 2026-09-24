@@ -25,6 +25,17 @@ The Airspace is a live map of every agentic data flow: agents on the left, the t
 
 A red dashed line from an agent straight to a model provider means that agent is calling the provider directly, skipping the gateway, its gates and its budgets. **Bring it inside** on that station shows how to route it through Control Tower. See [HTTP APIs and observed traffic](http-apis.md).
 
+## Large fleets: teams, agents and search
+
+With hundreds of agents the map starts at the **organization level**: one station per team (the key's **Team** label), with a count of its agents and a stack look. **Teams / Agents** in the map controls switches between that and one station per agent; the map picks Teams on its own once there are more agents than fit on screen, and remembers your choice.
+
+- **Open a team** with the arrow on its card: its agents take its place under a header, and the map scrolls to them. Click the header to fold the team back.
+- A team with a single agent is always drawn as that agent.
+- **Copies of one agent** (keys sharing an [agent ID](keys.md#many-copies-of-one-agent)) are one station with a ×N count at every level.
+- Gates and zones work at every level. A gate drawn on a team covers every key in that team, including keys added later; a gate drawn on a group covers every copy.
+
+**Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
+
 ## Flight Recorder: replay past traffic
 
 **Replay** plays a past window — the last hour, 6 hours, 24 hours or 7 days — back on the map: every recorded call travels its path again, holds wait at their gates and blocked calls turn red, compressed 10× to 10,000×. Play, pause, change speed or drag the scrubber to any moment; quiet stretches are skipped. Live traffic waits while you watch and the map returns to it with **Back to live**.

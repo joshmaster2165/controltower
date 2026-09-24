@@ -30,5 +30,13 @@ export function keyStations(keys: TopologyKey[], groups = agentGroups(keys)): Ma
   return out;
 }
 
+/**
+ * Teams: at the organization level the map draws one station per team
+ * (`team:<name>`), each opening into its agents.
+ */
+export const TEAM_PREFIX = 'team:';
+export const isTeam = (stationId: string): boolean => stationId.startsWith(TEAM_PREFIX);
+export const teamStation = (team: string): string => `${TEAM_PREFIX}${team}`;
+
 /** How zones and gate drafts refer to an agent station. */
-export const agentRef = (stationId: string): string => (isGroup(stationId) ? stationId : `key:${stationId}`);
+export const agentRef = (stationId: string): string => (isGroup(stationId) || isTeam(stationId) ? stationId : `key:${stationId}`);

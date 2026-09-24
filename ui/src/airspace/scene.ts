@@ -1,7 +1,7 @@
 import type { FlightEvent } from '@controltower/shared';
 import type { ObservedEdge, PolicyBundle, Rule, Topology, TopologyEdge, TopologyKey, Zone } from '../api';
 import { agentColor, hex, MCP_COLOR, PROVIDER_COLORS, providerLook, STATUS_COLORS } from './colors';
-import { agentGroups, agentRef, groupStation, keyStations } from './groups';
+import { agentGroups, agentRef, groupStation, isTeam, keyStations, teamStation } from './groups';
 
 /**
  * The Airspace — a live map of the agentic ecosystem (Canvas 2D).
@@ -73,8 +73,30 @@ export interface Station {
   /** Observed systems only: reported by agents, not proxied, so never enforced. */
   obs?: { target: string; kind: string; bypass: boolean; lastSeen: number; count24h: number; errors24h: number } | undefined;
   /** An agent group: how many keys (copies of the agent) it stands for. */
-  copies?: number;
+  copies?: number | undefined;
+  /** When the rest of an agent's copies are folded into a team: how many copies the agent has in all. */
+  copiesOf?: number | undefined;
+  /** A team station (organization level): the team it stands for, and how many agents and keys. */
+  team?: { name: string; agents: number; keys: number } | undefined;
+  /** Agent stations inside an opened team: that team (they sit together under its header). */
+  teamOf?: string | undefined;
 }
+
+/** How agents are drawn: one station per team (opening into its agents), or one per agent. */
+export type AgentLevel = 'teams' | 'agents';
+
+export interface SearchHit {
+  /** Pass to reveal(). */
+  ref: string;
+  label: string;
+  sub: string;
+  kind: 'team' | 'agent' | 'key' | 'model' | 'mcp' | 'tool' | 'observed';
+}
+
+/** Above this many agents, 'auto' draws teams. */
+const AUTO_TEAMS_ABOVE = 24;
+/** Height of the header over an opened team's agents. */
+const TEAM_HEAD = 24;
 
 export type LinkState = 'active' | 'idle' | 'unused' | 'holding' | 'blocked';
 
@@ -95,6 +117,8 @@ export interface StationView {
   observed24h: number;
   obs?: Station['obs'];
   protocol?: Station['protocol'];
+  /** Agent stations standing for more than one key: a whole team, or an agent's copies. */
+  grouping?: 'team' | 'group' | undefined;
 }
 
 export interface LaneView {
@@ -273,7 +297,7 @@ export class AirspaceScene {
   private used24h = new Set<string>();
   private livePairs = new Map<string, number>(); // `${agent}>${dest}` → last ts
   private liveToolPairs = new Map<string, number>(); // `${agent}>${dest}|${tool}` → last ts
-  private live = new Map<string, { agent: string; dest: string | undefined; held: boolean }>();
+  private live = new Map<string, { agent: string; key: string; dest: string | undefined; held: boolean }>();
   private ruleHits = new Map<string, number[]>();
   private hubRecent: number[] = [];
   private zoneBoxes: Array<{ zone: Zone; x: number; y: number; w: number; h: number; chip: { x: number; y: number; w: number; h: number } }> = [];
@@ -287,8 +311,14 @@ export class AirspaceScene {
   private obsEdges: ObservedEdge[] = [];
   /** Key id → the station drawing it: its agent group when several keys share an agent id, else the key. */
   private keyStation = new Map<string, string>();
-  /** Agent station → the keys it stands for (one for a plain key, all copies for a group). */
+  /** Agent station → the keys it stands for (one for a plain key, all copies for a group, a whole team). */
   private stationKeys = new Map<string, TopologyKey[]>();
+  private levelPref: AgentLevel | 'auto' = 'auto';
+  private level: AgentLevel = 'agents';
+  /** Teams opened into their agents while the map shows teams. */
+  private openTeams = new Set<string>();
+  /** Headers over opened teams (world coordinates); clicking one closes the team. */
+  private teamHeads: Array<{ team: string; x: number; y: number; w: number; h: number; agents: number }> = [];
   /** The region below the tower holding observed systems (world coordinates). */
   private obsBand: { x: number; y: number; w: number; h: number; left: number } | null = null;
   /** Agent → observed system, drawn straight across (not through the tower). */
@@ -303,6 +333,7 @@ export class AirspaceScene {
   private hovered: string | null = null;
   private lasso: Pt[] | null = null;
   private hoverCb: ((h: HoverInfo | null) => void) | null = null;
+  private levelCb: (() => void) | null = null;
   private clickCb: ((c: ClickInfo) => void) | null = null;
   private unknownStation: Station | null = null;
   private logo: Array<{ path: Path2D; fill: string }> = [];
@@ -476,7 +507,20 @@ export class AirspaceScene {
         this.hoverTest();
         return;
       }
-      // A click, not a drag. Chevron on a tool server toggles its tool list.
+      // A click, not a drag. A team header closes its team; a team's chevron opens it.
+      for (const th of this.teamHeads) {
+        if (wp[0] >= th.x && wp[0] <= th.x + th.w && wp[1] >= th.y && wp[1] <= th.y + th.h) {
+          this.toggleTeam(th.team);
+          return;
+        }
+      }
+      for (const s of this.stations.values()) {
+        if (s.team && wp[0] >= s.x + s.w - 26 && wp[0] <= s.x + s.w && wp[1] >= s.y && wp[1] <= s.y + s.headH) {
+          this.toggleTeam(s.team.name);
+          return;
+        }
+      }
+      // Chevron on a tool server toggles its tool list.
       for (const s of this.stations.values()) {
         if (s.kind === 'mcp' && s.tools.length && wp[0] >= s.x + s.w - 26 && wp[0] <= s.x + s.w && wp[1] >= s.y && wp[1] <= s.y + s.headH) {
           s.userToggled = true;
@@ -697,6 +741,153 @@ export class AirspaceScene {
     this.layoutCb?.(Object.fromEntries(this.positions));
   }
 
+  // ------------------------------------------------------------ levels, search
+
+  /** Draw agents per team or per agent; 'auto' draws teams once there are more agents than fit. */
+  setLevel(level: AgentLevel | 'auto'): void {
+    this.levelPref = level;
+    this.openTeams.clear();
+    if (this.topology) this.setTopology(this.topology);
+    if (this.focusId && !this.stations.has(this.focusId)) this.setFocus(null);
+    this.fit();
+    this.levelCb?.();
+  }
+  getLevel(): { level: AgentLevel; pref: AgentLevel | 'auto'; teams: number } {
+    const teams = new Set((this.topology?.keys ?? []).map((k) => k.team).filter(Boolean)).size;
+    return { level: this.level, pref: this.levelPref, teams };
+  }
+  onLevelChange(cb: () => void): void {
+    this.levelCb = cb;
+  }
+  /** Open a team into its agents, or close it back into one station. */
+  toggleTeam(team: string): void {
+    const opening = !this.openTeams.has(team);
+    if (opening) this.openTeams.add(team);
+    else this.openTeams.delete(team);
+    if (this.topology) this.setTopology(this.topology);
+    if (opening) {
+      // Bring the opened team's agents into view (top first if they are taller than the screen).
+      const members = [...this.stations.values()].filter((s) => s.teamOf === team);
+      if (members.length) {
+        const k = this.cam.k;
+        const y0 = (Math.min(...members.map((s) => s.y)) - TEAM_HEAD) * k + this.cam.y;
+        const y1 = Math.max(...members.map((s) => s.y + s.h)) * k + this.cam.y;
+        const top = 110;
+        const bottom = this.h - 60;
+        if (y1 > bottom) this.cam.y -= Math.min(y1 - bottom, y0 - top);
+        else if (y0 < top) this.cam.y += top - y0;
+        this.dirty = true;
+        this.camCb?.({ ...this.cam });
+      }
+    }
+    if (this.focusId && !this.stations.has(this.focusId)) this.setFocus(null);
+    this.levelCb?.();
+  }
+
+  /** Agents, keys, teams, models, tool servers and tools whose name contains the query. */
+  search(query: string, limit = 12): SearchHit[] {
+    const q = query.trim().toLowerCase();
+    const t = this.topology;
+    if (!q || !t) return [];
+    const hits: Array<SearchHit & { score: number }> = [];
+    // Names that start with the query first; agents and teams before single keys of an agent.
+    const WEIGHT: Record<SearchHit['kind'], number> = { team: 0, agent: 0, model: 0.2, mcp: 0.2, tool: 0.4, observed: 0.4, key: 3 };
+    const add = (h: SearchHit, text: string) => {
+      const i = text.toLowerCase().indexOf(q);
+      if (i >= 0) hits.push({ ...h, score: WEIGHT[h.kind] + (i === 0 ? 0 : 1) + text.length / 1000 });
+    };
+    const groups = agentGroups(t.keys);
+    const teams = new Map<string, number>();
+    for (const k of t.keys) if (k.team) teams.set(k.team, (teams.get(k.team) ?? 0) + 1);
+    for (const [team, n] of teams) add({ ref: `team:${team}`, label: team, sub: `team · ${n.toLocaleString()} key${n === 1 ? '' : 's'}`, kind: 'team' }, team);
+    for (const [agentId, keys] of groups) {
+      const count = new Map<string, number>();
+      for (const k of keys) if (k.team) count.set(k.team, (count.get(k.team) ?? 0) + 1);
+      const team = [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'no team';
+      add({ ref: `agent:${groupStation(agentId)}`, label: agentId, sub: `agent · ×${keys.length} · ${team}`, kind: 'agent' }, agentId);
+    }
+    for (const k of t.keys) {
+      const grouped = k.agent_id && groups.has(k.agent_id);
+      add({ ref: grouped ? `key:${k.id}` : `agent:${k.id}`, label: k.name, sub: grouped ? `key · copy of ${k.agent_id}` : `agent · ${[k.team, k.project].filter(Boolean).join(' · ') || 'no team'}`, kind: grouped ? 'key' : 'agent' }, k.name);
+    }
+    for (const s of this.stations.values()) {
+      if (s.kind === 'model' || s.kind === 'mcp' || s.kind === 'observed') add({ ref: `station:${s.id}`, label: s.label, sub: s.sub, kind: s.kind }, s.label);
+      if (s.kind === 'mcp') for (const r of s.tools) add({ ref: `tool:${s.id}|${r.name}`, label: r.name, sub: `tool · ${s.label}`, kind: 'tool' }, r.name);
+    }
+    hits.sort((a, b) => a.score - b.score || a.label.localeCompare(b.label));
+    // A few keys at most: the agent above them already covers every copy.
+    let keys = 0;
+    return hits
+      .filter((h) => h.kind !== 'key' || ++keys <= 4)
+      .slice(0, limit)
+      .map(({ score: _score, ...h }) => h);
+  }
+
+  /** Bring a search hit into view: open its team if it is folded into one, then centre and focus it. Returns the focused station. */
+  reveal(ref: string, rightInset?: number): string | null {
+    const t = this.topology;
+    if (!t) return null;
+    // The panel that opens beside the map is part of the view to centre in.
+    if (rightInset !== undefined) this.setRightInset(rightInset);
+    const i = ref.indexOf(':');
+    const kind = ref.slice(0, i);
+    const id = ref.slice(i + 1);
+    let target: string | undefined;
+    let toolY: number | undefined;
+    if (kind === 'team') {
+      target = teamStation(id);
+      if (this.level === 'teams') {
+        if (this.openTeams.has(id)) this.toggleTeam(id);
+      } else {
+        // Per-agent view: trace the first of its agents.
+        const k = t.keys.find((x) => x.team === id);
+        target = k ? this.stationOf(k.id) : undefined;
+      }
+    } else if (kind === 'agent' || kind === 'key') {
+      const keyIds = kind === 'key' ? [id] : this.agentKeyIds(id);
+      const k = t.keys.find((x) => x.id === keyIds[0]);
+      if (k?.team && this.level === 'teams' && !this.openTeams.has(k.team)) this.toggleTeam(k.team);
+      target = k ? this.stationOf(k.id) : undefined;
+    } else if (kind === 'station') {
+      target = id;
+    } else if (kind === 'tool') {
+      const [server, tool] = id.split('|') as [string, string];
+      const s = this.stations.get(server);
+      if (s && !s.expanded) {
+        s.expanded = true;
+        s.userToggled = true;
+        this.layout();
+      }
+      target = server;
+      toolY = s?.tools.find((r) => r.name === tool)?.y;
+    }
+    const s = target ? this.stations.get(target) : undefined;
+    if (!s) return null;
+    this.centerOn(s.x + s.w / 2, toolY ?? s.y + s.headH / 2);
+    this.setFocus(s.id);
+    return s.id;
+  }
+
+  /** The key ids an agent-level station id stands for (a group's copies, or one key). */
+  private agentKeyIds(stationId: string): string[] {
+    const t = this.topology;
+    if (!t) return [];
+    if (stationId.startsWith('group:')) {
+      const agentId = stationId.slice(6);
+      return t.keys.filter((k) => k.agent_id === agentId).map((k) => k.id);
+    }
+    return [stationId];
+  }
+
+  /** Pan (and zoom in to a readable scale if needed) so a world point sits in the middle of the visible map. */
+  private centerOn(wx: number, wy: number): void {
+    const k = Math.max(this.cam.k, 0.9);
+    const vw = this.w - this.rightInset;
+    this.cam = { k, x: vw / 2 - wx * k, y: this.h / 2 - wy * k };
+    this.dirty = true;
+    this.camCb?.({ ...this.cam });
+  }
+
   setFocus(id: string | null): void {
     this.focusId = id && this.stations.has(id) ? id : null;
     this.relatedCache = null;
@@ -726,20 +917,75 @@ export class AirspaceScene {
       }
       return s;
     };
+    // Agents: per agent (a group, or a single key), or per team at the organization level.
     const groups = agentGroups(t.keys);
-    this.keyStation = keyStations(t.keys, groups);
-    this.stationKeys.clear();
+    const agentOf = keyStations(t.keys, groups);
+    const teams = new Map<string, TopologyKey[]>();
+    for (const k of t.keys) if (k.team) (teams.get(k.team) ?? teams.set(k.team, []).get(k.team)!).push(k);
+    const agentCount = new Set(agentOf.values()).size;
+    this.level = this.levelPref === 'auto' ? (agentCount > AUTO_TEAMS_ABOVE && teams.size >= 2 ? 'teams' : 'agents') : this.levelPref;
+    const oldKeys = this.stationKeys;
+    this.keyStation = new Map();
+    // A team with a single agent is drawn as that agent: folding it would only hide its name.
+    const teamAgents = new Map<string, Set<string>>();
+    for (const k of t.keys) if (k.team) (teamAgents.get(k.team) ?? teamAgents.set(k.team, new Set()).get(k.team)!).add(agentOf.get(k.id)!);
+    const folded = (k: TopologyKey) => this.level === 'teams' && !!k.team && !this.openTeams.has(k.team) && teamAgents.get(k.team)!.size > 1;
+    for (const k of t.keys) this.keyStation.set(k.id, folded(k) ? teamStation(k.team!) : agentOf.get(k.id)!);
+    this.stationKeys = new Map();
     for (const k of t.keys) {
-      if (k.agent_id && groups.has(k.agent_id)) continue;
-      upsert(k.id, 'agent', k.name, [k.team, k.project].filter(Boolean).join(' · ') || 'agent', agentColor(k.agent_id ?? k.id));
-      this.stationKeys.set(k.id, [k]);
+      const id = this.keyStation.get(k.id)!;
+      (this.stationKeys.get(id) ?? this.stationKeys.set(id, []).get(id)!).push(k);
     }
-    for (const [agentId, keys] of groups) {
-      const id = groupStation(agentId);
-      const teams = [...new Set(keys.map((k) => k.team).filter(Boolean))];
-      const sub = `${teams.length > 1 ? `${teams.length} teams` : (teams[0] ?? 'agent')} · ${keys.length.toLocaleString()} keys`;
-      upsert(id, 'agent', agentId, sub, agentColor(agentId)).copies = keys.length;
-      this.stationKeys.set(id, keys);
+    for (const [id, keys] of this.stationKeys) {
+      const k = keys[0]!;
+      let st: Station;
+      if (isTeam(id)) {
+        const agents = new Set(keys.map((x) => agentOf.get(x.id))).size;
+        st = upsert(id, 'agent', k.team!, `team · ${keys.length.toLocaleString()} key${keys.length === 1 ? '' : 's'}`, agentColor(id));
+        st.team = { name: k.team!, agents, keys: keys.length };
+        st.copies = undefined;
+        st.copiesOf = undefined;
+      } else if (keys.length > 1 || (k.agent_id && groups.has(k.agent_id))) {
+        const ts = [...new Set(keys.map((x) => x.team).filter(Boolean))];
+        const all = groups.get(k.agent_id!)?.length ?? keys.length;
+        st = upsert(id, 'agent', k.agent_id!, `${ts.length > 1 ? `${ts.length} teams` : (ts[0] ?? 'agent')} · ${keys.length.toLocaleString()}${all > keys.length ? ` of ${all.toLocaleString()}` : ''} keys`, agentColor(k.agent_id!));
+        st.copies = keys.length;
+        // Some copies are drawn inside a folded team: say how many of the agent's copies this station is.
+        st.copiesOf = all > keys.length ? all : undefined;
+        st.team = undefined;
+      } else {
+        st = upsert(id, 'agent', k.name, [k.team, k.project].filter(Boolean).join(' · ') || 'agent', agentColor(k.agent_id ?? k.id));
+        st.copies = undefined;
+        st.copiesOf = undefined;
+        st.team = undefined;
+      }
+      // Inside an opened team: the open team most of its keys are in (an agent's copies can span teams).
+      st.teamOf = undefined;
+      if (this.level === 'teams' && !st.team) {
+        const votes = new Map<string, number>();
+        for (const x of keys) if (x.team && this.openTeams.has(x.team)) votes.set(x.team, (votes.get(x.team) ?? 0) + 1);
+        st.teamOf = [...votes].sort((a, b) => b[1] - a[1])[0]?.[0];
+      }
+    }
+    // Switching level (or opening a team) replaces agent stations: carry their last minute over.
+    for (const [oldId, keys] of oldKeys) {
+      if (keep.has(oldId)) continue;
+      const from = this.stations.get(oldId);
+      const into = new Set(keys.map((k) => this.keyStation.get(k.id)).filter((x): x is string => !!x));
+      if (!from || into.size !== 1) continue; // split: the new stations are seeded from the topology below
+      const to = this.stations.get([...into][0]!);
+      if (!to) continue;
+      to.recent.push(...from.recent);
+      to.recent.sort((a, b) => a - b);
+      to.denials.push(...from.denials);
+      to.lastAt = Math.max(to.lastAt, from.lastAt);
+      for (const pairs of [this.livePairs, this.liveToolPairs])
+        for (const [pk, ts] of [...pairs]) {
+          if (!pk.startsWith(`${oldId}>`)) continue;
+          pairs.delete(pk);
+          const nk = `${to.id}${pk.slice(oldId.length)}`;
+          pairs.set(nk, Math.max(pairs.get(nk) ?? 0, ts));
+        }
     }
     const provById = new Map(t.providers.map((p) => [p.id, p]));
     for (const d of t.deployments) {
@@ -777,6 +1023,13 @@ export class AirspaceScene {
       into.last_seen = Math.max(into.last_seen, e.last_seen);
     });
     for (const id of [...this.stations.keys()]) if (!keep.has(id) && id !== '__unknown') this.stations.delete(id);
+    // Calls in the air follow their key to whichever station draws it now.
+    for (const st of this.stations.values()) if (st.kind === 'agent') st.held = 0;
+    for (const f of this.live.values()) {
+      f.agent = this.stationOf(f.key);
+      const a = f.held ? this.stations.get(f.agent) : undefined;
+      if (a) a.held++;
+    }
 
     this.edges = this.mergeByStation(t.edges ?? [], (e) => `${e.target_id}|${e.tool ?? ''}`, (into, e) => {
       into.requests += e.requests;
@@ -888,7 +1141,9 @@ export class AirspaceScene {
         // A group is in the zone when any of its keys is (the policy engine decides per key).
         const m = z.match as { teams?: string[]; projects?: string[]; tags?: string[] };
         const inZone = (k: TopologyKey) =>
-          z.stations.includes(`key:${k.id}`) || (m.teams?.length && k.team && m.teams.includes(k.team)) || (m.projects?.length && k.project && m.projects.includes(k.project)) || (m.tags?.length && k.tags.some((tg) => m.tags!.includes(tg)));
+          z.stations.includes(`key:${k.id}`) ||
+          (k.agent_id && z.stations.includes(groupStation(k.agent_id))) ||
+          (k.team && z.stations.includes(teamStation(k.team))) || (m.teams?.length && k.team && m.teams.includes(k.team)) || (m.projects?.length && k.project && m.projects.includes(k.project)) || (m.tags?.length && k.tags.some((tg) => m.tags!.includes(tg)));
         if ((this.stationKeys.get(s.id) ?? []).some(inZone)) out.push(s);
       }
     }
@@ -936,20 +1191,31 @@ export class AirspaceScene {
     });
     const rank = (s: Station) => firstZone.get(s.id) ?? 999;
     const kindRank = (s: Station) => (s.kind === 'model' ? 0 : s.kind === 'mcp' ? 1 : s.kind === 'observed' ? 3 : 2);
+    // At the organization level agents sort by team, so an opened team's agents sit together where the team was.
+    const byTeam = this.level === 'teams';
+    const teamKey = (s: Station) => s.team?.name ?? s.teamOf ?? '\uffff';
+    const cluster = (s: Station | undefined) => (s?.teamOf ?? '');
     const place = (list: Station[], x: number, side: 'left' | 'right') => {
-      list.sort((a, b) => rank(a) - rank(b) || kindRank(a) - kindRank(b) || a.label.localeCompare(b.label));
+      const teamSort = byTeam && side === 'left';
+      list.sort((a, b) => rank(a) - rank(b) || (teamSort ? teamKey(a).localeCompare(teamKey(b)) : kindRank(a) - kindRank(b)) || a.label.localeCompare(b.label));
       const n = list.length;
       if (!n) return;
       for (const s of list) if (!s.userToggled) s.expanded = s.kind === 'mcp' && s.tools.length > 0;
-      const groups: number[] = [];
-      for (let i = 0; i < n; i++) if (i === 0 || rank(list[i]!) !== rank(list[i - 1]!)) groups.push(i);
-      const headed = groups.filter((i) => rank(list[i]!) !== 999).length;
       let head = 46;
       let gap = 10;
       const zoneGap = 16;
       const header = 24;
+      // Space above each card: a zone header where a zone starts, a team header where an opened team starts.
+      const above = list.map((s, i) => {
+        const prev = list[i - 1];
+        const zoneStart = !prev || rank(s) !== rank(prev);
+        const teamStart = !!cluster(s) && (zoneStart || cluster(s) !== cluster(prev));
+        const teamEnd = !zoneStart && !!cluster(prev) && cluster(prev) !== cluster(s);
+        if (!zoneStart && !teamStart && !teamEnd) return null;
+        return (zoneStart && i > 0 ? zoneGap : 0) + (zoneStart && rank(s) !== 999 ? header : 0) + (teamStart ? (zoneStart ? 4 : zoneGap) + TEAM_HEAD : 0) + (teamEnd && !teamStart ? zoneGap : 0);
+      });
       const heightOf = (s: Station) => head + (s.expanded && s.tools.length ? s.tools.length * TOOL_ROW + 8 : 0);
-      const need = () => list.reduce((sum, s) => sum + heightOf(s), 0) + (n - 1) * gap + (groups.length - 1) * zoneGap + headed * header;
+      const need = () => list.reduce((sum, s, i) => sum + heightOf(s) + (above[i] ?? (i ? gap : 0)), 0);
       // Too tall: collapse auto-expanded tool lists (largest first), then tighten cards.
       while (need() > avail) {
         const c = list.filter((s) => s.expanded && !s.userToggled).sort((a, b) => b.tools.length - a.tools.length)[0];
@@ -962,10 +1228,7 @@ export class AirspaceScene {
       }
       let y = padTop + Math.max(0, (avail - need()) / 2);
       list.forEach((s, i) => {
-        if (groups.includes(i)) {
-          if (i > 0) y += zoneGap;
-          if (rank(s) !== 999) y += header;
-        } else y += gap;
+        y += above[i] ?? (i ? gap : 0);
         s.x = x;
         s.y = Math.round(y);
         s.w = cardW;
@@ -1031,6 +1294,14 @@ export class AirspaceScene {
       }
       s.tools.forEach((r, j) => (r.y = s.y + s.headH + 4 + j * TOOL_ROW));
     }
+    // A header over each opened team's agents (over the topmost, wherever they were dragged); clicking it closes the team.
+    this.teamHeads = [];
+    for (const team of this.openTeams) {
+      const members = [...this.stations.values()].filter((s) => s.teamOf === team);
+      if (!members.length) continue;
+      const top = members.reduce((a, b) => (b.y < a.y ? b : a));
+      this.teamHeads.push({ team, x: top.x, y: top.y - TEAM_HEAD, w: top.w, h: TEAM_HEAD - 4, agents: members.length });
+    }
 
     this.spokes.clear();
     const [hx, hy] = this.hub;
@@ -1054,7 +1325,7 @@ export class AirspaceScene {
     const global: Rule[] = [];
     for (const r of this.policy?.rules ?? []) {
       if (!r.enabled) continue;
-      const m = r.match as { tools?: string[]; keys?: string[]; groups?: string[]; deployments?: string[]; mcp_servers?: string[] };
+      const m = r.match as { tools?: string[]; keys?: string[]; groups?: string[]; teams?: string[]; deployments?: string[]; mcp_servers?: string[] };
       const toolGlobs = m.tools;
       const toZone = r.to_zone ? zones.find((x) => x.id === r.to_zone) : undefined;
       if (toolGlobs?.length) {
@@ -1064,9 +1335,11 @@ export class AirspaceScene {
         continue;
       }
       const destIds = [...(m.deployments ?? []), ...(m.mcp_servers ?? [])];
-      if (m.keys?.length || m.groups?.length) {
-        // Scoped to specific agents: the gate sits on each agent's line (once per station, however many of its keys it names).
-        const ids = new Set([...(m.keys ?? []).map((k) => this.stationOf(k)), ...(m.groups ?? []).map(groupStation)]);
+      if (m.keys?.length || m.groups?.length || m.teams?.length) {
+        // Scoped to specific agents: the gate sits on the line of each station drawing them (once, however many of its keys it names).
+        const scope = { keys: new Set(m.keys), groups: new Set(m.groups), teams: new Set(m.teams) };
+        const ids = new Set<string>();
+        for (const k of this.topology?.keys ?? []) if (scope.keys.has(k.id) || (k.agent_id && scope.groups.has(k.agent_id)) || (k.team && scope.teams.has(k.team))) ids.add(this.stationOf(k.id));
         for (const id of ids) this.addGate(id, r, 0.66);
         continue;
       }
@@ -1261,7 +1534,7 @@ export class AirspaceScene {
           }
           if (this.focusId) this.relatedCache = null;
         }
-        this.live.set(e.flight_id, { agent: agent.id, dest: dest?.id, held: false });
+        this.live.set(e.flight_id, { agent: agent.id, key: e.key_id, dest: dest?.id, held: false });
         break;
       }
       case 'flight.decision': {
@@ -1437,7 +1710,7 @@ export class AirspaceScene {
     }
     let observed24h = 0;
     for (const e of this.obsEdges) if ((s.kind === 'agent' && e.key_id === s.id) || (s.kind === 'observed' && e.target_id === s.id)) observed24h += e.count_24h;
-    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs, protocol: s.protocol };
+    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs, protocol: s.protocol, grouping: s.team ? 'team' : s.copies ? 'group' : undefined };
   }
 
   // -------------------------------------------------------------------- draw
@@ -1710,6 +1983,7 @@ export class AirspaceScene {
       this.drawCard(s, now, rel);
       ctx.globalAlpha = 1;
     }
+    for (const th of this.teamHeads) this.drawTeamHead(th);
 
     if (this.connect) {
       const { start, end } = this.connect;
@@ -1910,13 +2184,46 @@ export class AirspaceScene {
     ctx.textAlign = 'left';
   }
 
+  /** "▾ SUPPORT · 12 agents" over an opened team; click to close it. */
+  private drawTeamHead(th: (typeof this.teamHeads)[number]): void {
+    const ctx = this.ctx;
+    const hot = this.hovered === `teamhead:${th.team}`;
+    const c = agentColor(teamStation(th.team));
+    ctx.beginPath();
+    ctx.moveTo(th.x + 2, th.y + th.h - 1);
+    ctx.lineTo(th.x + th.w - 2, th.y + th.h - 1);
+    ctx.strokeStyle = rgba(c, 0.35);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = `700 10.5px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = hot ? hex(c) : '#334155';
+    const my = th.y + th.h / 2;
+    // Down-pointing chevron: this team is open.
+    ctx.beginPath();
+    ctx.moveTo(th.x + 3, my - 2);
+    ctx.lineTo(th.x + 6.5, my + 1.5);
+    ctx.lineTo(th.x + 10, my - 2);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    const name = th.team.toUpperCase();
+    ctx.fillText(name, th.x + 16, my);
+    const nw = ctx.measureText(name).width;
+    ctx.font = `500 10.5px ${FONT}`;
+    ctx.fillStyle = INK_FAINT;
+    ctx.fillText(` · ${th.agents} agent${th.agents === 1 ? '' : 's'}${hot ? ' · close' : ''}`, th.x + 16 + nw, my);
+    ctx.textBaseline = 'alphabetic';
+  }
+
   private drawCard(s: Station, now: number, rel: Set<string> | null): void {
     const ctx = this.ctx;
     const hot = this.hovered === `station:${s.id}` || this.focusId === s.id;
     const st = this.stateOf(s, now);
     // An agent group is a small stack of cards: one agent, several copies.
-    if (s.copies && s.headH >= 40) {
-      for (const d of s.copies > 2 ? [6, 3] : [3]) {
+    const many = s.team ? s.team.agents : (s.copies ?? 0);
+    if (many > 1 && s.headH >= 40) {
+      for (const d of many > 2 ? [6, 3] : [3]) {
         roundRect(ctx, s.x + d, s.y - d, s.w, s.h, 10);
         ctx.fillStyle = '#f8fafc';
         ctx.fill();
@@ -1952,7 +2259,7 @@ export class AirspaceScene {
     this.drawGlyph(s, ix + 13, iy + 13);
 
     const tx = ix + 36;
-    const chevronW = s.kind === 'mcp' && s.tools.length ? 22 : 0;
+    const chevronW = (s.kind === 'mcp' && s.tools.length) || s.team ? 22 : 0;
     const right = s.x + s.w - 12 - chevronW;
     const compact = head < 40;
     // Status line on the right: live rate, holding, idle.
@@ -1972,11 +2279,28 @@ export class AirspaceScene {
     ctx.fillStyle = INK;
     const titleY = s.y + (compact ? head / 2 + 4 : head / 2 - 2);
     // A group's copy count rides on the title line, so it survives compact cards.
-    const copies = s.copies ? `×${s.copies.toLocaleString()}` : '';
+    // The name comes first: the count badge shortens ("12 agents" → "12"), then goes, before the name is cut.
+    const titleFont = `600 ${compact ? 11.5 : 12.5}px ${FONT}`;
+    const room = right - tx - statusW;
+    ctx.font = titleFont;
+    const nameW = ctx.measureText(s.label).width;
     ctx.font = `600 10.5px ${FONT}`;
+    const n = s.team?.agents ?? s.copies;
+    let copies = '';
+    const short = s.team ? (n ?? 0).toLocaleString() : `×${(n ?? 0).toLocaleString()}`;
+    const long = s.team ? `${short} agent${n === 1 ? '' : 's'}` : s.copiesOf ? `${short} of ${s.copiesOf.toLocaleString()}` : short;
+    // "×1" alone would misstate an agent with more copies elsewhere: it gets the long form or nothing.
+    for (const c of n ? (s.copiesOf ? [long] : [long, short]) : []) {
+      if (nameW + ctx.measureText(c).width + 12 <= room) {
+        copies = c;
+        break;
+      }
+    }
+    // A name too long to fit is cut either way; keep the short count so the card still reads as a team or group.
+    if (!copies && n && !s.copiesOf && room - nameW < 0 && room > 90) copies = short;
     const copiesW = copies ? ctx.measureText(copies).width + 12 : 0;
-    ctx.font = `600 ${compact ? 11.5 : 12.5}px ${FONT}`;
-    const title = fitText(ctx, s.label, right - tx - statusW - copiesW);
+    ctx.font = titleFont;
+    const title = fitText(ctx, s.label, room - copiesW);
     ctx.fillText(title, tx, titleY);
     if (copies) {
       const cx = tx + ctx.measureText(title).width + 5;
@@ -2009,7 +2333,7 @@ export class AirspaceScene {
       const cx = s.x + s.w - 16;
       const cy = s.y + head / 2;
       ctx.beginPath();
-      if (s.expanded) {
+      if (s.expanded && !s.team) {
         ctx.moveTo(cx - 4, cy - 2);
         ctx.lineTo(cx, cy + 2);
         ctx.lineTo(cx + 4, cy - 2);
@@ -2266,6 +2590,14 @@ export class AirspaceScene {
     const now = Date.now();
     const [sx, sy] = this.pointer;
     const [x, y] = this.toWorld(this.pointer);
+    for (const th of this.teamHeads) {
+      if (x >= th.x && x <= th.x + th.w && y >= th.y && y <= th.y + th.h) {
+        this.setHovered(`teamhead:${th.team}`);
+        this.canvas.style.cursor = 'pointer';
+        this.hoverCb?.(null);
+        return;
+      }
+    }
     for (const s of this.stations.values()) {
       if (x < s.x || x > s.x + s.w || y < s.y || y > s.y + s.h) continue;
       if (s.expanded && y > s.y + s.headH) {

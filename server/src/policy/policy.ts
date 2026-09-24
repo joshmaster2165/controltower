@@ -40,6 +40,8 @@ export interface RuleMatch {
   keys?: string[];
   /** Agent groups: every key carrying one of these agent ids. A key matches if it is in `keys` or in one of these. */
   groups?: string[];
+  /** Teams: every key labelled with one of these teams. */
+  teams?: string[];
   /** Specific model deployments. */
   deployments?: string[];
   /** Specific MCP tool servers. */
@@ -203,7 +205,10 @@ export class PolicyService implements PolicyEngine {
 
   sourceZones(key: KeyRecord): ZoneRecord[] {
     // A key is a member through its own station or through its agent's group.
-    return this.zonesForStation(key.agentId ? [`key:${key.id}`, `group:${key.agentId}`] : `key:${key.id}`, { team: key.team, project: key.project, tags: key.tags });
+    const ids = [`key:${key.id}`];
+    if (key.agentId) ids.push(`group:${key.agentId}`);
+    if (key.team) ids.push(`team:${key.team}`);
+    return this.zonesForStation(ids, { team: key.team, project: key.project, tags: key.tags });
   }
 
   targetZones(target: PolicyTarget): ZoneRecord[] {
@@ -226,7 +231,8 @@ export class PolicyService implements PolicyEngine {
     if (r.fromZone && !src.has(r.fromZone)) return 'no';
     if (r.toZone && !dst.has(r.toZone)) return 'no';
     // Station-level scope: gates drawn directly on the Airspace between a specific agent and destination.
-    if ((r.match.keys?.length || r.match.groups?.length) && !r.match.keys?.includes(key.id) && !(key.agentId && r.match.groups?.includes(key.agentId))) return 'no';
+    const m = r.match;
+    if ((m.keys?.length || m.groups?.length || m.teams?.length) && !m.keys?.includes(key.id) && !(key.agentId && m.groups?.includes(key.agentId)) && !(key.team && m.teams?.includes(key.team))) return 'no';
     const dests = [...(r.match.deployments ?? []), ...(r.match.mcp_servers ?? [])];
     if (dests.length) {
       const id = target.kind === 'model' ? target.deploymentId : target.mcpServerId;

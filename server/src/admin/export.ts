@@ -62,7 +62,7 @@ function describeScope(r: RuleRecord, ctx: AppContext, policy: PolicyService): s
   };
   const mcp = (id: string) => ctx.mcp.servers.get(id)?.name ?? id;
   const zone = (id: string) => policy.zones.get(id)?.name ?? id;
-  const who = [...(r.match.keys ?? []).map(key), ...(r.match.groups ?? []).map((g) => `${g} (every copy)`)];
+  const who = [...(r.match.keys ?? []).map(key), ...(r.match.groups ?? []).map((g) => `${g} (every copy)`), ...(r.match.teams ?? []).map((t) => `team ${t}`)];
   const from = who.length ? who.join(', ') : r.fromZone ? `${zone(r.fromZone)} agents` : 'any agent';
   const dests = [...(r.match.deployments ?? []).map(dep), ...(r.match.mcp_servers ?? []).map(mcp)];
   let to = dests.length ? dests.join(', ') : r.toZone ? zone(r.toZone) : 'anything';

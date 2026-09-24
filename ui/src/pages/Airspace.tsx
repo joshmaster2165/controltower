@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent } from '../ws';
-import { AirspaceScene, type ClickInfo, type FocusSummary, type HoverInfo } from '../airspace/scene';
+import { AirspaceScene, type AgentLevel, type ClickInfo, type FocusSummary, type HoverInfo } from '../airspace/scene';
 import { agentGroups, agentRef } from '../airspace/groups';
 import { api, ApiError, type Rule, type Topology, type Zone } from '../api';
 import { Icon } from '../components/Icon';
@@ -13,6 +13,9 @@ import { GatePopover, type SimResult, GateComposer } from './airspace/gates';
 import { PolicyImport } from './airspace/PolicyImport';
 import type { FlightEvent } from '@controltower/shared';
 import { ReplayBar } from './airspace/Replay';
+import { MapSearch } from './airspace/MapSearch';
+
+const LEVEL_KEY = 'ct.airspace.level';
 
 type Popover =
   | { kind: 'compose'; draft: GateDraft; x: number; y: number }
@@ -67,6 +70,8 @@ export function AirspacePage() {
   const [customLayout, setCustomLayout] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const cameraReady = useRef(false);
+  // Teams or agents; 'auto' (the default) draws teams once a fleet has more agents than fit.
+  const [level, setLevelInfo] = useState<{ level: AgentLevel; pref: AgentLevel | 'auto'; teams: number }>({ level: 'agents', pref: 'auto', teams: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyFocus = (id: string | null) => {
@@ -95,6 +100,17 @@ export function AirspacePage() {
           return;
         }
         sceneRef.current = scene;
+        try {
+          const v = localStorage.getItem(LEVEL_KEY);
+          if (v === 'teams' || v === 'agents') scene.setLevel(v);
+        } catch {
+          /* private mode */
+        }
+        scene.onLevelChange(() => {
+          setLevelInfo(scene.getLevel());
+          // The traced station may have been folded into a team, or opened out of one.
+          if (focusRef.current && !scene.focusSummary(focusRef.current)) applyFocus(null);
+        });
         (window as unknown as { __ctScene?: AirspaceScene }).__ctScene = scene;
         scene.onHover(setHover);
         scene.onClick((c: ClickInfo) => {
@@ -127,6 +143,7 @@ export function AirspacePage() {
         });
         const st = useStore.getState();
         if (st.topology) scene.setTopology(st.topology);
+        setLevelInfo(scene.getLevel());
         if (st.policy) scene.setPolicy(st.policy);
         scene.setAlertedGates(alertedGates(st.alertRules));
         try {
@@ -207,6 +224,7 @@ export function AirspacePage() {
   useEffect(() => {
     if (topology && sceneRef.current) {
       sceneRef.current.setTopology(topology);
+      setLevelInfo(sceneRef.current.getLevel());
       if (focusRef.current) setFocus(sceneRef.current.focusSummary(focusRef.current));
     }
   }, [topology]);
@@ -289,6 +307,22 @@ export function AirspacePage() {
   useEffect(() => {
     sceneRef.current?.setRightInset(showTower || focusId ? 372 : 0);
   }, [showTower, focusId, topology, policy]);
+
+  const chooseLevel = (v: AgentLevel) => {
+    sceneRef.current?.setLevel(v);
+    try {
+      localStorage.setItem(LEVEL_KEY, v);
+    } catch {
+      /* private mode */
+    }
+  };
+  const getScene = useCallback(() => sceneRef.current, []);
+  const revealed = useCallback((id: string) => {
+    setPopover(null);
+    focusRef.current = id;
+    setFocusId(id);
+    setFocus(sceneRef.current?.focusSummary(id) ?? null);
+  }, []);
 
   const fitView = () => {
     sceneRef.current?.fit();
@@ -517,6 +551,25 @@ export function AirspacePage() {
       {hover && !popover && <Tooltip hover={hover} />}
 
       <div className="map-controls" style={{ right: showTower || focusId ? 388 : 16 }}>
+        <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
+        <span className="sep" />
+        {level.teams >= 2 && (
+          <>
+            <div className="seg sm layer-seg" role="radiogroup" aria-label="Draw agents by">
+              {(
+                [
+                  ['teams', 'Teams', 'One station per team — open a team to see its agents'],
+                  ['agents', 'Agents', 'One station per agent (copies of an agent drawn once)'],
+                ] as const
+              ).map(([id, label, hint]) => (
+                <button key={id} role="radio" aria-checked={level.level === id} className={level.level === id ? 'on' : ''} title={hint} onClick={() => chooseLevel(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="sep" />
+          </>
+        )}
         <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
           {(
             [
@@ -546,7 +599,7 @@ export function AirspacePage() {
         <span
           className="map-help"
           tabIndex={0}
-          title="Drag nodes to arrange (saved for everyone) · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace what it connects to · right-click a node to gate it"
+          title="Drag nodes to arrange (saved for everyone) · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace what it connects to · right-click a node to gate it · click a team's arrow to open it · press / to find anything"
           aria-label="Map controls help"
         >
           ?

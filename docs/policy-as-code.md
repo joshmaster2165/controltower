@@ -43,7 +43,7 @@ gates:
 | Field | |
 |---|---|
 | `name` | Unique; gates refer to zones by name |
-| `members` | `agent:<key name>`, `group:<agent id>` (every key with that agent ID), `model:<model name or provider/model>`, `provider:<slug>`, `mcp:<slug>`, `http:<slug>`, `tool:<server__tool>` |
+| `members` | `agent:<key name>`, `group:<agent id>` (every key with that agent ID), `team:<team>` (every key in the team), `model:<model name or provider/model>`, `provider:<slug>`, `mcp:<slug>`, `http:<slug>`, `tool:<server__tool>` |
 | `match` | `teams`, `projects`, `tags` (keys) and `provider_kinds` (models): stations join automatically |
 | `color` | Optional |
 
@@ -56,6 +56,7 @@ gates:
 | `target` | `model`, `tool` or `any` (default) |
 | `match.agents` | Key names |
 | `match.groups` | Agent IDs: every key carrying one, including keys added later |
+| `match.teams` | Teams: every key labelled with one, including keys added later |
 | `match.deployments` | Model names (specific deployments) |
 | `match.servers` | MCP server or HTTP API slugs |
 | `match.models`, `match.tools` | Globs: `gpt-4*`, `github__merge_*`, `statuspage__DELETE *` |

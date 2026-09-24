@@ -310,6 +310,55 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
       return { group: all.find((x) => x.id === 'group:rw-worker')?.copies ?? 0, copiesDrawnAlone: all.filter((x) => /^rw-worker-/.test(x.label)).length };
     });
   await expect.poll(station).toEqual({ group: 3, copiesDrawnAlone: 0 });
+
+  // Teams: a second team makes the Teams view available; each team is one station until opened.
+  await key('rw-ops-agent', { team: 'rw-ops' });
+  await key('rw-ops-helper', { team: 'rw-ops' });
+  type Scene = { stations: Map<string, { id: string; x: number; y: number; w: number; headH: number }>; getCamera(): { x: number; y: number; k: number }; canvas: HTMLCanvasElement; focusId: string | null };
+  const agentStations = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene?: Scene }).__ctScene;
+      return [...(s?.stations.values() ?? [])].map((x) => x.id).filter((id) => id.startsWith('team:') || id.startsWith('group:'));
+    });
+  await page.getByRole('radio', { name: 'Teams' }).click();
+  await expect.poll(agentStations).toEqual(expect.arrayContaining(['team:real-world', 'team:rw-ops']));
+  expect(await agentStations()).not.toContain('group:rw-worker');
+
+  // Open the team from its arrow: its agents, the worker group among them, come back.
+  const arrow = await page.evaluate(() => {
+    const s = (window as unknown as { __ctScene: Scene }).__ctScene;
+    const st = s.stations.get('team:real-world')!;
+    const c = s.getCamera();
+    const r = s.canvas.getBoundingClientRect();
+    return [(st.x + st.w - 13) * c.k + c.x + r.left, (st.y + st.headH / 2) * c.k + c.y + r.top] as const;
+  });
+  await page.mouse.click(arrow[0], arrow[1]);
+  await expect.poll(agentStations).toContain('group:rw-worker');
+  expect(await agentStations()).not.toContain('team:real-world');
+
+  // Search finds an agent folded into a closed team, opens the team and traces the agent.
+  await page.getByRole('radio', { name: 'Teams' }).click(); // back to every team closed
+  await expect.poll(agentStations).toContain('team:real-world');
+  await page.keyboard.press('/');
+  await page.keyboard.type('rw-work');
+  await expect(page.getByRole('option').first()).toContainText('rw-worker');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __ctScene: Scene }).__ctScene.focusId)).toBe('group:rw-worker');
+  await expect(page.locator('.focus-panel, .focus')).toContainText('rw-worker');
+
+  // A gate drawn on a team covers its keys only; policy files name it team:<name> and match.teams.
+  const opsKey = await key('rw-ops-third', { team: 'rw-ops' });
+  const teamGate = await admin.post('/admin/api/rules', { name: 'Ops may not use mini', effect: 'deny', target_kind: 'model', match: { teams: ['rw-ops'], models: ['gpt-4.1-mini'] }, priority: 5 });
+  expect(teamGate.status).toBe(201);
+  expect((await chat(opsKey.key)).status).toBe(403);
+  expect((await chat(other.key)).status).toBe(200);
+  const opsZone = (await admin.post('/admin/api/zones', { name: 'Ops', stations: ['team:rw-ops'] })).body.id;
+  const policyYaml = (await admin.get<string>('/admin/api/policy/export')).body;
+  expect(policyYaml).toContain('team:rw-ops');
+  expect(policyYaml).toMatch(/teams:\s*\n\s*- rw-ops/);
+  await admin.call('DELETE', `/admin/api/rules/${teamGate.body.id}`);
+  await admin.call('DELETE', `/admin/api/zones/${opsZone}`);
+  expect((await chat(opsKey.key)).status).toBe(200);
 });
 
 // ---------------------------------------------------------------- gates on models

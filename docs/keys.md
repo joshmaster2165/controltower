@@ -55,6 +55,21 @@ curl -X POST http://localhost:4000/key/generate \
 
 `/key/info`, `/key/update`, `/key/list`, `/key/block`, `/key/unblock`, `/key/regenerate` and `/key/delete` work as in LiteLLM. See [Migrating from LiteLLM](migrating-from-litellm.md#keys).
 
+## Team and project budgets
+
+A key budget caps one agent. To cap a whole team or project — every key labelled with it, including keys created later — add a budget on the **Ledger**:
+
+![Adding a monthly budget for the sales team](images/budget-add.png)
+
+- **Resets** daily, weekly (Monday) or monthly, in UTC, or never.
+- A new budget counts what the team or project **already spent in the current period**, so a monthly budget set on the 20th includes the 1st to the 20th.
+- **Hard** budgets refuse calls with `429 budget_exceeded` once used up; **soft** ones only alert.
+- Every call is checked against every budget that covers it — the key's, its team's and its project's — so the tightest one applies.
+
+![Budgets on the Ledger](images/budgets.png)
+
+API: `GET /admin/api/budgets`, `PUT /admin/api/budgets/<key|team|project>/<id>` with `{"limit_usd": 500, "period": "monthly", "hard": true}`, and `DELETE` on the same path.
+
 ## Disable, rotate, delete
 
 - **Disable** stops a key immediately (`401 key_disabled`) and keeps its history; **Enable** restores it.

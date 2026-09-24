@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryLimiter, SpendTracker } from '../src/limits/limiter.js';
+import { MemoryLimiter, SpendTracker, nextReset, periodStart } from '../src/limits/limiter.js';
 
 describe('MemoryLimiter (GCRA)', () => {
   it('admits up to the burst then rejects with a retry-after', () => {
@@ -70,5 +70,16 @@ describe('SpendTracker', () => {
     s.set('team:t', { limitNanousd: 10, hard: false, spent: 50, reserved: 0, period: 'total', resetsAt: undefined });
     expect(s.reserve(['team:t'], 5)).toBeNull();
     expect(s.softOver(['team:t'])).toBe('team:t');
+  });
+});
+
+describe('budget periods', () => {
+  it('start at the beginning of the UTC day, week (Monday) and month', () => {
+    const at = Date.UTC(2026, 8, 24, 15, 30); // Thursday 24 Sep 2026
+    expect(periodStart('daily', at)).toBe(Date.UTC(2026, 8, 24));
+    expect(periodStart('weekly', at)).toBe(Date.UTC(2026, 8, 21));
+    expect(periodStart('monthly', at)).toBe(Date.UTC(2026, 8, 1));
+    expect(periodStart('total', at)).toBe(0);
+    for (const p of ['daily', 'weekly', 'monthly'] as const) expect(nextReset(p, at)! > periodStart(p, at)).toBe(true);
   });
 });

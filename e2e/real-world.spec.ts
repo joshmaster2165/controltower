@@ -190,6 +190,34 @@ test('OpenAI Responses API (Agents SDK, Codex) → /v1/responses → OpenAI-comp
   expect(ok.every((f) => f.cost_nanousd > 0)).toBe(true);
 });
 
+test('Team budgets: count what the team already spent, cover keys added later, lift when removed', async () => {
+  const first = await key('rw-budget-first', { team: 'budget-team' });
+  const other = await key('rw-budget-other-team', { team: 'another-team' });
+  const chat = (k: string) =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] }) });
+  expect((await chat(first.key)).status).toBe(200);
+  await flightsFor(first.id, (f) => f.some((x) => x.status === 'ok' && x.cost_nanousd > 0));
+
+  // A budget below what the team has already spent this month.
+  const put = await admin.call('PUT', '/admin/api/budgets/team/budget-team', { limit_usd: 0.00001, period: 'monthly' });
+  expect(put.status).toBe(200);
+  expect(put.body.spent_usd).toBeGreaterThan(0.00001);
+
+  const refused = await chat(first.key);
+  expect(refused.status).toBe(429);
+  expect((await refused.json()).error.code).toBe('budget_exceeded');
+  const joinedLater = await key('rw-budget-joined-later', { team: 'budget-team' });
+  expect((await chat(joinedLater.key)).status).toBe(429);
+  expect((await chat(other.key)).status).toBe(200);
+
+  const list = (await admin.get('/admin/api/budgets')).body;
+  expect(list.budgets.find((b: { scope_type: string; scope_id: string }) => b.scope_type === 'team' && b.scope_id === 'budget-team')).toMatchObject({ keys: 2, period: 'monthly', hard: true });
+  expect(list.teams).toEqual(expect.arrayContaining(['budget-team', 'another-team']));
+
+  expect((await admin.call('DELETE', '/admin/api/budgets/team/budget-team')).status).toBe(200);
+  expect((await chat(first.key)).status).toBe(200);
+});
+
 test('Fallback: an alias skips a rate-limited deployment and answers from the next one', async () => {
   const flaky = await openAiUpstream({ rateLimited: true });
   const steady = await openAiUpstream({ reply: 'Hello from the steady upstream' });

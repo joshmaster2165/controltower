@@ -283,6 +283,19 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
       await shot(page, name);
     }
 
+    // A team budget from the Ledger.
+    await nav(page, 'Ledger');
+    await hideToasts();
+    const card = page.locator('.budgets-card');
+    await card.getByRole('button', { name: 'Add budget' }).click();
+    await card.locator('.field', { hasText: 'Team' }).locator('input').fill('sales');
+    await field(card, /^Limit/).fill('25');
+    await card.scrollIntoViewIfNeeded();
+    await shot(page, 'budget-add', { clip: card, pad: 8 });
+    await card.getByRole('button', { name: 'Add budget' }).click();
+    await expect(card).toContainText('Team sales');
+    await shot(page, 'budgets', { clip: card, pad: 8 });
+
     // The connect panel's other tabs.
     await nav(page, 'Keys');
     await page.getByRole('button', { name: 'Create key', exact: true }).click();

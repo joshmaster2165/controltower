@@ -14,6 +14,8 @@ Spend, requests, tokens and errors over time, per agent and per model or tool se
 
 ![The Ledger](images/ledger.png)
 
+The **Budgets** card shows every agent, team and project budget against its spend, and is where team and project budgets are added — see [Keys, budgets and limits](keys.md#team-and-project-budgets).
+
 ## Data-flow inventory
 
 **Inventory** lists every agent, model and tool server, and every agent → model / tool path seen in the last 24 hours, 7 days or 30 days — with requests, errors, blocked, held and spend, and, for each path, what Control Tower does about it today: the access decision and the gate behind it, the inspect gates that scan it, and whether the agent's key even allows it. Paths seen outside the gateway are listed separately as *seen, not enforced*.

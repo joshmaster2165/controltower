@@ -726,3 +726,20 @@ button.pill.demo { cursor: pointer; font: inherit; }
 .pi-row.info .pi-tag { color: var(--accent); }
 .pi-row.danger .pi-tag { color: var(--danger); }
 @media (max-width: 720px) { .pi-modes, .pi-cols { grid-template-columns: 1fr; } }
+
+/* budgets (Ledger) */
+.danger-text { color: var(--danger) !important; }
+.budgets-card .budgets-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.budget-form { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #f8fafd; }
+.budget-form .seg { margin-bottom: 10px; }
+.budget-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.budget-list { display: grid; gap: 14px; }
+.meter-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.meter-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.meter-amount { color: var(--text-dim); white-space: nowrap; font-size: 12.5px; }
+.meter-sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 26px; font-size: 12px; color: var(--text-dim); }
+.meter-bar { height: 8px; border-radius: 4px; background: #dbe6ff; overflow: hidden; }
+.meter-bar > div { height: 100%; border-radius: 4px; }
+.budget-actions { display: flex; opacity: 0.6; transition: opacity 0.15s; }
+.budget-actions .btn { padding: 2px 8px; }
+.meter:hover .budget-actions, .budget-actions:focus-within { opacity: 1; }

@@ -182,6 +182,21 @@ export class SpendTracker {
   }
 }
 
+/** Start of the budget period containing `at` (UTC), or 0 for a total budget. */
+export function periodStart(period: BudgetScope['period'], at = Date.now()): number {
+  const d = new Date(at);
+  switch (period) {
+    case 'daily':
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    case 'weekly':
+      return nextReset('weekly', at)! - 7 * 24 * 3600 * 1000;
+    case 'monthly':
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+    case 'total':
+      return 0;
+  }
+}
+
 export function nextReset(period: BudgetScope['period'], from = Date.now()): number | undefined {
   const d = new Date(from);
   switch (period) {

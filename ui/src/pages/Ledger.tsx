@@ -4,6 +4,7 @@ import { usd } from '../format';
 import { api } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
+import { BudgetsCard } from '../components/BudgetsCard';
 
 /**
  * Ledger: what the gateway cost and how much it moved. Forms follow the job —
@@ -18,11 +19,9 @@ interface Summary {
   by_key: Array<{ key_id: string; requests: number; errors: number; denied: number; cost_nanousd: number; in_tokens: number; out_tokens: number }>;
   by_deployment: Array<{ deployment_id: string; requests: number; cost_nanousd: number; in_tokens: number; out_tokens: number; avg_ms: number | null }>;
   series: Array<{ bucket: string; requests: number; cost_nanousd: number; errors: number }>;
-  budgets: Array<{ scope: string; limit_nanousd: number; spent_nanousd: number; reserved_nanousd: number; hard: boolean; period: string }>;
 }
 
 const HUE = '#1f5eff';
-const HUE_SOFT = '#dbe6ff';
 const INK_MUTED = '#8a98ad';
 const GRID = '#e3e8f0';
 
@@ -180,26 +179,6 @@ function HBars({ title, rows, format, unit }: { title: string; rows: Array<{ nam
   );
 }
 
-function Meter({ label, spent, limit, hard }: { label: string; spent: number; limit: number; hard: boolean }) {
-  const ratio = limit > 0 ? spent / limit : 0;
-  const fill = ratio >= 1 ? '#d3374e' : ratio >= 0.8 ? '#d9860b' : HUE;
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
-        <span>
-          {label} <span className="hint">{hard ? 'hard' : 'soft'}</span>
-        </span>
-        <span className="mono" style={{ color: 'var(--text-dim)' }}>
-          {formatUsd(spent, { compact: true })} / {formatUsd(limit, { compact: true })}
-        </span>
-      </div>
-      <div style={{ height: 8, borderRadius: 4, background: HUE_SOFT, marginTop: 4, overflow: 'hidden' }} role="meter" aria-valuenow={Math.round(ratio * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
-        <div style={{ width: `${Math.min(100, ratio * 100)}%`, height: '100%', background: fill, borderRadius: 4 }} />
-      </div>
-    </div>
-  );
-}
-
 /** Dollars for bar labels: none, dust, cents, or whole amounts. */
 function usdValue(v: number): string {
   if (!v) return '—';
@@ -324,16 +303,7 @@ export function LedgerPage() {
             </tbody>
           </table>
         </div>
-        <div className="card">
-          <div style={{ fontWeight: 600, marginBottom: 10 }}>Budgets</div>
-          {(data?.budgets ?? []).length === 0 && <div className="hint">No budgets set. Add one when creating a key.</div>}
-          {(data?.budgets ?? []).map((b) => {
-            const [type, ...rest] = b.scope.split(':');
-            const id = rest.join(':');
-            const name = type === 'key' ? (keyName.get(id) ?? id) : `${type} ${id}`;
-            return <Meter key={b.scope} label={`${name} · ${b.period}`} spent={b.spent_nanousd + b.reserved_nanousd} limit={b.limit_nanousd} hard={b.hard} />;
-          })}
-        </div>
+        <BudgetsCard />
       </div>
 
       <div className="card" style={{ padding: 0 }}>

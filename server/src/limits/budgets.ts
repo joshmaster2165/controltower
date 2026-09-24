@@ -1,7 +1,7 @@
 import { ulid } from 'ulid';
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
-import { SpendTracker, nextReset, type BudgetScope } from './limiter.js';
+import { SpendTracker, nextReset, periodStart, type BudgetScope } from './limiter.js';
 import { NANO_PER_USD } from '@controltower/shared';
 
 /**
@@ -37,15 +37,40 @@ export class Budgets {
     for (const s of this.snapshot().map((x) => x.scope)) if (!seen.has(s)) this.tracker.delete(s);
   }
 
+  /**
+   * Create or change a budget. A new budget — or one whose period changes —
+   * starts from what the scope has already spent in the current period, so a
+   * monthly team budget set mid-month counts the month so far.
+   */
   async upsert(scopeType: 'key' | 'team' | 'project', scopeId: string, limitUsd: number, period: BudgetScope['period'], hard: boolean): Promise<void> {
     const limit = Math.round(limitUsd * NANO_PER_USD);
-    const resets = nextReset(period) ?? null;
-    await this.db
-      .insertInto('budgets')
-      .values({ id: ulid(), scope_type: scopeType, scope_id: scopeId, limit_nanousd: limit, period, hard: hard ? 1 : 0, resets_at: resets, spent_nanousd: 0 })
-      .onConflict((oc) => oc.columns(['scope_type', 'scope_id']).doUpdateSet({ limit_nanousd: limit, period, hard: hard ? 1 : 0, resets_at: resets }))
-      .execute();
+    const existing = await this.db.selectFrom('budgets').select(['period', 'resets_at']).where('scope_type', '=', scopeType).where('scope_id', '=', scopeId).executeTakeFirst();
+    const fresh = !existing || existing.period !== period;
+    if (!fresh) {
+      await this.db.updateTable('budgets').set({ limit_nanousd: limit, hard: hard ? 1 : 0 }).where('scope_type', '=', scopeType).where('scope_id', '=', scopeId).execute();
+    } else {
+      const spent = await this.spentSince(scopeType, scopeId, periodStart(period));
+      const values = { limit_nanousd: limit, period, hard: hard ? 1 : 0, resets_at: nextReset(period) ?? null, spent_nanousd: spent };
+      await this.db
+        .insertInto('budgets')
+        .values({ id: ulid(), scope_type: scopeType, scope_id: scopeId, ...values })
+        .onConflict((oc) => oc.columns(['scope_type', 'scope_id']).doUpdateSet(values))
+        .execute();
+      this.tracker.delete(`${scopeType}:${scopeId}`); // the meter restarts from the recorded spend
+    }
     await this.reload();
+  }
+
+  /** Recorded spend of a key, team or project since a time (retained flights only). */
+  async spentSince(scopeType: 'key' | 'team' | 'project', scopeId: string, since: number): Promise<number> {
+    const column = scopeType === 'key' ? 'key_id' : scopeType;
+    const row = await this.db
+      .selectFrom('flights')
+      .select((eb) => eb.fn.sum<number>('cost_nanousd').as('spent'))
+      .where(column, '=', scopeId)
+      .where('ts', '>=', since)
+      .executeTakeFirst();
+    return Number(row?.spent ?? 0);
   }
 
   async remove(scopeType: string, scopeId: string): Promise<void> {

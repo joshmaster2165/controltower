@@ -345,6 +345,18 @@ pre.args .s { color: #9fe0bf; }
 .hcard.dash code { background: var(--bg); }
 
 /* ------------------------------------------------------------ install */
+.watch { padding-top: 96px; padding-bottom: 96px; border-bottom: 1px solid var(--line-2); background: #fff; }
+.watch h3 { font-size: 30px; font-weight: 450; letter-spacing: -0.02em; margin: 16px 0 12px; }
+.watch > p { color: var(--dim); max-width: 44em; margin: 0 0 36px; }
+.browser { border-radius: 14px; overflow: hidden; border: 1px solid var(--line-2); background: var(--paper); box-shadow: 0 24px 60px rgba(10, 18, 34, 0.16); }
+.browser-h { display: flex; align-items: center; gap: 7px; padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.browser-h i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); }
+.browser-h span { margin-left: 10px; font: 400 11.5px/1 var(--mono); color: var(--faint); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser img { width: 100%; height: auto; aspect-ratio: 1152 / 688; background: var(--bg); }
+.wsteps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; counter-reset: ws; }
+.wsteps li { counter-increment: ws; color: var(--dim); font-size: 14px; padding-top: 14px; border-top: 2px solid var(--line); }
+.wsteps li::before { content: '0' counter(ws); display: block; font: 500 11px/1 var(--mono); color: var(--accent); margin-bottom: 8px; }
+.wsteps b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
 .install { padding-top: 96px; padding-bottom: 96px; border-bottom: 1px solid var(--line-2); background: var(--bg); }
 .term { background: var(--night); border-radius: 14px; overflow: hidden; box-shadow: 0 24px 60px rgba(10, 18, 34, 0.35); border: 1px solid #1c2940; }
 .term-h { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid #1c2940; }
@@ -396,7 +408,8 @@ footer .sp { flex: 1; }
   .hero h1 { font-size: 40px; }
   .hero .lede { font-size: 16px; }
   .statement h2 { font-size: 26px; }
-  .copy h3, .honest h3 { font-size: 25px; }
+  .copy h3, .honest h3, .watch h3 { font-size: 25px; }
+  .wsteps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .closing h2 { font-size: 34px; }
   .feature, .install { padding-top: 64px; padding-bottom: 64px; }
   .two { grid-template-columns: 1fr; }
@@ -950,9 +963,29 @@ ct_approvals_pending 1</pre>
   </div>
 </section>
 
+<!-- ================================================================ WATCH -->
+<section class="frame pad watch" id="watch">
+  <span class="rail">05</span>
+  <span class="eyebrow reveal">See it run</span>
+  <h3 class="reveal">Thirty seconds in the real console.</h3>
+  <p class="reveal">No mock-ups: this is Control Tower with its demo fleet. An agent is traced across the map, a gate is dragged onto its path to a Salesforce tool, and the next call waits at the gate until a human approves it.</p>
+  <div class="tilt" data-scroll>
+    <div class="browser">
+      <div class="browser-h"><i></i><i></i><i></i><span>localhost:4000/#/airspace</span></div>
+      <img src="media/controltower-demo.gif" width="1152" height="688" loading="lazy" decoding="async" alt="The Control Tower console: a live map of agents, models, MCP tool servers and APIs; clicking an agent traces its connections; dragging from the agent to a Salesforce tool adds a require-approval gate; the next call holds and is approved in the Tower.">
+    </div>
+  </div>
+  <ol class="wsteps">
+    <li class="reveal"><b>See every flow</b>Agents, models, tool servers and APIs, live.</li>
+    <li class="reveal"><b>Trace an agent</b>Where it goes, what it costs, what fails.</li>
+    <li class="reveal"><b>Draw a gate</b>Block, require approval or inspect a path.</li>
+    <li class="reveal"><b>Approve the call</b>It waits at the gate; a human says yes.</li>
+  </ol>
+</section>
+
 <!-- ================================================================ INSTALL -->
 <section class="frame pad install" id="install">
-  <span class="rail">05</span>
+  <span class="rail">06</span>
   <div class="feature-grid">
     <div class="copy reveal">
       <span class="eyebrow">Get started</span>

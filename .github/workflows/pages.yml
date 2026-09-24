@@ -4,7 +4,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'docs/media/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:

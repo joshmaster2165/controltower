@@ -247,10 +247,6 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.2 — understand it** (mostly shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓. Still to come: Flight Recorder replay, YAML policy import/export, email approvals.
 - **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
 
-## Acknowledgements
-
-Control Tower's gateway feature surface is modelled on what [LiteLLM](https://github.com/BerriAI/litellm) proved an LLM gateway needs. Its MIT-licensed model pricing table is vendored as data; see `THIRD_PARTY.md`.
-
 ## License
 
-Apache-2.0 for everything outside `ee/`. See [LICENSE](LICENSE).
+Apache-2.0 for everything outside `ee/`. See [LICENSE](LICENSE); third-party notices for bundled data are in [THIRD_PARTY.md](THIRD_PARTY.md).

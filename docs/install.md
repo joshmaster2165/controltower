@@ -17,12 +17,12 @@ docker run -d --name controltower \
 - **Port:** 4000, or `PORT` / `CT_PORT` / `--port`.
 - The container runs as a non-root user. If a platform mounts `/data` owned by root, the entrypoint fixes the ownership before dropping privileges.
 
-Flags go after the image name, as with LiteLLM's image:
+Flags go after the image name:
 
 ```bash
 docker run -p 4000:4000 -v controltower-data:/data \
   -v $(pwd)/config.yaml:/app/config.yaml \
-  -e LITELLM_MASTER_KEY=sk-1234 -e OPENAI_API_KEY=sk-… \
+  -e CT_ADMIN_KEY=sk-… -e OPENAI_API_KEY=sk-… \
   ghcr.io/joshmaster2165/controltower --config /app/config.yaml --detailed_debug
 ```
 
@@ -64,7 +64,7 @@ Railway runs the published image directly; the only extra step is a volume, so t
 4. Optional: **Settings → Deploy → Healthcheck Path** `/healthz`.
 5. Open the domain and create the admin account — or set `CT_ADMIN_KEY` under **Variables** first to skip that step and sign in as `admin`.
 
-Links in alerts and approval messages use the Railway domain automatically (`RAILWAY_PUBLIC_DOMAIN`); set `CT_PUBLIC_URL` if you add a custom domain. To run from a LiteLLM-style config, build a small image `FROM ghcr.io/joshmaster2165/controltower` that copies in your `config.yaml`, set `CT_CONFIG` to its path, and put the provider keys in **Variables**.
+Links in alerts and approval messages use the Railway domain automatically (`RAILWAY_PUBLIC_DOMAIN`); set `CT_PUBLIC_URL` if you add a custom domain. To run from a [config file](config-file.md), build a small image `FROM ghcr.io/joshmaster2165/controltower` that copies in your `config.yaml`, set `CT_CONFIG` to its path, and put the provider keys in **Variables**.
 
 ## Any container platform
 

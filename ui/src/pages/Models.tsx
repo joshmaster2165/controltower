@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ImportLiteLLM } from './ImportLiteLLM';
+import { ImportConfig } from './ImportConfig';
 import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
 
@@ -134,7 +134,7 @@ export function ModelsPage() {
         actions={
           <>
             <button className="btn" onClick={() => setShowImport(true)}>
-              <Icon name="upload" size={15} /> Import from LiteLLM
+              <Icon name="upload" size={15} /> Import config
             </button>
             <button className="btn" onClick={() => setShowAlias(true)}>
               <Icon name="plus" size={15} /> Alias
@@ -149,7 +149,7 @@ export function ModelsPage() {
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {showImport && (
-        <ImportLiteLLM
+        <ImportConfig
           onClose={() => setShowImport(false)}
           onImported={() => {
             void load();
@@ -355,7 +355,7 @@ export function ModelsPage() {
               <tr>
                 <td colSpan={6} className="table-empty">
                   <b>No models yet</b>
-                  Connect a provider, then add models from its discovered list — or import a LiteLLM config.
+                  Connect a provider, then add models from its discovered list — or import a config file.
                 </td>
               </tr>
             )}

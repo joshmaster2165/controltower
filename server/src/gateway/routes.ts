@@ -9,7 +9,7 @@ import { parseObserveBody, parseOtlpTraces } from '../observe/observe.js';
 export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const runner = new FlightRunner(ctx);
 
-  // Served with and without /v1: SDKs pointed at the bare origin (the LiteLLM convention) call /chat/completions.
+  // Served with and without /v1: SDKs pointed at the bare origin call /chat/completions.
   for (const prefix of ['/v1', '']) {
     app.post(`${prefix}/chat/completions`, async (req, reply) => {
       await runner.runChat(req, reply, 'openai-chat');

@@ -7,17 +7,16 @@ import type { KeyRecord } from '../registry.js';
 import { requireAdmin, hasAdminKey, loadSession } from './auth.js';
 import { generateApiKey, hashApiKey } from '../crypto/apikeys.js';
 import { usableKey } from '../gateway/key.js';
-import { planLiteLLMImport } from '../importers/litellm.js';
+import { planConfigImport } from '../importers/config.js';
 import { applyImportPlan } from '../importers/apply.js';
 import { ADMIN_KEY_ID } from './admin-key.js';
 
 /**
- * LiteLLM's key and model management API, on Control Tower's data model, so
- * scripts and tooling written for LiteLLM keep working: /key/generate, /key/info,
+ * Key and model management API for scripts and CI, on Control Tower's data
+ * model — the /key/* and /model/* conventions common to AI gateways: /key/generate, /key/info,
  * /key/update, /key/delete, /key/list, /key/block, /key/unblock,
  * /key/regenerate, and /model/info, /model/new, /model/delete. Authenticated
- * with the admin key (LiteLLM's master key) as a bearer token, or an admin session.
- * Written from LiteLLM's documented request and response shapes; no LiteLLM code.
+ * with the admin key as a bearer token, or an admin session.
  */
 type Period = 'daily' | 'weekly' | 'monthly' | 'total';
 const PROTECTED = new Set([ADMIN_KEY_ID]);
@@ -41,7 +40,7 @@ function durationMs(v: unknown): number | undefined {
   return n * { s: 1000, m: 60_000, h: 3_600_000, d: DAY, mo: 30 * DAY }[m[2] as 's' | 'm' | 'h' | 'd' | 'mo'];
 }
 
-/** LiteLLM budget_duration → Control Tower's budget periods. */
+/** budget_duration → Control Tower's budget periods. */
 function periodOf(v: unknown): Period {
   const ms = durationMs(v);
   if (ms === undefined) return 'total';
@@ -52,16 +51,16 @@ function periodOf(v: unknown): Period {
 }
 const durationOf: Record<Period, string | null> = { daily: '1d', weekly: '7d', monthly: '30d', total: null };
 
-const LITELLM_PREFIX: Record<string, string> = { openai: 'openai', 'azure-openai': 'azure', anthropic: 'anthropic', gemini: 'gemini', vertex: 'vertex_ai', bedrock: 'bedrock', 'openai-compatible': 'openai', mock: 'demo' };
+const PROVIDER_PREFIX: Record<string, string> = { openai: 'openai', 'azure-openai': 'azure', anthropic: 'anthropic', gemini: 'gemini', vertex: 'vertex_ai', bedrock: 'bedrock', 'openai-compatible': 'openai', mock: 'demo' };
 
-export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
+export async function managementApiRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const guard = requireAdmin(ctx);
   const fail = (reply: FastifyReply, err: unknown) => {
     if (err instanceof ApiError) return reply.status(err.status).send({ error: { message: err.message, type: err.status === 404 ? 'not_found_error' : 'invalid_request_error', code: String(err.status) } });
     throw err;
   };
 
-  /** A key by its secret, its hash (LiteLLM's "token"), or its Control Tower id. */
+  /** A key by its secret, its hash (the "token"), or its Control Tower id. */
   const findKey = (ref: unknown): KeyRecord | undefined => {
     if (typeof ref !== 'string' || !ref) return undefined;
     return ctx.registry.keysById.get(ref) ?? ctx.registry.authenticate(ref) ?? ctx.registry.keysByHash.get(ref) ?? ctx.registry.keysByHash.get(hashApiKey(ref));
@@ -93,7 +92,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
     };
   };
 
-  /** LiteLLM key fields → the columns they map to. */
+  /** Key API fields → the columns they map to. */
   const fields = (b: Record<string, unknown>) => {
     const out: Record<string, unknown> = {};
     if (Array.isArray(b.models)) {
@@ -141,7 +140,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
       let prefix: string;
       let last4: string;
       if (typeof b.key === 'string' && b.key) {
-        // Bring an existing key over (e.g. from LiteLLM) so agents keep working unchanged.
+        // Bring an existing key over from another gateway so agents keep working unchanged.
         if (b.key.length < 16) throw new ApiError(400, 'A custom key must be at least 16 characters.');
         if (ctx.registry.authenticate(b.key)) throw new ApiError(409, 'That key already exists.');
         plaintext = b.key;
@@ -202,7 +201,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
       const b = (req.body ?? {}) as Record<string, unknown>;
       const k = findKey(b.key);
       if (!k) throw new ApiError(404, 'Key not found');
-      if (PROTECTED.has(k.id)) throw new ApiError(400, 'The admin key is configured with CT_ADMIN_KEY / LITELLM_MASTER_KEY.');
+      if (PROTECTED.has(k.id)) throw new ApiError(400, 'The admin key is configured with CT_ADMIN_KEY.');
       periodOf(b.budget_duration);
       const f = fields(b);
       const { limits, ...cols } = f;
@@ -267,7 +266,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
   // A new secret for the same key: its history, budget and gates stay.
   const regenerate = async (req: FastifyRequest, reply: FastifyReply) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    if (b.new_master_key) return reply.status(400).send({ error: { message: 'To rotate the admin key, change CT_ADMIN_KEY / LITELLM_MASTER_KEY and restart.', type: 'invalid_request_error', code: '400' } });
+    if (b.new_master_key) return reply.status(400).send({ error: { message: 'To rotate the admin key, change CT_ADMIN_KEY and restart.', type: 'invalid_request_error', code: '400' } });
     const k = findKey((req.params as { key?: string }).key ?? b.key);
     if (!k || PROTECTED.has(k.id)) return reply.status(404).send({ error: { message: 'Key not found', type: 'not_found_error', code: '404' } });
     const gen = generateApiKey();
@@ -290,9 +289,11 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
     const entry = (name: string, depId: string) => {
       const d = r.deployments.get(depId)!;
       const p = r.providers.get(d.providerId);
+      const params = { model: `${PROVIDER_PREFIX[p?.kind ?? ''] ?? p?.kind ?? 'openai'}/${d.upstreamModel}`, api_base: p?.baseUrl ?? null };
       return {
         model_name: name,
-        litellm_params: { model: `${LITELLM_PREFIX[p?.kind ?? ''] ?? p?.kind ?? 'openai'}/${d.upstreamModel}`, api_base: p?.baseUrl ?? null },
+        params,
+        litellm_params: params, // the long-form name existing scripts read
         model_info: { id: d.id, db_model: !d.id.startsWith('cfg_'), provider: p?.slug ?? null, mode: d.caps?.mode === 'embedding' ? 'embedding' : 'chat', enabled: d.enabled },
       };
     };
@@ -312,13 +313,14 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
   app.get('/model/info', { preHandler: guard }, modelInfo);
   app.get('/v1/model/info', { preHandler: guard }, modelInfo);
 
-  // One model_list entry, the LiteLLM way. Credentials resolve like the config file (os.environ/NAME).
+  // One model_list entry, as in the config file (credentials resolve the same way: os.environ/NAME).
   app.post('/model/new', { preHandler: guard }, async (req, reply) => {
-    const b = (req.body ?? {}) as { model_name?: string; litellm_params?: Record<string, unknown>; model_info?: Record<string, unknown> };
-    if (!b.model_name || !b.litellm_params?.model) return reply.status(400).send({ error: { message: 'model_name and litellm_params.model are required', type: 'invalid_request_error', code: '400' } });
+    const raw = (req.body ?? {}) as { model_name?: string; params?: Record<string, unknown>; litellm_params?: Record<string, unknown>; model_info?: Record<string, unknown> };
+    const b = { model_name: raw.model_name, params: raw.params ?? raw.litellm_params, model_info: raw.model_info };
+    if (!b.model_name || !b.params?.model) return reply.status(400).send({ error: { message: 'model_name and params.model are required', type: 'invalid_request_error', code: '400' } });
     let plan;
     try {
-      plan = planLiteLLMImport(stringify({ model_list: [b] }), process.env, {
+      plan = planConfigImport(stringify({ model_list: [b] }), process.env, {
         providerSlugs: new Set(ctx.registry.providersBySlug.keys()),
         modelNames: new Set([...ctx.registry.deploymentsByPublicName.keys(), ...ctx.registry.aliasesByName.keys()]),
         mcpSlugs: new Set(),
@@ -347,7 +349,7 @@ export async function litellmApiRoutes(app: FastifyInstance, ctx: AppContext): P
       await applyImportPlan(ctx, plan, { source: null });
       id = [...ctx.registry.deployments.values()].find((x) => x.publicName === b.model_name)?.id ?? '';
     }
-    return reply.send({ model_id: id, model_name: b.model_name, litellm_params: { model: b.litellm_params.model }, model_info: { ...(b.model_info ?? {}), id } });
+    return reply.send({ model_id: id, model_name: b.model_name, params: { model: b.params.model }, model_info: { ...(b.model_info ?? {}), id } });
   });
 
   app.post('/model/delete', { preHandler: guard }, async (req, reply) => {

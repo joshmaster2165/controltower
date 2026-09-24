@@ -45,7 +45,9 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
 - **`budget`** — `daily`, `weekly`, `monthly` or `total`. A soft budget (`hard: false`) alerts instead of refusing. Budget alerts fire at a percentage and when exhausted; see [Alerts](alerts.md).
 - **`expires_at`** — epoch milliseconds; afterwards `401 key_expired`.
 
-The same controls are available through LiteLLM's key API, which also accepts an existing key value so agents keep working after a move:
+### Key management API
+
+Scripts and CI can manage keys with the admin key, including bringing an existing key value over from another system so the agents that use it keep working:
 
 ```bash
 curl -X POST http://localhost:4000/key/generate \
@@ -53,7 +55,7 @@ curl -X POST http://localhost:4000/key/generate \
   -d '{"key_alias": "support-bot", "models": ["gpt-4.1-mini"], "max_budget": 50, "budget_duration": "30d", "rpm_limit": 120}'
 ```
 
-`/key/info`, `/key/update`, `/key/list`, `/key/block`, `/key/unblock`, `/key/regenerate` and `/key/delete` work as in LiteLLM. See [Migrating from LiteLLM](migrating-from-litellm.md#keys).
+Also `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` and `POST /key/delete` (by `keys` or `key_aliases`). `budget_duration` takes `1d`, `7d`, `30d` or `1mo`; `duration` takes values like `30d` for an expiry; `"key": "sk-…"` keeps an existing value.
 
 ## Team and project budgets
 

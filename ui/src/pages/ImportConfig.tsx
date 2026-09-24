@@ -25,15 +25,15 @@ const STRATEGY_LABEL: Record<string, string> = { priority: 'in order', weighted:
 function source(c: Cred): string {
   if (c.from === 'literal') return 'from the file';
   if (c.from === 'env') return `from $${c.env}`;
-  if (c.from === 'default_env') return `from $${c.env} (LiteLLM default)`;
+  if (c.from === 'default_env') return `from $${c.env} (default)`;
   return c.env ? `$${c.env} is not set here` : 'not in the file';
 }
 
 /**
- * Paste a LiteLLM proxy config.yaml, see exactly what it becomes, fill in any
+ * Paste a config.yaml, see exactly what it becomes, fill in any
  * secrets this server cannot resolve, then import in one step.
  */
-export function ImportLiteLLM({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+export function ImportConfig({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [yaml, setYaml] = useState('');
   const [plan, setPlan] = useState<Plan | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -46,7 +46,7 @@ export function ImportLiteLLM({ onClose, onImported }: { onClose: () => void; on
     setErr(null);
     setDone(null);
     try {
-      setPlan(await api.post<Plan>('/admin/api/import/litellm/plan', { yaml }));
+      setPlan(await api.post<Plan>('/admin/api/import/config/plan', { yaml }));
     } catch (e) {
       setPlan(null);
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -59,7 +59,7 @@ export function ImportLiteLLM({ onClose, onImported }: { onClose: () => void; on
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.post<{ providers: number; deployments: number; aliases: number; mcp_servers: number }>('/admin/api/import/litellm/apply', { yaml, secrets });
+      const r = await api.post<{ providers: number; deployments: number; aliases: number; mcp_servers: number }>('/admin/api/import/config/apply', { yaml, secrets });
       setDone(`Imported ${r.providers} provider${r.providers === 1 ? '' : 's'}, ${r.deployments} model deployment${r.deployments === 1 ? '' : 's'}, ${r.aliases} alias${r.aliases === 1 ? '' : 'es'}${r.mcp_servers ? ` and ${r.mcp_servers} MCP server${r.mcp_servers === 1 ? '' : 's'}` : ''}. Use “Test” on the Providers page to check each connection.`);
       setPlan(null);
       setYaml('');
@@ -86,13 +86,13 @@ export function ImportLiteLLM({ onClose, onImported }: { onClose: () => void; on
   return (
     <div className="card import-card">
       <div className="section-h">
-        <h2>Import from LiteLLM</h2>
+        <h2>Import a config file</h2>
         <button className="btn sm ghost" onClick={onClose}>
           Close
         </button>
       </div>
       <p className="hint" style={{ marginTop: 0 }}>
-        Paste your LiteLLM proxy <code>config.yaml</code>. Models become providers and deployments; model groups and fallbacks become aliases; <code>mcp_servers</code> become MCP servers. Nothing is created until you press Import. <code>os.environ/…</code> references are read from this server's environment; anything it can't find, you enter below.
+        Paste a <code>config.yaml</code> (the format <code>--config</code> takes). Models become providers and deployments; model groups and fallbacks become aliases; <code>mcp_servers</code> become MCP servers. Nothing is created until you press Import. <code>os.environ/…</code> references are read from this server's environment; anything it can't find, you enter below.
       </p>
       {!plan && (
         <>
@@ -101,7 +101,7 @@ export function ImportLiteLLM({ onClose, onImported }: { onClose: () => void; on
             rows={12}
             value={yaml}
             onChange={(e) => setYaml(e.target.value)}
-            placeholder={'model_list:\n  - model_name: gpt-4o\n    litellm_params:\n      model: openai/gpt-4o\n      api_key: os.environ/OPENAI_API_KEY'}
+            placeholder={'model_list:\n  - model_name: gpt-4o\n    params:\n      model: openai/gpt-4o\n      api_key: os.environ/OPENAI_API_KEY'}
             spellCheck={false}
           />
           <div className="row" style={{ marginTop: 10 }}>

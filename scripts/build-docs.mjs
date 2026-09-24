@@ -34,7 +34,7 @@ const SIDEBAR = [
   },
   { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['policy-as-code', 'Policy as code'], ['threat-model', 'What is enforced']] },
   { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['troubleshooting', 'Troubleshooting']] },
-  { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file'], ['migrating-from-litellm', 'Migrating from LiteLLM']] },
+  { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file']] },
 ];
 
 const pages = SIDEBAR.flatMap((s) => s.items.map(([file, label]) => ({ file, label, section: s.title, url: file === 'README' ? 'index.html' : `${file}.html` })));

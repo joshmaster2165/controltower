@@ -60,7 +60,7 @@ export async function loadSession(ctx: AppContext, req: FastifyRequest): Promise
   return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at };
 }
 
-/** True when the request carries the admin key (LiteLLM's master key). */
+/** True when the request carries the admin key. */
 export function hasAdminKey(ctx: AppContext, req: FastifyRequest): boolean {
   const key = ctx.config.adminKey;
   const presented = extractApiKey(req);
@@ -72,7 +72,7 @@ export function hasAdminKey(ctx: AppContext, req: FastifyRequest): boolean {
 
 /**
  * preHandler: requires a valid session (mutations also need the CSRF header),
- * or the admin key as a bearer token — the way scripts and LiteLLM tooling
+ * or the admin key as a bearer token — the way scripts and CI tooling
  * call admin routes. Browsers never attach a bearer header on their own, so it needs no CSRF check.
  */
 export function requireAdmin(ctx: AppContext) {

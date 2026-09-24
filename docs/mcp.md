@@ -40,6 +40,6 @@ Everything in [the Airspace](airspace.md) applies: drag from an agent to a serve
 - **Held** — the call waits for a human; the card shows the tool's actual arguments. Unanswered, the result carries a ticket to retry with once approved.
 - **Inspected** — arguments and results are scanned. Scanning tool **results** is where indirect prompt injection and data leaks are caught before the model reads them: mask an email address in a CRM record, block instructions hidden in a web page.
 
-## LiteLLM `mcp_servers`
+## In the config file
 
-`mcp_servers` entries in a LiteLLM config (URL, `auth_type`, `auth_value`, `static_headers`) are imported as MCP servers, both by **Import from LiteLLM** and by `--config`. See [Config file](config-file.md#mcp_servers).
+`mcp_servers` entries in a [config file](config-file.md) (URL, `auth_type`, `auth_value`, `static_headers`) become MCP servers, both with **Import config** and with `--config`. See [Config file](config-file.md#mcp_servers).

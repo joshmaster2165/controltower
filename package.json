@@ -19,7 +19,7 @@
     "docs:build": "node scripts/build-docs.mjs",
     "docs:screenshots": "playwright test -c scripts/docs/playwright.config.ts",
     "start": "node server/dist/server.mjs",
-    "prices:import": "tsx scripts/import-litellm-prices.ts",
+    "prices:import": "tsx scripts/import-prices.ts",
     "pack:npm": "pnpm build && node scripts/build-npm.mjs && cd dist-npm && npm pack"
   },
   "devDependencies": {

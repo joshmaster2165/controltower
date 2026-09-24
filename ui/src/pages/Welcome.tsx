@@ -86,7 +86,7 @@ export function WelcomePage() {
               ))}
             </div>
             <div className="ws-more">
-              <a href="#/providers">All providers</a> · <a href="#/models">Import a LiteLLM config</a>
+              <a href="#/providers">All providers</a> · <a href="#/models">Import a config file</a>
             </div>
           </li>
 

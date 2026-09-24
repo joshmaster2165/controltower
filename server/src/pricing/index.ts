@@ -48,7 +48,7 @@ const MOCK_PRICE_AS = ['anthropic', 'openai', 'gemini'];
 export class PricingTable {
   private admin = new Map<string, PriceEntry>();
   private remote = new Map<string, PriceEntry>();
-  // Vendored LiteLLM table first; the hand-maintained entries in bundled.ts win on conflict.
+  // The generated table first; the hand-maintained entries in bundled.ts win on conflict.
   private bundled = new Map<string, PriceEntry>([...Object.entries(GENERATED_PRICES), ...Object.entries(BUNDLED_PRICES)]);
 
   setAdminOverride(key: string, entry: PriceEntry | null): void {

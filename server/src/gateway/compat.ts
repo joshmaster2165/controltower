@@ -7,11 +7,11 @@ import { hasAdminKey } from '../admin/auth.js';
 import { E, errorBody } from './errors.js';
 
 /**
- * Routes clients and tooling written for LiteLLM (and Anthropic / Azure SDKs)
+ * Routes that clients, SDKs and platform tooling expect
  * expect, beyond the core /v1 gateway:
  *  - /v1/messages/count_tokens — Claude Code calls it to size its context.
- *  - /health/liveliness, /health/readiness, /health — LiteLLM's probes.
- *  - /ui — LiteLLM's console path; the console lives at /.
+ *  - /health/liveliness, /health/readiness, /health — liveness, readiness and provider checks.
+ *  - /ui — an alias for the console, which lives at /.
  */
 export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   // ---- Anthropic token counting ----
@@ -41,7 +41,7 @@ export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promi
     return reply.send({ input_tokens: estimateInputTokens(body) });
   });
 
-  // ---- health, LiteLLM style ----
+  // ---- health ----
   const alive = (_req: FastifyRequest, reply: FastifyReply) =>
     ctx.shuttingDown ? reply.status(503).send({ status: 'shutting_down' }) : reply.type('application/json').send(JSON.stringify("I'm alive!"));
   app.get('/health/liveliness', alive);
@@ -80,7 +80,7 @@ export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promi
     return reply.send({ healthy_endpoints: healthy, unhealthy_endpoints: unhealthy, healthy_count: healthy.length, unhealthy_count: unhealthy.length });
   });
 
-  // ---- LiteLLM's console path ----
+  // ---- console alias ----
   const toConsole = (_req: FastifyRequest, reply: FastifyReply) => reply.redirect('/', 302);
   app.get('/ui', toConsole);
   app.get('/ui/*', toConsole);

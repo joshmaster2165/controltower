@@ -4,8 +4,8 @@ import { hashPassword } from '../crypto/secrets.js';
 import { hashApiKey } from '../crypto/apikeys.js';
 
 /**
- * The admin key (CT_ADMIN_KEY, LITELLM_MASTER_KEY, or general_settings.master_key
- * in a --config file) works the way LiteLLM's master key does:
+ * The admin key (CT_ADMIN_KEY, or general_settings.master_key in a --config
+ * file) is:
  *  - a bearer token for the admin API and the /key and /model routes (see requireAdmin);
  *  - an all-access key for model and tool calls, shown as the agent "master-key";
  *  - the console password for UI_USERNAME (default "admin"), unless UI_PASSWORD is set.

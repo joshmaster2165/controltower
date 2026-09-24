@@ -11,18 +11,17 @@ import { anthropicUpstream, mcpUpstream, openAiUpstream, webhookReceiver, type U
 import { field } from './support/ui';
 
 /**
- * LiteLLM's documented setup steps, done against Control Tower exactly as the
- * LiteLLM docs write them: start with `--config config.yaml` and
- * LITELLM_MASTER_KEY, probe /health/*, mint keys with POST /key/generate,
- * point SDKs at the bare origin, manage keys and models through /key/* and
- * /model/*, sign in at /ui with the master key. Its own server, on its own port.
+ * Setup the way operators script it: start with `--config config.yaml` and an
+ * admin key, probe /health/*, mint keys with POST /key/generate, point SDKs at
+ * the bare origin, manage keys and models through /key/* and /model/*, sign
+ * in at /ui with the admin key. Its own server, on its own port.
  */
 test.describe.configure({ mode: 'serial' });
 
 const PORT = 4460;
 const CT = `http://127.0.0.1:${PORT}`;
-const MASTER = 'sk-litellm-parity-master-key-1234567890';
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-litellm-'));
+const MASTER = 'sk-config-compat-master-key-1234567890';
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-config-'));
 const configPath = path.join(dataDir, 'config.yaml');
 
 let server: ChildProcess | undefined;
@@ -34,39 +33,39 @@ let mcp: Awaited<ReturnType<typeof mcpUpstream>>;
 function configYaml(extra = ''): string {
   return `model_list:
   - model_name: gpt-4o
-    litellm_params:
+    params:
       model: openai/gpt-4.1-mini
       api_base: ${oai.url}/v1
       api_key: os.environ/OPENAI_API_KEY
   - model_name: claude-sonnet
-    litellm_params:
+    params:
       model: anthropic/claude-sonnet-4-5
       api_base: ${ant.url}
       api_key: os.environ/ANTHROPIC_API_KEY
   - model_name: text-embedding
-    litellm_params:
+    params:
       model: openai/text-embedding-3-small
       api_base: ${oai.url}/v1
       api_key: os.environ/OPENAI_API_KEY
     model_info:
       mode: embedding
   - model_name: "openai/*"
-    litellm_params:
+    params:
       model: "openai/*"
       api_base: ${oai.url}/v1
       api_key: os.environ/OPENAI_API_KEY
   - model_name: flaky
-    litellm_params:
+    params:
       model: openai/gpt-4.1-mini
       api_base: ${flaky.url}/v1
       api_key: sk-flaky-upstream
   - model_name: broken
-    litellm_params:
+    params:
       model: openai/gpt-4.1-mini
       api_base: ${broken.url}/v1
       api_key: sk-broken-upstream
 ${extra}
-litellm_settings:
+settings:
   fallbacks: [{"flaky": ["gpt-4o"]}]
 
 mcp_servers:
@@ -77,19 +76,20 @@ mcp_servers:
     auth_value: os.environ/FILES_MCP_TOKEN
 
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
+  master_key: os.environ/TOWER_ADMIN_KEY
   alerting: ["slack"]
   alert_types: ["llm_exceptions"]
 `;
 }
 
-/** `litellm --config config.yaml --port …`, but Control Tower. */
-async function startServer(args: string[] = ['--config', configPath, '--port', String(PORT)]): Promise<void> {
+/** `controltower --config config.yaml --port …`. */
+async function startServer(args: string[] = ['--config', configPath, '--port', String(PORT)], extraEnv: Record<string, string> = {}): Promise<void> {
   log = '';
   server = spawn('node', ['server/dist/server.mjs', ...args], {
     env: {
       ...process.env,
-      LITELLM_MASTER_KEY: MASTER,
+      TOWER_ADMIN_KEY: MASTER,
+      ...extraEnv,
       OPENAI_API_KEY: 'sk-upstream-openai',
       ANTHROPIC_API_KEY: 'sk-ant-upstream',
       FILES_MCP_TOKEN: 'files-mcp-token',
@@ -135,7 +135,7 @@ test.afterAll(async () => {
 let virtualKey = '';
 let keyToken = '';
 
-test('health probes answer like LiteLLM’s: liveliness, readiness, and /health with the master key', async () => {
+test('health probes: liveliness, readiness, and /health with the admin key', async () => {
   const live = await fetch(`${CT}/health/liveliness`);
   expect(await live.json()).toBe("I'm alive!");
   expect((await fetch(`${CT}/health/liveness`)).status).toBe(200);
@@ -145,7 +145,7 @@ test('health probes answer like LiteLLM’s: liveliness, readiness, and /health 
   expect(h.healthy_endpoints.map((e: { model: string }) => e.model)).toEqual(expect.arrayContaining(['gpt-4o', 'claude-sonnet']));
 });
 
-test('POST /key/generate with the master key (virtual_keys doc)', async () => {
+test('POST /key/generate with the admin key', async () => {
   const r = await master('/key/generate', {
     method: 'POST',
     body: JSON.stringify({ models: ['gpt-4o', 'claude-sonnet', 'text-embedding', 'flaky', 'broken', 'gpt-4.1'], metadata: { user: 'ishaan@berri.ai' }, key_alias: 'parity-agent', max_budget: 10, budget_duration: '30d', rpm_limit: 100 }),
@@ -173,7 +173,7 @@ test('curl /chat/completions without /v1 and /v1/chat/completions (quick start)'
   }
 });
 
-test('OpenAI SDK with base_url = the bare origin (user_keys doc): chat, streaming, embeddings, models', async () => {
+test('OpenAI SDK with base_url = the bare origin: chat, streaming, embeddings, models', async () => {
   const client = new OpenAI({ baseURL: CT, apiKey: virtualKey });
   const chat = await client.chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] });
   expect(chat.choices[0]!.message.content).toBe('Hello from the OpenAI-compatible upstream');
@@ -200,13 +200,13 @@ test('Anthropic SDK and Claude Code: /v1/messages and /v1/messages/count_tokens 
   expect(await count.json()).toEqual({ input_tokens: 42 });
 });
 
-test('LiteLLM and Azure headers: x-litellm-api-key, api-key and /openai/deployments/<model>', async () => {
-  const viaLitellmHeader = await fetch(`${CT}/chat/completions`, {
+test('Other client headers: x-litellm-api-key, api-key and Azure-style /openai/deployments/<model>', async () => {
+  const viaAltHeader = await fetch(`${CT}/chat/completions`, {
     method: 'POST',
     headers: { 'x-litellm-api-key': `Bearer ${virtualKey}`, 'content-type': 'application/json' },
     body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] }),
   });
-  expect(viaLitellmHeader.status).toBe(200);
+  expect(viaAltHeader.status).toBe(200);
   const azure = await fetch(`${CT}/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21`, {
     method: 'POST',
     headers: { 'api-key': virtualKey, 'content-type': 'application/json' },
@@ -262,13 +262,13 @@ test('Key management: /key/info, /key/update, /key/list, /key/block, /key/unbloc
   expect((await call(regen.key)).status).toBe(200);
   virtualKey = regen.key;
 
-  // An existing LiteLLM key can be brought over unchanged.
-  const kept = await master('/key/generate', { method: 'POST', body: JSON.stringify({ key: 'sk-existing-litellm-key-abcdef123456', key_alias: 'migrated' }) });
+  // An existing key from another gateway can be brought over unchanged.
+  const kept = await master('/key/generate', { method: 'POST', body: JSON.stringify({ key: 'sk-existing-gateway-key-abcdef123456', key_alias: 'migrated' }) });
   expect(kept.status).toBe(200);
-  expect((await call('sk-existing-litellm-key-abcdef123456')).status).toBe(200);
-  const del = await (await master('/key/delete', { method: 'POST', body: JSON.stringify({ keys: ['sk-existing-litellm-key-abcdef123456'] }) })).json();
+  expect((await call('sk-existing-gateway-key-abcdef123456')).status).toBe(200);
+  const del = await (await master('/key/delete', { method: 'POST', body: JSON.stringify({ keys: ['sk-existing-gateway-key-abcdef123456'] }) })).json();
   expect(del.deleted_keys).toHaveLength(1);
-  expect((await call('sk-existing-litellm-key-abcdef123456')).status).toBe(401);
+  expect((await call('sk-existing-gateway-key-abcdef123456')).status).toBe(401);
 });
 
 test('Blocked and expired keys are refused on every surface: models, MCP, token counting', async () => {
@@ -299,7 +299,7 @@ test('Model management: /model/info, /model/new, /model/delete (config models st
   expect(names).toEqual(expect.arrayContaining(['gpt-4o', 'claude-sonnet', 'flaky']));
   expect((await (await master('/v1/model/info')).json()).data.length).toBe(info.data.length);
 
-  const created = await (await master('/model/new', { method: 'POST', body: JSON.stringify({ model_name: 'added-by-api', litellm_params: { model: 'openai/gpt-4.1', api_base: `${oai.url}/v1`, api_key: 'os.environ/OPENAI_API_KEY' } }) })).json();
+  const created = await (await master('/model/new', { method: 'POST', body: JSON.stringify({ model_name: 'added-by-api', params: { model: 'openai/gpt-4.1', api_base: `${oai.url}/v1`, api_key: 'os.environ/OPENAI_API_KEY' } }) })).json();
   expect(created.model_id).toBeTruthy();
   const r = await new OpenAI({ baseURL: CT, apiKey: MASTER }).chat.completions.create({ model: 'added-by-api', messages: [{ role: 'user', content: 'hi' }] });
   expect(r.choices[0]!.message.content).toBeTruthy();
@@ -310,13 +310,13 @@ test('Model management: /model/info, /model/new, /model/delete (config models st
   expect((await master('/model/delete', { method: 'POST', body: JSON.stringify({ id: fromConfig.id }) })).status).toBe(400);
 });
 
-test('The master key calls models directly', async () => {
+test('The admin key calls models directly', async () => {
   const r = await new OpenAI({ baseURL: CT, apiKey: MASTER }).chat.completions.create({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] });
   expect(r.choices[0]!.message.content).toBeTruthy();
 });
 
-test('MCP servers from the config, reached with x-litellm-api-key', async () => {
-  const client = new Client({ name: 'litellm-style-client', version: '1.0.0' });
+test('MCP servers from the config, reached with an alternative key header', async () => {
+  const client = new Client({ name: 'alt-header-client', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${CT}/mcp`), { requestInit: { headers: { 'x-litellm-api-key': `Bearer ${virtualKey}` } } }));
   await expect.poll(async () => (await client.listTools()).tools.map((t) => t.name), { timeout: 15_000 }).toContain('files__read_file');
   const out = await client.callTool({ name: 'files__read_file', arguments: { path: '/etc/motd' } });
@@ -325,7 +325,7 @@ test('MCP servers from the config, reached with x-litellm-api-key', async () => 
   await client.close();
 });
 
-test('/ui: sign in as admin with the master key (UI doc)', async ({ page }) => {
+test('/ui: sign in as admin with the admin key', async ({ page }) => {
   await page.goto(`${CT}/ui`);
   await expect(page).toHaveURL(`${CT}/`);
   await field(page, /^Email or username/).fill('admin');
@@ -341,7 +341,7 @@ test('Restart with an edited config: nothing duplicated, edits applied, keys kep
   fs.writeFileSync(
     configPath,
     configYaml(`  - model_name: gpt-4o-extra
-    litellm_params:
+    params:
       model: openai/gpt-4.1-mini
       api_base: ${oai.url}/v1
       api_key: os.environ/OPENAI_API_KEY`).replace(/  - model_name: broken[\s\S]*?api_key: sk-broken-upstream\n/, ''),
@@ -385,7 +385,7 @@ test('`--policy` applies a policy file at every start; a bad one stops startup',
   fs.writeFileSync(bad, 'gates:\n  - name: Typo\n    match: { agents: [no-such-agent] }\n    effect: deny\n');
   await stopServer();
   const p = spawn('node', ['server/dist/server.mjs', '--config', configPath, '--policy', bad, '--port', String(PORT + 2)], {
-    env: { ...process.env, LITELLM_MASTER_KEY: MASTER, OPENAI_API_KEY: 'x', ANTHROPIC_API_KEY: 'x', FILES_MCP_TOKEN: 'x', CT_DATA_DIR: dataDir, CT_UI_DIR: path.resolve('ui/dist') },
+    env: { ...process.env, CT_ADMIN_KEY: MASTER, OPENAI_API_KEY: 'x', ANTHROPIC_API_KEY: 'x', FILES_MCP_TOKEN: 'x', CT_DATA_DIR: dataDir, CT_UI_DIR: path.resolve('ui/dist') },
   });
   let out = '';
   p.stdout!.on('data', (d: Buffer) => (out += d.toString()));
@@ -397,12 +397,12 @@ test('`--policy` applies a policy file at every start; a bad one stops startup',
 
 test('`--model provider/model` quick start and a bad config file', async () => {
   await stopServer();
-  await startServer(['--model', 'openai/gpt-4.1-mini', '--port', String(PORT)]);
+  await startServer(['--model', 'openai/gpt-4.1-mini', '--port', String(PORT)], { CT_ADMIN_KEY: MASTER }); // no config file: the admin key comes from the environment
   const models = await (await master('/v1/models')).json();
   expect(models.data.map((m: { id: string }) => m.id)).toContain('openai/gpt-4.1-mini');
   await stopServer();
 
-  // A config that cannot be parsed stops startup with a clear message, like LiteLLM.
+  // A config that cannot be parsed stops startup with a clear message.
   const bad = path.join(dataDir, 'bad.yaml');
   fs.writeFileSync(bad, 'model_list: [unclosed');
   const p = spawn('node', ['server/dist/server.mjs', '--config', bad, '--port', String(PORT + 1)], { env: { ...process.env, CT_DATA_DIR: dataDir, CT_UI_DIR: path.resolve('ui/dist') } });

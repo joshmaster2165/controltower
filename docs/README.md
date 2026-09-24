@@ -28,8 +28,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 ## Reference
 
 - [**Configuration**](configuration.md) — command-line flags, environment variables, the admin key.
-- [**Config file**](config-file.md) — the LiteLLM-format `config.yaml`, field by field.
-- [**Migrating from LiteLLM**](migrating-from-litellm.md) — LiteLLM's setup steps side by side, and how to move a running proxy.
+- [**Config file**](config-file.md) — `config.yaml` for providers, models, fallbacks, MCP servers and alerting, field by field.
 - [**Demo mode**](demo.md) — a synthetic fleet to explore with.
 - [**Architecture**](architecture.md) — how a request flows, what is stored, retention, limits.
 - [**API reference**](api.md) — every gateway, admin and health endpoint.

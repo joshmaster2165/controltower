@@ -2,8 +2,6 @@
 
 From an empty machine to your own agent on the map in about five minutes. You need Docker (or Node 24, see [Install](install.md)) and an API key for a model provider — or a local model server such as Ollama.
 
-> **Coming from LiteLLM?** Your `config.yaml` and `LITELLM_MASTER_KEY` work as they are: `docker run … ghcr.io/joshmaster2165/controltower --config /app/config.yaml`. See [Migrating from LiteLLM](migrating-from-litellm.md).
-
 ## 1. Start Control Tower
 
 ```bash
@@ -31,7 +29,7 @@ Open <http://localhost:4000>. On a new install you choose the admin email and pa
 
 ![The first-run screen: set up your tower](images/setup-admin.png)
 
-> Setting up without a browser (CI, a platform deploy)? Set `CT_ADMIN_KEY` (or `LITELLM_MASTER_KEY`) and the account is created for you: sign in as `admin` with that key. See [Configuration](configuration.md#admin-key).
+> Setting up without a browser (CI, a platform deploy)? Set `CT_ADMIN_KEY` and the account is created for you: sign in as `admin` with that key. See [Configuration](configuration.md#admin-key).
 
 ## 3. Follow *Get started*
 

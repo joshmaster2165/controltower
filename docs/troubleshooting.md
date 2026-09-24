@@ -6,7 +6,7 @@ Start with the flight. Every gateway response carries `x-ct-flight-id`; search f
 
 | Status and `code` | What it means | What to do |
 |---|---|---|
-| `401 invalid_api_key` | No key, or not one Control Tower knows | Send the agent's `ct_sk_…` key as `Authorization: Bearer` (OpenAI SDKs: `OPENAI_API_KEY`; Claude Code: `ANTHROPIC_AUTH_TOKEN`). A provider's own key (`sk-…` from OpenAI) won't work unless it was [brought over](migrating-from-litellm.md#keys) |
+| `401 invalid_api_key` | No key, or not one Control Tower knows | Send the agent's `ct_sk_…` key as `Authorization: Bearer` (OpenAI SDKs: `OPENAI_API_KEY`; Claude Code: `ANTHROPIC_AUTH_TOKEN`). A provider's own key (`sk-…` from OpenAI) won't work unless it was [brought over](keys.md#key-management-api) |
 | `401 key_disabled`, `401 key_expired` | The key was disabled or has expired | **Keys** → enable it, or create a new one |
 | `404 model_not_found` | No connected provider serves that name | Connect the provider that offers it, check the spelling, or pin it as `provider/model`. With `CT_AUTO_MODELS=0`, add the model under **Models** |
 | `403 model_not_allowed` | The key's allowed models don't include it | Widen the key's allowed models, or use a model it allows |
@@ -50,7 +50,7 @@ location / {
 
 ## Console and map
 
-**The console can't sign in with `admin` and the master key.** The account is created from the admin key only when the key is set — `CT_ADMIN_KEY` or `LITELLM_MASTER_KEY` in the environment, or `master_key` in the config file — and the username is `UI_USERNAME` (default `admin`).
+**The console can't sign in with `admin` and the master key.** The account is created from the admin key only when the key is set — `CT_ADMIN_KEY` in the environment, or `master_key` in the config file — and the username is `UI_USERNAME` (default `admin`).
 
 **Links in Slack, email or webhooks point at `localhost`.** Set `CT_PUBLIC_URL` to the address people use to reach the console (it's detected on Render, Fly.io and Railway).
 

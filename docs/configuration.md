@@ -1,13 +1,13 @@
 # Configuration
 
-Most of Control Tower is configured in the browser. Command-line flags and environment variables exist for operators, and match LiteLLM's where the concept is the same.
+Most of Control Tower is configured in the browser. Command-line flags and environment variables exist for operators.
 
 ## Command-line flags
 
 ```text
 controltower [options]            (docker: pass the same options after the image name)
 
-  --config, -c <file>   load a LiteLLM-format config.yaml at startup
+  --config, -c <file>   load a config.yaml at startup
   --model, -m <p/model> serve one model with credentials from the environment
   --policy <file>       apply a policy YAML (zones and gates) at startup
   --port, -p <n>        listen port (default 4000)
@@ -26,9 +26,9 @@ docker run -p 4000:4000 ghcr.io/joshmaster2165/controltower --model openai/gpt-4
 
 ## Admin key
 
-Set `CT_ADMIN_KEY` — or LiteLLM's `LITELLM_MASTER_KEY`, or `general_settings.master_key` in a [config file](config-file.md) — and it becomes:
+Set `CT_ADMIN_KEY` — or `general_settings.master_key` in a [config file](config-file.md) — and it becomes:
 
-1. the **admin API bearer**: `Authorization: Bearer <admin key>` works on every `/admin/api/*` route and on LiteLLM's `/key/*` and `/model/*` routes;
+1. the **admin API bearer**: `Authorization: Bearer <admin key>` works on every `/admin/api/*` route and on the `/key/*` and `/model/*` management routes;
 2. an **all-access key for model and tool calls** (it appears on the map as `master-key` once used);
 3. the **console password** for the user `admin` (change the name with `UI_USERNAME`, or the password alone with `UI_PASSWORD`). On a fresh install this account is created for you, so the first-run screen is skipped — useful for platform deploys and CI.
 
@@ -42,9 +42,9 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_HOST` | `0.0.0.0` | Listen address |
 | `CT_DATA_DIR` | `./data` (`/data` in the image) | Database and master key |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting stored credentials. If unset, generated into `CT_DATA_DIR/master.key` — back it up |
-| `CT_ADMIN_KEY` | — | [Admin key](#admin-key). `LITELLM_MASTER_KEY` works too |
+| `CT_ADMIN_KEY` | — | [Admin key](#admin-key) |
 | `UI_USERNAME`, `UI_PASSWORD` | `admin`, the admin key | Console sign-in created from the admin key |
-| `CT_CONFIG` | — | LiteLLM-format config applied at every start. Also `CONFIG_FILE_PATH` or `--config` |
+| `CT_CONFIG` | — | [Config file](config-file.md) applied at every start. Also `CONFIG_FILE_PATH` or `--config` |
 | `CT_POLICY` | — | [Policy file](policy-as-code.md#at-startup-gitops) applied at every start. Also `--policy` |
 | `CT_POLICY_MODE` | `merge` | `replace` makes the policy match the file exactly |
 | `CT_PUBLIC_URL` | detected | Public URL for links in alerts and approval messages. Detected on Render, Fly.io and Railway |
@@ -57,12 +57,12 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Send Control Tower's own outbound calls — to providers, MCP servers, HTTP APIs and alert channels — through a proxy. See [Install](install.md#behind-a-corporate-proxy) |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
-| `CT_LOG_LEVEL` | `info` (`debug` from source) | `debug`, `info`, `warn` or `error`. `LITELLM_LOG=DEBUG` and `--detailed_debug` work too |
+| `CT_LOG_LEVEL` | `info` (`debug` from source) | `debug`, `info`, `warn` or `error`. `--detailed_debug` works too |
 | `CT_RETENTION_DAYS` | `30` | Days to keep flights (one row per request); `0` keeps them forever. Daily spend and usage history is always kept |
 | `CT_EVENT_RETENTION_DAYS` | `7` | Days to keep each flight's event trail |
 | `CT_SESSION_TTL_MS` | 7 days | Console session lifetime |
 | `CT_SHUTDOWN_GRACE_MS` | `15000` | How long streams may finish on shutdown |
 
-Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`…) are read only by `--config`, `--model` and **Import from LiteLLM**; providers added in the console store their own credentials.
+Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`…) are read only by `--config`, `--model` and **Import config**; providers added in the console store their own credentials.
 
-LiteLLM variables that don't apply are reported at startup rather than silently ignored: `DATABASE_URL` (Control Tower uses SQLite in `CT_DATA_DIR`), `LITELLM_SALT_KEY` (credentials are encrypted with the master key) and `STORE_MODEL_IN_DB` (models added in the console are always stored).
+Variables other gateways use that don't apply here are reported at startup rather than silently ignored — for example `DATABASE_URL` (Control Tower uses SQLite in `CT_DATA_DIR`) and `STORE_MODEL_IN_DB` (models added in the console are always stored).

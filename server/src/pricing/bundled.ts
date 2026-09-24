@@ -2,9 +2,8 @@ import type { PriceEntry } from './index.js';
 
 /**
  * Starter pricing table (USD per million tokens). Replaced/extended by
- * `scripts/import-litellm-prices.ts`, which normalises LiteLLM's MIT-licensed
- * `model_prices_and_context_window.json` into `prices.json` (see
- * `THIRD_PARTY.md`). Keep this small and obviously-correct; the import is the
+ * `scripts/import-prices.ts`, which normalises an MIT-licensed public price
+ * table into the generated table (source and licence in `THIRD_PARTY.md`). Keep this small and obviously-correct; the import is the
  * source of breadth.
  */
 export const BUNDLED_PRICES: Record<string, PriceEntry> = {

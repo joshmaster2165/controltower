@@ -39,17 +39,17 @@ const USAGE = `Control Tower — self-hosted AI gateway with a live map of your 
 
 Usage: controltower [options]            (docker: pass the same options after the image name)
 
-  --config, -c <file>   load a LiteLLM-format config.yaml at startup (models, fallbacks,
+  --config, -c <file>   load a config.yaml at startup (models, fallbacks,
                         aliases, MCP servers, master_key, Slack alerting)
   --model <p/model>     serve one model with credentials from the environment
   --policy <file>       apply a policy YAML (zones and gates) at startup; CT_POLICY_MODE=replace
                         makes the policy match the file
   --port <n>            listen port (default 4000; also CT_PORT or PORT)
   --host <addr>         listen address (default 0.0.0.0)
-  --detailed_debug      verbose logs (also --debug, LITELLM_LOG=DEBUG)
+  --detailed_debug      verbose logs (also --debug)
   --version             print the version
 
-Environment: CT_ADMIN_KEY or LITELLM_MASTER_KEY sets the admin key. Every setting:\nhttps://github.com/joshmaster2165/controltower/blob/main/docs/configuration.md`;
+Environment: CT_ADMIN_KEY sets the admin key. Every setting:\nhttps://github.com/joshmaster2165/controltower/blob/main/docs/configuration.md`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -187,7 +187,7 @@ async function main(): Promise<void> {
   const app = await buildApp(ctx, { uiDir });
   const full = ctx as AppContext;
   logRef = app.log;
-  // A LiteLLM-format config (--config / --model), then the admin key it or the environment sets.
+  // The config file (--config / --model), then the admin key it or the environment sets.
   try {
     await loadBootConfig(full);
   } catch (err) {

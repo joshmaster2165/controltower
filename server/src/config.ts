@@ -26,9 +26,9 @@ export interface Config {
   sessionTtlMs: number;
   /** Serve the built UI from this directory (relative to cwd or absolute). */
   uiDir: string | undefined;
-  /** A LiteLLM-format config.yaml loaded at boot (`--config`); the file is the source of truth for what it declares. */
+  /** A config.yaml loaded at boot (`--config`); the file is the source of truth for what it declares. */
   configFile: string | undefined;
-  /** `--model provider/model`: serve one model with credentials from the environment (LiteLLM CLI quick start). */
+  /** `--model provider/model`: serve one model with credentials from the environment (quick start). */
   quickModel: string | undefined;
   /** Policy YAML applied at every start (--policy / CT_POLICY), merged or replacing the policy. */
   policyFile: string | undefined;
@@ -36,13 +36,13 @@ export interface Config {
   /** Days to keep per-request rows (flights / their event trail); 0 keeps them forever. */
   retention: { flightsDays: number; eventsDays: number };
   /**
-   * Admin API key (LiteLLM's "master key"): a bearer token for the admin API and
-   * the LiteLLM-compatible /key and /model routes, an all-access key for model
+   * Admin API key: a bearer token for the admin API and
+   * the /key and /model management routes, an all-access key for model
    * and tool calls, and the console password for UI_USERNAME. From CT_ADMIN_KEY,
-   * LITELLM_MASTER_KEY, or general_settings.master_key in the --config file.
+   * or general_settings.master_key in the --config file (LITELLM_MASTER_KEY is accepted too).
    */
   adminKey: string | undefined;
-  /** Console sign-in created from the admin key (LiteLLM's UI_USERNAME / UI_PASSWORD). */
+  /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
   uiUsername: string;
   uiPassword: string | undefined;
   /** Settings seen but not used, reported once at startup. */
@@ -86,9 +86,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const notices: string[] = [];
   if (f.has('num_workers')) notices.push('--num_workers is not needed: Control Tower runs as one process (scale with more instances).');
   if (env.DATABASE_URL && !env.CT_DATABASE_URL) notices.push('DATABASE_URL is not used: Control Tower keeps its data in SQLite under CT_DATA_DIR (/data in the container).');
-  if (env.LITELLM_SALT_KEY) notices.push('LITELLM_SALT_KEY is not used: stored credentials are encrypted with the master key in CT_DATA_DIR/master.key (or CT_MASTER_KEY).');
   if (env.STORE_MODEL_IN_DB) notices.push('STORE_MODEL_IN_DB is not needed: models added in the console are always stored.');
-  const litellmLog = env.LITELLM_LOG ? env.LITELLM_LOG.toLowerCase() : undefined;
+  const logEnv = env.LITELLM_LOG ? env.LITELLM_LOG.toLowerCase() : undefined;
   const debug = f.has('detailed_debug') || f.has('debug');
   const dataDir = path.resolve(env.CT_DATA_DIR ?? './data');
   const configFile = val('config', 'c') ?? env.CT_CONFIG ?? env.CONFIG_FILE_PATH;
@@ -113,7 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),
     maxHeld: int(env.CT_MAX_HELD, 500),
     holdBudgetMs: int(env.CT_HOLD_BUDGET_MS, 20_000),
-    logLevel: debug ? 'debug' : (env.CT_LOG_LEVEL ?? (litellmLog && ['debug', 'info', 'warn', 'error'].includes(litellmLog) ? litellmLog : undefined) ?? (env.NODE_ENV === 'production' ? 'info' : 'debug')),
+    logLevel: debug ? 'debug' : (env.CT_LOG_LEVEL ?? (logEnv && ['debug', 'info', 'warn', 'error'].includes(logEnv) ? logEnv : undefined) ?? (env.NODE_ENV === 'production' ? 'info' : 'debug')),
     sessionTtlMs: int(env.CT_SESSION_TTL_MS, 7 * 24 * 3600 * 1000),
     uiDir: env.CT_UI_DIR ? path.resolve(env.CT_UI_DIR) : undefined,
     configFile: configFile ? path.resolve(configFile) : undefined,

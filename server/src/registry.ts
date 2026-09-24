@@ -257,7 +257,7 @@ export class Registry {
 
   /** Resolve a presented API key (plaintext) to its record, or undefined. */
   /**
-   * Generated keys (ct_sk_…) plus keys brought over from LiteLLM (sk-…) and the
+   * Generated keys (ct_sk_…) plus keys brought over from another gateway (sk-…) and the
    * admin key: anything of a plausible length is looked up by its hash.
    */
   authenticate(plaintext: string): KeyRecord | undefined {

@@ -583,19 +583,19 @@ test('Policy as code: export zones and gates as YAML, edit, preview, apply, repl
   expect((await chat()).status).toBe(200);
 });
 
-test('LiteLLM import: a real config becomes working providers, models and aliases', async () => {
+test('Config import: a real config file becomes working providers, models and aliases', async () => {
   const up = await openAiUpstream({ reply: 'Hello from the imported model' });
   upstreams.push(up);
   const yaml = `model_list:
   - model_name: imported-fast
-    litellm_params:
+    params:
       model: openai/gpt-4.1-mini
       api_base: ${up.url}/v1
       api_key: sk-imported-secret
 `;
-  const plan = await admin.post('/admin/api/import/litellm/plan', { yaml });
+  const plan = await admin.post('/admin/api/import/config/plan', { yaml });
   expect(plan.status).toBe(200);
-  const applied = await admin.post('/admin/api/import/litellm/apply', { yaml });
+  const applied = await admin.post('/admin/api/import/config/apply', { yaml });
   expect(applied.status).toBe(200);
   const r = await new OpenAI({ baseURL: `${CT}/v1`, apiKey: oaiAgent.key }).chat.completions.create({ model: 'imported-fast', messages: [{ role: 'user', content: 'hi' }] });
   expect(r.choices[0]!.message.content).toBe('Hello from the imported model');

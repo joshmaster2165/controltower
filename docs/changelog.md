@@ -34,7 +34,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 **New**
 - [OpenAI Responses API](connect-agents.md#openai-agents-sdk-and-codex-responses-api) (`/v1/responses`) through the full pipeline — the OpenAI Agents SDK and Codex work with `OPENAI_BASE_URL`.
 - [Policy as code](policy-as-code.md): export zones and gates as YAML, import with a preview.
-- [LiteLLM setup parity](migrating-from-litellm.md): `--config` applied at every start, the master key, `/key/*` and `/model/*`, bare routes, LiteLLM headers, health probes, `count_tokens`, wildcards, MCP auth and Slack alerting from the config.
+- [Config file](config-file.md) applied at every start with `--config`, the [admin key](configuration.md#admin-key), the [key](keys.md#key-management-api) and model management APIs, SDKs pointed at the bare origin, Azure-style routes, health probes, `count_tokens`, wildcard models, MCP auth and Slack alerting from the config.
 
 **Improved**
 - A recording of the console in the README; username sign-in; built-in keys stay off the map until used.

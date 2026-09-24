@@ -57,20 +57,20 @@ Prices come from a bundled table of about 1,800 models, refreshed with releases.
 | **priority** | The first healthy deployment in the list; the rest are fallbacks in order |
 | **weighted** | By weight, for spreading load across keys, regions or providers |
 | **least latency** | The deployment with the lowest recent time to first token |
-| **least cost** | The cheapest (set from a LiteLLM `routing_strategy`) |
+| **least cost** | The cheapest (set with `routing_strategy` in a [config file](config-file.md)) |
 
 - A request **falls back** to the next deployment on rate limits (429), server errors (5xx), timeouts and provider authentication failures — never on a 400 or a policy decision — and only if nothing has been sent to the client yet, up to three attempts.
 - A deployment that fails is **cooled down** (2 s, doubling to 30 s) and skipped while others are healthy; the next success resets it.
 - Aliases cross providers: an alias can fall back from OpenAI to Anthropic, and the request is translated.
 
-## Import from LiteLLM
+## Import a config file
 
-**Models → Import from LiteLLM** takes a LiteLLM proxy `config.yaml`, shows what it becomes — providers, deployments, aliases from model groups and fallbacks, MCP servers — asks for any secret it can't resolve, and imports it once.
+**Models → Import config** takes a [`config.yaml`](config-file.md), shows what it becomes — providers, deployments, aliases from model groups and fallbacks, MCP servers — asks for any secret it can't resolve, and imports it once.
 
-![Importing a LiteLLM config: providers, models and fallbacks](images/litellm-import.png)
+![Importing a config file: providers, models and fallbacks](images/config-import.png)
 
-To keep the file as the source of truth instead, start the server with `--config`; see [Config file](config-file.md) and [Migrating from LiteLLM](migrating-from-litellm.md).
+To keep the file as the source of truth instead, start the server with `--config`; see [Config file](config-file.md).
 
 ## API
 
-The console uses `/admin/api/providers`, `/admin/api/deployments` and `/admin/api/aliases`. With the [admin key](configuration.md#admin-key), LiteLLM's model endpoints work too: `GET /model/info`, `POST /model/new`, `POST /model/delete`.
+The console uses `/admin/api/providers`, `/admin/api/deployments` and `/admin/api/aliases`. With the [admin key](configuration.md#admin-key), scripts can also use the model management endpoints: `GET /model/info`, `POST /model/new`, `POST /model/delete`.

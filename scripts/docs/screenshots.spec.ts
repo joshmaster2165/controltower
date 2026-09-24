@@ -367,13 +367,13 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
     await panel.getByRole('button', { name: /MCP clients/ }).click();
     await shot(page, 'connect-mcp', { clip: panel });
 
-    // LiteLLM config import.
+    // Config file import.
     await nav(page, 'Models');
-    await page.getByRole('button', { name: /Import from LiteLLM/ }).click();
-    await page.locator('.import-card textarea').fill('model_list:\n  - model_name: gpt-4o\n    litellm_params:\n      model: openai/gpt-4o\n      api_key: os.environ/OPENAI_API_KEY\n  - model_name: claude-sonnet\n    litellm_params:\n      model: anthropic/claude-sonnet-4-5\n      api_key: os.environ/ANTHROPIC_API_KEY\nlitellm_settings:\n  fallbacks: [{"gpt-4o": ["claude-sonnet"]}]\n');
+    await page.getByRole('button', { name: /Import config/ }).click();
+    await page.locator('.import-card textarea').fill('model_list:\n  - model_name: gpt-4o\n    params:\n      model: openai/gpt-4o\n      api_key: os.environ/OPENAI_API_KEY\n  - model_name: claude-sonnet\n    params:\n      model: anthropic/claude-sonnet-4-5\n      api_key: os.environ/ANTHROPIC_API_KEY\nsettings:\n  fallbacks: [{"gpt-4o": ["claude-sonnet"]}]\n');
     await page.getByRole('button', { name: 'Preview import' }).click();
     await page.waitForTimeout(700);
-    await shot(page, 'litellm-import', { clip: page.locator('.import-card'), pad: 8 });
+    await shot(page, 'config-import', { clip: page.locator('.import-card'), pad: 8 });
   } finally {
     await ct.stop();
   }

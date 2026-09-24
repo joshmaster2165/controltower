@@ -21,7 +21,7 @@ import { exportRoutes } from './admin/export.js';
 import { McpGateway } from './mcp/gateway.js';
 import { HttpGateway } from './http/gateway.js';
 import { httpAdminRoutes } from './admin/http.js';
-import { litellmApiRoutes } from './admin/litellm-api.js';
+import { managementApiRoutes } from './admin/management-api.js';
 import { budgetRoutes } from './admin/budgets.js';
 import { replayRoutes } from './admin/replay.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
@@ -91,7 +91,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await policyRoutes(a, full);
     await mcpAdminRoutes(a, full);
     await httpAdminRoutes(a, full);
-    await litellmApiRoutes(a, full);
+    await managementApiRoutes(a, full);
     await budgetRoutes(a, full);
     await replayRoutes(a, full);
     await alertRoutes(a, full);

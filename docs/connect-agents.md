@@ -11,7 +11,7 @@ Keep the model names you use today. Control Tower resolves them to a connected p
 | MCP (Streamable HTTP) | `http://<host>:4000/mcp` | `Authorization: Bearer` |
 | Plain HTTP to a registered API | `http://<host>:4000/http/<slug>/…` | `x-ct-key` |
 
-`x-litellm-api-key` and Azure's `api-key` header are accepted too, so clients configured for LiteLLM or Azure OpenAI work unchanged.
+Azure's `api-key` header is accepted too, so clients configured for Azure OpenAI work unchanged.
 
 ## OpenAI SDKs (Python, Node) and most frameworks
 
@@ -81,10 +81,9 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(model="gpt-4.1-mini", base_url="http://localhost:4000/v1", api_key="ct_sk_…")
 ```
 
-```python
-import litellm   # the LiteLLM SDK as a client
-litellm.completion(model="openai/gpt-4.1-mini", api_base="http://localhost:4000/v1", api_key="ct_sk_…",
-                   messages=[{"role": "user", "content": "hello"}])
+```ts
+import { ChatOpenAI } from '@langchain/openai';
+const llm = new ChatOpenAI({ model: 'gpt-4.1-mini', apiKey: 'ct_sk_…', configuration: { baseURL: 'http://localhost:4000/v1' } });
 ```
 
 ## MCP clients

@@ -10,7 +10,7 @@ Control Tower serves three APIs on one port:
 
 | Caller | Credential | Header |
 |---|---|---|
-| Agents (gateway) | The agent's key, `ct_sk_…` | `Authorization: Bearer`, `x-api-key`, `x-litellm-api-key` or `api-key`; `x-ct-key` for HTTP APIs |
+| Agents (gateway) | The agent's key, `ct_sk_…` | `Authorization: Bearer`, `x-api-key` or `api-key`; `x-ct-key` for HTTP APIs |
 | Scripts (admin API) | The [admin key](configuration.md#admin-key) | `Authorization: Bearer <admin key>` |
 | The console (admin API) | A session cookie from `POST /admin/api/login` | cookie plus `x-ct-csrf: <token from /admin/api/me>` on writes |
 | Prometheus | `CT_METRICS_TOKEN` | `Authorization: Bearer` |
@@ -135,13 +135,13 @@ All paths are under `/admin/api`.
 
 | Method | Path | |
 |---|---|---|
-| POST | `/import/litellm/plan`, `/import/litellm/apply` | Import a LiteLLM `config.yaml` |
+| POST | `/import/config/plan`, `/import/config/apply` | Import a [config file](config-file.md) once |
 | POST, DELETE | `/demo` | Start or stop the demo fleet |
 | POST | `/playground/chat` | Send a request from the console's playground |
 
-## LiteLLM-compatible management API
+## Key and model management API
 
-With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/delete`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` (also `/key/:key/regenerate`), `GET /model/info` (also `/v1/model/info`), `POST /model/new`, `POST /model/delete`. See [Migrating from LiteLLM](migrating-from-litellm.md).
+With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/delete`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` (also `/key/:key/regenerate`), `GET /model/info` (also `/v1/model/info`), `POST /model/new`, `POST /model/delete`. See [Keys](keys.md#key-management-api).
 
 ## Health and metrics
 

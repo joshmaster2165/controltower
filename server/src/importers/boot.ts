@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import { parse, stringify } from 'yaml';
 import type { AppContext } from '../context.js';
-import { ImportError, planLiteLLMImport } from './litellm.js';
+import { ImportError, planConfigImport } from './config.js';
 import { applyImportPlan, dropUnresolved } from './apply.js';
 
 /**
- * `--config config.yaml` (and `--model provider/model`), the way LiteLLM starts:
+ * `--config config.yaml` (and `--model provider/model`) at startup:
  * the file declares models, fallbacks, aliases, MCP servers, the master key and
  * Slack alerting. It is applied on every boot, replacing what the previous boot
  * declared; anything added in the console stays. A file that cannot be read or
- * parsed stops startup, like LiteLLM.
+ * parsed stops startup.
  */
 export class BootConfigError extends Error {}
 
@@ -37,7 +37,7 @@ export async function loadBootConfig(ctx: AppContext): Promise<void> {
   }
   if (quickModel) {
     const list = Array.isArray(doc.model_list) ? doc.model_list : [];
-    doc.model_list = [...list, { model_name: quickModel, litellm_params: { model: quickModel } }];
+    doc.model_list = [...list, { model_name: quickModel, params: { model: quickModel } }];
   }
 
   // Names already taken by rows made in the console (config rows are about to be replaced).
@@ -54,7 +54,7 @@ export async function loadBootConfig(ctx: AppContext): Promise<void> {
 
   let plan;
   try {
-    plan = dropUnresolved(planLiteLLMImport(stringify(doc), process.env, existing));
+    plan = dropUnresolved(planConfigImport(stringify(doc), process.env, existing));
   } catch (err) {
     if (err instanceof ImportError) throw new BootConfigError(`${configFile ?? '--model'}: ${err.message}`);
     throw err;

@@ -45,7 +45,7 @@ scrape_configs:
 | `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, `controltower_gateway_overhead_seconds` | Latency histograms |
 | requests in flight, held requests, event backlog, `controltower_deployment_state`, `controltower_mcp_server_up`, budget limit / spent / remaining, build info, uptime | Gauges |
 
-Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will. The names differ from LiteLLM's (`litellm_*`); dashboards need their queries updated.
+Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will.
 
 ## Health checks
 

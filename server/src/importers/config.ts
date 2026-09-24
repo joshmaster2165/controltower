@@ -1,19 +1,21 @@
 import { parse } from 'yaml';
 
 /**
- * Import a LiteLLM proxy `config.yaml`: model_list → providers + deployments,
+ * Plan a Control Tower `config.yaml`: model_list → providers + deployments,
  * load-balanced model groups and fallbacks → aliases, mcp_servers → MCP
  * servers. Planning is pure and side-effect free, so the console can show
  * exactly what will be created — and which secrets are still missing — before
  * anything is written.
  *
  * Secrets: literal values are used as given. `os.environ/NAME` references
- * (and LiteLLM's implicit defaults such as OPENAI_API_KEY) are resolved from
+ * (and the usual provider variables such as OPENAI_API_KEY) are resolved from
  * this server's environment when present; otherwise the plan lists them as
  * missing and the admin fills them in. Control Tower's own `CT_*` variables
  * are never resolved, so a config cannot read the master key.
  *
- * Written from LiteLLM's documented config schema; no LiteLLM code is used.
+ * Keys: `params`, `settings` and `credential` are the documented names; the
+ * long-form `litellm_params`, `litellm_settings` and `litellm_credential_name`
+ * used by other gateways' files are accepted too.
  */
 
 export type ImportCatalogId =
@@ -121,7 +123,7 @@ interface PrefixInfo {
   defaultKeyEnv?: string;
 }
 
-/** LiteLLM provider prefix → Control Tower catalogue entry. */
+/** Provider prefix in `params.model` → Control Tower catalogue entry. */
 const PREFIXES: Record<string, PrefixInfo> = {
   openai: { catalogId: 'openai', label: 'OpenAI', defaultKeyEnv: 'OPENAI_API_KEY' },
   text_completion_openai: { catalogId: 'openai', label: 'OpenAI', defaultKeyEnv: 'OPENAI_API_KEY' },
@@ -148,7 +150,7 @@ const PREFIXES: Record<string, PrefixInfo> = {
   ollama_chat: { catalogId: 'ollama', label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
   hosted_vllm: { catalogId: 'vllm', label: 'vLLM', defaultKeyEnv: 'HOSTED_VLLM_API_KEY' },
   lm_studio: { catalogId: 'lmstudio', label: 'LM Studio', baseUrl: 'http://localhost:1234/v1' },
-  litellm_proxy: { catalogId: 'custom', label: 'LiteLLM proxy', defaultKeyEnv: 'LITELLM_PROXY_API_KEY' },
+  litellm_proxy: { catalogId: 'custom', label: 'Upstream gateway', defaultKeyEnv: 'LITELLM_PROXY_API_KEY' },
 };
 
 /** Hosts that mean a named catalogue entry even when the config says `openai/` + api_base. */
@@ -195,19 +197,33 @@ function uniqueSlug(base: string, taken: Set<string>): string {
 
 export class ImportError extends Error {}
 
-export function planLiteLLMImport(yamlText: string, env: Record<string, string | undefined>, existing: ExistingNames): ImportPlan {
+/** Accept the long-form keys other gateways' files use, mapped onto the documented ones. */
+function normalizeKeys(doc: Obj): void {
+  if (isObj(doc.litellm_settings) && !isObj(doc.settings)) doc.settings = doc.litellm_settings;
+  if (!Array.isArray(doc.model_list)) return;
+  for (const m of doc.model_list as unknown[]) {
+    if (!isObj(m)) continue;
+    if (isObj(m.litellm_params) && !isObj(m.params)) m.params = m.litellm_params;
+    const p = m.params;
+    if (isObj(p) && typeof p.litellm_credential_name === 'string' && p.credential === undefined) p.credential = p.litellm_credential_name;
+  }
+}
+
+
+export function planConfigImport(yamlText: string, env: Record<string, string | undefined>, existing: ExistingNames): ImportPlan {
   let doc: unknown;
   try {
     doc = parse(yamlText, { maxAliasCount: 100 });
   } catch (e) {
     throw new ImportError(`Not valid YAML: ${(e as Error).message}`);
   }
-  if (!isObj(doc)) throw new ImportError('Expected a LiteLLM config.yaml with a model_list.');
+  if (!isObj(doc)) throw new ImportError('Expected a config.yaml with a model_list.');
+  normalizeKeys(doc);
   const warnings: string[] = [];
   const skipped: ImportPlan['skipped'] = [];
   const settings: PlannedSettings = {};
 
-  // `environment_variables` in the file take part in os.environ resolution, like LiteLLM.
+  // `environment_variables` in the file take part in os.environ resolution.
   const fileEnv: Record<string, string> = {};
   if (isObj(doc.environment_variables)) for (const [k, v] of Object.entries(doc.environment_variables)) if (str(v) !== undefined && !String(v).startsWith('os.environ/')) fileEnv[k] = String(v);
   const lookupEnv = (name: string): string | undefined => {
@@ -220,8 +236,8 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
     const gs = doc.general_settings;
     const ignored = IGNORED_GENERAL.filter((k) => k in gs);
     if (ignored.length) warnings.push(`general_settings ignored (Control Tower has its own): ${ignored.join(', ')}.`);
-    if (gs.store_model_in_db === true) warnings.push('store_model_in_db is on: models added through the LiteLLM UI live in its database, not in this file, and are not imported.');
-    if (gs.key_management_system) warnings.push(`Secrets come from ${String(gs.key_management_system)} in LiteLLM; here they are read from the environment or entered below.`);
+    if (gs.store_model_in_db === true) warnings.push('store_model_in_db is on: models stored only in another database are not in this file and are not imported.');
+    if (gs.key_management_system) warnings.push(`key_management_system (${String(gs.key_management_system)}) is not used: secrets are read from the environment or entered in the console.`);
     const mk = str(gs.master_key);
     const mkValue = mk?.startsWith('os.environ/') ? lookupEnv(mk.slice('os.environ/'.length)) : mk;
     if (mkValue) settings.masterKey = mkValue;
@@ -232,7 +248,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
     }
   }
   for (const k of ['guardrails', 'callback_settings', 'mcp_tools', 'prompts', 'policies', 'vector_store_registry']) if (k in doc) warnings.push(`\`${k}\` is not imported.`);
-  if (isObj(doc.litellm_settings) && (doc.litellm_settings.callbacks || doc.litellm_settings.success_callback)) warnings.push('Logging callbacks are not imported — Control Tower records every flight itself; use /metrics or alert webhooks for export.');
+  if (isObj(doc.settings) && (doc.settings.callbacks || doc.settings.success_callback)) warnings.push('Logging callbacks are not imported — Control Tower records every flight itself; use /metrics or alert webhooks for export.');
 
   // Named credential sets.
   const credentialSets = new Map<string, Obj>();
@@ -274,16 +290,16 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
 
   const keepProviders = new Set<string>();
   const handle = (m: unknown, i: number): void => {
-    if (!isObj(m) || !isObj(m.litellm_params)) {
-      skipped.push({ name: `model_list[${i}]`, reason: 'missing litellm_params' });
+    if (!isObj(m) || !isObj(m.params)) {
+      skipped.push({ name: `model_list[${i}]`, reason: 'missing params' });
       return;
     }
     const group = str(m.model_name) ?? '';
-    const lp: Obj = { ...(credentialSets.get(str(m.litellm_params.litellm_credential_name) ?? '') ?? {}), ...m.litellm_params };
+    const lp: Obj = { ...(credentialSets.get(str(m.params.credential) ?? '') ?? {}), ...m.params };
     const info = isObj(m.model_info) ? m.model_info : {};
     const model = str(lp.model) ?? '';
     if (!group || !model) {
-      skipped.push({ name: group || `model_list[${i}]`, reason: 'model_name and litellm_params.model are required' });
+      skipped.push({ name: group || `model_list[${i}]`, reason: 'model_name and params.model are required' });
       return;
     }
     const wildcard = group.includes('*') || model.includes('*');
@@ -294,7 +310,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
       for (const [prefix, info] of Object.entries(PREFIXES)) {
         if (!info.defaultKeyEnv || info.catalogId === 'custom' || info.catalogId === 'azure-openai' || !lookupEnv(info.defaultKeyEnv)) continue;
         found++;
-        handle({ model_name: `${prefix}/*`, litellm_params: { model: `${prefix}/*` } }, i);
+        handle({ model_name: `${prefix}/*`, params: { model: `${prefix}/*` } }, i);
       }
       if (!found) skipped.push({ name: group, reason: 'model "*" connects the providers whose API keys are in the environment — none were found' });
       return;
@@ -370,7 +386,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
       if (key.from !== 'missing' || required || lp.api_key) creds.push(key);
       if (catalogId === 'azure-openai') extra.api_version = str(lp.api_version) ?? lookupEnv('AZURE_API_VERSION') ?? '2024-10-21';
     }
-    // LiteLLM configs often say `api_key: none` for keyless local endpoints.
+    // Configs often say `api_key: none` for keyless local endpoints.
     if ((catalogId === 'custom' || catalogId === 'vllm') && (!values.api_key || values.api_key.toLowerCase() === 'none')) {
       delete values.api_key;
       for (let i = creds.length - 1; i >= 0; i--) if (creds[i]!.field === 'api_key') creds.splice(i, 1);
@@ -381,7 +397,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
     const idKey = JSON.stringify([catalogId, baseUrl ?? '', creds.map((c) => [c.field, c.env ?? '', c.from === 'literal' ? values[c.field] : '']), extra]);
     let prov = providers.get(idKey);
     if (!prov) {
-      const credName = str(m.litellm_params.litellm_credential_name);
+      const credName = str(m.params.credential);
       const sameKind = [...providers.values()].filter((x) => x.catalogId === catalogId).length;
       const name = credName ?? (catalogId === 'azure-openai' && baseUrl ? `Azure ${hostOf(baseUrl).split('.')[0]}` : sameKind ? `${label} ${sameKind + 1}` : label);
       prov = { ref: `p${providers.size + 1}`, catalogId, name, slug: uniqueSlug(name, providerSlugs), baseUrl, extra, creds, values, sig: idKey };
@@ -413,7 +429,7 @@ export function planLiteLLMImport(yamlText: string, env: Record<string, string |
 
   // ---- routing: strategy, fallbacks, group aliases ----
   const rs = isObj(doc.router_settings) ? doc.router_settings : {};
-  const ls = isObj(doc.litellm_settings) ? doc.litellm_settings : {};
+  const ls = isObj(doc.settings) ? doc.settings : {};
   const strategyName = str(rs.routing_strategy) ?? 'simple-shuffle';
   const strategy = STRATEGY[strategyName] ?? 'weighted';
   if (!STRATEGY[strategyName]) warnings.push(`routing_strategy "${strategyName}" has no equivalent — using weighted.`);

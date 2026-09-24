@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { planLiteLLMImport, publicPlan } from '../src/importers/litellm.js';
+import { planConfigImport, publicPlan } from '../src/importers/config.js';
 
 const none = () => ({ providerSlugs: new Set<string>(), modelNames: new Set<string>(), mcpSlugs: new Set<string>() });
 
-describe('LiteLLM config import', () => {
+describe('config file import', () => {
   it('turns a load-balanced group with order tiers and a credential set into an alias', () => {
-    const plan = planLiteLLMImport(
+    const plan = planConfigImport(
       `
 credential_list:
   - credential_name: azure-eastus
     credential_values: {api_key: os.environ/AZ_EAST_KEY, api_base: https://acme-east.openai.azure.com, api_version: "2025-03-01-preview"}
 model_list:
   - model_name: gpt-4o
-    litellm_params: {model: azure/prod-gpt4o, litellm_credential_name: azure-eastus, rpm: 900, order: 1}
+    params: {model: azure/prod-gpt4o, credential: azure-eastus, rpm: 900, order: 1}
   - model_name: gpt-4o
-    litellm_params: {model: openai/gpt-4o, api_key: os.environ/OPENAI_API_KEY, rpm: 300, order: 2}
+    params: {model: openai/gpt-4o, api_key: os.environ/OPENAI_API_KEY, rpm: 300, order: 2}
   - model_name: embed
-    litellm_params: {model: openai/text-embedding-3-small, input_cost_per_token: 0.00000002, output_cost_per_token: 0}
+    params: {model: openai/text-embedding-3-small, input_cost_per_token: 0.00000002, output_cost_per_token: 0}
     model_info: {mode: embedding}
 router_settings: {routing_strategy: usage-based-routing-v2, num_retries: 2}
 general_settings: {master_key: sk-1234, database_url: postgres://x}
@@ -48,15 +48,15 @@ general_settings: {master_key: sk-1234, database_url: postgres://x}
   });
 
   it('maps Bedrock and Vertex, and connects a provider for a wildcard', () => {
-    const plan = planLiteLLMImport(
+    const plan = planConfigImport(
       `
 model_list:
   - model_name: claude-sonnet
-    litellm_params: {model: bedrock/converse/anthropic.claude-sonnet-4-v1:0, aws_region_name: us-west-2, aws_access_key_id: os.environ/AWS_KEY, aws_secret_access_key: os.environ/AWS_SECRET, weight: 3}
+    params: {model: bedrock/converse/anthropic.claude-sonnet-4-v1:0, aws_region_name: us-west-2, aws_access_key_id: os.environ/AWS_KEY, aws_secret_access_key: os.environ/AWS_SECRET, weight: 3}
   - model_name: claude-sonnet
-    litellm_params: {model: vertex_ai/claude-sonnet-4, vertex_project: acme-ml, vertex_location: us-east5, vertex_credentials: /secrets/sa.json, weight: 1}
+    params: {model: vertex_ai/claude-sonnet-4, vertex_project: acme-ml, vertex_location: us-east5, vertex_credentials: /secrets/sa.json, weight: 1}
   - model_name: "gemini/*"
-    litellm_params: {model: "gemini/*", api_key: os.environ/GEMINI_API_KEY}
+    params: {model: "gemini/*", api_key: os.environ/GEMINI_API_KEY}
 `,
       { AWS_KEY: 'AKIAEXAMPLE', AWS_SECRET: 'shh' },
       none(),
@@ -76,14 +76,14 @@ model_list:
   });
 
   it('turns model "*" into every provider whose key is in the environment, and reads Slack alerting', () => {
-    const plan = planLiteLLMImport(
+    const plan = planConfigImport(
       `
 model_list:
   - model_name: "*"
-    litellm_params: {model: "*"}
-general_settings: {master_key: os.environ/LITELLM_MASTER_KEY, alerting: ["slack"], alert_types: ["llm_exceptions", "budget_alerts"]}
+    params: {model: "*"}
+general_settings: {master_key: os.environ/ADMIN_MASTER_KEY, alerting: ["slack"], alert_types: ["llm_exceptions", "budget_alerts"]}
 `,
-      { OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a', LITELLM_MASTER_KEY: 'sk-master', SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/T/B/x' },
+      { OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a', ADMIN_MASTER_KEY: 'sk-master', SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/T/B/x' },
       none(),
     );
     expect(plan.providers.map((p) => p.catalogId).sort()).toEqual(['anthropic', 'openai']);
@@ -92,16 +92,16 @@ general_settings: {master_key: os.environ/LITELLM_MASTER_KEY, alerting: ["slack"
   });
 
   it('adds fallbacks after the group, recognises OpenAI-compatible hosts and keyless local servers', () => {
-    const plan = planLiteLLMImport(
+    const plan = planConfigImport(
       `
 model_list:
   - model_name: local-llama
-    litellm_params: {model: openai/meta-llama-3.1-70b, api_base: http://vllm.internal:8000/v1, api_key: none}
+    params: {model: openai/meta-llama-3.1-70b, api_base: http://vllm.internal:8000/v1, api_key: none}
   - model_name: fast
-    litellm_params: {model: openai/llama-3.3-70b-versatile, api_base: https://api.groq.com/openai/v1, api_key: gsk_literal}
+    params: {model: openai/llama-3.3-70b-versatile, api_base: https://api.groq.com/openai/v1, api_key: gsk_literal}
   - model_name: gpt-4o
-    litellm_params: {model: gpt-4o}
-litellm_settings:
+    params: {model: gpt-4o}
+settings:
   fallbacks: [{local-llama: [fast, missing-model]}]
   context_window_fallbacks: [{fast: [gpt-4o]}]
 mcp_servers:
@@ -127,10 +127,17 @@ mcp_servers:
     expect(w).toContain('context_window_fallbacks are not imported');
   });
 
+  it('accepts the long-form keys other gateways\' files use', () => {
+    const short = planConfigImport('model_list:\n  - model_name: fast\n    params: {model: openai/gpt-4.1-mini, api_key: sk-a, credential: shared}\ncredential_list:\n  - credential_name: shared\n    credential_values: {api_base: https://proxy.example.com/v1}\nsettings:\n  fallbacks: [{fast: [fast]}]\n', {}, none());
+    const long = planConfigImport('model_list:\n  - model_name: fast\n    litellm_params: {model: openai/gpt-4.1-mini, api_key: sk-a, litellm_credential_name: shared}\ncredential_list:\n  - credential_name: shared\n    credential_values: {api_base: https://proxy.example.com/v1}\nlitellm_settings:\n  fallbacks: [{fast: [fast]}]\n', {}, none());
+    expect(publicPlan(long)).toEqual(publicPlan(short));
+    expect(short.providers[0]!.baseUrl).toBe('https://proxy.example.com/v1');
+  });
+
   it('never resolves Control Tower variables and rejects non-configs', () => {
-    const plan = planLiteLLMImport('model_list:\n  - model_name: x\n    litellm_params: {model: openai/x, api_key: os.environ/CT_MASTER_KEY}\n', { CT_MASTER_KEY: 'master' }, none());
+    const plan = planConfigImport('model_list:\n  - model_name: x\n    params: {model: openai/x, api_key: os.environ/CT_MASTER_KEY}\n', { CT_MASTER_KEY: 'master' }, none());
     expect(plan.providers[0]!.values).toEqual({});
-    expect(() => planLiteLLMImport('just: text', {}, none())).toThrow('No model_list');
-    expect(() => planLiteLLMImport('model_list: [\n', {}, none())).toThrow('Not valid YAML');
+    expect(() => planConfigImport('just: text', {}, none())).toThrow('No model_list');
+    expect(() => planConfigImport('model_list: [\n', {}, none())).toThrow('Not valid YAML');
   });
 });

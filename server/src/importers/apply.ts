@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import type { Database } from '../db/schema.js';
 import type { PolicyService } from '../policy/policy.js';
 import { catalogEntry } from '../providers/catalog.js';
-import type { ImportPlan } from './litellm.js';
+import type { ImportPlan } from './config.js';
 
 /**
  * Writes an import plan. Two modes:
@@ -26,7 +26,7 @@ export interface ApplyResult {
 
 const stable = (kind: string, sig: string) => `cfg_${kind}_${crypto.createHash('sha256').update(sig).digest('hex').slice(0, 20)}`;
 
-/** LiteLLM alert_types → Control Tower alert rules. */
+/** Config-file alert_types → Control Tower alert rules. */
 const ALERT_TYPES: Record<string, { kind: string; triggers: string[]; threshold: number; window_s: number; cooldown_s: number; params: Record<string, unknown>; name: string }> = {
   llm_exceptions: { kind: 'errors', triggers: ['failed'], threshold: 1, window_s: 60, cooldown_s: 300, params: {}, name: 'LLM exceptions' },
   llm_too_slow: { kind: 'latency', triggers: ['slow'], threshold: 1, window_s: 300, cooldown_s: 600, params: { slow_ms: 300_000 }, name: 'LLM calls too slow' },
@@ -70,7 +70,7 @@ export async function applyImportPlan(ctx: AppContext, p: ImportPlan, opts: { so
           slug: prov.slug,
           base_url: (prov.baseUrl ?? cat.baseUrl ?? null) || null,
           creds_enc: Object.keys(prov.values).length ? ctx.secrets.encrypt(JSON.stringify(prov.values), `providers.creds_enc.${id}`) : null,
-          extra: JSON.stringify({ ...(cat.extra ?? {}), ...prov.extra, catalog_id: cat.id, imported_from: 'litellm' }),
+          extra: JSON.stringify({ ...(cat.extra ?? {}), ...prov.extra, catalog_id: cat.id, imported_from: 'config' }),
           health: 'unknown',
           health_detail: null,
           stream_usage_supported: null,
@@ -168,7 +168,7 @@ export async function applyImportPlan(ctx: AppContext, p: ImportPlan, opts: { so
 
 /**
  * For a config loaded at boot: providers whose required credentials are not in
- * the environment are left out (with their models), like LiteLLM starting and
+ * the environment are left out (with their models): the server starts, and
  * failing only when those models are called.
  */
 export function dropUnresolved(p: ImportPlan): ImportPlan {

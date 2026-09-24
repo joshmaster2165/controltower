@@ -429,7 +429,7 @@ CREATE TABLE http_apis (
 `,
 });
 
-// Rows declared in a config file (`--config config.yaml`, LiteLLM format) carry
+// Rows declared in a config file (`--config config.yaml`) carry
 // source='config': each boot replaces them, so the file stays the source of truth.
 migrations.push({
   version: 8,

@@ -69,6 +69,6 @@ A `held` alert about one request links straight to its approval card, with a **R
 
 With a signing secret, each delivery carries `x-ct-signature: t=<unix seconds>,v1=<hex>`, where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Deliveries are retried twice on network errors, 408, 429 and 5xx.
 
-## From a LiteLLM config
+## From the config file
 
 `general_settings.alerting: ["slack"]` with `SLACK_WEBHOOK_URL` in the environment creates a Slack channel, and `alert_types` become rules: `llm_exceptions` → failed requests, `llm_too_slow` / `llm_requests_hanging` → slow requests, `budget_alerts` → budgets, `cooldown_deployment` / `outage_alerts` → provider outages, `daily_reports` / `spend_reports` → daily summary. See [Config file](config-file.md#general_settings).

@@ -31,5 +31,9 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 - [**Config file**](config-file.md) — the LiteLLM-format `config.yaml`, field by field.
 - [**Migrating from LiteLLM**](migrating-from-litellm.md) — LiteLLM's setup steps side by side, and how to move a running proxy.
 - [**Demo mode**](demo.md) — a synthetic fleet to explore with.
+- [**Architecture**](architecture.md) — how a request flows, what is stored, retention, limits.
+- [**API reference**](api.md) — every gateway, admin and health endpoint.
+- [**Troubleshooting**](troubleshooting.md) — errors agents see and how to fix them.
+- [**Changelog**](changelog.md) — what changed in each release.
 
 Screenshots in these pages are taken from a real server by `pnpm build && pnpm docs:screenshots`.

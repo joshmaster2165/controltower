@@ -33,6 +33,8 @@ export interface Config {
   /** Policy YAML applied at every start (--policy / CT_POLICY), merged or replacing the policy. */
   policyFile: string | undefined;
   policyMode: 'merge' | 'replace';
+  /** Days to keep per-request rows (flights / their event trail); 0 keeps them forever. */
+  retention: { flightsDays: number; eventsDays: number };
   /**
    * Admin API key (LiteLLM's "master key"): a bearer token for the admin API and
    * the LiteLLM-compatible /key and /model routes, an all-access key for model
@@ -118,6 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     quickModel: val('model', 'm'),
     policyFile: (val('policy') ?? env.CT_POLICY) ? path.resolve((val('policy') ?? env.CT_POLICY)!) : undefined,
     policyMode: env.CT_POLICY_MODE === 'replace' ? 'replace' : 'merge',
+    retention: { flightsDays: Math.max(0, int(env.CT_RETENTION_DAYS, 30)), eventsDays: Math.max(0, int(env.CT_EVENT_RETENTION_DAYS, 7)) },
     adminKey: env.CT_ADMIN_KEY || env.LITELLM_MASTER_KEY || undefined,
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,

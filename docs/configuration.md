@@ -57,6 +57,8 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_LOG_LEVEL` | `info` (`debug` from source) | `debug`, `info`, `warn` or `error`. `LITELLM_LOG=DEBUG` and `--detailed_debug` work too |
+| `CT_RETENTION_DAYS` | `30` | Days to keep flights (one row per request); `0` keeps them forever. Daily spend and usage history is always kept |
+| `CT_EVENT_RETENTION_DAYS` | `7` | Days to keep each flight's event trail |
 | `CT_SESSION_TTL_MS` | 7 days | Console session lifetime |
 | `CT_SHUTDOWN_GRACE_MS` | `15000` | How long streams may finish on shutdown |
 

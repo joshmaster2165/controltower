@@ -1,0 +1,41 @@
+# Changelog
+
+Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
+
+## 0.1.3 — 24 September 2026
+
+**Fix**
+- The demo approver decides only demo agents' requests. It used to auto-decide every held request while the demo fleet ran — including a real agent held by a real gate. Upgrade if you run the demo beside a real setup.
+
+**New**
+- [Email approvals](alerts.md#approving-by-email): an Email alert channel; held requests arrive as *[Approval needed]* emails with a **Review & approve** button that opens the request in the console.
+- [Team and project budgets](keys.md#team-and-project-budgets) on the Ledger, counting what was already spent this period.
+- [`--policy`](policy-as-code.md#at-startup-gitops): apply a policy file at every start (merge, or replace with `CT_POLICY_MODE=replace`).
+- This documentation site, and a [Railway](install.md#railway) deploy guide.
+
+**Improved**
+- Traffic from just before the map opened shows as active; native controls follow the console's light theme; several overflow and overlap fixes; a warning when `/data` isn't on a volume.
+
+## 0.1.2 — 24 September 2026
+
+**Security**
+- One key check everywhere: the MCP gateway accepted expired keys, and model listing, key info and token counting accepted blocked or expired ones.
+
+**New**
+- [OpenAI Responses API](connect-agents.md#openai-agents-sdk-and-codex-responses-api) (`/v1/responses`) through the full pipeline — the OpenAI Agents SDK and Codex work with `OPENAI_BASE_URL`.
+- [Policy as code](policy-as-code.md): export zones and gates as YAML, import with a preview.
+- [LiteLLM setup parity](migrating-from-litellm.md): `--config` applied at every start, the master key, `/key/*` and `/model/*`, bare routes, LiteLLM headers, health probes, `count_tokens`, wildcards, MCP auth and Slack alerting from the config.
+
+**Improved**
+- A recording of the console in the README; username sign-in; built-in keys stay off the map until used.
+
+## 0.1.1 — 23 September 2026
+
+- **Five-minute setup:** a *Get started* guide, models added on first use, a Connect panel per key with a live "connected" check, clear startup output.
+- **Demo on a switch** from the console, refusing to start when your setup uses its names.
+- **Run it anywhere:** Render and Fly.io configurations; the image honours `PORT` and fixes root-owned volumes.
+- **HTTP gateway** for plain REST APIs at `/http/<slug>`.
+
+## 0.1.0 — 23 September 2026
+
+The first public preview: the OpenAI-compatible and Anthropic gateway with the major providers, the MCP tool gateway, the live Airspace, gates (allow, deny, approval, limits, inspect), approvals with hold → ticket → grant (also from Slack), inspect gates for secrets, personal data and prompt injection, simulation against recorded traffic, observed traffic via `/v1/observe` and OpenTelemetry, the data-flow inventory, cost and budgets, alerts, Prometheus metrics, and demo mode.

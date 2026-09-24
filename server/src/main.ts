@@ -29,6 +29,7 @@ import { HttpApiRegistry } from './http/registry.js';
 import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
 import { smtpFromEnv } from './alerts/email.js';
+import { startRetention } from './db/retention.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
@@ -261,6 +262,12 @@ async function main(): Promise<void> {
   checkpoint.unref?.();
 
   let stopping = false;
+  const stopRetention = startRetention(
+    db.write,
+    config.retention,
+    (deleted) => app.log.info({ deleted }, 'retention: old rows removed'),
+    (err) => app.log.warn({ err }, 'retention pass failed'),
+  );
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
@@ -278,6 +285,7 @@ async function main(): Promise<void> {
     dbSink.flush();
     await budgets.stop();
     clearInterval(checkpoint);
+    stopRetention();
     db.close();
     process.exit(0);
   };

@@ -21,7 +21,7 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf
 
 /** Sidebar: sections in reading order; each item is [file (without .md), label]. Order also drives previous / next. */
 const SIDEBAR = [
-  { title: 'Get Started', items: [['README', 'Overview'], ['getting-started', 'Quick start'], ['install', 'Deploy'], ['demo', 'Demo mode']] },
+  { title: 'Get Started', items: [['README', 'Overview'], ['getting-started', 'Quick start'], ['install', 'Deploy'], ['demo', 'Demo mode'], ['changelog', 'Changelog']] },
   {
     title: 'Gateway',
     items: [
@@ -33,8 +33,8 @@ const SIDEBAR = [
     ],
   },
   { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['policy-as-code', 'Policy as code'], ['threat-model', 'What is enforced']] },
-  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics']] },
-  { title: 'Reference', items: [['configuration', 'CLI & environment'], ['config-file', 'Config file'], ['migrating-from-litellm', 'Migrating from LiteLLM']] },
+  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['troubleshooting', 'Troubleshooting']] },
+  { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file'], ['migrating-from-litellm', 'Migrating from LiteLLM']] },
 ];
 
 const pages = SIDEBAR.flatMap((s) => s.items.map(([file, label]) => ({ file, label, section: s.title, url: file === 'README' ? 'index.html' : `${file}.html` })));

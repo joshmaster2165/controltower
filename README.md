@@ -83,6 +83,7 @@ Step-by-step guides with screenshots, in [`docs/`](docs/README.md):
 | [Install](docs/install.md) | [Keys, budgets and limits](docs/keys.md) | [Policy as code](docs/policy-as-code.md) | [Config file](docs/config-file.md) |
 | [Connect your agents](docs/connect-agents.md) | [MCP tool servers](docs/mcp.md) | [Alerts](docs/alerts.md) | [All docs](docs/README.md) |
 | [Demo mode](docs/demo.md) | [HTTP APIs and observed traffic](docs/http-apis.md) | [Monitoring](docs/monitoring.md) | [What is enforced](docs/threat-model.md) |
+| [Changelog](docs/changelog.md) | [Architecture](docs/architecture.md) | [Troubleshooting](docs/troubleshooting.md) | [API reference](docs/api.md) |
 
 ## Run from source
 
@@ -232,6 +233,7 @@ Everything is configured in the browser. Environment variables exist for operato
 |---|---|---|
 | `CT_PORT` | `4000` | Listen port (falls back to `PORT`, which most platforms set). `--port` wins. |
 | `CT_CONFIG` | — | [Config file](docs/config-file.md) applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
+| `CT_RETENTION_DAYS` | `30` | Days to keep per-request flights (`0` = forever); daily spend history is always kept. `CT_EVENT_RETENTION_DAYS` (7) for event trails |
 | `CT_POLICY` | — | [Policy file](docs/policy-as-code.md) (zones and gates) applied at every start (also `--policy`); `CT_POLICY_MODE=replace` makes the policy match it |
 | `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `master_key` in the config file works too. |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |

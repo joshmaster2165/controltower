@@ -13,7 +13,7 @@ docker run -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/contro
 The terminal prints where to open the console, the two environment variables agents need, and the file to back up:
 
 ```text
-  Control Tower 0.1.3 is running
+  Control Tower 0.1.4 is running
 
      Open        http://localhost:4000  → create your admin account
      Models      OPENAI_BASE_URL=http://localhost:4000/v1       (OpenAI SDKs)

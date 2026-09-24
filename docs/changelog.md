@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.1.4 — 25 September 2026
 
 - **Flight Recorder:** [replay](airspace.md#flight-recorder-replay-past-traffic) the last hour, day or week on the map at up to 10,000×.
 - **Data retention:** flights are kept 30 days (`CT_RETENTION_DAYS`), event trails 7 days; daily spend history is kept.

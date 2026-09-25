@@ -445,112 +445,199 @@ export function AirspacePage() {
 
   return (
     <div className={`airspace ${mode === 'matrix' ? 'matrix-mode' : ''}`} ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
-      <div className={`hud ${view ? 'in-view' : ''}`}>
-        <div className="hud-strip">
-          {view && (
-            <div className="seg view-seg" title={`Teams: ${view.teams.join(', ')}`}>
-              <div className="label">
-                View · {view.teams.length} team{view.teams.length === 1 ? '' : 's'}
+      {/* The top bar: counters and tools, then the map controls, on one left edge; clear of a side panel. */}
+      <div className="air-top" style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
+        <div className={`hud ${view ? 'in-view' : ''}`}>
+          <div className="hud-strip">
+            {view && (
+              <div className="seg view-seg" title={`Teams: ${view.teams.join(', ')}`}>
+                <div className="label">
+                  View · {view.teams.length} team{view.teams.length === 1 ? '' : 's'}
+                </div>
+                <div className="value">
+                  <i style={{ background: view.color }} />
+                  <span className="view-name">{view.name}</span>
+                  <button className="icon-btn sm" onClick={() => setEditing(view)} title="Edit this view" aria-label="Edit view">
+                    <Icon name="more" size={14} />
+                  </button>
+                  <button className="icon-btn sm" onClick={() => setRoute('airspace')} title="Back to the whole organization" aria-label="Leave view">
+                    <Icon name="x" size={13} />
+                  </button>
+                </div>
               </div>
-              <div className="value">
-                <i style={{ background: view.color }} />
-                <span className="view-name">{view.name}</span>
-                <button className="icon-btn sm" onClick={() => setEditing(view)} title="Edit this view" aria-label="Edit view">
-                  <Icon name="more" size={14} />
-                </button>
-                <button className="icon-btn sm" onClick={() => setRoute('airspace')} title="Back to the whole organization" aria-label="Leave view">
-                  <Icon name="x" size={13} />
-                </button>
+            )}
+            <div className="seg">
+              <div className="label">Flights</div>
+              <div className="value">{shownCounters.flights.toLocaleString()}</div>
+            </div>
+            <div className="seg">
+              <div className="label">Spend</div>
+              <div className="value">{formatUsd(shownCounters.cost_nanousd)}</div>
+            </div>
+            <div className="seg">
+              <div className="label">Blocked · errors</div>
+              <div className="value" style={{ color: shownCounters.denied + shownCounters.errors ? 'var(--danger)' : undefined }}>
+                {shownCounters.denied} · {shownCounters.errors}
               </div>
             </div>
-          )}
-          <div className="seg">
-            <div className="label">Flights</div>
-            <div className="value">{shownCounters.flights.toLocaleString()}</div>
-          </div>
-          <div className="seg">
-            <div className="label">Spend</div>
-            <div className="value">{formatUsd(shownCounters.cost_nanousd)}</div>
-          </div>
-          <div className="seg">
-            <div className="label">Blocked · errors</div>
-            <div className="value" style={{ color: shownCounters.denied + shownCounters.errors ? 'var(--danger)' : undefined }}>
-              {shownCounters.denied} · {shownCounters.errors}
+            <div className="seg">
+              <div className="label">Active links</div>
+              <div className="value">{stats.active}</div>
+            </div>
+            <div className="seg">
+              <div className="label">Holding</div>
+              <div className="value" style={{ color: pendingHere.length ? 'var(--warn)' : undefined }}>
+                {pendingHere.length}
+              </div>
             </div>
           </div>
-          <div className="seg">
-            <div className="label">Active links</div>
-            <div className="value">{stats.active}</div>
-          </div>
-          <div className="seg">
-            <div className="label">Holding</div>
-            <div className="value" style={{ color: pendingHere.length ? 'var(--warn)' : undefined }}>
-              {pendingHere.length}
-            </div>
-          </div>
-        </div>
-        <div className="toolgroup" role="toolbar" aria-label="Map tools">
-          <button className={gateMode ? 'on' : ''} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path" aria-pressed={gateMode}>
-            <Icon name="shield" size={15} /> Add gate
-          </button>
-          <button className={drawMode ? 'on' : ''} onClick={toggleDraw} title="Drag a lasso around stations to create a zone" aria-pressed={drawMode}>
-            <Icon name="map" size={15} /> Draw zone
-          </button>
-        </div>
-        <div className="menu-wrap">
-          <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} title="Export" aria-label="Export">
-            <Icon name="download" size={15} /> <span className="lbl">Export</span>
-          </button>
-          {exportOpen && (
-            <div className="menu" role="menu" onMouseLeave={() => setExportOpen(false)}>
-              <button role="menuitem" onClick={() => void downloadMap()}>
-                <b>Map image</b>
-                <span>PNG of the whole map, for docs and reviews</span>
+          <div className="hud-actions">
+            <div className="toolgroup" role="toolbar" aria-label="Map tools">
+              <button className={gateMode ? 'on' : ''} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path" aria-pressed={gateMode}>
+                <Icon name="shield" size={15} /> Add gate
               </button>
-              <a role="menuitem" href="#/report" onClick={() => setExportOpen(false)}>
-                <b>Data-flow inventory</b>
-                <span>Every path, its volume and the gates on it — printable</span>
-              </a>
-              <a role="menuitem" href="/admin/api/export/dataflow?format=md" download onClick={() => setExportOpen(false)}>
-                <b>Inventory as Markdown</b>
-                <span>For a wiki or a pull request</span>
-              </a>
-              <a role="menuitem" href="/admin/api/export/dataflow?format=csv" download onClick={() => setExportOpen(false)}>
-                <b>Paths as CSV</b>
-                <span>For a spreadsheet</span>
-              </a>
-              <a role="menuitem" href="/admin/api/policy/export" download onClick={() => setExportOpen(false)}>
-                <b>Policy as YAML</b>
-                <span>Zones and gates as code, for Git and review</span>
-              </a>
-              <button role="menuitem" onClick={() => { setExportOpen(false); setPolicyImport(true); }}>
-                <b>Import policy…</b>
-                <span>Apply a policy YAML, with a preview first</span>
+              <button className={drawMode ? 'on' : ''} onClick={toggleDraw} title="Drag a lasso around stations to create a zone" aria-pressed={drawMode}>
+                <Icon name="map" size={15} /> Draw zone
               </button>
             </div>
+            <div className="menu-wrap">
+              <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} title="Export" aria-label="Export">
+                <Icon name="download" size={15} /> <span className="lbl">Export</span>
+              </button>
+              {exportOpen && (
+                <div className="menu" role="menu" onMouseLeave={() => setExportOpen(false)}>
+                  <button role="menuitem" onClick={() => void downloadMap()}>
+                    <b>Map image</b>
+                    <span>PNG of the whole map, for docs and reviews</span>
+                  </button>
+                  <a role="menuitem" href="#/report" onClick={() => setExportOpen(false)}>
+                    <b>Data-flow inventory</b>
+                    <span>Every path, its volume and the gates on it — printable</span>
+                  </a>
+                  <a role="menuitem" href="/admin/api/export/dataflow?format=md" download onClick={() => setExportOpen(false)}>
+                    <b>Inventory as Markdown</b>
+                    <span>For a wiki or a pull request</span>
+                  </a>
+                  <a role="menuitem" href="/admin/api/export/dataflow?format=csv" download onClick={() => setExportOpen(false)}>
+                    <b>Paths as CSV</b>
+                    <span>For a spreadsheet</span>
+                  </a>
+                  <a role="menuitem" href="/admin/api/policy/export" download onClick={() => setExportOpen(false)}>
+                    <b>Policy as YAML</b>
+                    <span>Zones and gates as code, for Git and review</span>
+                  </a>
+                  <button role="menuitem" onClick={() => { setExportOpen(false); setPolicyImport(true); }}>
+                    <b>Import policy…</b>
+                    <span>Apply a policy YAML, with a preview first</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <button className={`btn ${replay ? 'active' : ''}`} onClick={() => (replay ? exitReplay() : startReplay())} title="Flight Recorder: play past traffic back on the map" aria-label="Replay">
+              <Icon name="play" size={15} /> <span className="lbl">Replay</span>
+            </button>
+            <button
+              className={`btn ${attentionOpen && !focusId ? 'active' : ''}`}
+              onClick={() => {
+                applyFocus(null);
+                setShowTower(false);
+                setAttentionOpen(!attentionOpen);
+              }}
+              title="What needs attention on this map: holds, blocks, direct provider calls, ungated destructive tools, new connections, spikes"
+              aria-label="Attention"
+            >
+              <Icon name="activity" size={15} /> <span className="lbl">Attention</span>{' '}
+              {attention.items.some((i) => i.severity >= 2) && (
+                <span className={`badge ${attention.items.some((i) => i.severity === 3) ? 'alert' : 'warn'}`}>{attention.items.filter((i) => i.severity >= 2).length}</span>
+              )}
+            </button>
+            <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setAttentionOpen(false); setShowTower((v) => !v); }} title="Approvals" aria-label="Approvals">
+              <Icon name="tower" size={15} /> <span className="lbl">Approvals</span> {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
+            </button>
+          </div>
+        </div>
+        <div className="map-controls">
+          <div className="seg sm layer-seg" role="radiogroup" aria-label="Show as">
+            {(
+              [
+                ['map', 'Map', 'Agents, the tower and destinations, with their connections'],
+                ['matrix', 'Matrix', 'Every agent against every destination: volume, live connections and which have a gate'],
+              ] as const
+            ).map(([id, label, hint]) => (
+              <button key={id} role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''} title={hint} onClick={() => setMode(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="sep" />
+          {mode === 'map' && (
+            <>
+              <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
+              <span className="sep" />
+            </>
+          )}
+          {level.teams >= 2 && (
+            <>
+              <div className="seg sm layer-seg" role="radiogroup" aria-label="Draw agents by">
+                {(
+                  [
+                    ['teams', 'Teams', 'One station per team — open a team to see its agents'],
+                    ['agents', 'Agents', 'One station per agent (copies of an agent drawn once)'],
+                  ] as const
+                ).map(([id, label, hint]) => (
+                  <button key={id} role="radio" aria-checked={level.level === id} className={level.level === id ? 'on' : ''} title={hint} onClick={() => chooseLevel(id)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="sep" />
+            </>
+          )}
+          {mode === 'map' && (
+          <>
+          <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
+            {(
+              [
+                ['all', 'All', 'Every connection'],
+                ['active', 'Active', 'Only connections with traffic in the last minute'],
+                ['gateway', 'Gateway', 'Only traffic through Control Tower'],
+                ['outside', 'Outside', 'Only traffic that bypasses Control Tower'],
+              ] as const
+            ).map(([id, label, hint]) => (
+              <button key={id} role="radio" aria-checked={layer === id} className={layer === id ? 'on' : ''} title={hint} onClick={() => setLayer(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="sep" />
+          <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1 / 1.2)} aria-label="Zoom out">
+            −
+          </button>
+          <span className="zoom">{Math.round(zoom * 100)}%</span>
+          <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1.2)} aria-label="Zoom in">
+            +
+          </button>
+          <span className="sep" />
+          <button className="btn sm ghost" onClick={fitView} title="Fit every node on screen">
+            Fit
+          </button>
+          <span
+            className="map-help"
+            tabIndex={0}
+            title="Drag nodes to arrange (saved for everyone) · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace what it connects to · right-click a node to gate it · click a team's arrow to open it · press / to find anything"
+            aria-label="Map controls help"
+          >
+            ?
+          </span>
+          {customLayout && (
+            <button className="btn sm ghost" onClick={resetLayout}>
+              Reset layout
+            </button>
+          )}
+          {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
+          </>
           )}
         </div>
-        <button className={`btn ${replay ? 'active' : ''}`} onClick={() => (replay ? exitReplay() : startReplay())} title="Flight Recorder: play past traffic back on the map" aria-label="Replay">
-          <Icon name="play" size={15} /> <span className="lbl">Replay</span>
-        </button>
-        <button
-          className={`btn ${attentionOpen && !focusId ? 'active' : ''}`}
-          onClick={() => {
-            applyFocus(null);
-            setShowTower(false);
-            setAttentionOpen(!attentionOpen);
-          }}
-          title="What needs attention on this map: holds, blocks, direct provider calls, ungated destructive tools, new connections, spikes"
-          aria-label="Attention"
-        >
-          <Icon name="activity" size={15} /> <span className="lbl">Attention</span>{' '}
-          {attention.items.some((i) => i.severity >= 2) && (
-            <span className={`badge ${attention.items.some((i) => i.severity === 3) ? 'alert' : 'warn'}`}>{attention.items.filter((i) => i.severity >= 2).length}</span>
-          )}
-        </button>
-        <button className={`btn ${showTower && !focusId ? 'active' : ''}`} onClick={() => { applyFocus(null); setAttentionOpen(false); setShowTower((v) => !v); }} title="Approvals" aria-label="Approvals">
-          <Icon name="tower" size={15} /> <span className="lbl">Approvals</span> {pendingHere.length > 0 && <span className="badge">{pendingHere.length}</span>}
-        </button>
       </div>
       {initError && (
         <div className="card" style={{ position: 'absolute', left: '50%', top: '45%', transform: 'translate(-50%,-50%)', maxWidth: 440, zIndex: 6 }}>
@@ -677,88 +764,6 @@ export function AirspacePage() {
 
       {hover && !popover && <Tooltip hover={hover} />}
 
-      <div className="map-controls" style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
-        <div className="seg sm layer-seg" role="radiogroup" aria-label="Show as">
-          {(
-            [
-              ['map', 'Map', 'Agents, the tower and destinations, with their connections'],
-              ['matrix', 'Matrix', 'Every agent against every destination: volume, live connections and which have a gate'],
-            ] as const
-          ).map(([id, label, hint]) => (
-            <button key={id} role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''} title={hint} onClick={() => setMode(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span className="sep" />
-        {mode === 'map' && (
-          <>
-            <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
-            <span className="sep" />
-          </>
-        )}
-        {level.teams >= 2 && (
-          <>
-            <div className="seg sm layer-seg" role="radiogroup" aria-label="Draw agents by">
-              {(
-                [
-                  ['teams', 'Teams', 'One station per team — open a team to see its agents'],
-                  ['agents', 'Agents', 'One station per agent (copies of an agent drawn once)'],
-                ] as const
-              ).map(([id, label, hint]) => (
-                <button key={id} role="radio" aria-checked={level.level === id} className={level.level === id ? 'on' : ''} title={hint} onClick={() => chooseLevel(id)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="sep" />
-          </>
-        )}
-        {mode === 'map' && (
-        <>
-        <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
-          {(
-            [
-              ['all', 'All', 'Every connection'],
-              ['active', 'Active', 'Only connections with traffic in the last minute'],
-              ['gateway', 'Gateway', 'Only traffic through Control Tower'],
-              ['outside', 'Outside', 'Only traffic that bypasses Control Tower'],
-            ] as const
-          ).map(([id, label, hint]) => (
-            <button key={id} role="radio" aria-checked={layer === id} className={layer === id ? 'on' : ''} title={hint} onClick={() => setLayer(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span className="sep" />
-        <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1 / 1.2)} aria-label="Zoom out">
-          −
-        </button>
-        <span className="zoom">{Math.round(zoom * 100)}%</span>
-        <button className="btn sm ghost" onClick={() => sceneRef.current?.zoomBy(1.2)} aria-label="Zoom in">
-          +
-        </button>
-        <span className="sep" />
-        <button className="btn sm ghost" onClick={fitView} title="Fit every node on screen">
-          Fit
-        </button>
-        <span
-          className="map-help"
-          tabIndex={0}
-          title="Drag nodes to arrange (saved for everyone) · drag the canvas or scroll to pan · ⌘/Ctrl + scroll to zoom · click a node to trace what it connects to · right-click a node to gate it · click a team's arrow to open it · press / to find anything"
-          aria-label="Map controls help"
-        >
-          ?
-        </span>
-        {customLayout && (
-          <button className="btn sm ghost" onClick={resetLayout}>
-            Reset layout
-          </button>
-        )}
-        {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
-        </>
-        )}
-      </div>
       {mode === 'matrix' && matrix && (
         <MatrixView
           right={showTower || focusId || attentionOpen ? 388 : 16}

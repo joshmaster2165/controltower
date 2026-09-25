@@ -65,6 +65,8 @@ export interface RuleConfig extends InspectConfig {
   window?: { uses?: number; ttl_ms?: number };
   fail_mode?: 'open' | 'closed';
   approvers?: string[];
+  /** allow_with_limits: what the call is allowed within. */
+  limits?: import('./engine.js').GateLimits;
 }
 
 export interface RuleRecord {
@@ -294,8 +296,9 @@ export class PolicyService implements PolicyEngine {
           const summary = r.config.reason ?? `${input.key.name} wants to reach ${input.target.name}${zoneTo ? ` in ${zoneTo}` : ''}`;
           return { effect: 'hold', reason: r.name, summary, argHash, scopeHash: sh, ...base };
         }
-        case 'allow':
         case 'allow_with_limits':
+          return { effect: 'allow', reason: `within the limits of gate "${r.name}"`, limits: r.config.limits ?? {}, ...base };
+        case 'allow':
         default:
           return { effect: 'allow', ...base };
       }

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { gateLimitRefusal } from '../policy/limits.js';
 import { inspect } from '../guardrails/inspect.js';
 import { E } from '../gateway/errors.js';
 import { once } from 'node:events';
@@ -175,6 +176,8 @@ export class A2aGateway {
       }
       ctx.bus.emit({ t: 'flight.decision', flight_id: f.id, ts: Date.now(), decision: decision.effect === 'hold' ? 'hold' : decision.effect, rule_id: decision.ruleId, zone_from: decision.zoneFrom, zone_to: decision.zoneTo, reason: decision.reason, arg_hash: decision.argHash });
       if (decision.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, decision.ruleId ? { rule_id: decision.ruleId } : {});
+      const overGate = gateLimitRefusal(ctx, decision, key);
+      if (overGate) return refuse(overGate.status, 'rejected', overGate.code, overGate.message, decision.ruleId ? { rule_id: decision.ruleId } : {});
       if (decision.effect === 'hold') {
         const outcome = await ctx.approvals.hold(f, decision);
         if (outcome.kind === 'denied') return refuse(403, 'denied', 'policy_denied', outcome.error.message);

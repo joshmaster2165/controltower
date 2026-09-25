@@ -41,6 +41,18 @@ export interface PolicyDecision {
   /** Present on hold: what the approval card should show. */
   summary?: string | undefined;
   argHash?: string | undefined;
+  /** Set by an allow-with-limits gate: what the call is allowed within. */
+  limits?: GateLimits | undefined;
+}
+
+/** An allow-with-limits gate's limits: per agent on the gate's path. */
+export interface GateLimits {
+  /** Requests per minute. */
+  rpm?: number;
+  /** Tokens per minute (model calls: the prompt's estimated size). */
+  tpm?: number;
+  /** A cap on the length of a model's reply. */
+  max_tokens?: number;
 }
 
 /** An inspect gate that applies to a path (see guardrails/scan.ts). */

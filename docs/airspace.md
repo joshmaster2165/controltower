@@ -96,6 +96,7 @@ It's the quickest way to see what an agent did overnight, or what a gate changed
 | **Block** | `403 policy_denied` with the reason you give (for MCP, an error tool result the model can read) |
 | **Require approval** | The request waits at the gate for a human, up to the hold time (default 20 s) |
 | **Inspect** | Scans what passes for secrets, personal data or prompt injection — and masks, blocks or flags it |
+| **Allow with limits** | Lets calls through within a rate — requests and tokens per minute, per agent on this path — and, for models, a cap on the reply’s length. Over the rate: `429 rate_limit_exceeded` naming the gate |
 | **Allow** | An explicit exception above broader gates |
 
 A gate can cover one agent, a whole zone, or every agent; one model, a zone of models, a tool server, one tool, a tool glob (`github__merge_*`), or an operation class — read, write or destructive (deletes, merges, payments; `admin` in the API). Gates are checked in priority order; the first access gate that matches decides, and every matching inspect gate runs as well.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../../store';
-import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type InspectConfig, type Rule, type Topology, type Zone } from '../../api';
+import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type GateLimits, type InspectConfig, type Rule, type Topology, type Zone } from '../../api';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from '../Alerts';
 import { agentGroups, GROUP_PREFIX, groupStation, isGroup, isTeam, TEAM_PREFIX, teamStation } from '../../airspace/groups';
 import { type GateDraft, panelPos } from './shared';
@@ -15,10 +15,11 @@ export function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
+  const [limits, setLimits] = useState<GateLimits>(rule.config.limits ?? { rpm: 60 });
   const total = (stats?.approved ?? 0) + (stats?.denied ?? 0);
   const rate = total ? (stats!.approved / total) * 100 : null;
   const save = async () => {
-    await api.patch(`/admin/api/rules/${rule.id}`, { effect, config: { reason: reason || undefined, hold_ms: Math.max(0, Number(hold)) * 1000, ...(effect === 'inspect' ? inspect : {}) } });
+    await api.patch(`/admin/api/rules/${rule.id}`, { effect, config: { reason: reason || undefined, hold_ms: Math.max(0, Number(hold)) * 1000, ...(effect === 'inspect' ? inspect : {}), ...(effect === 'allow_with_limits' ? { limits } : {}) } });
     onChanged();
     onClose();
   };
@@ -63,11 +64,13 @@ export function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose
         <label>Effect</label>
         <select className="input" value={effect} onChange={(e) => setEffect(e.target.value as Rule['effect'])}>
           <option value="allow">allow (open gate)</option>
+          <option value="allow_with_limits">allow with limits (toll)</option>
           <option value="deny">deny (barrier)</option>
           <option value="require_approval">require approval (checkpoint)</option>
           <option value="inspect">inspect content (guardrail)</option>
         </select>
       </div>
+      {effect === 'allow_with_limits' && <LimitsFields value={limits} onChange={setLimits} />}
       {effect === 'require_approval' && (
         <div className="field">
           <label>Hold the request up to (seconds) before issuing a ticket</label>
@@ -339,6 +342,7 @@ export const EFFECTS: Array<{ id: Rule['effect']; label: string; hint: string; c
   { id: 'deny', label: 'Block', hint: 'Requests on this path are refused with a 403 the agent can read.', cls: 'deny' },
   { id: 'require_approval', label: 'Require approval', hint: 'Requests wait at the gate until someone approves in the Tower.', cls: 'hold' },
   { id: 'inspect', label: 'Inspect', hint: 'Scan what passes for secrets, personal data or prompt injection — mask it, block it, or flag it. Runs alongside the other gates.', cls: 'inspect' },
+  { id: 'allow_with_limits', label: 'Allow with limits', hint: 'Let calls through within a rate and, for models, a cap on the reply’s length — per agent on this path. Over the rate, the call gets 429.', cls: 'allow' },
   { id: 'allow', label: 'Allow', hint: 'Explicitly allow this path (takes precedence over broader gates below it).', cls: 'allow' },
 ];
 
@@ -354,6 +358,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
   const [effect, setEffect] = useState<Rule['effect']>('require_approval');
   const [reason, setReason] = useState('');
   const [hold, setHold] = useState('20');
+  const [limits, setLimits] = useState<GateLimits>({ rpm: 60 });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -406,8 +411,12 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
     if (reason.trim()) config.reason = reason.trim();
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
     if (effect === 'inspect') {
-      if (!(inspect.detectors?.length || inspect.keywords?.length)) return { error: 'Pick at least one thing to look for.' };
+      if (!(inspect.detectors?.length || inspect.keywords?.length || inspect.model_check?.model)) return { error: 'Pick at least one thing to look for.' };
       Object.assign(config, inspect);
+    }
+    if (effect === 'allow_with_limits') {
+      if (!(limits.rpm || limits.tpm || limits.max_tokens)) return { error: 'Set at least one limit.' };
+      config.limits = limits;
     }
     body.config = config;
     return { body };
@@ -573,6 +582,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
         </div>
         <div className="hint" style={{ marginTop: 6 }}>{EFFECTS.find((e) => e.id === effect)!.hint}</div>
       </div>
+      {effect === 'allow_with_limits' && <LimitsFields value={limits} onChange={setLimits} />}
       {effect === 'require_approval' && (
         <div className="field">
           <label>Hold the request up to (seconds) before issuing a ticket</label>
@@ -611,6 +621,27 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
         <button className="btn sm ghost" onClick={onClose}>
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** An allow-with-limits gate's limits; empty fields are no limit. */
+export function LimitsFields({ value, onChange }: { value: GateLimits; onChange: (v: GateLimits) => void }) {
+  const num = (k: keyof GateLimits, v: string) => onChange({ ...value, [k]: v.trim() === '' ? undefined : Math.max(0, Math.round(Number(v))) || undefined });
+  return (
+    <div className="limits-fields">
+      <div className="field">
+        <label>Requests per minute</label>
+        <input className="input" type="number" min={1} value={value.rpm ?? ''} placeholder="no limit" onChange={(e) => num('rpm', e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Tokens per minute</label>
+        <input className="input" type="number" min={1} value={value.tpm ?? ''} placeholder="no limit" onChange={(e) => num('tpm', e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Longest model reply (tokens)</label>
+        <input className="input" type="number" min={1} value={value.max_tokens ?? ''} placeholder="no cap" onChange={(e) => num('max_tokens', e.target.value)} />
       </div>
     </div>
   );

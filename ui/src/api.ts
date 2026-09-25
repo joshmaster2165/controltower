@@ -269,11 +269,18 @@ export interface Rule {
   target_kind: 'model' | 'tool' | 'any';
   match: Record<string, unknown>;
   effect: 'allow' | 'deny' | 'require_approval' | 'allow_with_limits' | 'inspect';
-  config: { reason?: string; hold_ms?: number; binding?: string; bind_fields?: string[]; window?: { uses?: number; ttl_ms?: number } } & InspectConfig;
+  config: { reason?: string; hold_ms?: number; binding?: string; bind_fields?: string[]; window?: { uses?: number; ttl_ms?: number }; limits?: GateLimits } & InspectConfig;
   priority: number;
   enabled: boolean;
   revision: number;
   demo: boolean;
+}
+
+/** An allow-with-limits gate's limits, per agent on the gate's path. */
+export interface GateLimits {
+  rpm?: number | undefined;
+  tpm?: number | undefined;
+  max_tokens?: number | undefined;
 }
 
 export interface InspectConfig {

@@ -19,3 +19,14 @@ export function inspectConfigError(c: InspectConfig): string | null {
   if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length || c.model_check?.model)) return 'an inspect gate needs at least one detector, keyword, pattern or a model check';
   return null;
 }
+
+/** Why an allow-with-limits gate's limits can't be used, or null when they can. */
+export function limitsConfigError(c: { limits?: unknown }): string | null {
+  const l = c.limits as Record<string, unknown> | undefined;
+  if (!l || typeof l !== 'object' || Array.isArray(l)) return 'an allow-with-limits gate needs limits: rpm, tpm and/or max_tokens';
+  for (const k of Object.keys(l)) if (!['rpm', 'tpm', 'max_tokens'].includes(k)) return `unknown limit "${k}" (use rpm, tpm, max_tokens)`;
+  const set = ['rpm', 'tpm', 'max_tokens'].filter((k) => l[k] !== undefined && l[k] !== null);
+  for (const k of set) if (typeof l[k] !== 'number' || !Number.isFinite(l[k] as number) || (l[k] as number) <= 0) return `${k} must be a positive number`;
+  if (!set.length) return 'an allow-with-limits gate needs at least one of rpm, tpm, max_tokens';
+  return null;
+}

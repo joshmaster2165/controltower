@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { gateLimitRefusal } from '../policy/limits.js';
 import { inspect } from '../guardrails/inspect.js';
 import { E } from '../gateway/errors.js';
 import { ulid } from 'ulid';
@@ -340,6 +341,11 @@ export class McpGateway {
         }
       }
       ctx.bus.emit({ t: 'flight.decision', flight_id: f.id, ts: Date.now(), decision: decision.effect === 'hold' ? 'hold' : decision.effect, rule_id: decision.ruleId, zone_from: decision.zoneFrom, zone_to: decision.zoneTo, reason: decision.reason, arg_hash: decision.argHash });
+      const overGate = gateLimitRefusal(ctx, decision, key);
+      if (overGate) {
+        complete('rejected', 429, { code: overGate.code, message: overGate.message });
+        return blocked('rate_limited', overGate.message, { rule_id: decision.ruleId });
+      }
       if (decision.effect === 'deny') {
         complete('denied', 403, { code: 'policy_denied', message: decision.reason ?? 'blocked' });
         return blocked('denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, { rule_id: decision.ruleId });

@@ -4,6 +4,8 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Allow with limits works:** the gate lets calls through within `config.limits` — `rpm` and `tpm` per agent on its path, and `max_tokens` capping a model's reply — and answers `429 rate_limit_exceeded` naming the gate over the rate. It was accepted before but let everything through. The gate editor offers it, with the three limits.
+- The gate editor accepts an inspect gate that only asks a model.
 - **Inspect gates can ask a model:** *Also ask a model* on a prompt-injection gate sends the content to a model you choose, through Control Tower under a system key (**guardrail**), to catch paraphrased, translated or disguised injections the patterns miss. `config.model_check: { model, on_error }` in the API and policy files. See [How inspection works](airspace.md#how-inspection-works).
 - The Codex CLI guide's terminal screenshots are re-recorded with Codex CLI 0.157.
 

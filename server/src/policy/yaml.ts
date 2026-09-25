@@ -1,7 +1,7 @@
 import { ulid } from 'ulid';
 import { parse, stringify } from 'yaml';
 import type { AppContext } from '../context.js';
-import { inspectConfigError } from '../guardrails/validate.js';
+import { inspectConfigError, limitsConfigError } from '../guardrails/validate.js';
 import type { PolicyService, RuleConfig, RuleMatch, RuleRecord, ZoneMatch, ZoneRecord } from './policy.js';
 
 /**
@@ -396,8 +396,8 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
     }) as RuleMatch;
     const config = (g.config ?? {}) as RuleConfig;
     if (typeof config !== 'object' || Array.isArray(config)) return fail(`Gate "${name}": config must be a mapping.`);
-    if (effect === 'inspect') {
-      const bad = inspectConfigError(config);
+    if (effect === 'inspect' || effect === 'allow_with_limits') {
+      const bad = effect === 'inspect' ? inspectConfigError(config) : limitsConfigError(config);
       if (bad) fail(`Gate "${name}": ${bad}.`);
     }
     if (g.priority !== undefined && typeof g.priority !== 'number') fail(`Gate "${name}": priority must be a number.`);

@@ -277,6 +277,23 @@ test('Routing: weighted aliases keep fallbacks for failures; least-cost goes to 
   expect((await client.chat.completions.create({ model: 'thrifty-model', messages: [{ role: 'user', content: 'hi' }] })).choices[0]!.message.content).toBe('primary B');
 });
 
+test('Allow with limits: a gate lets calls through within a rate and a reply-length cap', async () => {
+  const agent = await key('rw-limited-by-gate');
+  const client = new OpenAI({ baseURL: `${CT}/v1`, apiKey: agent.key, maxRetries: 0 });
+  expect((await admin.post('/admin/api/rules', { name: 'x', target_kind: 'model', match: { keys: [agent.id] }, effect: 'allow_with_limits', config: {} })).status).toBe(400);
+  const gate = await admin.post('/admin/api/rules', { name: 'Two a minute, short replies', target_kind: 'model', match: { keys: [agent.id] }, effect: 'allow_with_limits', config: { limits: { rpm: 2, max_tokens: 32 } }, priority: 5 });
+  expect(gate.status).toBe(201);
+  const before = oai.calls.length;
+  await client.chat.completions.create({ model: 'gpt-4.1-mini', max_tokens: 500, messages: [{ role: 'user', content: 'a' }] });
+  expect(JSON.parse(oai.calls[before]!.body).max_tokens).toBe(32);
+  await client.chat.completions.create({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'b' }] });
+  const third = await client.chat.completions.create({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'c' }] }).catch((e: unknown) => e as { status: number; code?: string; message?: string });
+  expect(third).toMatchObject({ status: 429, code: 'rate_limit_exceeded' });
+  expect(String((third as { message?: string }).message)).toContain('Two a minute, short replies');
+  await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
+  expect((await client.chat.completions.create({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'd' }] })).choices.length).toBe(1);
+});
+
 test('Limits: a rate limit and a hard budget stop an agent', async () => {
   const limited = await key('rw-rate-limited', { limits: { rpm: 2 } });
   const client = new OpenAI({ baseURL: `${CT}/v1`, apiKey: limited.key, maxRetries: 0 });

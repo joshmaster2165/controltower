@@ -5,7 +5,7 @@ import { requireAdmin } from './auth.js';
 import type { PolicyService } from '../policy/policy.js';
 import type { ApprovalService } from '../policy/approvals.js';
 import { detectorCatalog } from '../guardrails/detectors.js';
-import { inspectConfigError } from '../guardrails/validate.js';
+import { inspectConfigError, limitsConfigError } from '../guardrails/validate.js';
 import { simulate } from '../policy/simulate.js';
 import { applyPolicyImport, exportPolicy, planPolicyImport, policyYaml } from '../policy/yaml.js';
 import type { RuleRecord } from '../policy/policy.js';
@@ -154,7 +154,7 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     if (!effect || !EFFECTS.includes(effect)) {
       return reply.status(400).send({ error: { code: 'invalid', message: `effect must be ${EFFECTS.join(' | ')}` } });
     }
-    const bad = effect === 'inspect' ? inspectConfigError(b.config ?? {}) : null;
+    const bad = effect === 'inspect' ? inspectConfigError(b.config ?? {}) : effect === 'allow_with_limits' ? limitsConfigError(b.config ?? {}) : null;
     if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
     if (b.from_zone && !policy.zones.has(b.from_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'from_zone not found' } });
     if (b.to_zone && !policy.zones.has(b.to_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'to_zone not found' } });
@@ -202,7 +202,8 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     }
     if (b.config && typeof b.config === 'object') {
       const merged = { ...r.config, ...(b.config as object) };
-      const bad = (patch.effect ?? r.effect) === 'inspect' ? inspectConfigError(merged) : null;
+      const eff = patch.effect ?? r.effect;
+      const bad = eff === 'inspect' ? inspectConfigError(merged) : eff === 'allow_with_limits' ? limitsConfigError(merged) : null;
       if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
       patch.config = JSON.stringify(merged);
     }

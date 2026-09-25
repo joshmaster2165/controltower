@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { capMaxTokens, gateLimitRefusal } from '../policy/limits.js';
 import { inspect } from '../guardrails/inspect.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
@@ -344,6 +345,13 @@ export class FlightRunner {
           throw outcome.error;
         }
       }
+      // An allow-with-limits gate: within its rate, and its cap on the reply's length.
+      const overGate = gateLimitRefusal(ctx, decision, key, f.estInput);
+      if (overGate) {
+        f.status = 'rejected';
+        throw overGate;
+      }
+      capMaxTokens(body, decision);
 
       // ---- inspect (what the agent sends) ----
       const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];

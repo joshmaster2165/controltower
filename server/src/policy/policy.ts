@@ -248,8 +248,14 @@ export class PolicyService implements PolicyEngine {
       const id = target.kind === 'model' ? target.deploymentId : target.mcpServerId;
       if (!id || !dests.includes(id)) return 'no';
     }
-    if (target.kind === 'model' && r.match.models?.length && !r.match.models.some((g) => globMatch(g, target.name))) return 'no';
-    if (target.kind === 'tool' && r.match.tools?.length && !r.match.tools.some((g) => globMatch(g, target.name))) return 'no';
+    // A gate that names models is about model calls, one that names tools about tool calls: a list of
+    // one kind never lets the gate catch the other kind (the default target_kind is "any").
+    const models = r.match.models?.length ? r.match.models : undefined;
+    const tools = r.match.tools?.length ? r.match.tools : undefined;
+    if (models || tools) {
+      const list = target.kind === 'model' ? models : tools;
+      if (!list?.some((g) => globMatch(g, target.name))) return 'no';
+    }
     if (r.match.operations?.length && !r.match.operations.includes(target.operation)) return 'no';
     if (r.match.args?.length) {
       if (!args) return 'needs_args';

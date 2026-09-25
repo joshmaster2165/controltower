@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   const approvals = new ApprovalService(db.write, bus, approvalsVersion, () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger), {
     holdBudgetMs: config.holdBudgetMs,
     maxHeld: config.maxHeld,
-    publicUrl: config.publicUrl,
+    publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
     policyRevision: () => policy.version,
   });
 

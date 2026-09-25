@@ -14,7 +14,7 @@ import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
-import { headerToken, resolveDelegation } from '../policy/delegation.js';
+import { headerToken, flagIgnoredToken, resolveDelegation } from '../policy/delegation.js';
 import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, requestTools, responsesRequestToChat } from '../translate/responses-chat.js';
 
 /** Extract the JSON payload of a raw SSE frame; null for comments, [DONE] and non-JSON. */
@@ -65,6 +65,8 @@ export interface Flight {
   viaChat: boolean;
   /** Agents this call is made on behalf of (origin first), from a verified delegation token. */
   chain: string[];
+  /** The call that led to this one: the one that issued its delegation token. */
+  parentFlightId: string | undefined;
   attempts: number;
   deployment: DeploymentRecord | undefined;
   provider: ProviderRecord | undefined;
@@ -110,6 +112,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     translateTo: undefined,
     viaChat: false,
     chain: [],
+    parentFlightId: undefined,
     attempts: 0,
     deployment: undefined,
     provider: undefined,
@@ -218,7 +221,8 @@ export class FlightRunner {
       if (problem) throw problem === 'disabled' ? E.keyDisabled() : E.keyExpired();
       // Whom this call is for, when an agent is acting for another (refused below if the key needs it).
       const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
-      if (!('error' in deleg)) f.chain = deleg.chain;
+      f.chain = deleg.chain ?? [];
+      f.parentFlightId = deleg.parentFlightId;
       const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
       // ---- admission ----
@@ -238,6 +242,7 @@ export class FlightRunner {
       // A model a connected provider serves is added on first use: no Models step needed.
       if (res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
       if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
+      if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.candidates) };
       const head = res.candidates[0]!;
       const headProv = ctx.registry.providers.get(head.providerId);
       const price = headProv
@@ -251,8 +256,9 @@ export class FlightRunner {
       f.route = { alias: res.alias, candidates: res.candidates, price, projected, budgetScopes };
       f.deployment = head;
       f.provider = headProv;
-      if ('error' in deleg) throw deleg.error; // recorded as a refused flight
       this.emitStarted(f);
+      if ('error' in deleg) throw deleg.error; // recorded as a refused flight, with its chain
+      if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
 
       // ---- policy ----
       // Policy is evaluated against the primary route; fallbacks stay within the same alias.
@@ -389,6 +395,7 @@ export class FlightRunner {
       provider_id: f.provider?.id,
       provider_kind: f.provider?.kind,
       ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
+      ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,
     });
@@ -756,4 +763,20 @@ export class FlightRunner {
         : undefined,
     });
   }
+}
+
+/**
+ * A least-cost alias's deployments, cheapest first: by the price of a typical call (input and output
+ * per million tokens, weighted 3:1). Deployments without a known price go last, in their own order.
+ */
+function cheapestFirst(ctx: AppContext, candidates: DeploymentRecord[]): DeploymentRecord[] {
+  const cost = (d: DeploymentRecord): number => {
+    const prov = ctx.registry.providers.get(d.providerId);
+    const e = prov ? ctx.pricing.resolve(prov.kind, d.upstreamModel, d.pricingOverride, prov.slug).entry : undefined;
+    return e ? e.input * 3 + e.output : Number.POSITIVE_INFINITY;
+  };
+  return candidates
+    .map((d, i) => ({ d, i, c: cost(d) }))
+    .sort((a, b) => a.c - b.c || a.i - b.i)
+    .map((x) => x.d);
 }

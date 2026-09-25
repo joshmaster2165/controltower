@@ -10,7 +10,7 @@ import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js
 import type { PolicyTarget } from '../policy/engine.js';
 import { describeFindings, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
-import { DELEGATION_HEADER, DELEGATION_META, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The MCP gateway. Agents point their MCP client at /mcp (all servers, tools
@@ -234,6 +234,7 @@ export class McpGateway {
         mcp_server_id: server?.id,
         tool: toolName,
         ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
+        ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}),
         est_input_tokens: f.estInput,
         projected_nanousd: 0,
       });
@@ -264,7 +265,8 @@ export class McpGateway {
     // Whom this call is for, when an agent is acting for another: the token arrives in _meta or as a header.
     const metaToken = (params._meta as Record<string, unknown> | undefined)?.[DELEGATION_META];
     const deleg = resolveDelegation(ctx, key, typeof metaToken === 'string' ? metaToken : headerToken(req.headers));
-    if (!('error' in deleg)) f.chain = deleg.chain;
+    f.chain = deleg.chain ?? [];
+    f.parentFlightId = deleg.parentFlightId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
     try {
@@ -291,6 +293,7 @@ export class McpGateway {
         return blocked('rate_limited', `Rate limit exceeded; retry in ${Math.ceil(admit.retryAfterMs / 1000)}s.`, { retry_after_ms: admit.retryAfterMs });
       }
       started();
+      if (!('error' in deleg) && deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
 
       // ---- policy (with the real arguments) ----
       const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: server.id, operation: classifyOperation(tool) };

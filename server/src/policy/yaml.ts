@@ -302,6 +302,9 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
     fail('The file must be a mapping with zones: and gates: lists.');
     return plan;
   }
+  // The JSON export (?format=json) wraps the document as {doc, warnings}: take the document itself.
+  const wrapped = doc as { doc?: unknown; zones?: unknown; gates?: unknown };
+  if (wrapped.doc && typeof wrapped.doc === 'object' && !Array.isArray(wrapped.doc) && wrapped.zones === undefined && wrapped.gates === undefined) doc = wrapped.doc;
   const d = doc as { version?: unknown; zones?: unknown; gates?: unknown };
   if (d.version !== undefined && d.version !== 1) fail(`version ${String(d.version)} is not supported (expected 1).`);
   if (d.zones !== undefined && !Array.isArray(d.zones)) fail('zones: must be a list.');

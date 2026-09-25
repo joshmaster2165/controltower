@@ -9,7 +9,7 @@ import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { ctKey, downstreamHeaders, httpOperation, isTextual, routeLabel, upstreamHeaders, upstreamUrl } from './route.js';
-import { DELEGATION_HEADER, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The HTTP gateway: plain REST APIs, gated like tools. An agent calls
@@ -79,12 +79,13 @@ export class HttpGateway {
 
     // Whom this call is for, when an agent is acting for another.
     const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
-    if (!('error' in deleg)) f.chain = deleg.chain;
+    f.chain = deleg.chain ?? [];
+    f.parentFlightId = deleg.parentFlightId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
     const started = (): void => {
       if (f.started) return;
       f.started = true;
-      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
+      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
     };
     const complete = (status: Status, http: number, error?: { code: string; message: string }, outBytes = 0): void => {
       f.t.end = Date.now();
@@ -100,6 +101,7 @@ export class HttpGateway {
     started();
     if (ctx.shuttingDown) return refuse(503, 'shutdown', 'shutting_down', 'Control Tower is restarting; retry shortly.');
     if ('error' in deleg) return refuse(deleg.error.status, 'rejected', deleg.error.code, deleg.error.message);
+    if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
     if (!api || !api.enabled) return refuse(404, 'rejected', 'api_not_found', `No HTTP API "${slug}" is registered in Control Tower.`);
     if (!url) return refuse(400, 'denied', 'path_not_allowed', 'That path leaves the registered API (dot segments and encoded dots are refused).');
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${slug} (${route}).`);

@@ -35,3 +35,26 @@ describe('station-scoped gates', () => {
     db.close();
   });
 });
+
+describe('gates that name models or tools', () => {
+  it("catch only their own kind of call, even with target_kind 'any'", async () => {
+    const db = openSqlite('', { memory: true });
+    const now = Date.now();
+    const insert = db.raw.prepare(
+      `INSERT INTO rules (id, name, from_zone, to_zone, target_kind, match, effect, config, priority, enabled, revision, demo, created_at, updated_at)
+       VALUES (?, ?, NULL, NULL, 'any', ?, ?, '{}', ?, 1, 1, 0, ?, ?)`,
+    );
+    insert.run('r_tools', 'payments for the SDR bot', JSON.stringify({ on_behalf_of: ['agent:sdr'], tools: ['payments__*'] }), 'deny', 5, now, now);
+    insert.run('r_models', 'no big model for support', JSON.stringify({ on_behalf_of: ['team:support'], models: ['gpt-5*'] }), 'deny', 6, now, now);
+    const policy = new PolicyService(db.read, () => true);
+    await policy.reload();
+    const ev = (target: { kind: 'model' | 'tool'; name: string }, behalf: string[]) =>
+      policy.evaluate({ flightId: 'f', key: key('k_b'), target: { ...target, operation: 'write' }, args: {}, onBehalfOf: behalf, estInputTokens: 1, projectedNanousd: 0 }).effect;
+
+    expect(ev({ kind: 'tool', name: 'payments__refund' }, ['agent:sdr'])).toBe('deny');
+    expect(ev({ kind: 'model', name: 'gpt-4.1-mini' }, ['agent:sdr'])).toBe('allow');
+    expect(ev({ kind: 'model', name: 'gpt-5' }, ['team:support'])).toBe('deny');
+    expect(ev({ kind: 'tool', name: 'research__SendMessage' }, ['team:support'])).toBe('allow');
+    db.close();
+  });
+});

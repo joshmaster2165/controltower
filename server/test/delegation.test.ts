@@ -14,7 +14,7 @@ describe('delegation tokens', () => {
 
   it('carry the chain to the agent they were issued to, and only to it', () => {
     const t = d.issue(['support-bot'], 'billing-agent', 'f1');
-    expect(d.verify(t, 'billing-agent')).toEqual({ ok: true, chain: ['support-bot'] });
+    expect(d.verify(t, 'billing-agent')).toEqual({ ok: true, chain: ['support-bot'], parent: 'f1' });
     expect(d.verify(t, 'other-agent')).toMatchObject({ ok: false, reason: expect.stringContaining('issued to another agent') });
   });
 
@@ -31,7 +31,7 @@ describe('delegation tokens', () => {
 
   it('resolve to principals for gates; delegated-only keys cannot drop their token', () => {
     const t = d.issue(['support-bot'], 'billing-agent', 'f1');
-    expect(resolveDelegation(ctx, key('billing-agent'), t)).toEqual({ chain: ['support-bot'], onBehalfOf: ['agent:support-bot', 'team:support'] });
+    expect(resolveDelegation(ctx, key('billing-agent'), t)).toEqual({ chain: ['support-bot'], onBehalfOf: ['agent:support-bot', 'team:support'], parentFlightId: expect.any(String) });
     // An ordinary key without a token acts on its own account; a delegated-only one is refused.
     expect(resolveDelegation(ctx, key('billing-agent'), undefined)).toEqual({ chain: [], onBehalfOf: [] });
     expect(resolveDelegation(ctx, key('billing-agent', true), undefined)).toMatchObject({ error: { status: 403, code: 'delegation_required' } });
@@ -42,5 +42,11 @@ describe('delegation tokens', () => {
     // Loops end.
     const deep = d.issue(Array.from({ length: MAX_CHAIN }, (_, i) => `a${i}`), 'billing-agent', 'f3');
     expect(resolveDelegation(ctx, key('billing-agent'), deep)).toMatchObject({ error: { code: 'delegation_too_deep' } });
+  });
+
+  it('keep the chain and the call it came from when a chain is refused as too deep', () => {
+    const chain = Array.from({ length: MAX_CHAIN }, (_, i) => `a${i}`);
+    const r = resolveDelegation(ctx, key('last'), d.issue(chain, 'last', 'f_parent'));
+    expect(r).toMatchObject({ error: { code: 'delegation_too_deep' }, chain, parentFlightId: 'f_parent' });
   });
 });

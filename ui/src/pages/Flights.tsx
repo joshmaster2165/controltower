@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type FlightRow } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
@@ -42,14 +42,24 @@ export function FlightsPage() {
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [live, setLive] = useState(true);
+  // Agents calling agents: calls made for one agent, or every call in one call's tree.
+  const [forAgent, setForAgent] = useState('');
+  const [trace, setTrace] = useState('');
   const counters = useStore((s) => s.counters);
+  // Only the latest request may fill the table: an older one (say, a live refresh from before a
+  // filter changed) must not overwrite a newer answer.
+  const seq = useRef(0);
 
   const load = async () => {
+    const mine = ++seq.current;
     setBusy(true);
     try {
-      const qs = status ? `?status=${status}&limit=200` : '?limit=200';
-      const r = await api.get<{ flights: FlightRow[] }>(`/admin/api/flights${qs}`);
-      setRows(r.flights);
+      const p = new URLSearchParams({ limit: '200' });
+      if (status) p.set('status', status);
+      if (forAgent) p.set('for', forAgent);
+      if (trace) p.set('trace', trace);
+      const r = await api.get<{ flights: FlightRow[] }>(`/admin/api/flights?${p.toString()}`);
+      if (mine === seq.current) setRows(r.flights);
     } finally {
       setBusy(false);
     }
@@ -58,7 +68,7 @@ export function FlightsPage() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, forAgent, trace]);
 
   // Follow the traffic while live; debounce so a busy gateway does not thrash the table.
   useEffect(() => {
@@ -66,12 +76,13 @@ export function FlightsPage() {
     const t = setTimeout(() => void load(), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counters.flights, live]);
+  }, [counters.flights, live, status, forAgent, trace]);
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.error_code ?? ''} ${f.id}`.toLowerCase().includes(s)) : rows;
-  }, [rows, q]);
+    const hit = s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.error_code ?? ''} ${f.id} ${behalf(f.on_behalf_of)}`.toLowerCase().includes(s)) : rows;
+    return trace ? treeOrder(hit) : hit.map((f) => ({ f, depth: 0 }));
+  }, [rows, q, trace]);
 
   return (
     <div className="page">
@@ -103,6 +114,28 @@ export function FlightsPage() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by agent, model, tool, error or flight id" aria-label="Filter flights" />
         </label>
       </div>
+      {(forAgent || trace) && (
+        <div className="filter-banner">
+          {trace ? (
+            <>
+              Showing one chain of agents calling agents: the call that started it, and every call it led to, in order.
+            </>
+          ) : (
+            <>
+              Showing calls made on behalf of <b>{forAgent}</b>, anywhere up the chain.
+            </>
+          )}
+          <button
+            className="btn sm ghost"
+            onClick={() => {
+              setForAgent('');
+              setTrace('');
+            }}
+          >
+            Show all flights
+          </button>
+        </div>
+      )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <table className="table">
           <thead>
@@ -118,7 +151,7 @@ export function FlightsPage() {
             </tr>
           </thead>
           <tbody>
-            {shown.map((f) => {
+            {shown.map(({ f, depth }) => {
               const o = f.status ? (OUTCOME[f.status] ?? { label: f.status, cls: '' }) : { label: 'in flight', cls: 'pending' };
               return (
                 <tr key={f.id}>
@@ -127,14 +160,23 @@ export function FlightsPage() {
                     <span className="sub">{ago(f.ts)}</span>
                   </td>
                   <td>
-                    <div className="agent-cell">
+                    <div className="agent-cell" style={depth ? { paddingLeft: depth * 18 } : undefined}>
+                      {depth > 0 && <span className="tree-elbow" aria-hidden="true">↳</span>}
                       <i className="agent-dot" style={{ background: hex(agentColor(f.agent_id ?? f.key_id)) }} />
                       <div>
                         <span className="strong">{f.key_name}</span>
                         {f.team && <span className="sub">{f.team}</span>}
-                        {behalf(f.on_behalf_of) && (
-                          <span className="sub behalf" title="Made on behalf of these agents (first one first), from a verified delegation token">
-                            for {behalf(f.on_behalf_of)}
+                        {chainOf(f.on_behalf_of).length > 0 && (
+                          <span className="sub behalf" title="Made on behalf of these agents (first one first), from a verified delegation token. Click one to see everything done for it.">
+                            for{' '}
+                            {chainOf(f.on_behalf_of).map((a, i) => (
+                              <span key={i}>
+                                {i > 0 && ' → '}
+                                <button type="button" className="link-btn" onClick={() => setForAgent(a)}>
+                                  {a}
+                                </button>
+                              </span>
+                            ))}
                           </span>
                         )}
                       </div>
@@ -169,6 +211,11 @@ export function FlightsPage() {
                   </td>
                   <td className="num mono muted" title={f.id}>
                     {f.id.slice(-8)}
+                    {(f.parent_flight_id || f.has_children) && !trace ? (
+                      <button type="button" className="link-btn sub" onClick={() => setTrace(f.id)} title="Every call in this chain of agents calling agents">
+                        trace
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               );
@@ -194,13 +241,34 @@ export function FlightsPage() {
   );
 }
 
-/** "support-bot → triage" from a flight's on_behalf_of chain. */
-function behalf(v: string | null | undefined): string {
-  if (!v) return '';
+/** A flight's on_behalf_of chain, origin first. */
+function chainOf(v: string | null | undefined): string[] {
+  if (!v) return [];
   try {
-    const chain = JSON.parse(v) as string[];
-    return Array.isArray(chain) ? chain.join(' → ') : '';
+    const chain = JSON.parse(v) as unknown;
+    return Array.isArray(chain) ? chain.filter((x): x is string => typeof x === 'string') : [];
   } catch {
-    return '';
+    return [];
   }
+}
+
+/** "support-bot → triage", for search. */
+const behalf = (v: string | null | undefined): string => chainOf(v).join(' → ');
+
+/** A trace's calls in call order: each call, then the calls it led to, indented. */
+function treeOrder(rows: FlightRow[]): Array<{ f: FlightRow; depth: number }> {
+  const ids = new Set(rows.map((r) => r.id));
+  const kids = new Map<string, FlightRow[]>();
+  const roots: FlightRow[] = [];
+  for (const r of [...rows].sort((a, b) => a.ts - b.ts)) {
+    if (r.parent_flight_id && ids.has(r.parent_flight_id)) (kids.get(r.parent_flight_id) ?? kids.set(r.parent_flight_id, []).get(r.parent_flight_id)!).push(r);
+    else roots.push(r);
+  }
+  const out: Array<{ f: FlightRow; depth: number }> = [];
+  const walk = (r: FlightRow, depth: number) => {
+    out.push({ f: r, depth });
+    for (const k of kids.get(r.id) ?? []) walk(k, depth + 1);
+  };
+  for (const r of roots) walk(r, 0);
+  return out;
 }

@@ -899,3 +899,10 @@ button.pill.demo { cursor: pointer; font: inherit; }
 .check-row input { margin-top: 3px; }
 .check-row > span { display: grid; gap: 2px; }
 .agent-cell .sub.behalf { display: block; color: #6d28d9; font-size: 11px; }
+/* Flights: agents calling agents */
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent, #1f5eff); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
+.link-btn:hover { text-decoration-color: currentColor; }
+td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
+.filter-banner { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin: 0 0 12px; padding: 9px 12px; border: 1px solid rgba(124, 58, 237, 0.25); background: rgba(124, 58, 237, 0.06); border-radius: var(--radius); font-size: 13px; color: var(--text); }
+.tree-elbow { color: var(--text-dim); margin-right: 2px; font-size: 13px; }
+.behalf .link-btn { color: inherit; }

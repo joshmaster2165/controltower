@@ -20,8 +20,11 @@ export interface A2aAgentRecord {
   endpoint: string | undefined;
   protocolVersion: string | undefined;
   auth: HttpApiAuth;
-  /** The agent this is: calls to it are agent-to-agent, and it is sent a delegation token. */
-  agentId: string;
+  /**
+   * The agent ID on the remote agent's own Control Tower key, when it has one: calls to it are then
+   * drawn agent to agent, and it is sent a delegation token to pass on. Without it, it is a destination.
+   */
+  agentId: string | undefined;
   card: Json | undefined;
   timeoutMs: number;
   enabled: boolean;
@@ -83,7 +86,7 @@ export class A2aRegistry {
         endpoint: r.endpoint ?? undefined,
         protocolVersion: r.protocol_version ?? undefined,
         auth,
-        agentId: r.agent_id ?? r.slug,
+        agentId: r.agent_id ?? undefined,
         card,
         timeoutMs: r.timeout_ms,
         enabled: r.enabled === 1,

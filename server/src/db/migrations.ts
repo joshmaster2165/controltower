@@ -506,3 +506,13 @@ CREATE TABLE a2a_agents (
 );
 `,
 });
+
+// The call that led to each call, when agents call agents: a trace from one agent's call to the next.
+migrations.push({
+  version: 12,
+  name: 'flights_parent',
+  sqlite: `
+ALTER TABLE flights ADD COLUMN parent_flight_id TEXT;
+CREATE INDEX flights_parent ON flights(parent_flight_id) WHERE parent_flight_id IS NOT NULL;
+`,
+});

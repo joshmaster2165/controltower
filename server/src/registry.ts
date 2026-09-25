@@ -319,12 +319,16 @@ export class Registry {
   private orderCandidates(alias: AliasRecord, candidates: DeploymentRecord[]): DeploymentRecord[] {
     switch (alias.strategy) {
       case 'weighted': {
-        // Weighted random pick for the head, rest in priority order.
-        const total = candidates.reduce((s, d) => s + d.weight, 0);
-        if (total <= 0 || candidates.length < 2) return candidates;
+        // Weighted random pick for the head among the best priority tier still available — fallbacks
+        // (a later tier) are only tried after it — then the rest in priority order.
+        const prio = new Map(alias.targets.map((t) => [t.deploymentId, t.priority]));
+        const best = Math.min(...candidates.map((d) => prio.get(d.id) ?? 0));
+        const tier = candidates.filter((d) => (prio.get(d.id) ?? 0) === best);
+        const total = tier.reduce((s, d) => s + d.weight, 0);
+        if (total <= 0 || tier.length < 2) return [...tier, ...candidates.filter((d) => !tier.includes(d))];
         let r = Math.random() * total;
-        let head = candidates[0]!;
-        for (const d of candidates) {
+        let head = tier[0]!;
+        for (const d of tier) {
           r -= d.weight;
           if (r <= 0) {
             head = d;

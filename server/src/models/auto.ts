@@ -81,7 +81,8 @@ export class AutoModels {
     await this.deps.db
       .insertInto('deployments')
       .values({ id, provider_id: provider.id, upstream_model: upstream, public_name: publicName, caps: '{}', pricing_override: null, weight: 100, enabled: 1, cooling_until: null, ewma_ttft_ms: null, demo: 0, created_at: now, updated_at: now })
-      .onConflict((oc) => oc.doNothing())
+      // Already added under its pinned name (openai/…): the bare name now becomes its public name.
+      .onConflict((oc) => (publicName ? oc.column('id').doUpdateSet({ public_name: publicName, updated_at: now }).where('deployments.public_name', 'is', null) : oc.doNothing()))
       .execute();
     await r.reload();
     this.log(`model "${model}" added on first use → ${provider.name} (${upstream})`);

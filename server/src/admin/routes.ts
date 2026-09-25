@@ -191,7 +191,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           tools: (a2aMethods.get(a.id) ?? []).map((t) => ({ name: t.name, op: t.op })),
           demo: a.demo,
           protocol: 'a2a' as const,
-          agent_id: a.agentId,
+          ...(a.agentId ? { agent_id: a.agentId } : {}),
         })),
       ],
       edges,
@@ -371,13 +371,39 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   // ---- flights ----
   app.get('/admin/api/flights', { preHandler: guard }, async (req) => {
-    const q = req.query as { limit?: string; before?: string; status?: string; key_id?: string; kind?: string };
+    const q = req.query as { limit?: string; before?: string; status?: string; key_id?: string; kind?: string; for?: string; trace?: string };
     const limit = Math.min(200, Math.max(1, Number(q.limit ?? 50)));
-    let qb = ctx.db.read.selectFrom('flights').selectAll().orderBy('ts', 'desc').limit(limit);
+    let qb = ctx.db.read
+      .selectFrom('flights')
+      .selectAll()
+      // Whether this call led to others (agents it called, their calls): a trace starts here.
+      .select(sql<number>`EXISTS (SELECT 1 FROM flights c WHERE c.parent_flight_id = flights.id)`.as('has_children'))
+      .orderBy('ts', 'desc')
+      .limit(limit);
     if (q.before) qb = qb.where('ts', '<', Number(q.before));
     if (q.status) qb = qb.where('status', '=', q.status);
     if (q.key_id) qb = qb.where('key_id', '=', q.key_id);
     if (q.kind) qb = qb.where('kind', '=', q.kind);
+    // Calls made on behalf of an agent, anywhere up the chain.
+    if (q.for) {
+      const pattern = `%${JSON.stringify(q.for).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      qb = qb.where(sql<boolean>`on_behalf_of LIKE ${pattern} ESCAPE '\\'`);
+    }
+    // Every call in the same tree as this one: up to the call that started it, then everything it led to.
+    if (q.trace) {
+      const ids = await sql<{ id: string }>`
+        WITH RECURSIVE up(id, parent, depth) AS (
+          SELECT id, parent_flight_id, 0 FROM flights WHERE id = ${q.trace}
+          UNION ALL SELECT f.id, f.parent_flight_id, up.depth + 1 FROM flights f JOIN up ON f.id = up.parent WHERE up.depth < 16
+        ),
+        root AS (SELECT id FROM up ORDER BY depth DESC LIMIT 1),
+        down(id, depth) AS (
+          SELECT id, 0 FROM root
+          UNION ALL SELECT f.id, down.depth + 1 FROM flights f JOIN down ON f.parent_flight_id = down.id WHERE down.depth < 16
+        )
+        SELECT id FROM down LIMIT 500`.execute(ctx.db.read);
+      qb = qb.where('id', 'in', ids.rows.length ? ids.rows.map((r) => r.id) : ['']);
+    }
     const rows = await qb.execute();
     return { flights: rows, next_before: rows.length === limit ? rows[rows.length - 1]!.ts : null };
   });

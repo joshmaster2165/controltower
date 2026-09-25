@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import { METHODS } from '../a2a/card.js';
+import { principalsOf } from './delegation.js';
 import type { Database } from '../db/schema.js';
 import type { Registry } from '../registry.js';
 import type { McpRegistry } from '../mcp/registry.js';
@@ -63,7 +64,7 @@ export async function simulate(
 
   const rows = await deps.db
     .selectFrom('flights')
-    .select(['ts', 'key_id', 'key_name', 'kind', 'model_requested', 'deployment_id', 'provider_id', 'provider_kind', 'mcp_server_id', 'tool', 'status', 'cost_nanousd'])
+    .select(['ts', 'key_id', 'key_name', 'kind', 'model_requested', 'deployment_id', 'provider_id', 'provider_kind', 'mcp_server_id', 'tool', 'status', 'cost_nanousd', 'on_behalf_of'])
     .where('ts', '>', since)
     .where('status', '!=', 'rejected') // never reached policy (auth, limits, unknown model)
     .orderBy('ts', 'desc')
@@ -121,7 +122,14 @@ export async function simulate(
       destName = dep ? (dep.publicName ?? dep.upstreamModel) : f.model_requested;
     }
     result.considered++;
-    const input = { flightId: '', key, target, args: undefined, estInputTokens: 0, projectedNanousd: 0 };
+    // Whom the call was made for, as the gate would have seen it.
+    let chain: string[] = [];
+    try {
+      chain = f.on_behalf_of ? (JSON.parse(f.on_behalf_of) as string[]) : [];
+    } catch {
+      chain = [];
+    }
+    const input = { flightId: '', key, target, args: undefined, onBehalfOf: principalsOf(deps.registry, chain), estInputTokens: 0, projectedNanousd: 0 };
     const before = deps.policy.evaluateWith(baseline, input).effect;
     const after = deps.policy.evaluateWith(candidate, input).effect;
     if (before === after) continue;

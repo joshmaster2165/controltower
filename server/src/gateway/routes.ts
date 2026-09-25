@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { FlightRunner } from '../pipeline/flight.js';
-import { usableKey } from './key.js';
+import { extractApiKey, keyProblem, usableKey } from './key.js';
 import { E, errorBody } from './errors.js';
 import { ANTHROPIC_PASSTHROUGH_HEADERS } from '../providers/anthropic.js';
 import { parseObserveBody, parseOtlpTraces } from '../observe/observe.js';
@@ -61,7 +61,7 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
   }
   app.post('/v1/observe', { bodyLimit: 1024 * 1024 }, async (req, reply) => {
     const key = usableKey(ctx, req);
-    if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
+    if (!key) return reply.status(401).send(errorBody('openai-chat', keyRefusal(req)));
     const parsed = parseObserveBody(req.body);
     if ('error' in parsed) return reply.status(400).send(errorBody('openai-chat', E.badRequest(parsed.error)));
     return reply.send(await ctx.observed.record(key.id, parsed.events));
@@ -79,9 +79,16 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     return reply.send({});
   });
 
+  // Why a key was refused, with the same codes as every other route: expired and disabled are told apart.
+  const keyRefusal = (req: import('fastify').FastifyRequest) => {
+    const presented = extractApiKey(req);
+    const k = presented ? ctx.registry.authenticate(presented) : undefined;
+    const problem = k ? keyProblem(k) : undefined;
+    return problem === 'expired' ? E.keyExpired() : problem === 'disabled' ? E.keyDisabled() : E.unauthorized();
+  };
   const listModels = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const key = usableKey(ctx, req);
-    if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
+    if (!key) return reply.status(401).send(errorBody('openai-chat', keyRefusal(req)));
     const data = ctx.registry.visibleModels(key).map((m) => modelEntry(m.id, m.provider));
     // Both list shapes at once: OpenAI's ({object, data}) and Anthropic's ({data, has_more, first_id, last_id}),
     // so OpenAI and Anthropic clients (Claude Desktop's model picker among them) read the same answer.
@@ -89,7 +96,7 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
   };
   const getModel = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const key = usableKey(ctx, req);
-    if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
+    if (!key) return reply.status(401).send(errorBody('openai-chat', keyRefusal(req)));
     const id = (req.params as { id: string }).id;
     const m = ctx.registry.visibleModels(key).find((x) => x.id === id);
     if (!m) return reply.status(404).send(errorBody('openai-chat', E.modelNotFound(id)));

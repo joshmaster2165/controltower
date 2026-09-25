@@ -18,7 +18,7 @@ interface A2aAgent {
   skills: Array<{ id: string; name: string; description: string }>;
   streaming: boolean;
   auth_type: 'none' | 'bearer' | 'header';
-  agent_id: string;
+  agent_id: string | null;
   timeout_ms: number;
   enabled: boolean;
   health: string;
@@ -135,8 +135,8 @@ export function A2aAgentsPage() {
           </div>
           <div className="field">
             <label>Agent ID (optional)</label>
-            <input className="input" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })} placeholder={form.slug || 'research'} />
-            <div className="hint">The agent ID on this agent’s own Control Tower key, if it has one — its model and tool calls then join it on the map. Defaults to the slug.</div>
+            <input className="input" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })} placeholder="research-agent" />
+            <div className="hint">The agent ID on this agent’s own Control Tower key, if it has one. Its model and tool calls then join it on the map, and it is sent a delegation token so they count as made on the caller’s behalf. Leave empty for an agent outside Control Tower.</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: form.auth_type === 'header' ? '170px 150px 1fr' : '170px 1fr', gap: 12 }}>
             <div className="field">
@@ -188,7 +188,7 @@ export function A2aAgentsPage() {
                   {!a.enabled && <span className="tag muted">disabled</span>}
                 </div>
                 <div className="provider-meta mono">
-                  {a.path} · agent {a.agent_id} · {a.auth_type === 'none' ? 'no credentials' : a.auth_type === 'bearer' ? 'bearer token' : 'API key header'}
+                  {a.path} · {a.agent_id ? `agent ${a.agent_id}` : 'not linked to a key'} · {a.auth_type === 'none' ? 'no credentials' : a.auth_type === 'bearer' ? 'bearer token' : 'API key header'}
                 </div>
               </div>
               <span className={`status ${a.health === 'ok' ? 'ok' : a.health === 'down' ? 'error' : ''}`}>{a.health === 'ok' ? 'reachable' : a.health === 'down' ? 'down' : 'not checked'}</span>

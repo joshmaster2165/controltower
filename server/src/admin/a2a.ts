@@ -50,7 +50,7 @@ export async function a2aAdminRoutes(app: FastifyInstance, ctx: AppContext): Pro
     skills: skillsOf(a.card),
     streaming: !!(a.card?.capabilities as { streaming?: boolean } | undefined)?.streaming,
     auth_type: a.auth.type,
-    agent_id: a.agentId,
+    agent_id: a.agentId ?? null,
     timeout_ms: a.timeoutMs,
     enabled: a.enabled,
     health: a.health,
@@ -87,7 +87,8 @@ export async function a2aAdminRoutes(app: FastifyInstance, ctx: AppContext): Pro
         endpoint: null,
         protocol_version: null,
         auth_enc: auth.type === 'none' ? null : ctx.secrets.encrypt(JSON.stringify(auth), `a2a_agents.auth_enc.${id}`),
-        agent_id: (b.agent_id ?? '').trim().slice(0, 100) || slug,
+        // Only an agent ID that was given: a guessed one could merge this agent with an unrelated key of the same name.
+        agent_id: (b.agent_id ?? '').trim().slice(0, 100) || null,
         card_cache: null,
         timeout_ms: Math.min(Math.max(b.timeout_ms ?? 120_000, 1000), 600_000),
         health_detail: null,
@@ -121,7 +122,7 @@ export async function a2aAdminRoutes(app: FastifyInstance, ctx: AppContext): Pro
     }
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (typeof b.timeout_ms === 'number') patch.timeout_ms = Math.min(Math.max(b.timeout_ms, 1000), 600_000);
-    if (typeof b.agent_id === 'string' && b.agent_id.trim()) patch.agent_id = b.agent_id.trim().slice(0, 100);
+    if (typeof b.agent_id === 'string') patch.agent_id = b.agent_id.trim().slice(0, 100) || null;
     if (b.auth) {
       const auth = validAuth(b.auth);
       patch.auth_enc = auth.type === 'none' ? null : ctx.secrets.encrypt(JSON.stringify(auth), `a2a_agents.auth_enc.${id}`);

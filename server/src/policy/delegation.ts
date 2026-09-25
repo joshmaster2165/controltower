@@ -27,7 +27,7 @@ const TTL_MS = 15 * 60_000;
 /** A chain deeper than this is refused: agents calling agents calling agents in a loop. */
 export const MAX_CHAIN = 8;
 
-export type DelegationCheck = { ok: true; chain: string[] } | { ok: false; reason: string };
+export type DelegationCheck = { ok: true; chain: string[]; parent?: string } | { ok: false; reason: string };
 
 export class Delegations {
   constructor(private readonly secret: Buffer) {}
@@ -50,7 +50,7 @@ export class Delegations {
     const want = Buffer.from(this.sign(payload));
     const got = Buffer.from(sig);
     if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return { ok: false, reason: 'the delegation token signature does not match' };
-    let p: { c?: unknown; t?: unknown; e?: unknown };
+    let p: { c?: unknown; t?: unknown; e?: unknown; f?: unknown };
     try {
       p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as typeof p;
     } catch {
@@ -59,14 +59,18 @@ export class Delegations {
     if (typeof p.e !== 'number' || p.e < now) return { ok: false, reason: 'the delegation token has expired' };
     if (p.t !== presenter) return { ok: false, reason: `the delegation token was issued to another agent ("${String(p.t)}")` };
     if (!Array.isArray(p.c) || !p.c.every((x) => typeof x === 'string')) return { ok: false, reason: 'the delegation token is malformed' };
-    return { ok: true, chain: p.c as string[] };
+    return { ok: true, chain: p.c as string[], ...(typeof p.f === 'string' ? { parent: p.f } : {}) };
   }
 }
 
 /** The name a key's agent goes by in delegation chains: its agent id, else the key id. */
 export const agentRef = (key: KeyRecord): string => key.agentId ?? key.id;
 
-export type Resolved = { chain: string[]; onBehalfOf: string[]; invalid?: string } | { error: GatewayError };
+/**
+ * `parentFlightId` is the call that issued the token — the call that led to this one. A refusal
+ * still carries the chain when it is known, so the refused call is recorded as made on its behalf.
+ */
+export type Resolved = { chain: string[]; onBehalfOf: string[]; parentFlightId?: string; invalid?: string } | { error: GatewayError; chain?: string[]; parentFlightId?: string };
 
 /**
  * Whom a call is made on behalf of, from the token it presented. A delegated-only key without a
@@ -76,9 +80,15 @@ export function resolveDelegation(ctx: Pick<AppContext, 'delegations' | 'registr
   if (!token) return key.delegatedOnly ? { error: E.delegationRequired('this call carried no delegation token') } : { chain: [], onBehalfOf: [] };
   const r = ctx.delegations.verify(token, agentRef(key));
   if (!r.ok) return key.delegatedOnly ? { error: E.delegationRequired(r.reason) } : { chain: [], onBehalfOf: [], invalid: r.reason };
-  if (r.chain.length >= MAX_CHAIN) return { error: E.delegationTooDeep() };
-  const onBehalfOf = r.chain.flatMap((a) => [`agent:${a}`, ...[...(ctx.registry.agentTeams.get(a) ?? [])].map((t) => `team:${t}`)]);
-  return { chain: r.chain, onBehalfOf };
+  const parent = r.parent ? { parentFlightId: r.parent } : {};
+  if (r.chain.length >= MAX_CHAIN) return { error: E.delegationTooDeep(), chain: r.chain, ...parent };
+  const onBehalfOf = principalsOf(ctx.registry, r.chain);
+  return { chain: r.chain, onBehalfOf, ...parent };
+}
+
+/** What `on_behalf_of` gates match for a chain: each agent, and each team it belongs to. */
+export function principalsOf(registry: Pick<AppContext['registry'], 'agentTeams'>, chain: string[]): string[] {
+  return chain.flatMap((a) => [`agent:${a}`, ...[...(registry.agentTeams.get(a) ?? [])].map((t) => `team:${t}`)]);
 }
 
 /** The token for an agent this call reaches (a tool server or HTTP API that fronts it). */
@@ -90,3 +100,11 @@ export const headerToken = (headers: Record<string, string | string[] | undefine
   const v = headers[DELEGATION_HEADER];
   return Array.isArray(v) ? v[0] : v || undefined;
 };
+
+/**
+ * An ordinary key presented a token that doesn't hold (expired, issued to another agent, forged):
+ * the call counts as the agent's own, and its record says why the token was set aside.
+ */
+export function flagIgnoredToken(ctx: Pick<AppContext, 'bus'>, flightId: string, reason: string): void {
+  ctx.bus.emit({ t: 'flight.decision', flight_id: flightId, ts: Date.now(), decision: 'flagged', reason: `delegation token ignored: ${reason}` });
+}

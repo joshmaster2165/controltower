@@ -134,6 +134,8 @@ export interface FlightsTable {
   mcp_server_id: string | null;
   tool: string | null;
   on_behalf_of: string | null;
+  /** The call whose delegation token this call presented: the call that led to it. */
+  parent_flight_id: string | null;
   status: string | null;
   http_status: number | null;
   decision: string | null;

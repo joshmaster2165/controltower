@@ -9,7 +9,7 @@ import type { PolicyTarget } from '../policy/engine.js';
 import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
-import { DELEGATION_HEADER, DELEGATION_META, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 import { CARD_PATH, LEGACY_CARD_PATH, METHODS, publishedCard, skillsOf } from './card.js';
 import { authHeaders, type A2aAgentRecord } from './registry.js';
 import { readCapped } from '../util/body.js';
@@ -127,13 +127,14 @@ export class A2aGateway {
     // Whom this call is for, when an agent is acting for another: the token arrives in metadata or as a header.
     const meta = (params.metadata && typeof params.metadata === 'object' ? { ...(params.metadata as Json) } : {}) as Json;
     const deleg = resolveDelegation(ctx, key, typeof meta[DELEGATION_META] === 'string' ? (meta[DELEGATION_META] as string) : headerToken(req.headers));
-    if (!('error' in deleg)) f.chain = deleg.chain;
+    f.chain = deleg.chain ?? [];
+    f.parentFlightId = deleg.parentFlightId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
     const started = (): void => {
       if (f.started) return;
       f.started = true;
-      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'a2a.call', dialect: 'a2a', stream: !!info.stream, model_requested: full, mcp_server_id: agent.id, tool: info.name, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
+      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'a2a.call', dialect: 'a2a', stream: !!info.stream, model_requested: full, mcp_server_id: agent.id, tool: info.name, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
     };
     const complete = (status: Status, http: number, error?: { code: string; message: string }, outBytes = 0): void => {
       f.t.end = Date.now();
@@ -148,6 +149,7 @@ export class A2aGateway {
     started();
     if (ctx.shuttingDown) return refuse(503, 'shutdown', 'shutting_down', 'Control Tower is restarting; retry shortly.');
     if ('error' in deleg) return refuse(deleg.error.status, 'rejected', deleg.error.code, deleg.error.message);
+    if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${agent.name} (${info.name}).`);
     const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
     if (!admit.ok) return refuse(429, 'rejected', 'rate_limit_exceeded', 'Rate limit exceeded for this key.', { retry_after_ms: String(admit.retryAfterMs) });
@@ -190,11 +192,17 @@ export class A2aGateway {
       }
 
       // ---- forward, with the agent's credentials and a delegation token for it ----
-      const token = tokenFor(ctx, f.chain, key, agent.agentId, f.id);
-      const outMeta: Json = { ...meta, [DELEGATION_META]: token };
+      const token = agent.agentId ? tokenFor(ctx, f.chain, key, agent.agentId, f.id) : undefined;
+      // The caller's own token and approval ticket stay here; the agent gets a token of its own, if it is linked to a key.
+      const outMeta: Json = { ...meta };
       delete outMeta.ct_approval;
-      const upstreamBody = JSON.stringify({ jsonrpc: '2.0', id, method, params: { ...outParams, metadata: outMeta } });
-      const headers: Record<string, string> = { 'content-type': 'application/json', accept: info.stream ? 'text/event-stream' : 'application/json', ...authHeaders(agent.auth), [DELEGATION_HEADER]: token };
+      delete outMeta[DELEGATION_META];
+      if (token) outMeta[DELEGATION_META] = token;
+      const outBody: Json = { ...outParams };
+      if (Object.keys(outMeta).length) outBody.metadata = outMeta;
+      else delete outBody.metadata;
+      const upstreamBody = JSON.stringify({ jsonrpc: '2.0', id, method, params: outBody });
+      const headers: Record<string, string> = { 'content-type': 'application/json', accept: info.stream ? 'text/event-stream' : 'application/json', ...authHeaders(agent.auth), ...(token ? { [DELEGATION_HEADER]: token } : {}) };
       for (const h of PASS_HEADERS) {
         const v = req.headers[h];
         if (typeof v === 'string') headers[h] = v;

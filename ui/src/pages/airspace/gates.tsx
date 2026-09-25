@@ -348,7 +348,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
   useEffect(() => {
     setSim(null);
     onSimulate(null);
-  }, [from, to, tool, effect, onSimulate]);
+  }, [from, to, tool, effect, behalf, onSimulate]);
 
   const buildBody = (): { body?: Record<string, unknown>; error?: string } => {
     if (from === 'all' && !to && effect !== 'inspect') return { error: 'Pick an agent or a destination — a gate on everything would stop all traffic.' };

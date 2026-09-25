@@ -201,6 +201,10 @@ export interface FlightRow {
   key_name: string;
   /** JSON array of the agents this call was made on behalf of (origin first), or null. */
   on_behalf_of?: string | null;
+  /** The call that led to this one (agents calling agents). */
+  parent_flight_id?: string | null;
+  /** 1 when this call led to others. */
+  has_children?: number;
   agent_id: string | null;
   team: string | null;
   project: string | null;

@@ -252,6 +252,31 @@ test('Fallback: an alias skips a rate-limited deployment and answers from the ne
   expect(steady.calls.some((c) => c.path.endsWith('/chat/completions'))).toBe(true);
 });
 
+test('Routing: weighted aliases keep fallbacks for failures; least-cost goes to the cheaper model', async () => {
+  const primaryA = await openAiUpstream({ reply: 'primary A' });
+  const primaryB = await openAiUpstream({ reply: 'primary B' });
+  const backup = await openAiUpstream({ reply: 'backup' });
+  upstreams.push(primaryA, primaryB, backup);
+  const prov = async (slug: string, u: Upstream) => (await admin.post('/admin/api/providers', { catalog_id: 'custom', name: slug, slug, base_url: `${u.url}/v1` })).body.provider.id as string;
+  const dep = async (provider_id: string, public_name: string, upstream_model = 'gpt-4.1-mini') => (await admin.post('/admin/api/deployments', { provider_id, upstream_model, public_name })).body.id as string;
+  const a = await dep(await prov('route-a', primaryA), 'route-a');
+  const b = await dep(await prov('route-b', primaryB), 'route-b');
+  const c = await dep(await prov('route-backup', backup), 'route-backup');
+  // Two primaries share the load; the backup, a later priority, is only a fallback.
+  expect((await admin.post('/admin/api/aliases', { name: 'shared-model', strategy: 'weighted', targets: [{ deployment_id: a, priority: 0, weight: 50 }, { deployment_id: b, priority: 0, weight: 50 }, { deployment_id: c, priority: 1, weight: 100 }] })).status).toBe(201);
+  const client = new OpenAI({ baseURL: `${CT}/v1`, apiKey: oaiAgent.key, maxRetries: 0 });
+  const answers = new Set<string>();
+  for (let i = 0; i < 16; i++) answers.add((await client.chat.completions.create({ model: 'shared-model', messages: [{ role: 'user', content: 'hi' }] })).choices[0]!.message.content ?? '');
+  expect(answers.has('backup')).toBe(false);
+  expect([...answers].sort()).toEqual(['primary A', 'primary B']);
+
+  // Least cost: the cheaper model answers, whatever the order it was added in.
+  const pricey = await dep(await prov('route-pricey', primaryA), 'route-pricey', 'gpt-4.1');
+  const cheap = await dep(await prov('route-cheap', primaryB), 'route-cheap', 'gpt-4.1-nano');
+  expect((await admin.post('/admin/api/aliases', { name: 'thrifty-model', strategy: 'least-cost', targets: [{ deployment_id: pricey }, { deployment_id: cheap }] })).status).toBe(201);
+  expect((await client.chat.completions.create({ model: 'thrifty-model', messages: [{ role: 'user', content: 'hi' }] })).choices[0]!.message.content).toBe('primary B');
+});
+
 test('Limits: a rate limit and a hard budget stop an agent', async () => {
   const limited = await key('rw-rate-limited', { limits: { rpm: 2 } });
   const client = new OpenAI({ baseURL: `${CT}/v1`, apiKey: limited.key, maxRetries: 0 });
@@ -444,6 +469,19 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   const bare = await ask(undefined);
   expect(bare.status).toBe(403);
   expect(((await bare.json()) as { error: { code: string } }).error.code).toBe('delegation_required');
+  // Refused, and still recorded.
+  const bareId = bare.headers.get('x-ct-flight-id')!;
+  await expect.poll(async () => (await admin.get(`/admin/api/flights/${bareId}`)).body.flight?.status).toBe('rejected');
+
+  // Each call links to the call that led to it; a trace shows the whole chain, and calls can be listed by whom they were for.
+  const botCall = (await flightsFor(bot.id)).find((f) => f.kind === 'mcp.tool')!;
+  expect(own[0].parent_flight_id).toBe(botCall.id);
+  const traced = (await admin.get(`/admin/api/flights?trace=${own[0].id}`)).body.flights as Array<{ id: string; has_children: number }>;
+  expect(traced.map((f) => f.id).sort()).toEqual([botCall.id, own[0].id].sort());
+  expect(traced.find((f) => f.id === botCall.id)!.has_children).toBe(1);
+  const forBot = (await admin.get('/admin/api/flights?for=rw-support-bot')).body.flights as Array<{ key_id: string }>;
+  expect(forBot.length).toBeGreaterThan(0);
+  expect(forBot.every((f) => f.key_id === research.id)).toBe(true);
   const stolen = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${oaiAgent.key}`, 'content-type': 'application/json', 'x-ct-delegation': tokens[0]! }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
   expect(stolen.status).toBe(200);
   expect((await flightsFor(oaiAgent.id))[0].on_behalf_of).toBeNull(); // not issued to it: counted as its own call

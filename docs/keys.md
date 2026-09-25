@@ -70,6 +70,18 @@ An agent that runs as several copies — replicas behind a load balancer, one wo
 - A gate drawn on that station covers **every copy**, including copies added later; in a [policy file](policy-as-code.md) it is `match: { groups: [support-bot] }`, and a zone member is `group:support-bot`.
 - Flights, the Ledger and budgets still count each key separately.
 
+## Agents that come and go
+
+Agents get onto the map only through keys — Control Tower never invents an agent from traffic — so how many stations you see depends on how keys are handed out. A session that spins up sub-agents and finishes is the common case:
+
+- **Sub-agents on the parent's key are the parent.** Claude Code, the Claude Agent SDK and the OpenAI Agents SDK run their sub-agents on the session's own credentials, so six sub-agents are one agent with six times the calls — not six stations.
+- **A key per run, one agent ID.** A pipeline that mints a key for each run or worker should give them all the same agent ID: they are one station with a ×N count ([above](#many-copies-of-one-agent)).
+- **Short-lived keys.** Give a key minted for one job an expiry (**Expires** when you create it, `expires_at` in the API, `duration` on `/key/generate`). When it expires it stops working and **leaves the map**; its calls stay in Flights and the Ledger.
+- **Retire idle keys.** **Retire keys unused for** 7, 30 or 90 days on the Keys page expires keys that have done nothing for that long — counting from when a key was made if it was never used. It runs every hour, and at once when you switch it on (the page lists what it retired). Setting a new expiry on a key brings it back. Control Tower's own keys and demo keys are never retired.
+- **Tidy up by hand.** The Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, and each list can be disabled or deleted in one go — `POST /admin/api/keys/bulk` with `{"action": "disable" | "delete", "ids": [...]}`.
+
+On the map itself, **Agents: Used today / Active (15 min)** hides idle agents without touching their keys ([Airspace](airspace.md#hide-idle-agents)).
+
 ## Team and project budgets
 
 A key budget caps one agent. To cap a whole team or project — every key labelled with it, including keys created later — add a budget on the **Ledger**:

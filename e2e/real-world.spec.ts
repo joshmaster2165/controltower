@@ -842,6 +842,60 @@ test('Approval on the model path: held with a ticket, approved by a human, redee
   expect(again.status).toBe(403);
 });
 
+test('Sub-agents: shared keys stay one agent, per-run keys group, short-lived keys leave the map, idle keys are tidied', async () => {
+  const chat = (apiKey: string) =>
+    fetch(`${CT}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
+    }).then((r) => r.status);
+  const topology = async () => (await admin.get('/admin/api/topology')).body as { keys: Array<{ id: string; name: string; agent_id?: string }>; edges: Array<{ key_id: string; keys?: number }> };
+
+  // 1. A session that spins up six sub-agents on its own credentials (how Claude Code and the agent SDKs work): one agent.
+  const session = await key('rw-claude-session');
+  expect(await Promise.all(Array.from({ length: 6 }, () => chat(session.key)))).toEqual([200, 200, 200, 200, 200, 200]);
+  let t = await topology();
+  expect(t.keys.filter((k) => k.name === 'rw-claude-session')).toHaveLength(1);
+  expect((await flightsFor(session.id, (f) => f.length >= 6)).length).toBe(6);
+
+  // 2. A key minted per worker, all with one agent ID: six keys, one station (×6).
+  const workers: Array<{ id: string; key: string }> = [];
+  for (let i = 0; i < 6; i++) workers.push(await key(`rw-batch-run-${i}`, { agent_id: 'rw-batch-worker' }));
+  for (const w of workers) expect(await chat(w.key)).toBe(200);
+  // Flights are written in batches: wait for all six to be counted.
+  const workerEdges = async () => (await topology()).edges.filter((e) => workers.some((w) => w.id === e.key_id));
+  await expect.poll(async () => (await workerEdges()).map((e) => e.keys)).toEqual([6]);
+
+  // 3. Six short-lived keys with their own names: on the map while they live, gone once they expire.
+  const until = Date.now() + 4000;
+  const temps: Array<{ id: string; key: string }> = [];
+  for (let i = 0; i < 6; i++) temps.push(await key(`rw-temp-subagent-${i}`, { expires_at: until }));
+  for (const k of temps) expect(await chat(k.key)).toBe(200);
+  t = await topology();
+  expect(t.keys.filter((k) => k.name.startsWith('rw-temp-subagent-'))).toHaveLength(6);
+  await new Promise((r) => setTimeout(r, Math.max(0, until - Date.now()) + 300));
+  expect(await chat(temps[0]!.key)).toBe(401);
+  t = await topology();
+  expect(t.keys.filter((k) => k.name.startsWith('rw-temp-subagent-'))).toHaveLength(0);
+  expect(t.edges.filter((e) => temps.some((k) => k.id === e.key_id))).toHaveLength(0);
+  // Their calls are still on record.
+  expect((await flightsFor(temps[1]!.id)).length).toBe(1);
+
+  // 4. Tidy up in bulk: the expired keys are deleted; built-in keys can't be.
+  const bulk = await admin.post('/admin/api/keys/bulk', { action: 'delete', ids: [...temps.map((k) => k.id), 'key_admin_master'] });
+  expect(bulk.body).toMatchObject({ done: 6, skipped: 1 });
+  const left = (await admin.get('/admin/api/keys')).body.keys as Array<{ name: string }>;
+  expect(left.filter((k) => k.name.startsWith('rw-temp-subagent-'))).toHaveLength(0);
+  expect((await flightsFor(temps[1]!.id)).length).toBe(1);
+
+  // 5. Retiring idle keys automatically: only 0, 7, 30 or 90 days; nothing this fresh is retired.
+  expect((await admin.call('PUT', '/admin/api/keys/retire-policy', { idle_days: 3 })).status).toBe(400);
+  const on = await admin.call('PUT', '/admin/api/keys/retire-policy', { idle_days: 7 });
+  expect(on.body).toMatchObject({ idle_days: 7, retired: [] });
+  expect((await admin.get('/admin/api/keys/retire-policy')).body.idle_days).toBe(7);
+  await admin.call('PUT', '/admin/api/keys/retire-policy', { idle_days: 0 });
+});
+
 test('Approval windows: approve this call and the next N, with any arguments or only these; end one early', async () => {
   const agent = await key('rw-window-agent');
   const gate = await admin.post('/admin/api/rules', { name: 'Window gate', target_kind: 'model', match: { keys: [agent.id], models: ['gpt-4.1-mini'] }, effect: 'require_approval', config: { hold_ms: 0 }, priority: 1 });

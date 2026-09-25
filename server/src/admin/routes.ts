@@ -7,13 +7,10 @@ import { generateApiKey } from '../crypto/apikeys.js';
 import { classifyOperation } from '../mcp/gateway.js';
 import { recentRoutes } from './http.js';
 import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
-import { ADMIN_KEY_ID } from './admin-key.js';
-import { PLAYGROUND_KEY_ID } from './playground.js';
-import { GUARDRAIL_KEY_ID } from '../guardrails/model-check.js';
 import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
+import { BUILT_IN_KEYS, lastUseByKey } from './key-lifecycle.js';
 
-const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID, GUARDRAIL_KEY_ID]);
 /** Width of the buckets the map's last minute is seeded from. */
 const RECENT_BUCKET_MS = 5000;
 
@@ -78,9 +75,15 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       return k?.agentId ? `a:${k.agentId}|${k.team ?? ''}` : `k:${keyId}`;
     };
     const merged = new Map<string, { key_id: string; target_id: string; tool?: string; requests: number; errors: number; denied: number; cost_nanousd: number; last_ts: number; recent: Map<number, number>; keys: Set<string> }>();
+    // An expired key can no longer fly: it leaves the map (its history stays in Flights and the Ledger).
+    const nowTs = Date.now();
+    const expired = (keyId: string) => {
+      const k = r.keysById.get(keyId);
+      return !!k?.expiresAt && k.expiresAt <= nowTs;
+    };
     for (const e of edgeRows.rows) {
       // A deleted key's history stays in Flights and the Ledger; the map has no station to draw it from.
-      if (!r.keysById.has(e.key_id)) continue;
+      if (!r.keysById.has(e.key_id) || expired(e.key_id)) continue;
       const k = `${bucketOf(e.key_id)}>${e.target}|${e.tool ?? ''}`;
       const recent = recentBy.get(`${e.key_id}|${e.target}|${e.tool ?? ''}`) ?? [];
       const m = merged.get(k);
@@ -131,7 +134,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.
     const active = new Set(edgeRows.rows.map((e) => e.key_id));
-    const shown = [...r.keysById.values()].filter((k) => !BUILT_IN_KEYS.has(k.id) || active.has(k.id));
+    const shown = [...r.keysById.values()].filter((k) => (!BUILT_IN_KEYS.has(k.id) || active.has(k.id)) && !expired(k.id));
 
     return {
       version: r.version,
@@ -248,11 +251,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   // ---- keys ----
   app.get('/admin/api/keys', { preHandler: guard }, async () => {
     // Last use comes from what the key actually did: gateway flights and observe reports.
-    const used = new Map<string, number>();
-    const flightRows = await ctx.db.read.selectFrom('flights').select(['key_id', sql<number>`max(ts)`.as('ts')]).where('key_id', 'is not', null).groupBy('key_id').execute();
-    for (const r of flightRows) if (r.key_id) used.set(r.key_id, Number(r.ts));
-    const observedRows = await ctx.db.read.selectFrom('observed_hourly').select(['key_id', sql<number>`max(last_seen)`.as('ts')]).groupBy('key_id').execute();
-    for (const r of observedRows) used.set(r.key_id, Math.max(used.get(r.key_id) ?? 0, Number(r.ts)));
+    const used = await lastUseByKey(ctx);
     return {
       keys: [...ctx.registry.keysById.values()]
         .sort((a, b) => b.createdAt - a.createdAt)
@@ -274,6 +273,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           delegated_only: k.delegatedOnly,
           created_at: k.createdAt,
           last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,
+          // Control Tower's own keys (admin, playground, guardrail): never retired or tidied in bulk.
+          ...(BUILT_IN_KEYS.has(k.id) ? { built_in: true } : {}),
         })),
     };
   });

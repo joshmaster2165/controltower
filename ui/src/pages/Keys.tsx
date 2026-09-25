@@ -7,8 +7,49 @@ import { ConnectAgent } from '../components/ConnectAgent';
 import { ago, globList } from '../format';
 import { agentColor, hex } from '../airspace/colors';
 
+const DAY = 86_400_000;
+type KeyFilter = 'all' | 'today' | 'idle' | 'never' | 'expired';
+const FILTERS: Array<{ id: KeyFilter; label: string; hint: string }> = [
+  { id: 'all', label: 'All', hint: 'Every key' },
+  { id: 'today', label: 'Used today', hint: 'Made a call in the last 24 hours' },
+  { id: 'idle', label: 'Idle 7+ days', hint: 'Nothing in the last 7 days (never-used keys count from when they were made)' },
+  { id: 'never', label: 'Never used', hint: 'Made no call at all' },
+  { id: 'expired', label: 'Expired', hint: 'Past their expiry: they no longer work and are not on the map' },
+];
+const EXPIRY_CHOICES = [
+  { ms: 0, label: 'Never' },
+  { ms: 3600_000, label: 'In 1 hour' },
+  { ms: DAY, label: 'In 1 day' },
+  { ms: 7 * DAY, label: 'In 7 days' },
+  { ms: 30 * DAY, label: 'In 30 days' },
+];
+
+const isExpired = (k: KeyRow, now: number) => !!k.expires_at && k.expires_at <= now;
+function matches(k: KeyRow, f: KeyFilter, now: number): boolean {
+  if (f === 'all') return true;
+  // Control Tower's own keys are never tidied up.
+  if (k.built_in) return false;
+  const expired = isExpired(k, now);
+  if (f === 'expired') return expired;
+  if (expired) return false;
+  if (f === 'today') return !!k.last_used_at && k.last_used_at > now - DAY;
+  if (f === 'never') return !k.last_used_at;
+  return (k.last_used_at ?? k.created_at) < now - 7 * DAY;
+}
+function untilText(ts: number, now: number): string {
+  const s = Math.round((ts - now) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
+  if (s < 86_400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86_400)}d`;
+}
+
 export function KeysPage() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
+  const [filter, setFilter] = useState<KeyFilter>('all');
+  const [retireDays, setRetireDays] = useState(0);
+  const [pendingBulk, setPendingBulk] = useState<'disable' | 'delete' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [expiresIn, setExpiresIn] = useState(0);
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +62,45 @@ export function KeysPage() {
   };
   useEffect(() => {
     void load();
+    void api
+      .get<{ idle_days: number }>('/admin/api/keys/retire-policy')
+      .then((r) => setRetireDays(r.idle_days))
+      .catch(() => undefined);
   }, []);
+  const now = Date.now();
+  const shown = keys.filter((k) => matches(k, filter, now));
+  const countOf = (f: KeyFilter) => keys.filter((k) => matches(k, f, now)).length;
+  const tidy = filter === 'idle' || filter === 'never' || filter === 'expired';
+
+  const chooseRetire = async (days: number) => {
+    setError(null);
+    try {
+      const r = await api.put<{ idle_days: number; retired: Array<{ name: string }> }>('/admin/api/keys/retire-policy', { idle_days: days });
+      setRetireDays(r.idle_days);
+      setNotice(
+        days === 0
+          ? 'Idle keys are no longer retired automatically.'
+          : `Keys unused for ${days} days now expire on their own.${r.retired.length ? ` Retired ${r.retired.length} already idle: ${r.retired.map((k) => k.name).join(', ')}.` : ' None are idle that long yet.'}`,
+      );
+      await load();
+      await refreshTopology();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  };
+
+  const runBulk = async (action: 'disable' | 'delete') => {
+    setError(null);
+    try {
+      const r = await api.post<{ done: number }>('/admin/api/keys/bulk', { action, ids: shown.map((k) => k.id) });
+      setNotice(`${action === 'delete' ? 'Deleted' : 'Disabled'} ${r.done} key${r.done === 1 ? '' : 's'}.`);
+      setPendingBulk(null);
+      await load();
+      await refreshTopology();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  };
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,12 +114,14 @@ export function KeysPage() {
         project: form.project || undefined,
         allowed_models: form.allowed_models.split(',').map((s) => s.trim()).filter(Boolean),
         limits: form.rpm ? { rpm: Number(form.rpm) } : {},
+        ...(expiresIn ? { expires_at: Date.now() + expiresIn } : {}),
       };
       if (form.budget) body.budget = { limit_usd: Number(form.budget), period: 'monthly', hard: true };
       const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
       setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '', delegated_only: false });
+      setExpiresIn(0);
       await load();
       await refreshTopology();
     } catch (err) {
@@ -130,6 +211,17 @@ export function KeysPage() {
               <input className="input" type="number" min={0} step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
             </div>
           </div>
+          <div className="field">
+            <label>Expires</label>
+            <select className="input" value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))}>
+              {EXPIRY_CHOICES.map((c) => (
+                <option key={c.ms} value={c.ms}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <div className="hint">For a short-lived agent (a sub-agent, one run of a job): the key stops working when it expires and leaves the map. Its calls stay in Flights and the Ledger.</div>
+          </div>
           <label className="check-row">
             <input type="checkbox" checked={form.delegated_only} onChange={(e) => setForm({ ...form, delegated_only: e.target.checked })} />
             <span>
@@ -151,6 +243,67 @@ export function KeysPage() {
         </form>
       )}
 
+      <div className="keys-tools">
+        <div className="seg" role="tablist" aria-label="Which keys">
+          {FILTERS.map((f) => (
+            <button key={f.id} role="tab" aria-selected={filter === f.id} className={filter === f.id ? 'on' : ''} title={f.hint} onClick={() => (setFilter(f.id), setPendingBulk(null))}>
+              {f.label} <span className="n">{countOf(f.id)}</span>
+            </button>
+          ))}
+        </div>
+        <label className="retire">
+          <span>Retire keys unused for</span>
+          <select value={retireDays} onChange={(e) => void chooseRetire(Number(e.target.value))} aria-label="Retire keys unused for">
+            <option value={0}>never</option>
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+          </select>
+        </label>
+      </div>
+      {notice && (
+        <div className="notice-row">
+          <span>{notice}</span>
+          <button className="btn sm ghost" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {error && !showNew && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+      {tidy && shown.length > 0 && (
+        <div className="bulk-bar">
+          {pendingBulk ? (
+            <>
+              <span>
+                {pendingBulk === 'delete'
+                  ? `Delete ${shown.length} key${shown.length === 1 ? '' : 's'}? Anything still using them gets 401 at once. Their calls stay in Flights and the Ledger.`
+                  : `Disable ${shown.length} key${shown.length === 1 ? '' : 's'}? You can enable any of them again.`}
+              </span>
+              <button className={`btn sm ${pendingBulk === 'delete' ? 'danger' : 'primary'}`} onClick={() => void runBulk(pendingBulk)}>
+                {pendingBulk === 'delete' ? 'Delete' : 'Disable'} {shown.length}
+              </button>
+              <button className="btn sm ghost" onClick={() => setPendingBulk(null)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <span>
+                {shown.length} {FILTERS.find((f) => f.id === filter)!.label.toLowerCase()} key{shown.length === 1 ? '' : 's'}
+              </span>
+              {filter !== 'expired' && (
+                <button className="btn sm" onClick={() => setPendingBulk('disable')}>
+                  Disable all {shown.length}
+                </button>
+              )}
+              <button className="btn sm danger" onClick={() => setPendingBulk('delete')}>
+                Delete all {shown.length}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
           <thead>
@@ -165,7 +318,7 @@ export function KeysPage() {
             </tr>
           </thead>
           <tbody>
-            {keys.map((k) => (
+            {shown.map((k) => (
               <tr key={k.id}>
                 <td>
                   <div className="agent-cell">
@@ -184,7 +337,12 @@ export function KeysPage() {
                 <td className={k.limits.rpm ? '' : 'muted'}>{k.limits.rpm ? `${k.limits.rpm}/min` : 'none'}</td>
                 <td className="muted">{ago(k.last_used_at)}</td>
                 <td>
-                  <span className={`status ${k.enabled ? 'ok' : 'error'}`}>{k.enabled ? 'active' : 'disabled'}</span>
+                  {isExpired(k, now) ? (
+                    <span className="status ticketed">expired</span>
+                  ) : (
+                    <span className={`status ${k.enabled ? 'ok' : 'error'}`}>{k.enabled ? 'active' : 'disabled'}</span>
+                  )}
+                  {k.expires_at && !isExpired(k, now) && <span className="sub">expires in {untilText(k.expires_at, now)}</span>}
                 </td>
                 <td>
                   <div className="row-actions">
@@ -198,6 +356,14 @@ export function KeysPage() {
                 </td>
               </tr>
             ))}
+            {keys.length > 0 && shown.length === 0 && (
+              <tr>
+                <td colSpan={7} className="table-empty">
+                  <b>None here</b>
+                  {FILTERS.find((f) => f.id === filter)!.hint}: no keys match.
+                </td>
+              </tr>
+            )}
             {keys.length === 0 && (
               <tr>
                 <td colSpan={7} className="table-empty">

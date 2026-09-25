@@ -949,3 +949,13 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .agent-filter select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hidden-agents { font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent-deep, var(--accent)); background: var(--accent-soft); border: 0; border-radius: 999px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
 @media (max-width: 1500px) { .map-controls .map-search { width: 136px; } .map-controls .map-search kbd { display: none; } .agent-filter select { max-width: 104px; } }
+
+/* Keys: which keys, tidying many at once, retiring idle ones */
+.keys-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.keys-tools .seg .n { font-variant-numeric: tabular-nums; color: var(--text-faint); margin-left: 3px; font-weight: 500; }
+.keys-tools .retire { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-dim); }
+.keys-tools .retire select { font: inherit; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; background: var(--bg-elev); }
+.notice-row, .bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 9px 12px; border-radius: var(--radius); font-size: 13px; }
+.notice-row { background: var(--accent-soft); color: var(--text); justify-content: space-between; }
+.bulk-bar { border: 1px solid var(--border); background: var(--bg-elev); }
+.bulk-bar > span { flex: 1; min-width: 200px; color: var(--text); }

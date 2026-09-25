@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { keyLifecycleRoutes } from './admin/key-lifecycle.js';
 import path from 'node:path';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
@@ -105,6 +106,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   await app.register(async (a) => {
     await authRoutes(a, full);
     await adminRoutes(a, full);
+    await keyLifecycleRoutes(a, full);
     await providerRoutes(a, full);
     await playgroundRoutes(a, full);
     full.modelChecker.register(a, full);

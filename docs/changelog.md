@@ -4,6 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Agents that come and go:** an expired key leaves the map (its history stays). Keys can be created with an expiry for short-lived sub-agents. **Retire keys unused for 7 / 30 / 90 days** expires idle keys automatically, and the Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, with **Disable all** and **Delete all** for each list. See [Agents that come and go](keys.md#agents-that-come-and-go).
 - **Approve the next N calls:** **Approve more…** on an approval card approves the call and lets the agent make the next 1–1,000 calls of the same kind — to the same target, through the same gate — for up to an hour, with any arguments or only the ones on the card. **Approved ahead** on the Tower lists open windows with what is left, and **End now** closes one; editing the gate closes its windows. See [Approve the next N calls](airspace.md#approve-the-next-n-calls).
 - The Tower's countdown follows the gate's real hold time (it assumed 20 seconds).
 - **Hide idle agents on the Airspace:** **Agents: All / Used today / Active (15 min)** in the map controls draws only the agents that have made a call in that window, so the map shows what is really in use. A chip counts the hidden agents and brings them back with **Show all**; a hidden agent that makes a call reappears on its own, and the choice is remembered. See [Hide idle agents](airspace.md#hide-idle-agents).

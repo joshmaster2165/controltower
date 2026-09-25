@@ -249,6 +249,8 @@ export interface KeyRow {
   demo: boolean;
   created_at: number;
   last_used_at?: number;
+  /** Control Tower's own keys (admin, playground, guardrail). */
+  built_in?: boolean;
 }
 
 export interface Zone {

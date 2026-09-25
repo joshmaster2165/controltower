@@ -35,6 +35,7 @@ import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
 import { smtpFromEnv } from './alerts/email.js';
 import { startRetention } from './db/retention.js';
+import { startKeyRetirement } from './admin/key-lifecycle.js';
 import { describeProxy, outboundProxyFromEnv, useOutboundProxy } from './net/proxy.js';
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
@@ -291,6 +292,11 @@ async function main(): Promise<void> {
     (deleted) => app.log.info({ deleted }, 'retention: old rows removed'),
     (err) => app.log.warn({ err }, 'retention pass failed'),
   );
+  const stopRetirement = startKeyRetirement(
+    full,
+    (retired, days) => app.log.info({ retired: retired.map((k) => k.name), days }, 'keys retired after going unused'),
+    (err) => app.log.warn({ err }, 'key retirement pass failed'),
+  );
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
@@ -312,6 +318,7 @@ async function main(): Promise<void> {
     await budgets.stop();
     clearInterval(checkpoint);
     stopRetention();
+    stopRetirement();
     db.close();
     process.exit(0);
   };

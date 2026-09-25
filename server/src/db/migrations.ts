@@ -516,3 +516,19 @@ ALTER TABLE flights ADD COLUMN parent_flight_id TEXT;
 CREATE INDEX flights_parent ON flights(parent_flight_id) WHERE parent_flight_id IS NOT NULL;
 `,
 });
+
+// Approval windows: "approve this and the next N calls" — a grant new calls use without a ticket,
+// bound to the agent, the gate (at its revision) and the target; and how long a card's hold lasts.
+migrations.push({
+  version: 13,
+  name: 'approval_windows',
+  sqlite: `
+ALTER TABLE grants ADD COLUMN is_window INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE grants ADD COLUMN rule_id TEXT;
+ALTER TABLE grants ADD COLUMN rule_revision INTEGER;
+ALTER TABLE grants ADD COLUMN target_name TEXT;
+ALTER TABLE grants ADD COLUMN any_args INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX grants_window ON grants(key_id, rule_id, target_name) WHERE is_window = 1;
+ALTER TABLE approvals ADD COLUMN hold_until INTEGER;
+`,
+});

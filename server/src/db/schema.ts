@@ -237,6 +237,8 @@ export interface ApprovalsTable {
   note: string | null;
   grant_id: string | null;
   demo: Bool;
+  /** When the agent stops waiting (the latest of the calls held on this card). */
+  hold_until: number | null;
 }
 
 export interface TicketsTable {
@@ -260,6 +262,13 @@ export interface GrantsTable {
   consumed_by_session: string | null;
   last_used_at: number | null;
   created_at: number;
+  /** 1: an approval window — new calls from this agent through this gate use it without a ticket. */
+  is_window: Generated<number>;
+  rule_id: string | null;
+  rule_revision: number | null;
+  target_name: string | null;
+  /** 1: any arguments; 0: only the arguments on the card. */
+  any_args: Generated<number>;
 }
 
 export interface HttpApisTable {

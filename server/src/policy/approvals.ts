@@ -22,6 +22,11 @@ import { isToolKind } from '@controltower/shared';
  * answering within that window makes the flight continue transparently.
  * Otherwise the agent receives a structured 403 with a resumable ticket.
  * Identical in-flight requests coalesce onto one approval card.
+ *
+ * Approve with a window ("this call and the next N, for T minutes") and the grant
+ * also covers new calls from the same agent through the same gate (at the same
+ * revision) to the same target — with any arguments, or only the ones on the card.
+ * Those calls go straight through, no card; revoking the grant ends the window.
  */
 export type HoldOutcome =
   | { kind: 'approved'; grantId: string; by: string | undefined }
@@ -31,10 +36,20 @@ export type HoldOutcome =
 export interface Approvals {
   hold(flight: Flight, decision: PolicyDecision): Promise<HoldOutcome>;
   redeem(token: string, keyId: string, scopeHash: string, sessionId: string | undefined): Promise<RedeemResult>;
-  decide(approvalId: string, by: string, action: 'approve' | 'deny', opts?: { note?: string; window?: { uses?: number; ttl_ms?: number } }): Promise<{ ok: boolean; status: string }>;
+  decide(approvalId: string, by: string, action: 'approve' | 'deny', opts?: { note?: string; window?: ApprovalWindow }): Promise<{ ok: boolean; status: string }>;
   readonly heldCount: number;
   drain(): void;
 }
+
+/** Approve more than the call on the card: `uses` further calls within `ttl_ms`, with any arguments or only these. */
+export interface ApprovalWindow {
+  uses?: number;
+  ttl_ms?: number;
+  any_args?: boolean;
+}
+
+export const WINDOW_MAX_USES = 1000;
+export const WINDOW_MAX_TTL_MS = 60 * 60 * 1000;
 
 export type RedeemFailReason = 'pending' | 'denied' | 'expired' | 'exhausted' | 'scope_mismatch' | 'revoked' | 'unknown';
 
@@ -91,10 +106,27 @@ export class ApprovalService implements Approvals {
     const sh = d.scopeHash ?? '';
     const dk = dedupeKey({ revision: this.opts.policyRevision(), keyId: key.id, targetName: flight.modelRequested, argHash });
 
+    // A human already let this agent make more calls like this one: go straight through.
+    if (d.ruleId) {
+      const w = await this.useWindow(key.id, d.ruleId, rule?.revision ?? null, flight.modelRequested, sh, flight.id);
+      if (w) {
+        flight.approvalId = w.approvalId;
+        this.version.bump();
+        this.bus.emit({ t: 'flight.resolved', flight_id: flight.id, ts: now, approval_id: w.approvalId, outcome: 'approved', by: w.by, grant_id: w.grantId });
+        return { kind: 'approved', grantId: w.grantId, by: w.by };
+      }
+    }
+
+    // Admission control: over the cap we do not hold at all.
+    const perKey = this.heldByKey.get(key.id) ?? 0;
+    const canHold = budget > 0 && this._held < this.opts.maxHeld && perKey < MAX_HELD_PER_KEY;
+    const holdUntil = now + (canHold ? budget : 0);
+
     // Coalesce identical in-flight requests onto one card.
     let approval = await this.db.selectFrom('approvals').selectAll().where('dedupe_key', '=', dk).where('status', '=', 'pending').executeTakeFirst();
     if (approval) {
-      await this.db.updateTable('approvals').set((eb) => ({ waiters: eb('waiters', '+', 1) })).where('id', '=', approval.id).execute();
+      const until = Math.max(approval.hold_until ?? 0, holdUntil);
+      await this.db.updateTable('approvals').set((eb) => ({ waiters: eb('waiters', '+', 1), hold_until: until })).where('id', '=', approval.id).execute();
     } else {
       const id = `apr_${ulid()}`;
       await this.db
@@ -121,16 +153,13 @@ export class ApprovalService implements Approvals {
           note: null,
           grant_id: null,
           demo: key.demo ? 1 : 0,
+          hold_until: holdUntil,
         })
         .execute();
       approval = (await this.db.selectFrom('approvals').selectAll().where('id', '=', id).executeTakeFirst())!;
     }
     flight.approvalId = approval.id;
     this.version.bump();
-
-    // Admission control: over the cap we do not hold at all.
-    const perKey = this.heldByKey.get(key.id) ?? 0;
-    const canHold = budget > 0 && this._held < this.opts.maxHeld && perKey < MAX_HELD_PER_KEY;
 
     this.bus.emit({ t: 'flight.held', flight_id: flight.id, ts: now, approval_id: approval.id, budget_ms: canHold ? budget : 0, summary: approval.summary });
 
@@ -233,7 +262,7 @@ export class ApprovalService implements Approvals {
     for (const w of [...set]) w(status);
   }
 
-  async decide(approvalId: string, by: string, action: 'approve' | 'deny', opts: { note?: string; window?: { uses?: number; ttl_ms?: number } } = {}): Promise<{ ok: boolean; status: string }> {
+  async decide(approvalId: string, by: string, action: 'approve' | 'deny', opts: { note?: string; window?: ApprovalWindow } = {}): Promise<{ ok: boolean; status: string }> {
     const now = Date.now();
     const status = action === 'approve' ? 'approved' : 'denied';
     const res = await this.db
@@ -249,11 +278,33 @@ export class ApprovalService implements Approvals {
     if (action === 'approve') {
       const a = (await this.db.selectFrom('approvals').selectAll().where('id', '=', approvalId).executeTakeFirst())!;
       const grantId = opaqueToken('ct_grn');
-      const uses = Math.max(1, Math.min(1000, opts.window?.uses ?? Math.max(1, a.waiters)));
-      const ttl = Math.max(60_000, Math.min(60 * 60 * 1000, opts.window?.ttl_ms ?? GRANT_TTL_MS));
+      const w = opts.window;
+      // The calls on the card, plus — for a window — the next N like them.
+      const held = Math.max(1, a.waiters);
+      const uses = w ? held + Math.max(1, Math.min(WINDOW_MAX_USES, Math.floor(w.uses ?? 1))) : held;
+      const ttl = Math.max(60_000, Math.min(WINDOW_MAX_TTL_MS, w?.ttl_ms ?? GRANT_TTL_MS));
+      const target = (typeof a.target === 'string' ? JSON.parse(a.target) : a.target) as { name?: string };
       await this.db
         .insertInto('grants')
-        .values({ id: grantId, approval_id: approvalId, key_id: a.key_id, scope_hash: a.scope_hash, uses_allowed: uses, uses_consumed: 0, not_before: now, expires_at: now + ttl, revoked_at: null, consumed_by_session: null, last_used_at: null, created_at: now })
+        .values({
+          id: grantId,
+          approval_id: approvalId,
+          key_id: a.key_id,
+          scope_hash: a.scope_hash,
+          uses_allowed: uses,
+          uses_consumed: 0,
+          not_before: now,
+          expires_at: now + ttl,
+          revoked_at: null,
+          consumed_by_session: null,
+          last_used_at: null,
+          created_at: now,
+          is_window: w && a.rule_id ? 1 : 0,
+          rule_id: a.rule_id,
+          rule_revision: a.rule_revision,
+          target_name: target.name ?? null,
+          any_args: w?.any_args ? 1 : 0,
+        })
         .execute();
       await this.db.updateTable('approvals').set({ grant_id: grantId }).where('id', '=', approvalId).execute();
     }
@@ -261,6 +312,38 @@ export class ApprovalService implements Approvals {
     this.version.bump();
     this.getLog().info({ approvalId, by, action }, 'approval decided');
     return { ok: true, status };
+  }
+
+  /** Take one use of an open approval window that covers this call, if there is one. */
+  private async useWindow(keyId: string, ruleId: string, ruleRevision: number | null, targetName: string, scopeHash: string, flightId: string): Promise<{ grantId: string; approvalId: string; by: string | undefined } | undefined> {
+    const now = Date.now();
+    const open = await this.db
+      .selectFrom('grants')
+      .innerJoin('approvals', 'approvals.id', 'grants.approval_id')
+      .select(['grants.id as id', 'grants.approval_id as approval_id', 'grants.any_args as any_args', 'grants.scope_hash as scope_hash', 'approvals.resolved_by as by'])
+      .where('grants.is_window', '=', 1)
+      .where('grants.key_id', '=', keyId)
+      .where('grants.rule_id', '=', ruleId)
+      .where('grants.target_name', '=', targetName)
+      .where('grants.revoked_at', 'is', null)
+      .where('grants.expires_at', '>', now)
+      .where((eb) => eb('grants.uses_consumed', '<', eb.ref('grants.uses_allowed')))
+      .orderBy('grants.created_at', 'desc')
+      .execute();
+    for (const g of open) {
+      if (!g.any_args && g.scope_hash !== scopeHash) continue;
+      const res = await this.db
+        .updateTable('grants')
+        .set((eb) => ({ uses_consumed: eb('uses_consumed', '+', 1), last_used_at: now, consumed_by_session: flightId }))
+        .where('id', '=', g.id)
+        .where('revoked_at', 'is', null)
+        .where('expires_at', '>', now)
+        .where((eb) => (ruleRevision === null ? eb('rule_revision', 'is', null) : eb('rule_revision', '=', ruleRevision)))
+        .where((eb) => eb('uses_consumed', '<', eb.ref('uses_allowed')))
+        .executeTakeFirst();
+      if (Number(res.numUpdatedRows) > 0) return { grantId: g.id, approvalId: g.approval_id, by: g.by ?? undefined };
+    }
+    return undefined;
   }
 
   private async consumeGrant(grantId: string, keyId: string, scopeHash: string, sessionId: string | undefined): Promise<{ ok: true } | { ok: false; reason: RedeemFailReason }> {

@@ -3,7 +3,7 @@ import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { PolicyService } from '../policy/policy.js';
-import type { ApprovalService } from '../policy/approvals.js';
+import { WINDOW_MAX_TTL_MS, WINDOW_MAX_USES, type ApprovalService, type ApprovalWindow } from '../policy/approvals.js';
 import { detectorCatalog } from '../guardrails/detectors.js';
 import { inspectConfigError, limitsConfigError } from '../guardrails/validate.js';
 import { simulate } from '../policy/simulate.js';
@@ -254,8 +254,10 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
 
   app.post('/admin/api/approvals/:id/decide', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const b = (req.body ?? {}) as { action?: 'approve' | 'deny'; note?: string; window?: { uses?: number; ttl_ms?: number } };
+    const b = (req.body ?? {}) as { action?: 'approve' | 'deny'; note?: string; window?: ApprovalWindow };
     if (b.action !== 'approve' && b.action !== 'deny') return reply.status(400).send({ error: { code: 'invalid', message: 'action must be approve or deny' } });
+    const bad = windowError(b.window);
+    if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
     const r = await approvals.decide(id, req.admin?.email ?? 'admin', b.action, { ...(b.note ? { note: b.note } : {}), ...(b.window ? { window: b.window } : {}) });
     if (!r.ok) return reply.status(409).send({ error: { code: 'conflict', message: r.status } });
     return r;
@@ -266,10 +268,58 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     return { grants: rows.map((g) => ({ ...g, id: `…${g.id.slice(-6)}`, raw_id: g.id })) };
   });
 
+  // Open approval windows: agents a human let through a gate for the next N calls.
+  app.get('/admin/api/approval-windows', { preHandler: guard }, async () => {
+    const now = Date.now();
+    const rows = await ctx.db.read
+      .selectFrom('grants')
+      .innerJoin('approvals', 'approvals.id', 'grants.approval_id')
+      .select([
+        'grants.id as id',
+        'grants.approval_id as approval_id',
+        'grants.target_name as target_name',
+        'grants.any_args as any_args',
+        'grants.uses_allowed as uses_allowed',
+        'grants.uses_consumed as uses_consumed',
+        'grants.expires_at as expires_at',
+        'grants.created_at as created_at',
+        'approvals.key_name as key_name',
+        'approvals.key_id as key_id',
+        'approvals.summary as summary',
+        'approvals.resolved_by as approved_by',
+        'approvals.args_preview as args_preview',
+      ])
+      .where('grants.is_window', '=', 1)
+      .where('grants.revoked_at', 'is', null)
+      .where('grants.expires_at', '>', now)
+      .where((eb) => eb('grants.uses_consumed', '<', eb.ref('grants.uses_allowed')))
+      .orderBy('grants.created_at', 'desc')
+      .limit(100)
+      .execute();
+    return {
+      windows: rows.map((w) => ({
+        ...w,
+        any_args: w.any_args === 1,
+        uses_left: w.uses_allowed - w.uses_consumed,
+        args_preview: w.args_preview ? (JSON.parse(w.args_preview as string) as unknown) : null,
+      })),
+      server_time: now,
+    };
+  });
+
   app.post('/admin/api/grants/:id/revoke', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const ok = await approvals.revokeGrant(id);
     if (!ok) return reply.status(404).send({ error: { code: 'not_found', message: 'grant not found or already revoked' } });
     return { ok: true };
   });
+}
+
+function windowError(w: ApprovalWindow | undefined): string | undefined {
+  if (w === undefined) return undefined;
+  if (typeof w !== 'object' || w === null) return 'window must be an object: { uses, ttl_ms, any_args }';
+  if (w.uses !== undefined && (!Number.isInteger(w.uses) || w.uses < 1 || w.uses > WINDOW_MAX_USES)) return `window.uses must be a whole number from 1 to ${WINDOW_MAX_USES}`;
+  if (w.ttl_ms !== undefined && (!Number.isInteger(w.ttl_ms) || w.ttl_ms < 60_000 || w.ttl_ms > WINDOW_MAX_TTL_MS)) return `window.ttl_ms must be from 60000 (1 minute) to ${WINDOW_MAX_TTL_MS} (1 hour)`;
+  if (w.any_args !== undefined && typeof w.any_args !== 'boolean') return 'window.any_args must be true or false';
+  return undefined;
 }

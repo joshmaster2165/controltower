@@ -173,6 +173,22 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .approval .args { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); white-space: pre-wrap; max-height: 90px; overflow: auto; margin-bottom: 8px; background: #f8fafd; border-radius: 6px; padding: 6px 8px; }
 .approval .actions { display: flex; gap: 6px; }
 .approval.done { opacity: 0.7; border-color: var(--border); }
+.approval .actions { flex-wrap: wrap; }
+.approve-more { display: grid; gap: 8px; margin-bottom: 8px; font-size: 12.5px; color: var(--text-dim); }
+.approve-more label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.approve-more input { width: 64px; font: inherit; color: var(--text); padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); }
+.approve-more select { font: inherit; color: var(--text); padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); }
+.approve-more .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; justify-self: start; }
+.approve-more .seg button { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--text-dim); padding: 4px 10px; cursor: pointer; }
+.approve-more .seg button + button { border-left: 1px solid var(--border); }
+.approve-more .seg button.on { background: var(--accent-soft); color: var(--accent-deep, var(--accent)); font-weight: 600; }
+.open-windows { margin-bottom: 20px; }
+.open-windows .error { margin-bottom: 8px; }
+.window-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.window-row + .window-row { border-top: 1px solid var(--border); }
+.window-row .what { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.window-row .sub { display: block; font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.window-row .cd { font-family: var(--mono); font-size: 12px; }
 .hint { font-size: 12.5px; color: var(--text-dim); }
 .mode-banner {
   position: absolute; left: 50%; top: 112px; transform: translateX(-50%); z-index: 4; pointer-events: none; max-width: 90%; text-align: center;

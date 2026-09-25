@@ -842,6 +842,57 @@ test('Approval on the model path: held with a ticket, approved by a human, redee
   expect(again.status).toBe(403);
 });
 
+test('Approval windows: approve this call and the next N, with any arguments or only these; end one early', async () => {
+  const agent = await key('rw-window-agent');
+  const gate = await admin.post('/admin/api/rules', { name: 'Window gate', target_kind: 'model', match: { keys: [agent.id], models: ['gpt-4.1-mini'] }, effect: 'require_approval', config: { hold_ms: 0 }, priority: 1 });
+  expect(gate.status).toBe(201);
+  // On the model path a gate's arguments are the request's settings (model, max_tokens, tools), not the prompt.
+  const call = (content: string, headers: Record<string, string> = {}, maxTokens = 5) =>
+    fetch(`${CT}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${agent.key}`, 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: maxTokens, messages: [{ role: 'user', content }] }),
+    });
+  const held = async (content: string, maxTokens = 5) => {
+    const r = await call(content, {}, maxTokens);
+    expect(r.status).toBe(403);
+    return ((await r.json()) as { error: { ct: { ticket: string; request_id: string } } }).error.ct;
+  };
+
+  // A window is checked: whole numbers, at most an hour.
+  const first = await held('one');
+  expect((await admin.post(`/admin/api/approvals/${first.request_id}/decide`, { action: 'approve', window: { uses: 0 } })).status).toBe(400);
+  expect((await admin.post(`/admin/api/approvals/${first.request_id}/decide`, { action: 'approve', window: { uses: 2, ttl_ms: 5 * 3600_000 } })).status).toBe(400);
+
+  // Any arguments: the ticketed call plus the next 2 calls go through with no card; the 3rd is held again.
+  expect((await admin.post(`/admin/api/approvals/${first.request_id}/decide`, { action: 'approve', window: { uses: 2, ttl_ms: 600_000, any_args: true } })).status).toBe(200);
+  expect((await call('one', { 'x-ct-approval': first.ticket })).status).toBe(200);
+  const open = (await admin.get('/admin/api/approval-windows')).body.windows.find((w: any) => w.key_id === agent.id);
+  expect(open).toMatchObject({ target_name: 'gpt-4.1-mini', any_args: true, uses_left: 2 });
+  expect((await call('two')).status).toBe(200);
+  expect((await call('something else entirely')).status).toBe(200);
+  const pending = (await admin.get('/admin/api/approvals?status=pending')).body.approvals.filter((a: any) => a.key_id === agent.id);
+  expect(pending).toHaveLength(0);
+  const third = await held('four');
+  expect((await admin.get('/admin/api/approval-windows')).body.windows.find((w: any) => w.key_id === agent.id)).toBeUndefined();
+
+  // Only these arguments: the same settings pass, different ones wait for a human.
+  expect((await admin.post(`/admin/api/approvals/${third.request_id}/decide`, { action: 'approve', window: { uses: 3, ttl_ms: 600_000, any_args: false } })).status).toBe(200);
+  expect((await call('four')).status).toBe(200);
+  const other = await held('five', 50);
+
+  // End it early: the next call is held again.
+  const w = (await admin.get('/admin/api/approval-windows')).body.windows.find((x: any) => x.key_id === agent.id);
+  expect((await admin.post(`/admin/api/grants/${w.id}/revoke`, {})).status).toBe(200);
+  await held('four');
+
+  // Editing the gate ends its windows too.
+  expect((await admin.post(`/admin/api/approvals/${other.request_id}/decide`, { action: 'approve', window: { uses: 5, any_args: true } })).status).toBe(200);
+  expect((await call('six', {}, 50)).status).toBe(200);
+  expect((await admin.call('PATCH', `/admin/api/rules/${gate.body.id}`, { name: 'Window gate (edited)' })).status).toBe(200);
+  await held('seven');
+});
+
 // ---------------------------------------------------------------- MCP, both ends official SDK
 let mcp: Awaited<ReturnType<typeof mcpUpstream>>;
 let serverId = '';

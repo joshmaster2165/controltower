@@ -325,6 +325,26 @@ export interface Approval {
   note: string | null;
   grant_id: string | null;
   demo: boolean;
+  /** When the agent stops waiting for this card; after that it holds a ticket. */
+  hold_until: number | null;
+}
+
+/** An open approval window: an agent a human let through a gate for its next N calls. */
+export interface ApprovalWindowRow {
+  id: string;
+  approval_id: string;
+  key_id: string;
+  key_name: string;
+  target_name: string | null;
+  summary: string;
+  any_args: boolean;
+  uses_allowed: number;
+  uses_consumed: number;
+  uses_left: number;
+  expires_at: number;
+  created_at: number;
+  approved_by: string | null;
+  args_preview: Record<string, unknown> | null;
 }
 
 export type AlertTrigger =

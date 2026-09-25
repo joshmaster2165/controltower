@@ -166,6 +166,18 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 - **Nobody answers** in time: the agent gets `403 approval_required` with a **ticket**. Once someone approves, the agent retries the same call with `x-ct-approval: <ticket>` and it goes through **once**. A retry with different arguments is refused and raised as a security event (`scope_mismatch`).
 - Held alerts by [email](alerts.md#approving-by-email), in Slack or to a webhook link straight to the card. Approving is always an authenticated action in the console — a link click never approves anything.
 
+### Approve the next N calls
+
+When an agent will make the same kind of call again and again — a batch of refunds, a run of lookups — approving each one is noise. **Approve more…** on the card approves this call and lets the agent make the **next N calls** of the same kind without a card:
+
+- **Next N calls** (1–1,000), **for** 10 minutes, 30 minutes or 1 hour — whichever runs out first.
+- **Any arguments**, or **Only these** — the same arguments as the card (tool, HTTP and A2A calls). On a model gate the choice is not offered: a window covers requests to that model whatever their prompt.
+- The card spells out what you are agreeing to before you click: *Approve this call, and let billing-agent make 5 more calls to payments__POST /v1/charges through this gate in the next 30 minutes — with any arguments.*
+
+A window covers **one agent, one gate and one target** (the model, tool or HTTP route on the card). Calls it covers go straight through and are recorded as approved by the person who opened the window. **Approved ahead** on the Tower page lists open windows with the calls and time left; **End now** closes one at once. Editing the gate closes its windows too, so a changed rule is never approved in advance.
+
+In the API: `POST /admin/api/approvals/<id>/decide` with `{ "action": "approve", "window": { "uses": 5, "ttl_ms": 1800000, "any_args": true } }`; `GET /admin/api/approval-windows` lists open windows and `POST /admin/api/grants/<id>/revoke` ends one.
+
 ## Zones
 
 Zones name groups of stations so gates can be written once for all of them: *every agent in AI Labs sandbox → anything in Code hosting: deny*.

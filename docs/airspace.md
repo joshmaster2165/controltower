@@ -102,6 +102,34 @@ A gate can cover one agent, a whole zone, or every agent; one model, a zone of m
 
 Tick **Alert me** to be told when the gate fires; see [Alerts](alerts.md).
 
+### How inspection works
+
+Inspect gates run inside Control Tower, on the request before it leaves and on the reply before the agent reads it (a streamed model reply only after delivery, so there a match is flagged). By default no model is involved — they are pattern checks, fast and free:
+
+| Look for | What it matches |
+|---|---|
+| **Secrets & credentials** | Known key formats — AWS, GitHub, Slack, Stripe, OpenAI, Anthropic, Google, npm and Control Tower keys — private keys, JSON Web Tokens, database connection strings with a password |
+| **Personal data** | Email addresses, phone numbers, and card numbers, IBANs and US Social Security numbers that pass their checksums or rules |
+| **Prompt injection** | Well-known phrasings: "ignore previous instructions", role overrides ("you are now…"), requests for the system prompt, fake chat-template markup, "send the credentials to…" |
+| **Keywords** | Your own words, whole-word |
+
+Secrets and personal data are caught reliably in the formats listed. The injection patterns only catch the obvious phrasings — a paraphrase, another language or encoded text gets past them.
+
+**Also ask a model** (under **Prompt injection**) adds a model's judgement: the text — its start and end when it is long — goes to a model you pick, one Control Tower serves, with instructions to answer only whether it contains instructions aimed at an AI agent. It catches paraphrased, translated and disguised injections the patterns miss, at the cost of a model call per checked request (a second or two, and its price). The checks run through Control Tower under a system key, **guardrail**, so they appear in Flights and the Ledger with their cost. A *mask* gate withholds content a model flags (a verdict can't be masked word by word). If the model can't answer, the content goes through flagged — or is blocked, if you choose so. In a policy file:
+
+```yaml
+- name: Check tool results for injection
+  match: { tools: ["*"] }
+  effect: inspect
+  config:
+    detectors: [injection]
+    model_check: { model: gpt-4.1-mini, on_error: allow }
+    action: block
+    direction: output
+```
+
+Even with a model, detection is a second line: the stronger control against injection is what the agent can do once instructions reach it — keep tools it doesn't need out of reach, and hold writes and deletes for approval.
+
 ### Simulate before you enforce
 
 **Simulate on last 24 h** replays yesterday's recorded traffic through the current gates plus your draft and shows only what would change: how many requests would be blocked or held, from which agents, to which targets, and the spend involved. The affected paths are highlighted on the map.

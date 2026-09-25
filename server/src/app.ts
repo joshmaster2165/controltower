@@ -107,6 +107,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await adminRoutes(a, full);
     await providerRoutes(a, full);
     await playgroundRoutes(a, full);
+    full.modelChecker.register(a, full);
     await policyRoutes(a, full);
     await mcpAdminRoutes(a, full);
     await httpAdminRoutes(a, full);

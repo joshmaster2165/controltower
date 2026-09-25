@@ -9,10 +9,11 @@ import { recentRoutes } from './http.js';
 import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 import { ADMIN_KEY_ID } from './admin-key.js';
 import { PLAYGROUND_KEY_ID } from './playground.js';
+import { GUARDRAIL_KEY_ID } from '../guardrails/model-check.js';
 import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
 
-const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID]);
+const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID, GUARDRAIL_KEY_ID]);
 /** Width of the buckets the map's last minute is seeded from. */
 const RECENT_BUCKET_MS = 5000;
 

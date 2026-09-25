@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { inspect } from '../guardrails/inspect.js';
 import { E } from '../gateway/errors.js';
 import { once } from 'node:events';
 import { request } from 'undici';
@@ -7,7 +8,6 @@ import { globMatch } from '../registry.js';
 import { usableKey } from '../gateway/key.js';
 import { newFlight, type Flight } from '../pipeline/flight.js';
 import type { PolicyTarget } from '../policy/engine.js';
-import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
@@ -188,7 +188,7 @@ export class A2aGateway {
       const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let outParams: Json = params;
       if (gates.length && info.message) {
-        const r = runInspectors(gates, 'input', params.message);
+        const r = await inspect(ctx, key, gates, 'input', params.message);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the message');
         if (r.blocked) return refuse(400, 'denied', 'content_blocked', blockedMessage(r.blocked, 'request'), { rule_id: r.blocked.ruleId });
         if (r.value !== params.message) outParams = { ...params, message: r.value };
@@ -282,7 +282,7 @@ export class A2aGateway {
       }
       // ---- inspect what comes back: what the calling agent is about to read ----
       if (gates.length && parsed.result !== undefined) {
-        const r = runInspectors(gates, 'output', parsed.result);
+        const r = await inspect(ctx, key, gates, 'output', parsed.result);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the reply');
         if (r.blocked) return refuse(403, 'denied', 'content_blocked', blockedMessage(r.blocked, 'response'), { rule_id: r.blocked.ruleId });
         if (r.value !== parsed.result) parsed = { ...parsed, result: r.value };

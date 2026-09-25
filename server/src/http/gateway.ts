@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { inspect } from '../guardrails/inspect.js';
 import { E } from '../gateway/errors.js';
 import { readCapped } from '../util/body.js';
 import { request } from 'undici';
@@ -6,7 +7,6 @@ import type { AppContext } from '../context.js';
 import { globMatch } from '../registry.js';
 import { newFlight, type Flight } from '../pipeline/flight.js';
 import type { PolicyTarget } from '../policy/engine.js';
-import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { ctKey, downstreamHeaders, httpOperation, isTextual, routeLabel, upstreamHeaders, upstreamUrl } from './route.js';
@@ -147,7 +147,7 @@ export class HttpGateway {
       const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let outBody: Buffer | undefined = raw && method !== 'GET' && method !== 'HEAD' ? raw : undefined;
       if (gates.length && body !== undefined) {
-        const r = runInspectors(gates, 'input', body);
+        const r = await inspect(ctx, key, gates, 'input', body);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
         if (r.blocked) return refuse(400, 'denied', 'content_blocked', blockedMessage(r.blocked, 'request'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
         if (r.value !== body) outBody = Buffer.from(typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
@@ -176,7 +176,7 @@ export class HttpGateway {
       const resType = headerValue(res.headers['content-type']);
       if (gates.length && !res.headers['content-encoding'] && isTextual(resType)) {
         const parsed = parseBody(data, resType);
-        const r = runInspectors(gates, 'output', parsed);
+        const r = await inspect(ctx, key, gates, 'output', parsed);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the response');
         if (r.blocked) return refuse(403, 'denied', 'content_blocked', blockedMessage(r.blocked, 'response'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
         if (r.value !== parsed) data = Buffer.from(typeof r.value === 'string' ? r.value : JSON.stringify(r.value));

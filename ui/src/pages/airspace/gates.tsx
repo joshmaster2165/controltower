@@ -11,7 +11,7 @@ export function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose
   const [sim, setSim] = useState<SimResult | null>(null);
   const [simBusy, setSimBusy] = useState(false);
   const [simErr, setSimErr] = useState<string | null>(null);
-  const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both' } : DEFAULT_INSPECT);
+  const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both', model_check: rule.config.model_check } : DEFAULT_INSPECT);
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
@@ -228,7 +228,7 @@ export function inspectSummary(c: InspectConfig): string {
   const ids = c.detectors ?? [];
   const what = [
     ids.includes('secrets') ? 'secrets' : '',
-    ids.includes('injection') ? 'prompt injection' : '',
+    ids.includes('injection') || c.model_check ? `prompt injection${c.model_check ? ` (asking ${c.model_check.model})` : ''}` : '',
     ids.some((d) => d !== 'secrets' && d !== 'injection') || ids.includes('pii') ? 'personal data' : '',
     c.keywords?.length ? 'keywords' : '',
   ].filter(Boolean);
@@ -244,6 +244,9 @@ export function InspectFields({ value, onChange }: { value: InspectConfig; onCha
   const has = (id: string) => ids.includes(id);
   const toggle = (id: string) => onChange({ ...value, detectors: has(id) ? ids.filter((x) => x !== id) : [...ids, id] });
   const [kw, setKw] = useState((value.keywords ?? []).join(', '));
+  // Models to ask: the ones this Control Tower serves.
+  const topology = useStore((s) => s.topology);
+  const models = [...new Set([...(topology?.aliases ?? []).map((a) => a.name), ...(topology?.deployments ?? []).filter((d) => d.enabled).map((d) => d.public_name ?? d.upstream_model)])].sort();
   return (
     <div className="inspect-fields">
       <div className="field">
@@ -256,6 +259,36 @@ export function InspectFields({ value, onChange }: { value: InspectConfig; onCha
           <input type="checkbox" checked={has('injection')} onChange={() => toggle('injection')} /> Prompt injection
           <span className="dim">Instructions hidden in tool results and documents</span>
         </label>
+        <label className="check" style={{ marginLeft: 22 }}>
+          <input
+            type="checkbox"
+            checked={!!value.model_check}
+            onChange={() => onChange({ ...value, model_check: value.model_check ? undefined : { model: models[0] ?? '', on_error: 'allow' } })}
+          />{' '}
+          Also ask a model
+          <span className="dim">Catches paraphrased, translated or disguised instructions the patterns miss. Each check is a model call, with its cost and a second or two of latency.</span>
+        </label>
+        {value.model_check && (
+          <div className="model-check-fields">
+            <input
+              className="input"
+              list="ct-check-models"
+              value={value.model_check.model}
+              placeholder="a small, fast model"
+              onChange={(e) => onChange({ ...value, model_check: { ...value.model_check!, model: e.target.value } })}
+              aria-label="Model to ask"
+            />
+            <datalist id="ct-check-models">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+            <select className="input" value={value.model_check.on_error ?? 'allow'} onChange={(e) => onChange({ ...value, model_check: { ...value.model_check!, on_error: e.target.value as 'allow' | 'block' } })} aria-label="If the model can't answer">
+              <option value="allow">No verdict: let it through, flagged</option>
+              <option value="block">No verdict: block</option>
+            </select>
+          </div>
+        )}
         <div className="dim" style={{ margin: '4px 0 4px' }}>Personal data</div>
         <div className="chips">
           {pii.map((d) => (

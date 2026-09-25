@@ -2,6 +2,11 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Inspect gates can ask a model:** *Also ask a model* on a prompt-injection gate sends the content to a model you choose, through Control Tower under a system key (**guardrail**), to catch paraphrased, translated or disguised injections the patterns miss. `config.model_check: { model, on_error }` in the API and policy files. See [How inspection works](airspace.md#how-inspection-works).
+- The Codex CLI guide's terminal screenshots are re-recorded with Codex CLI 0.157.
+
 ## 0.1.5 — 25 September 2026
 
 Agents calling agents, end to end: over MCP, HTTP and the A2A protocol, every call is linked to the call that led to it, gated on whom it is for, and charged to the agent that started the chain. Also: remote A2A agents behind the gateway, MCP resources and prompts as flights, and an Airspace that stays readable with a large fleet.

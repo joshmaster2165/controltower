@@ -1,4 +1,5 @@
 import { DETECTOR_BY_ID, INJECTION_DETECTORS, PII_DETECTORS, SECRET_DETECTORS, type Detector } from './detectors.js';
+import type { ModelCheckConfig } from './model-check.js';
 
 /**
  * Inspect gates: content scanning on the path an agent takes. A gate says
@@ -21,6 +22,8 @@ export interface InspectConfig {
   action?: InspectAction;
   direction?: InspectDirection;
   reason?: string;
+  /** Also ask a model whether the content is a prompt injection (see model-check.ts). */
+  model_check?: ModelCheckConfig;
 }
 
 export type Findings = Record<string, number>;
@@ -129,11 +132,29 @@ export function scanValue(value: unknown, detectors: Detector[], mask: boolean, 
   return value;
 }
 
+const MODEL_LABELS: Record<string, string> = { injection_model: 'prompt injection (model check)', model_check_failed: 'no verdict from the check model' };
+
+/** The text in a value, for a model to read: every string, skipping protocol fields; capped like scanning. */
+export function textOfValue(value: unknown): string {
+  const out: string[] = [];
+  let left = MAX_SCAN_CHARS;
+  const walk = (v: unknown, key?: string): void => {
+    if (left <= 0 || (key && SKIP_KEYS.has(key))) return;
+    if (typeof v === 'string') {
+      out.push(v.slice(0, left));
+      left -= v.length;
+    } else if (Array.isArray(v)) v.forEach((x) => walk(x));
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k);
+  };
+  walk(value);
+  return out.join('\n');
+}
+
 export function describeFindings(f: Findings): string {
   const parts = Object.entries(f)
     .sort((a, b) => b[1] - a[1])
     .map(([id, n]) => {
-      const label = DETECTOR_BY_ID.get(id)?.label ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : id);
+      const label = DETECTOR_BY_ID.get(id)?.label ?? MODEL_LABELS[id] ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : id);
       return n > 1 ? `${n} × ${label}` : label;
     });
   return parts.join(', ');

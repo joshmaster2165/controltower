@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { inspect } from '../guardrails/inspect.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { FlightKind, FlightStatus, Usage, UsageSource, CostConfidence } from '@controltower/shared';
@@ -11,7 +12,7 @@ import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
 import { extractApiKey, keyProblem } from '../gateway/key.js';
 import type { InspectGate, PolicyDecision, PolicyTarget } from '../policy/engine.js';
-import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
+import { MAX_SCAN_CHARS } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
@@ -350,7 +351,7 @@ export class FlightRunner {
         f.inspectOut = gates.filter((g) => g.compiled.direction !== 'input');
         const fields = ['messages', 'system', 'instructions', 'input', 'prompt'].filter((k) => body[k] !== undefined);
         const picked = Object.fromEntries(fields.map((k) => [k, body[k]]));
-        const r = runInspectors(gates, 'input', picked);
+        const r = await inspect(ctx, f.key, gates, 'input', picked);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
         if (r.blocked) {
           f.status = 'denied';
@@ -524,7 +525,7 @@ export class FlightRunner {
             parsed = undefined;
           }
           if (parsed !== undefined) {
-            const r = runInspectors(f.inspectOut, 'output', parsed);
+            const r = await inspect(ctx, f.key, f.inspectOut, 'output', parsed);
             emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the response');
             if (r.blocked) {
               f.status = 'denied';
@@ -687,7 +688,7 @@ export class FlightRunner {
     }
     if (f.status === 'client_aborted' && f.usageSource !== 'provider') f.usageSource = 'estimated_partial';
     if (inspecting && seen.length) {
-      const r = runInspectors(f.inspectOut, 'output', seen.join(''), { streamed: true });
+      const r = await inspect(this.ctx, f.key, f.inspectOut, 'output', seen.join(''), { streamed: true });
       emitInspectOutcomes(this.ctx.bus, f.id, r.outcomes, 'in the response', true);
     }
   }

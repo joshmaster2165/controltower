@@ -1009,6 +1009,48 @@ test('MCP: resources and prompts are flights too — recorded, gated and inspect
   await narrow.close();
 });
 
+test('Inspect gate with a model check: a model judges tool results for prompt injection', async () => {
+  // Stand-in check models: one that finds an injection, one that finds none. The check runs through Control Tower's own pipeline.
+  const guilty = await openAiUpstream({ models: ['guard-strict'], reply: '{"injection": true, "confidence": 0.92, "reason": "the text tells the agent to send its API keys elsewhere"}' });
+  const clean = await openAiUpstream({ models: ['guard-relaxed'], reply: '{"injection": false, "confidence": 0.05, "reason": "ordinary file contents"}' });
+  upstreams.push(guilty, clean);
+  for (const [slug, u, model] of [['guard-a', guilty, 'guard-strict'], ['guard-b', clean, 'guard-relaxed']] as const) {
+    const pid = (await admin.post('/admin/api/providers', { catalog_id: 'custom', name: slug, slug, base_url: `${u.url}/v1` })).body.provider.id;
+    expect((await admin.post('/admin/api/deployments', { provider_id: pid, upstream_model: model, public_name: model })).status).toBe(201);
+  }
+  const agent = await key('rw-model-checked');
+  const client = await mcpClient(agent.key);
+  const gate = (model: string, on_error?: string) =>
+    admin.post('/admin/api/rules', { name: `Ask ${model} about tool results`, target_kind: 'tool', match: { keys: [agent.id], tools: ['files__read_file'] }, effect: 'inspect', config: { model_check: { model, ...(on_error ? { on_error } : {}) }, action: 'block', direction: 'output' }, priority: 30 });
+
+  // A verdict of injection blocks the result before the agent reads it; the check itself is a flight under the guardrail key.
+  const strict = await gate('guard-strict');
+  expect(strict.status).toBe(201);
+  const blocked = textOf(await client.callTool({ name: 'files__read_file', arguments: { path: '/notes/q3.md' } }));
+  expect(blocked).toContain('CONTROL_TOWER_CONTENT_BLOCKED');
+  expect(blocked).toContain('prompt injection (model check)');
+  expect(guilty.calls.some((c) => c.body.includes('<content>') && c.body.includes('contents of /notes/q3.md'))).toBe(true);
+  await expect.poll(async () => ((await admin.get('/admin/api/flights?key_id=key_guardrail&limit=5')).body.flights as Array<{ model_requested: string }>).map((f) => f.model_requested)).toContain('guard-strict');
+  await admin.call('DELETE', `/admin/api/rules/${strict.body.id}`);
+
+  // A clean verdict lets it through.
+  const relaxed = await gate('guard-relaxed');
+  expect(textOf(await client.callTool({ name: 'files__read_file', arguments: { path: '/notes/q3.md' } }))).toContain('contents of /notes/q3.md');
+  await admin.call('DELETE', `/admin/api/rules/${relaxed.body.id}`);
+
+  // A check model that can't answer: let through (and flagged) by default, blocked when the gate says so.
+  const missing = await gate('no-such-model');
+  expect(textOf(await client.callTool({ name: 'files__read_file', arguments: { path: '/notes/q3.md' } }))).toContain('contents of /notes/q3.md');
+  await admin.call('DELETE', `/admin/api/rules/${missing.body.id}`);
+  const strictMissing = await gate('no-such-model', 'block');
+  expect(textOf(await client.callTool({ name: 'files__read_file', arguments: { path: '/notes/q3.md' } }))).toContain('no verdict from the check model');
+  await admin.call('DELETE', `/admin/api/rules/${strictMissing.body.id}`);
+
+  // A gate needs the model it should ask.
+  expect((await admin.post('/admin/api/rules', { name: 'x', target_kind: 'tool', effect: 'inspect', config: { model_check: { model: '' } } })).status).toBe(400);
+  await client.close();
+});
+
 test('MCP: health checks do not leak upstream sessions', async () => {
   const deletesBefore = mcp.calls.filter((c) => c.method === 'DELETE').length;
   const initsBefore = mcp.calls.filter((c) => c.body.includes('"method":"initialize"')).length;

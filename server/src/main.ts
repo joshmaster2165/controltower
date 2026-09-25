@@ -14,6 +14,7 @@ import { DbSink } from './events/db-sink.js';
 import { EventRing } from './events/ring.js';
 import { LiveFrames } from './admin/live.js';
 import { PathsStore } from './events/paths.js';
+import { ModelChecker, ensureGuardrailKey } from './guardrails/model-check.js';
 import { Delegations } from './policy/delegation.js';
 import { A2aRegistry } from './a2a/registry.js';
 import { PolicyService } from './policy/policy.js';
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
   const db = openSqlite(config.dataDir);
 
   await ensurePlaygroundKey(db.write);
+  await ensureGuardrailKey(db.write);
   const registry = new Registry(db.read, secrets);
   await registry.reload();
 
@@ -181,6 +183,7 @@ async function main(): Promise<void> {
     ring,
     live,
     paths,
+    modelChecker: new ModelChecker(),
     delegations: new Delegations(secrets.deriveKey('delegation')),
     a2a,
     policy,

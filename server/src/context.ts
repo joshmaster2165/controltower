@@ -12,6 +12,7 @@ import type { DbSink } from './events/db-sink.js';
 import type { EventRing } from './events/ring.js';
 import type { LiveFrames } from './admin/live.js';
 import type { PathsStore } from './events/paths.js';
+import type { ModelChecker } from './guardrails/model-check.js';
 import type { Delegations } from './policy/delegation.js';
 import type { A2aRegistry } from './a2a/registry.js';
 import type { PolicyEngine } from './policy/engine.js';
@@ -45,6 +46,8 @@ export interface AppContext {
   live: LiveFrames;
   /** Every connection agents have used, with first and last use. */
   paths: PathsStore;
+  /** Model-based prompt-injection checks for inspect gates that ask for them. */
+  modelChecker: ModelChecker;
   /** Signs and checks delegation tokens (agents calling agents). */
   delegations: Delegations;
   /** Remote agents reached over A2A, served at /a2a/<slug>. */

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { inspect } from '../guardrails/inspect.js';
 import { E } from '../gateway/errors.js';
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
@@ -9,7 +10,7 @@ import { usableKey } from '../gateway/key.js';
 import { McpUpstreamError, type McpTool } from './upstream.js';
 import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js';
 import type { PolicyTarget } from '../policy/engine.js';
-import { describeFindings, runInspectors } from '../guardrails/scan.js';
+import { describeFindings } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
@@ -360,7 +361,7 @@ export class McpGateway {
       const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let callArgs = args;
       if (gates.length) {
-        const r = runInspectors(gates, 'input', args);
+        const r = await inspect(ctx, key, gates, 'input', args);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool arguments');
         if (r.blocked) {
           complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });
@@ -381,7 +382,7 @@ export class McpGateway {
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: server.id, provider_id: server.id, upstream_model: toolName, outcome: 'ok', status: 200, ttfb_ms: f.t.ttfb - f.t.start });
       // ---- inspect the result: what the model is about to read ----
       if (gates.length) {
-        const r = runInspectors(gates, 'output', result);
+        const r = await inspect(ctx, key, gates, 'output', result);
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool result');
         if (r.blocked) {
           complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });

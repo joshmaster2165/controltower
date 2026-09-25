@@ -282,6 +282,8 @@ export interface InspectConfig {
   patterns?: Array<{ name: string; regex: string }> | undefined;
   action?: 'block' | 'mask' | 'flag' | undefined;
   direction?: 'input' | 'output' | 'both' | undefined;
+  /** Also ask a model (one Control Tower serves) whether the content is a prompt injection. */
+  model_check?: { model: string; on_error?: 'allow' | 'block' | undefined } | undefined;
 }
 
 export interface DetectorInfo {

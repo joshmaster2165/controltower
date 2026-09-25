@@ -16,6 +16,10 @@ import { ReplayBar } from './airspace/Replay';
 import { MapSearch } from './airspace/MapSearch';
 import { ViewEditor } from './airspace/ViewEditor';
 import { AttentionPanel, type Attention } from './airspace/Attention';
+import { MatrixView } from './airspace/Matrix';
+import type { MatrixData } from '../airspace/scene';
+
+const MODE_KEY = 'ct.airspace.mode';
 
 const LEVEL_KEY = 'ct.airspace.level';
 
@@ -80,6 +84,27 @@ export function AirspacePage() {
   viewRef.current = view;
   const [viewCounters, setViewCounters] = useState({ flights: 0, errors: 0, denied: 0, cost_nanousd: 0 });
   const [editing, setEditing] = useState<AirspaceView | 'new' | null>(null);
+  // Map or matrix (every agent against every destination). The matrix is recomputed every second.
+  const [mode, setModeState] = useState<'map' | 'matrix'>(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'matrix' ? 'matrix' : 'map';
+    } catch {
+      return 'map';
+    }
+  });
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const [matrix, setMatrix] = useState<MatrixData | null>(null);
+  const setMode = (m: 'map' | 'matrix') => {
+    setModeState(m);
+    modeRef.current = m;
+    if (m === 'matrix') setMatrix(sceneRef.current?.matrix() ?? null);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* private mode */
+    }
+  };
   // What needs a person, recomputed every second; the panel lights those stations and dims the rest.
   const [attention, setAttention] = useState<Attention>({ items: [], busiest: [] });
   const [attentionOpen, setAttentionOpenState] = useState(false);
@@ -137,6 +162,7 @@ export function AirspacePage() {
         }
         scene.onLevelChange(() => {
           setLevelInfo(scene.getLevel());
+          if (modeRef.current === 'matrix') setMatrix(scene.matrix());
           // The traced station may have been folded into a team, or opened out of one.
           if (focusRef.current && !scene.focusSummary(focusRef.current)) applyFocus(null);
         });
@@ -173,6 +199,7 @@ export function AirspacePage() {
         const st = useStore.getState();
         if (st.topology) scene.setTopology(st.topology);
         setLevelInfo(scene.getLevel());
+        if (modeRef.current === 'matrix') setMatrix(scene.matrix());
         if (st.policy) scene.setPolicy(st.policy);
         scene.setAlertedGates(alertedGates(st.alertRules));
         try {
@@ -246,6 +273,7 @@ export function AirspacePage() {
       if (focusRef.current) setFocus(sc.focusSummary(focusRef.current));
       const a = sc.attention();
       setAttention(a);
+      if (modeRef.current === 'matrix') setMatrix(sc.matrix());
       if (attentionOpenRef.current) sc.setHighlight(a.items.flatMap((i) => (i.also ? [i.stationId, i.also] : [i.stationId])));
     }, 1000);
     const onKey = (e: KeyboardEvent) => {
@@ -416,7 +444,7 @@ export function AirspacePage() {
   const shownCounters = view ? viewCounters : counters;
 
   return (
-    <div className="airspace" ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
+    <div className={`airspace ${mode === 'matrix' ? 'matrix-mode' : ''}`} ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
       <div className={`hud ${view ? 'in-view' : ''}`}>
         <div className="hud-strip">
           {view && (
@@ -650,8 +678,25 @@ export function AirspacePage() {
       {hover && !popover && <Tooltip hover={hover} />}
 
       <div className="map-controls" style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
-        <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
+        <div className="seg sm layer-seg" role="radiogroup" aria-label="Show as">
+          {(
+            [
+              ['map', 'Map', 'Agents, the tower and destinations, with their connections'],
+              ['matrix', 'Matrix', 'Every agent against every destination: volume, live connections and which have a gate'],
+            ] as const
+          ).map(([id, label, hint]) => (
+            <button key={id} role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''} title={hint} onClick={() => setMode(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <span className="sep" />
+        {mode === 'map' && (
+          <>
+            <MapSearch scene={getScene} onReveal={revealed} panelWidth={372} />
+            <span className="sep" />
+          </>
+        )}
         {level.teams >= 2 && (
           <>
             <div className="seg sm layer-seg" role="radiogroup" aria-label="Draw agents by">
@@ -669,6 +714,8 @@ export function AirspacePage() {
             <span className="sep" />
           </>
         )}
+        {mode === 'map' && (
+        <>
         <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
           {(
             [
@@ -709,7 +756,28 @@ export function AirspacePage() {
           </button>
         )}
         {saveState !== 'idle' && <span className="save">{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Layout saved' : 'Save failed'}</span>}
+        </>
+        )}
       </div>
+      {mode === 'matrix' && matrix && (
+        <MatrixView
+          right={showTower || focusId || attentionOpen ? 388 : 16}
+          data={matrix}
+          onGate={(row, col, x, y) => {
+            const r = hostRef.current?.getBoundingClientRect();
+            setPopover({ kind: 'compose', draft: { from: agentRef(row.id), to: destRef(col.id) }, x: x - (r?.left ?? 0), y: y - (r?.top ?? 0) });
+          }}
+          onRow={(row) => {
+            setMode('map');
+            const id = sceneRef.current?.reveal(`station:${row.id}`, 372);
+            if (id) revealed(id);
+          }}
+          onOpenTeam={(team) => {
+            sceneRef.current?.toggleTeam(team);
+            setMatrix(sceneRef.current?.matrix() ?? null);
+          }}
+        />
+      )}
 
       {topology && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
       <div className={`legend ${legendOpen ? '' : 'closed'}`}>

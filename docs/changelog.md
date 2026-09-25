@@ -5,6 +5,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 ## Unreleased
 
 - **Agent groups:** keys that share an [agent ID](keys.md#many-copies-of-one-agent) are one station on the map with a ×N count, and a gate or zone on it covers every copy (`match.groups`, `group:` members in policy files). The key form has an **Agent ID** field.
+- **Matrix:** [every agent against every destination](airspace.md#matrix-every-agent-against-every-destination) — volume, live connections and which ones no gate can stop — with a click on any cell to gate that path.
 - **Flows:** line thickness on the Airspace is volume — calls per minute on live lines, the last day's calls on idle ones — so where traffic goes reads at a glance at any fleet size. Live lines no longer pulse; the map redraws only when something changes (about 5 times a second under load, was every frame).
 - **Attention:** [what needs a person](airspace.md#what-needs-attention) on the map — holds, blocks, direct provider calls, failing destinations, destructive tools with no gate, new connections and traffic spikes — plus the busiest stations, with everything else dimmed. Control Tower now records each connection's first and last use (kept 90 days after last use).
 - **Views:** [named parts of the organization](airspace.md#views-one-part-of-the-organization-at-a-time) — Engineering, Marketing — each with a map, counters and approvals of its own, listed under Airspace. API: `/admin/api/airspace/views`.

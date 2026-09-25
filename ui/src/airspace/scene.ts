@@ -84,6 +84,37 @@ export interface Station {
   teamOf?: string | undefined;
 }
 
+export interface MatrixCell {
+  requests: number;
+  cost: number;
+  denied: number;
+  errors: number;
+  live: boolean;
+  tools: Array<{ name: string; requests: number }>;
+  gates: Rule[];
+  /** Reported by the agent, outside the gateway: nothing can gate it. */
+  outside: boolean;
+}
+export interface MatrixHead {
+  id: string;
+  label: string;
+  sub: string;
+  kind: StationKind;
+  color: number;
+  /** Calls in the last day across the row or column. */
+  total: number;
+  rpm: number;
+  team: string | undefined;
+  outside: boolean;
+  bypass: boolean;
+}
+export interface MatrixData {
+  rows: MatrixHead[];
+  cols: MatrixHead[];
+  /** `${row id}>${col id}` → the connection. */
+  cells: Map<string, MatrixCell>;
+}
+
 /** Something on the map that needs a person; `ref` goes to reveal(). */
 export interface AttentionItem {
   kind: 'holding' | 'blocked' | 'bypass' | 'errors' | 'ungated' | 'new' | 'spike';
@@ -1006,6 +1037,85 @@ export class AirspaceScene {
       .slice(0, 6)
       .map((s) => ({ id: s.id, label: where(s), kind: s.kind, rpm: s.recent.length }));
     return { items, busiest };
+  }
+
+  // ------------------------------------------------------------ matrix
+
+  /**
+   * Who talks to what, as a grid: a row per agent station (per team at the
+   * organization level), a column per destination, a cell per connection with
+   * its last day of traffic, whether it is live now and the gates that apply.
+   */
+  matrix(): MatrixData {
+    const now = Date.now();
+    const rows = [...this.stations.values()].filter((s) => s.kind === 'agent');
+    const cols = [...this.stations.values()].filter((s) => s.kind === 'model' || s.kind === 'mcp' || s.kind === 'observed');
+    const cells = new Map<string, MatrixCell>();
+    const cell = (a: string, d: string) => {
+      const k = `${a}>${d}`;
+      let c = cells.get(k);
+      if (!c) cells.set(k, (c = { requests: 0, cost: 0, denied: 0, errors: 0, live: false, tools: [], gates: [], outside: false }));
+      return c;
+    };
+    for (const e of this.edges) {
+      if (!this.stations.has(e.key_id) || !this.stations.has(e.target_id)) continue;
+      const c = cell(e.key_id, e.target_id);
+      c.requests += e.requests;
+      c.cost += e.cost_nanousd;
+      c.denied += e.denied;
+      c.errors += e.errors;
+      if (e.tool) {
+        const t = c.tools.find((x) => x.name === e.tool);
+        if (t) t.requests += e.requests;
+        else c.tools.push({ name: e.tool, requests: e.requests });
+      }
+    }
+    for (const e of this.obsEdges) {
+      if (!this.stations.has(e.key_id) || !this.stations.has(e.target_id)) continue;
+      const c = cell(e.key_id, e.target_id);
+      c.outside = true;
+      c.requests += e.count_24h;
+      c.errors += e.errors_24h;
+      if (now - e.last_seen < WINDOW_MS) c.live = true;
+    }
+    for (const [k, ts] of this.livePairs) if (now - ts < WINDOW_MS && cells.has(k)) cells.get(k)!.live = true;
+    for (const [k, c] of cells) {
+      c.tools.sort((a, b) => b.requests - a.requests);
+      if (c.outside) continue; // outside the gateway: nothing can gate it
+      const [a, d] = k.split('>') as [string, string];
+      c.gates = this.pairGates(this.stations.get(a)!, this.stations.get(d)!);
+    }
+    const total = new Map<string, number>();
+    for (const [k, c] of cells) {
+      const [a, d] = k.split('>') as [string, string];
+      total.set(a, (total.get(a) ?? 0) + c.requests);
+      total.set(d, (total.get(d) ?? 0) + c.requests);
+    }
+    const head = (s: Station) => ({ id: s.id, label: s.label, sub: s.sub, kind: s.kind, color: s.color, total: total.get(s.id) ?? 0, rpm: s.recent.length, team: s.team?.name, outside: s.kind === 'observed', bypass: !!s.obs?.bypass });
+    const byTotal = (a: { total: number; label: string }, b: { total: number; label: string }) => b.total - a.total || a.label.localeCompare(b.label);
+    return { rows: rows.map(head).sort(byTotal), cols: cols.map(head).sort((a, b) => Number(a.outside) - Number(b.outside) || byTotal(a, b)), cells };
+  }
+
+  /** The gates that can deny, hold, limit or inspect calls from this agent station to this destination. */
+  private pairGates(a: Station, d: Station): Rule[] {
+    const keys = this.stationKeys.get(a.id) ?? [];
+    const out: Rule[] = [];
+    for (const r of this.policy?.rules ?? []) {
+      if (!r.enabled || r.effect === 'allow') continue;
+      if (r.target_kind === 'model' && d.kind !== 'model') continue;
+      if (r.target_kind === 'tool' && d.kind !== 'mcp') continue;
+      const m = r.match as { keys?: string[]; groups?: string[]; teams?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[]; models?: string[] };
+      if ((m.keys?.length || m.groups?.length || m.teams?.length) && !keys.some((k) => m.keys?.includes(k.id) || (!!k.agent_id && m.groups?.includes(k.agent_id)) || (!!k.team && m.teams?.includes(k.team)))) continue;
+      const from = r.from_zone ? this.policy?.zones.find((z) => z.id === r.from_zone) : undefined;
+      if (r.from_zone && (!from || !this.zoneMembers(from).some((x) => x.id === a.id))) continue;
+      if ((m.deployments?.length || m.mcp_servers?.length) && ![...(m.deployments ?? []), ...(m.mcp_servers ?? [])].includes(d.id)) continue;
+      if (m.tools?.length && !(d.kind === 'mcp' && d.tools.some((t) => m.tools!.some((g) => globMatch(g, t.full))))) continue;
+      if (m.models?.length && !(d.kind === 'model' && m.models.some((g) => globMatch(g, d.label)))) continue;
+      const to = r.to_zone ? this.policy?.zones.find((z) => z.id === r.to_zone) : undefined;
+      if (r.to_zone && (!to || !this.zoneMembers(to).some((x) => x.id === d.id))) continue;
+      out.push(r);
+    }
+    return out;
   }
 
   /** Whether any gate that can stop or hold a call could apply to this tool. */

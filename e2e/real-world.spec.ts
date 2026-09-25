@@ -385,6 +385,18 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
   await expect(page.locator('.attention-panel')).toContainText('Needs attention');
   await page.locator('.attention-panel').getByRole('button', { name: 'Close' }).click();
   await expect(page.locator('.attention-panel')).toHaveCount(0);
+
+  // Matrix: every agent against every destination; a cell opens the gate editor for that path.
+  await page.getByRole('radio', { name: 'Matrix' }).click();
+  await page.getByRole('radio', { name: 'Agents' }).click();
+  const workerRow = page.locator('table.matrix tr', { has: page.locator('.row-name', { hasText: /^rw-worker/ }) });
+  await expect(workerRow).toHaveCount(1);
+  await expect(page.locator('.matrix-summary')).toContainText('no gate can stop');
+  await workerRow.locator('td.cell.used').first().click();
+  await expect(page.locator('.popover.composer')).toContainText('rw-worker (every copy)');
+  await page.locator('.popover.composer').getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('radio', { name: 'Map' }).click();
+  await expect(page.locator('table.matrix')).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- gates on models

@@ -37,6 +37,17 @@ With hundreds of agents the map starts at the **organization level**: one statio
 
 **Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
 
+## Matrix: every agent against every destination
+
+**Map / Matrix** in the map controls turns the Airspace into a grid: a row per agent (or per team, at the organization level), a column per model, tool server and outside system, and a cell per connection. The map shows the shape of the traffic; the matrix shows every connection at once — at a thousand agents it is still one row each.
+
+- **Calls / Spend / Blocked** shade the cells by the last day's volume. A green dot means the connection is live now.
+- The corner marker says what can stop it: a solid square is a gate that can deny, hold or limit; a ring is inspection only; a red outline is nothing. The header counts the connections in use that no gate can stop, and **Ungated only** keeps just the agents with one.
+- **Click a cell** to put a gate on exactly that agent → destination path, whether or not it has been used yet. **Click an agent** to go back to the map with it traced; **+** opens a team into its agents.
+- Outside systems are striped: they are reported, not proxied, so they can't be gated.
+
+The matrix follows the view you are in and the Teams / Agents choice.
+
 ## What needs attention
 
 **Attention** in the toolbar lists what needs a person on the map you are looking at — the whole organization or a [view](#views-one-part-of-the-organization-at-a-time) — most urgent first, and dims everything else while it is open. The badge counts the items that matter most.

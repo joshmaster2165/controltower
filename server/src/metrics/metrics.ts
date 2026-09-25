@@ -99,6 +99,8 @@ interface Tracked {
   agent: string;
   team: string;
   kind: string;
+  /** The agent that started the chain, when this call is made on its behalf. */
+  origin: string;
   model: string;
   provider: string;
   stream: boolean;
@@ -108,6 +110,8 @@ export class Metrics {
   private requests = new Counter('controltower_requests_total', 'Requests through the gateway (LLM calls and MCP tool calls), by outcome.');
   private tokens = new Counter('controltower_tokens_total', 'Tokens, by type (input, output, cache_read, cache_write).');
   private spend = new Counter('controltower_spend_usd_total', 'Spend in USD, from provider-reported or estimated usage.');
+  private delegatedRequests = new Counter('controltower_delegated_requests_total', 'Requests made on behalf of another agent, by the agent that started the chain (origin) and the agent that made them.');
+  private delegatedSpend = new Counter('controltower_delegated_spend_usd_total', 'Spend in USD made on behalf of another agent, by origin and agent.');
   private duration = new Histogram('controltower_request_duration_seconds', 'Total request duration, including upstream time.', LATENCY_BUCKETS);
   private ttft = new Histogram('controltower_time_to_first_token_seconds', 'Time to first token on streamed replies.', LATENCY_BUCKETS);
   private overhead = new Histogram('controltower_gateway_overhead_seconds', 'Time spent in Control Tower before the upstream request left.', OVERHEAD_BUCKETS);
@@ -128,6 +132,7 @@ export class Metrics {
           agent: e.key_name,
           team: e.team ?? '',
           kind: e.kind,
+          origin: e.on_behalf_of?.[0] ?? '',
           model,
           provider: e.kind === 'mcp.tool' ? 'mcp' : e.kind === 'http.request' ? 'http' : e.kind === 'a2a.call' ? 'a2a' : (e.provider_kind ?? this.src.providerKind(e.provider_id) ?? ''),
           stream: e.stream,
@@ -165,6 +170,10 @@ export class Metrics {
           if (e.usage.cacheWrite) this.tokens.inc({ ...base, type: 'cache_write' }, e.usage.cacheWrite);
         }
         if (e.cost_nanousd) this.spend.inc({ agent: t.agent, team: t.team, model }, e.cost_nanousd / NANO_PER_USD);
+        if (t.origin) {
+          this.delegatedRequests.inc({ origin: t.origin, agent: t.agent, kind: t.kind });
+          if (e.cost_nanousd) this.delegatedSpend.inc({ origin: t.origin, agent: t.agent }, e.cost_nanousd / NANO_PER_USD);
+        }
         return;
       }
       default:
@@ -189,7 +198,7 @@ export class Metrics {
     gauge('controltower_budget_limit_usd', 'Budget limit per scope (key:, team:, project:).', budgets.map((b) => ({ labels: { scope: b.scope }, value: b.limitUsd })));
     gauge('controltower_budget_spent_usd', 'Spend against the budget in the current period.', budgets.map((b) => ({ labels: { scope: b.scope }, value: b.spentUsd })));
     gauge('controltower_budget_remaining_usd', 'Budget left in the current period.', budgets.map((b) => ({ labels: { scope: b.scope }, value: Math.max(0, b.limitUsd - b.spentUsd) })));
-    for (const m of [this.requests, this.tokens, this.spend, this.upstreamFailures, this.fallbacks, this.gateDecisions, this.approvals]) m.render(out);
+    for (const m of [this.requests, this.tokens, this.spend, this.delegatedRequests, this.delegatedSpend, this.upstreamFailures, this.fallbacks, this.gateDecisions, this.approvals]) m.render(out);
     for (const h of [this.duration, this.ttft, this.overhead]) h.render(out);
     return out.join('\n') + '\n';
   }

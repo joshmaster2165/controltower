@@ -82,6 +82,7 @@ export class HttpGateway {
     const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
     f.chain = deleg.chain ?? [];
     f.parentFlightId = deleg.parentFlightId;
+    f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
     const started = (): void => {
       if (f.started) return;
@@ -157,7 +158,7 @@ export class HttpGateway {
       const res = await request(url, {
         method: method as 'GET',
         // An API that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
-        headers: { ...upstreamHeaders(req.headers, presented.source, api.auth), ...(api.agentId ? { [DELEGATION_HEADER]: tokenFor(ctx, f.chain, key, api.agentId, f.id) } : {}) },
+        headers: { ...upstreamHeaders(req.headers, presented.source, api.auth), ...(api.agentId ? { [DELEGATION_HEADER]: tokenFor(ctx, f.chain, key, api.agentId, f.id, f.originKeyId) } : {}) },
         body: outBody ?? null,
         signal: AbortSignal.any([f.abort.signal, AbortSignal.timeout(api.timeoutMs)]),
         headersTimeout: api.timeoutMs,

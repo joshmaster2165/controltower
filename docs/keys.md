@@ -46,7 +46,7 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
 
 - **`allowed_mcp`** — globs over namespaced tools (`server__tool`). Tools outside them are not even listed to the agent.
 - **`limits`** — requests per minute, tokens per minute (charged up front from an estimate, then corrected), and concurrent requests.
-- **`budget`** — `daily`, `weekly`, `monthly` or `total`. A soft budget (`hard: false`) alerts instead of refusing. Budget alerts fire at a percentage and when exhausted; see [Alerts](alerts.md).
+- **`budget`** — `daily`, `weekly`, `monthly` or `total`. A soft budget (`hard: false`) alerts instead of refusing. Spend other agents make [on this agent's behalf](agent-to-agent.md#spend-and-budgets) counts against it too. Budget alerts fire at a percentage and when exhausted; see [Alerts](alerts.md).
 - **`expires_at`** — epoch milliseconds; afterwards `401 key_expired`.
 - **`delegated_only`** — the API name for **Acts only on behalf of other agents**: `true` refuses the key's calls that carry no valid delegation token (`403 delegation_required`).
 

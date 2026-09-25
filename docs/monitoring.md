@@ -40,6 +40,8 @@ scrape_configs:
 | `controltower_requests_total{agent,team,kind,model,provider,status}` | Requests |
 | `controltower_tokens_total{agent,model,type}` | Tokens by type |
 | `controltower_spend_usd_total{agent,team,model}` | Spend |
+| `controltower_delegated_requests_total{origin,agent,kind}` | Requests made on behalf of another agent: `origin` started the chain, `agent` made the call |
+| `controltower_delegated_spend_usd_total{origin,agent}` | Spend made on behalf of another agent |
 | `controltower_upstream_failures_total{model,code}`, `controltower_fallbacks_total{model}` | Provider health |
 | `controltower_gate_decisions_total{gate,decision}`, `controltower_approvals_total{outcome}` | Enforcement |
 | `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, `controltower_gateway_overhead_seconds` | Latency histograms |

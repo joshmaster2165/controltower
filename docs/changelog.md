@@ -4,6 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Spend rolls up to the agent that started a chain:** a model call made on another agent's behalf is charged to its own budgets and the origin agent's (key, team, project). The inventory shows whom each path's calls were for and what was spent for each agent; new metrics `controltower_delegated_requests_total` and `controltower_delegated_spend_usd_total`.
 - **MCP resources and prompts are flights:** reading a resource and getting a prompt on `/mcp/<slug>` are recorded, gated (`<slug>__resources/read`, `<slug>__prompts/get`), inspected and carry delegation tokens; lists follow the key's `allowed_mcp`. They used to pass through unrecorded.
 - **Delegation tokens can be renewed** for tasks that outlast them: `POST /v1/delegation/renew` gives the agent a fresh token for the same chain, for up to 24 hours from the first.
 - **Agent loops stop at the first repeat:** a call to an agent already earlier in the chain (A → B → A) is refused with `delegation_loop` and recorded, instead of going round until the chain is 8 agents deep.

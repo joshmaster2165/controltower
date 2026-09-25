@@ -285,6 +285,7 @@ export class McpGateway {
     const deleg = resolveDelegation(ctx, key, typeof metaToken === 'string' ? metaToken : headerToken(req.headers));
     f.chain = deleg.chain ?? [];
     f.parentFlightId = deleg.parentFlightId;
+    f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
     try {
@@ -372,7 +373,7 @@ export class McpGateway {
       f.t.upstreamSent = Date.now();
       const client = ctx.mcp.client(server);
       // A server that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
-      const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id) : undefined;
+      const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id, f.originKeyId) : undefined;
       let result = method
         ? ((await client.call(method, { ...callArgs, ...(token ? { _meta: { [DELEGATION_META]: token } } : {}) }, f.abort.signal, token ? { [DELEGATION_HEADER]: token } : undefined)) as Record<string, unknown>)
         : await client.callTool(toolName, callArgs, f.abort.signal, token ? { headers: { [DELEGATION_HEADER]: token }, meta: { [DELEGATION_META]: token } } : {});

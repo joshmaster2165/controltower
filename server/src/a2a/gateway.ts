@@ -130,6 +130,7 @@ export class A2aGateway {
     const deleg = resolveDelegation(ctx, key, typeof meta[DELEGATION_META] === 'string' ? (meta[DELEGATION_META] as string) : headerToken(req.headers));
     f.chain = deleg.chain ?? [];
     f.parentFlightId = deleg.parentFlightId;
+    f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
     const started = (): void => {
@@ -194,7 +195,7 @@ export class A2aGateway {
       }
 
       // ---- forward, with the agent's credentials and a delegation token for it ----
-      const token = agent.agentId ? tokenFor(ctx, f.chain, key, agent.agentId, f.id) : undefined;
+      const token = agent.agentId ? tokenFor(ctx, f.chain, key, agent.agentId, f.id, f.originKeyId) : undefined;
       // The caller's own token and approval ticket stay here; the agent gets a token of its own, if it is linked to a key.
       const outMeta: Json = { ...meta };
       delete outMeta.ct_approval;

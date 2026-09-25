@@ -68,6 +68,8 @@ export interface Flight {
   chain: string[];
   /** The call that led to this one: the one that issued its delegation token. */
   parentFlightId: string | undefined;
+  /** The key of the agent that started the chain this call is part of, when it is made on someone's behalf. */
+  originKeyId: string | undefined;
   attempts: number;
   deployment: DeploymentRecord | undefined;
   provider: ProviderRecord | undefined;
@@ -114,6 +116,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     viaChat: false,
     chain: [],
     parentFlightId: undefined,
+    originKeyId: undefined,
     attempts: 0,
     deployment: undefined,
     provider: undefined,
@@ -224,6 +227,7 @@ export class FlightRunner {
       const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
       f.chain = deleg.chain ?? [];
       f.parentFlightId = deleg.parentFlightId;
+      f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
       const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
       // ---- admission ----
@@ -251,7 +255,13 @@ export class FlightRunner {
         : { source: 'none' as const, key: head.upstreamModel, entry: undefined };
       const maxOut = typeof body.max_tokens === 'number' ? body.max_tokens : Math.min(price.entry?.max_output ?? 4096, 4096);
       const projected = projectCost(f.estInput, maxOut, price.entry);
-      const budgetScopes = [`key:${key.id}`, key.team ? `team:${key.team}` : '', key.project ? `project:${key.project}` : ''].filter(Boolean);
+      // Spend made on someone's behalf also counts against the budgets of the agent that started the chain.
+      const origin = f.originKeyId && f.originKeyId !== key.id ? ctx.registry.keysById.get(f.originKeyId) : undefined;
+      const budgetScopes = [
+        ...new Set(
+          [key, ...(origin ? [origin] : [])].flatMap((k) => [`key:${k.id}`, k.team ? `team:${k.team}` : '', k.project ? `project:${k.project}` : '']).filter(Boolean),
+        ),
+      ];
       const over = ctx.spend.reserve(budgetScopes, projected);
       if (over) throw E.budgetExceeded(over.scope);
       f.route = { alias: res.alias, candidates: res.candidates, price, projected, budgetScopes };

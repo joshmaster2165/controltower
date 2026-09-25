@@ -18,7 +18,8 @@ import { E, type GatewayError } from '../gateway/errors.js';
  *
  *   ctd1.<payload, base64url JSON>.<HMAC-SHA256, base64url>
  *   payload: { c: chain (origin first), t: agent the token was issued to, e: expiry (ms), f: flight id,
- *              o: when the first token of this delegation was issued (ms) — renewals keep it }
+ *              o: when the first token of this delegation was issued (ms) — renewals keep it,
+ *              k: the key of the agent that started the chain — its budgets are charged too }
  *
  * A long task can outlast a token: the agent it was issued to renews it while it is still valid
  * (POST /v1/delegation/renew), for up to MAX_LIFETIME_MS after the first one.
@@ -33,7 +34,7 @@ export const MAX_LIFETIME_MS = 24 * 3600_000;
 /** A chain deeper than this is refused: agents calling agents calling agents in a loop. */
 export const MAX_CHAIN = 8;
 
-export type DelegationCheck = { ok: true; chain: string[]; parent?: string; origin?: number; expiresAt?: number } | { ok: false; reason: string };
+export type DelegationCheck = { ok: true; chain: string[]; parent?: string; origin?: number; originKey?: string; expiresAt?: number } | { ok: false; reason: string };
 
 export class Delegations {
   constructor(private readonly secret: Buffer) {}
@@ -43,8 +44,8 @@ export class Delegations {
   }
 
   /** A token for `to`, called on behalf of `chain` (origin first). */
-  issue(chain: string[], to: string, flightId: string, now = Date.now(), origin = now): string {
-    const payload = Buffer.from(JSON.stringify({ c: chain, t: to, e: Math.min(now + TTL_MS, origin + MAX_LIFETIME_MS), f: flightId, o: origin })).toString('base64url');
+  issue(chain: string[], to: string, flightId: string, now = Date.now(), origin = now, originKey?: string): string {
+    const payload = Buffer.from(JSON.stringify({ c: chain, t: to, e: Math.min(now + TTL_MS, origin + MAX_LIFETIME_MS), f: flightId, o: origin, ...(originKey ? { k: originKey } : {}) })).toString('base64url');
     return `${PREFIX}.${payload}.${this.sign(payload)}`;
   }
 
@@ -57,7 +58,7 @@ export class Delegations {
     if (!r.ok) return r;
     const origin = r.origin ?? now;
     if (now - origin >= MAX_LIFETIME_MS) return { ok: false, reason: 'this delegation has been renewed for as long as Control Tower allows (24 hours)' };
-    const fresh = this.issue(r.chain, presenter, r.parent ?? '', now, origin);
+    const fresh = this.issue(r.chain, presenter, r.parent ?? '', now, origin, r.originKey);
     return { ok: true, token: fresh, expiresAt: Math.min(now + TTL_MS, origin + MAX_LIFETIME_MS) };
   }
 
@@ -69,7 +70,7 @@ export class Delegations {
     const want = Buffer.from(this.sign(payload));
     const got = Buffer.from(sig);
     if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return { ok: false, reason: 'the delegation token signature does not match' };
-    let p: { c?: unknown; t?: unknown; e?: unknown; f?: unknown; o?: unknown };
+    let p: { c?: unknown; t?: unknown; e?: unknown; f?: unknown; o?: unknown; k?: unknown };
     try {
       p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as typeof p;
     } catch {
@@ -78,7 +79,7 @@ export class Delegations {
     if (typeof p.e !== 'number' || p.e < now) return { ok: false, reason: 'the delegation token has expired' };
     if (p.t !== presenter) return { ok: false, reason: `the delegation token was issued to another agent ("${String(p.t)}")` };
     if (!Array.isArray(p.c) || !p.c.every((x) => typeof x === 'string')) return { ok: false, reason: 'the delegation token is malformed' };
-    return { ok: true, chain: p.c as string[], expiresAt: p.e, ...(typeof p.f === 'string' ? { parent: p.f } : {}), ...(typeof p.o === 'number' ? { origin: p.o } : {}) };
+    return { ok: true, chain: p.c as string[], expiresAt: p.e, ...(typeof p.f === 'string' ? { parent: p.f } : {}), ...(typeof p.o === 'number' ? { origin: p.o } : {}), ...(typeof p.k === 'string' ? { originKey: p.k } : {}) };
   }
 }
 
@@ -89,7 +90,7 @@ export const agentRef = (key: KeyRecord): string => key.agentId ?? key.id;
  * `parentFlightId` is the call that issued the token — the call that led to this one. A refusal
  * still carries the chain when it is known, so the refused call is recorded as made on its behalf.
  */
-export type Resolved = { chain: string[]; onBehalfOf: string[]; parentFlightId?: string; invalid?: string } | { error: GatewayError; chain?: string[]; parentFlightId?: string };
+export type Resolved = { chain: string[]; onBehalfOf: string[]; parentFlightId?: string; originKeyId?: string; invalid?: string } | { error: GatewayError; chain?: string[]; parentFlightId?: string };
 
 /**
  * Whom a call is made on behalf of, from the token it presented. A delegated-only key without a
@@ -100,9 +101,10 @@ export function resolveDelegation(ctx: Pick<AppContext, 'delegations' | 'registr
   const r = ctx.delegations.verify(token, agentRef(key));
   if (!r.ok) return key.delegatedOnly ? { error: E.delegationRequired(r.reason) } : { chain: [], onBehalfOf: [], invalid: r.reason };
   const parent = r.parent ? { parentFlightId: r.parent } : {};
+  const originKey = r.originKey ? { originKeyId: r.originKey } : {};
   if (r.chain.length >= MAX_CHAIN) return { error: E.delegationTooDeep(), chain: r.chain, ...parent };
   const onBehalfOf = principalsOf(ctx.registry, r.chain);
-  return { chain: r.chain, onBehalfOf, ...parent };
+  return { chain: r.chain, onBehalfOf, ...parent, ...originKey };
 }
 
 /** What `on_behalf_of` gates match for a chain: each agent, and each team it belongs to. */
@@ -119,8 +121,10 @@ export function loopsBack(chain: string[], to: string | undefined): boolean {
 }
 
 /** The token for an agent this call reaches (a tool server or HTTP API that fronts it). */
-export function tokenFor(ctx: Pick<AppContext, 'delegations'>, chain: string[], key: KeyRecord, to: string, flightId: string): string {
-  return ctx.delegations.issue([...chain, agentRef(key)], to, flightId);
+export function tokenFor(ctx: Pick<AppContext, 'delegations'>, chain: string[], key: KeyRecord, to: string, flightId: string, originKeyId?: string): string {
+  // The key that started the chain: this one, if this call isn't made for anyone else.
+  const originKey = originKeyId ?? (chain.length ? undefined : key.id);
+  return ctx.delegations.issue([...chain, agentRef(key)], to, flightId, Date.now(), Date.now(), originKey);
 }
 
 export const headerToken = (headers: Record<string, string | string[] | undefined>): string | undefined => {

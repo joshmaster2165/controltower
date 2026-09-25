@@ -94,6 +94,13 @@ const executor: AgentExecutor = {
 };
 ```
 
+## Spend and budgets
+
+What an agent spends while acting for another counts against **both**: its own key's budgets (key, team and project) and those of the agent that started the chain. If research-agent spends $2 answering support-bot, support-bot's budget — and the support team's — go down by $2 too, and support-bot's hard budget, once spent, stops the research agent's work for it (`429 budget_exceeded`).
+
+- The [data-flow inventory](monitoring.md) shows, for each path, the agents its calls were made for, and for each agent what others spent on its behalf (*spent for it*).
+- Metrics: `controltower_delegated_requests_total` and `controltower_delegated_spend_usd_total`, by `origin` (the agent that started the chain) and `agent`.
+
 ## Gates on whom a call is for
 
 A gate can match calls made **on behalf of** an agent or a team, however many agents deep. In the gate editor, choose **Only when acting for**; in a policy file, `match.on_behalf_of`:

@@ -496,10 +496,19 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   expect(fresh.token).toMatch(/^ctd1\./);
   expect(fresh.expires_at).toBeGreaterThan(Date.now() + 14 * 60_000);
   expect((await renew(bot.key, tokens.at(-1)!)).status).toBe(403);
+  // What the research agent spends for support-bot counts against support-bot's budget too.
+  expect((await admin.call('PUT', `/admin/api/budgets/key/${bot.id}`, { limit_usd: 100, period: 'monthly' })).status).toBe(200);
   const later = await ask(fresh.token);
   expect(later.status).toBe(200);
   const laterId = later.headers.get('x-ct-flight-id')!;
   await expect.poll(async () => (await admin.get(`/admin/api/flights/${laterId}`)).body.flight?.on_behalf_of).toBe('["rw-support-bot"]');
+  const botBudget = ((await admin.get('/admin/api/budgets')).body.budgets as Array<{ scope_type: string; scope_id: string; spent_usd: number }>).find((x) => x.scope_type === 'key' && x.scope_id === bot.id)!;
+  expect(botBudget.spent_usd).toBeGreaterThan(0);
+  await admin.call('DELETE', `/admin/api/budgets/key/${bot.id}`);
+  // Metrics carry whom the work was for.
+  const metrics = (await admin.get('/metrics')).body as string;
+  expect(metrics).toMatch(/controltower_delegated_requests_total\{[^}]*origin="rw-support-bot"/);
+  expect(metrics).toMatch(/controltower_delegated_spend_usd_total\{[^}]*origin="rw-support-bot"/);
 
   // A loop is refused at the first repeat: acting for support-bot, the research agent can't call support-bot back.
   const botApi = await admin.post('/admin/api/http/apis', { name: 'Support bot', slug: 'support-bot-api', base_url: oai.url, agent_id: 'rw-support-bot' });

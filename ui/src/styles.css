@@ -927,3 +927,9 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .agent-link-panel .link-btn { white-space: nowrap; }
 .model-check-fields { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 2px 0 8px 22px; }
 .limits-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+/* Airspace: which agents are drawn */
+.agent-filter { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); padding: 0 4px; }
+.agent-filter select { font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; cursor: pointer; }
+.agent-filter select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hidden-agents { font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent-deep, var(--accent)); background: var(--accent-soft); border: 0; border-radius: 999px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+@media (max-width: 1500px) { .map-controls .map-search { width: 136px; } .map-controls .map-search kbd { display: none; } .agent-filter select { max-width: 104px; } }

@@ -351,3 +351,48 @@ test('Flight Recorder: replay the last hour on the map, then back to live', asyn
   await bar.getByRole('button', { name: 'Back to live' }).click();
   await expect(bar).toBeHidden();
 });
+
+test('Airspace: hide idle agents, and one that calls comes back', async ({ page }) => {
+  await signIn(page);
+  const [dormant, waking] = await page.evaluate(async () => {
+    const me = await (await fetch('/admin/api/me')).json();
+    const make = async (name: string) =>
+      (await (await fetch('/admin/api/keys', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ name }) })).json()).key as string;
+    return [await make('dormant-agent'), await make('waking-agent')];
+  });
+  expect(dormant).toBeTruthy();
+
+  await page.getByRole('link', { name: 'Airspace', exact: true }).click();
+  await page.reload();
+  const agents = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene?: any }).__ctScene;
+      return s ? [...s.stations.values()].filter((x: any) => x.kind === 'agent').map((x: any) => x.label as string) : [];
+    });
+  await expect.poll(agents).toEqual(expect.arrayContaining(['dormant-agent', 'waking-agent']));
+
+  // Used today: keys that have never made a call leave the map, and the chip counts them.
+  await page.getByLabel('Which agents to show').selectOption('today');
+  await expect(page.locator('.hidden-agents')).toContainText(/^\d+ hidden · Show all$/);
+  await expect.poll(agents).not.toContain('dormant-agent');
+  expect(await agents()).not.toContain('waking-agent');
+
+  // An idle agent that makes a call is drawn again on its own.
+  await page.evaluate(async (key) => {
+    await fetch('/v1/observe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
+      body: JSON.stringify({ events: [{ target: 'https://api.stripe.com/v1/charges', count: 1 }] }),
+    });
+  }, waking);
+  await expect.poll(agents, { timeout: 15_000 }).toContain('waking-agent');
+  expect(await agents()).not.toContain('dormant-agent');
+
+  // The choice is remembered, and Show all brings everyone back.
+  await page.reload();
+  await expect(page.getByLabel('Which agents to show')).toHaveValue('today');
+  await page.locator('.hidden-agents').click();
+  await expect(page.getByLabel('Which agents to show')).toHaveValue('all');
+  await expect(page.locator('.hidden-agents')).toBeHidden();
+  await expect.poll(agents).toContain('dormant-agent');
+});

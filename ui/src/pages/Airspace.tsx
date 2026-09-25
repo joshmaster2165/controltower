@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentLinkPanel, type AgentLinkEnd } from './airspace/AgentLink';
+import type { AgentFilter } from '../airspace/scene';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent, onLiveTick } from '../ws';
@@ -200,6 +201,7 @@ export function AirspacePage() {
             applyFocus(null);
           }
         });
+        scene.setAgentFilter(agentFilterRef.current);
         const st = useStore.getState();
         if (st.topology) scene.setTopology(st.topology);
         setLevelInfo(scene.getLevel());
@@ -341,6 +343,42 @@ export function AirspacePage() {
       if (t) scene.setTopology(t);
     });
   }, []);
+  // Which agents are drawn: all, those used today, or those active in the last 15 minutes.
+  const [agentFilter, setAgentFilterState] = useState<AgentFilter>(() => {
+    try {
+      const v = localStorage.getItem('ct.airspace.agents');
+      return v === 'today' || v === 'recent' ? v : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const agentFilterRef = useRef(agentFilter);
+  const [hiddenAgents, setHiddenAgents] = useState(0);
+  const chooseAgentFilter = (v: AgentFilter) => {
+    agentFilterRef.current = v;
+    setAgentFilterState(v);
+    sceneRef.current?.setAgentFilter(v);
+    setHiddenAgents(sceneRef.current?.getAgentFilter().hidden ?? 0);
+    try {
+      localStorage.setItem('ct.airspace.agents', v);
+    } catch {
+      /* private mode */
+    }
+  };
+  // Agents that go quiet leave the map at most every 30 s; the count of hidden ones follows.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      scene.recheckAgents();
+      setHiddenAgents(scene.getAgentFilter().hidden);
+    }, 30_000);
+    const quick = setTimeout(() => setHiddenAgents(sceneRef.current?.getAgentFilter().hidden ?? 0), 500);
+    return () => {
+      clearInterval(t);
+      clearTimeout(quick);
+    };
+  }, [topology]);
   const [layer, setLayerState] = useState<'all' | 'active' | 'gateway' | 'outside'>(() => {
     try {
       const v = localStorage.getItem('ct.airspace.layer');
@@ -612,6 +650,20 @@ export function AirspacePage() {
               <span className="sep" />
             </>
           )}
+          <label className="agent-filter" title="Leave idle agents off the map, so it shows what is in use">
+            <span>Agents</span>
+            <select id="ct-agent-filter" value={agentFilter} onChange={(e) => chooseAgentFilter(e.target.value as AgentFilter)} aria-label="Which agents to show">
+              <option value="all">All</option>
+              <option value="today">Used today</option>
+              <option value="recent">Active (15 min)</option>
+            </select>
+          </label>
+          {agentFilter !== 'all' && hiddenAgents > 0 && (
+            <button type="button" className="hidden-agents" onClick={() => chooseAgentFilter('all')} title="Show every agent again">
+              {hiddenAgents} hidden · Show all
+            </button>
+          )}
+          <span className="sep" />
           {mode === 'map' && (
           <>
           <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">

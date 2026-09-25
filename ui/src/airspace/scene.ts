@@ -150,6 +150,9 @@ const AUTO_TEAMS_ABOVE = 24;
 const TEAM_HEAD = 24;
 
 export type LinkState = 'active' | 'idle' | 'unused' | 'holding' | 'blocked';
+/** Which agents the map draws: every one, those used in the last day, or those active in the last 15 minutes. */
+export type AgentFilter = 'all' | 'today' | 'recent';
+const AGENT_WINDOW: Record<AgentFilter, number> = { all: Infinity, today: 24 * 3600_000, recent: 15 * 60_000 };
 
 export interface StationView {
   id: string;
@@ -401,6 +404,13 @@ export class AirspaceScene {
   private obsLines: Array<{ edge: ObservedEdge; agent: Station; target: Station; pts: Pt[] }> = [];
   /** Which connections to show: everything, only live ones, only gateway traffic, or only traffic outside it. */
   private layer: 'all' | 'active' | 'gateway' | 'outside' = 'all';
+  private agentFilter: AgentFilter = 'all';
+  /** Last call per agent (agent ID, else key id), from the topology and live traffic. */
+  private lastUse = new Map<string, number>();
+  /** The agents drawn under the current filter, to tell when that set changes. */
+  private shownAgents = new Set<string>();
+  private hiddenAgents = 0;
+  private allKeysById = new Map<string, TopologyKey>();
   private hub: Pt = [0, 0];
   private hubR = 36;
   private holdR = 70;
@@ -1183,7 +1193,15 @@ export class AirspaceScene {
     this.topology = t;
     // In a view, only its teams' keys are drawn; everything below works on those.
     const scope = this.scope;
-    this.keys = scope ? t.keys.filter((k) => !!k.team && scope.has(k.team)) : t.keys;
+    const scoped = scope ? t.keys.filter((k) => !!k.team && scope.has(k.team)) : t.keys;
+    // Idle agents can be left off the map: when each agent last made a call decides.
+    this.allKeysById = new Map(t.keys.map((k) => [k.id, k]));
+    for (const e of t.edges ?? []) this.touchAgent(e.key_id, e.last_ts);
+    for (const e of t.observed?.edges ?? []) this.touchAgent(e.key_id, e.last_seen);
+    const shown = this.visibleAgents(scoped);
+    this.shownAgents = shown;
+    this.hiddenAgents = new Set(scoped.map(agentIdent)).size - shown.size;
+    this.keys = this.agentFilter === 'all' ? scoped : scoped.filter((k) => shown.has(agentIdent(k)));
     const inKeys = this.keys;
     const keep = new Set<string>();
     const upsert = (id: string, kind: StationKind, label: string, sub: string, color: number, slug = ''): Station => {
@@ -1820,6 +1838,43 @@ export class AirspaceScene {
   }
 
   /** Show all connections, only live ones, only gateway traffic, or only traffic outside it. */
+  /** Draw every agent, or only those used lately; hidden agents leave the layout. */
+  setAgentFilter(f: AgentFilter): void {
+    if (this.agentFilter === f) return;
+    this.agentFilter = f;
+    if (this.topology) this.setTopology(this.topology);
+  }
+
+  getAgentFilter(): { filter: AgentFilter; hidden: number } {
+    return { filter: this.agentFilter, hidden: this.hiddenAgents };
+  }
+
+  /** Agents that went idle since the last check leave the map (called every 30 s); true when it changed. */
+  recheckAgents(): boolean {
+    if (this.agentFilter === 'all' || !this.topology) return false;
+    const scoped = this.scope ? this.topology.keys.filter((k) => !!k.team && this.scope!.has(k.team)) : this.topology.keys;
+    const next = this.visibleAgents(scoped);
+    if (next.size === this.shownAgents.size && [...next].every((a) => this.shownAgents.has(a))) return false;
+    this.setTopology(this.topology);
+    return true;
+  }
+
+  private touchAgent(keyId: string, ts: number): void {
+    const k = this.allKeysById.get(keyId);
+    const id = k ? agentIdent(k) : keyId;
+    if (ts > (this.lastUse.get(id) ?? 0)) this.lastUse.set(id, ts);
+  }
+
+  private visibleAgents(keys: TopologyKey[], now = Date.now()): Set<string> {
+    const window = AGENT_WINDOW[this.agentFilter];
+    const out = new Set<string>();
+    for (const k of keys) {
+      const id = agentIdent(k);
+      if (window === Infinity || now - (this.lastUse.get(id) ?? 0) <= window) out.add(id);
+    }
+    return out;
+  }
+
   setLayer(layer: 'all' | 'active' | 'gateway' | 'outside'): void {
     this.layer = layer;
     this.dirty = true;
@@ -1864,7 +1919,14 @@ export class AirspaceScene {
     const spread = (n: number, into: number[]) => {
       for (let i = 0; i < n; i++) into.push(from + ((i + 0.5) * t.ms) / n);
     };
+    let woke = false;
     for (const [keyId, target, tool, n, errors, denied, cost] of t.paths) {
+      // A hidden idle agent that makes a call comes back onto the map.
+      this.touchAgent(keyId, t.ts);
+      if (this.agentFilter !== 'all' && !this.keyStation.has(keyId)) {
+        const k = this.allKeysById.get(keyId);
+        if (k && !this.shownAgents.has(agentIdent(k))) woke = true;
+      }
       if (!this.keyStation.has(keyId)) continue; // another part of the organization
       mine.flights += n;
       mine.errors += errors;
@@ -1894,6 +1956,7 @@ export class AirspaceScene {
     for (const s of this.stations.values()) if (s.recent.length > 1 && s.recent[s.recent.length - 1]! < s.recent[s.recent.length - 2]!) s.recent.sort((a, b) => a - b);
     if (this.focusId) this.relatedCache = null;
     this.dirty = true;
+    if (woke && this.topology) this.setTopology(this.topology);
     return mine;
   }
 
@@ -3189,3 +3252,6 @@ export class AirspaceScene {
     this.hoverCb?.(null);
   }
 }
+
+/** One agent however many keys it has: its agent ID, else the key. */
+const agentIdent = (k: TopologyKey): string => k.agent_id ?? k.id;

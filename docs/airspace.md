@@ -37,6 +37,18 @@ With hundreds of agents the map starts at the **organization level**: one statio
 
 **Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
 
+### Hide idle agents
+
+Keys that were made for a test, or that nothing uses any more, still take a place on the map. **Agents** in the map controls picks which agents are drawn:
+
+- **All** — every agent (the default).
+- **Used today** — agents that made a call in the last 24 hours.
+- **Active (15 min)** — agents that made a call in the last 15 minutes.
+
+A call counts wherever it went: a model, a tool server, an HTTP API, another agent, or a system it only reported through `/v1/observe`. Hidden agents leave the layout, so the map closes up around what is really in use. The chip beside the menu counts them (*3 hidden · Show all*); click it to draw everyone again.
+
+The filter is live: an idle agent that makes a call is drawn again straight away, and one that goes quiet leaves within a minute. Your choice is remembered in this browser. It only changes what the map draws: gates still apply to every agent, and the flight, spend and blocked counters, Flights and the Ledger still count them all.
+
 ## Matrix: every agent against every destination
 
 **Map / Matrix** in the map controls turns the Airspace into a grid: a row per agent (or per team, at the organization level), a column per model, tool server and outside system, and a cell per connection. The map shows the shape of the traffic; the matrix shows every connection at once — at a thousand agents it is still one row each.

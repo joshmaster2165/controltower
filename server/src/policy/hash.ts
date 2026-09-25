@@ -44,7 +44,7 @@ export function scopeHash(parts: { keyId: string; targetKind: string; targetName
   return sha256(canonicalJson(parts));
 }
 
-export function dedupeKey(parts: { revision: number; keyId: string; targetName: string; argHash: string }): string {
+export function dedupeKey(parts: { revision: number; keyId: string; targetName: string; argHash: string; chain?: string[] }): string {
   return sha256(canonicalJson(parts));
 }
 

@@ -174,7 +174,7 @@ When an agent will make the same kind of call again and again — a batch of ref
 - **Any arguments**, or **Only these** — the same arguments as the card (tool, HTTP and A2A calls). On a model gate the choice is not offered: a window covers requests to that model whatever their prompt.
 - The card spells out what you are agreeing to before you click: *Approve this call, and let billing-agent make 5 more calls to payments__POST /v1/charges through this gate in the next 30 minutes — with any arguments.*
 
-A window covers **one agent, one gate and one target** (the model, tool or HTTP route on the card). Calls it covers go straight through and are recorded as approved by the person who opened the window. **Approved ahead** on the Tower page lists open windows with the calls and time left; **End now** closes one at once. Editing the gate closes its windows too, so a changed rule is never approved in advance.
+A window covers **one agent, one gate and one target** (the model, tool or HTTP route on the card) — and, for a call an agent makes [on another agent's behalf](agent-to-agent.md), only calls made for that same chain. Calls it covers go straight through and are recorded as approved by the person who opened the window. **Approved ahead** on the Tower page lists open windows with the calls and time left; **End now** closes one at once. Editing the gate closes its windows too, so a changed rule is never approved in advance.
 
 In the API: `POST /admin/api/approvals/<id>/decide` with `{ "action": "approve", "window": { "uses": 5, "ttl_ms": 1800000, "any_args": true } }`; `GET /admin/api/approval-windows` lists open windows and `POST /admin/api/grants/<id>/revoke` ends one.
 

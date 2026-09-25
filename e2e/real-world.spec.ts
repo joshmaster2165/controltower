@@ -554,6 +554,49 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-support-bot', key_id: research.id })]));
 });
 
+test('Approvals for chained calls: the card says whom a call is for, and approving one caller never approves another', async () => {
+  // analyst: an agent behind an MCP tool whose model calls need a human.
+  const analyst = await key('rw-analyst-agent', { agent_id: 'rw-analyst', team: 'analysis', delegated_only: true });
+  const sub = await subAgentUpstream(async (_q, token) => {
+    const r = await fetch(`${CT}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${analyst.key}`, 'content-type': 'application/json', ...(token ? { 'x-ct-delegation': token } : {}) },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'summarise' }] }),
+    });
+    return String(r.status);
+  });
+  upstreams.push(sub);
+  expect((await admin.post('/admin/api/mcp/servers', { name: 'Analyst', slug: 'analyst', url: `${sub.url}/mcp`, agent_id: 'rw-analyst' })).status).toBe(201);
+  const gate = await admin.post('/admin/api/rules', { name: 'Analyst model calls need a human', target_kind: 'model', match: { keys: [analyst.id] }, effect: 'require_approval', config: { hold_ms: 0 }, priority: 2 });
+  expect(gate.status).toBe(201);
+  const alice = await key('rw-alice-bot', { agent_id: 'rw-alice-bot', team: 'sales' });
+  const bob = await key('rw-bob-bot', { agent_id: 'rw-bob-bot', team: 'ops' });
+  const viaAnalyst = async (k: string) => {
+    const c = await mcpClient(k);
+    const out = textOf(await c.callTool({ name: 'analyst__ask', arguments: { question: 'Q3 numbers' } }));
+    await c.close();
+    return out;
+  };
+  const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as Array<{ id: string; key_id: string; target: { on_behalf_of?: string[] } }>).filter((a) => a.key_id === analyst.id);
+
+  // Two callers make the identical call through the analyst: two cards, each saying whom it is for.
+  expect(await viaAnalyst(alice.key)).toBe('403');
+  expect(await viaAnalyst(bob.key)).toBe('403');
+  const cards = await pending();
+  expect(cards.map((c) => c.target.on_behalf_of).sort()).toEqual([['rw-alice-bot'], ['rw-bob-bot']]);
+
+  // Approving alice's for the next few calls lets the analyst work for alice — not for bob.
+  const aliceCard = cards.find((c) => c.target.on_behalf_of?.[0] === 'rw-alice-bot')!;
+  expect((await admin.post(`/admin/api/approvals/${aliceCard.id}/decide`, { action: 'approve', window: { uses: 3, any_args: true } })).status).toBe(200);
+  expect(await viaAnalyst(alice.key)).toBe('200');
+  expect(await viaAnalyst(bob.key)).toBe('403');
+  const approvedFor = (await admin.get(`/admin/api/approvals/${aliceCard.id}`)).body.approval.target.on_behalf_of;
+  expect(approvedFor).toEqual(['rw-alice-bot']);
+
+  await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
+  for (const c of await pending()) await admin.post(`/admin/api/approvals/${c.id}/decide`, { action: 'deny' });
+});
+
 test('A2A: a remote agent behind Control Tower — its card, messages, streams, gates and delegation', async () => {
   // The research agent is a remote A2A 1.0 agent. Its own key acts only on behalf of other agents.
   const research = await key('rw-a2a-research', { agent_id: 'rw-a2a-research', delegated_only: true });

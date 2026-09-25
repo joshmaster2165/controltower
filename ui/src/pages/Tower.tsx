@@ -7,8 +7,21 @@ import { Icon } from '../components/Icon';
 
 export function scopeStatement(a: Approval): string {
   const t = a.target;
-  if (t.kind === 'tool') return `Approve this ONE call to ${t.name} with exactly these arguments`;
-  return `Approve this ONE request from ${a.key_name} to ${t.name}${t.zone_to ? ` (${t.zone_to})` : ''}`;
+  const behalf = t.on_behalf_of?.length ? `, made for ${t.on_behalf_of[0]}` : '';
+  if (t.kind === 'tool') return `Approve this ONE call to ${t.name} with exactly these arguments${behalf}`;
+  return `Approve this ONE request from ${a.key_name} to ${t.name}${t.zone_to ? ` (${t.zone_to})` : ''}${behalf}`;
+}
+
+/** Who a chained call is really for: the agent that started it, then each agent it passed through, then the one asking. */
+export function BehalfLine({ a }: { a: Approval }) {
+  const chain = a.target.on_behalf_of;
+  if (!chain?.length) return null;
+  return (
+    <div className="behalf-line">
+      For <b>{chain[0]}</b>
+      {chain.length > 1 && <> via {chain.slice(1).join(' → ')}</>} → <b>{a.key_name}</b>
+    </div>
+  );
 }
 
 /** How long an approval window stays open. */
@@ -73,6 +86,7 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
         {pending ? <Countdown until={Date.now() < holdUntil ? holdUntil : a.expires_at} label={Date.now() < holdUntil ? 'holding' : 'expires in'} /> : <span className="cd">{a.status}{a.resolved_by ? ` · ${a.resolved_by}` : ''}</span>}
       </div>
       <div className="s">{a.summary}</div>
+      <BehalfLine a={a} />
       <div className="scope">{pending && more ? windowStatement(a, usesOk ? uses : 1, ms, anyArgs) : scopeStatement(a)}</div>
       {a.args_preview && (
         <div className="args">
@@ -277,8 +291,8 @@ export function TowerPage() {
           <div className="section-title" style={{ marginTop: 0 }}>
             <h2>Recent decisions</h2>
           </div>
-          <div className="card" style={{ padding: 0 }}>
-            <table className="table fixed">
+          <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+            <table className="table fixed" style={{ minWidth: 560 }}>
               <colgroup>
                 <col style={{ width: 104 }} />
                 <col />
@@ -302,6 +316,7 @@ export function TowerPage() {
                     </td>
                     <td>
                       <span className="strong">{a.key_name}</span>
+                      {a.target.on_behalf_of?.length ? <span className="sub">for {a.target.on_behalf_of[0]}</span> : null}
                       <span className="sub mono ellipsis">{a.target.name}</span>
                     </td>
                     <td>

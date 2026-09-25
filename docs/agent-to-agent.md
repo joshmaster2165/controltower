@@ -124,11 +124,14 @@ gates:
 
 Gates on the caller itself keep working as usual: *support-bot may not call research-agent* is a gate from support-bot to the research agent's server.
 
+When a gate holds a call made on someone's behalf, its approval card says whom it is for — *For orchestrator-agent → planner-agent* — and so do held alerts by email, Slack or webhook. The same call made for two different agents is two cards: approving one never approves the other.
+
 ## How the token works
 
 - It is signed with a key derived from Control Tower's master key and never stored, so it can't be forged or edited.
 - It is issued to one agent: presented by any other agent it is ignored, and the flight carries a flagged event *delegation token ignored: <reason>* (a key that only acts for others is refused instead). An expired token is treated the same way.
-- A call to an agent already earlier in the chain — A calls B, and B calls A back — is refused (`delegation_loop`): agents answer the agent that called them rather than calling it again. An agent calling its own server is not a loop.
+- A call to an agent already earlier in the chain — A calls B, and B calls A back — is refused (`delegation_loop`): agents answer the agent that called them rather than calling it again.
+- An agent may hand work to itself once — calling its own server is not a loop — but not again from there: A → A is allowed, A → A → A is refused (`delegation_loop`), so recursion can't run away.
 - It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`).
 - It never appears in logs, events or Flights — only the chain of agent IDs does.
 

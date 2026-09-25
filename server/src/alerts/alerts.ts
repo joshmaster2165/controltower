@@ -270,6 +270,8 @@ interface FlightInfo {
   dest: string;
   targetId: string | undefined;
   isTool: boolean;
+  /** Agents the call is made for (origin first), when it is part of a chain. */
+  behalf?: string[];
   gateId?: string | undefined;
 }
 
@@ -369,7 +371,7 @@ export class AlertService {
     switch (e.t) {
       case 'flight.started': {
         if (this.flights.size >= MAX_TRACKED) this.flights.delete(this.flights.keys().next().value!);
-        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: isToolKind(e.kind) });
+        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: isToolKind(e.kind), ...(e.on_behalf_of?.length ? { behalf: e.on_behalf_of } : {}) });
         return;
       }
       case 'flight.decision': {
@@ -384,7 +386,9 @@ export class AlertService {
       }
       case 'flight.held': {
         const f = this.flights.get(e.flight_id);
-        if (f?.gateId) this.gateHit(e.flight_id, f.gateId, 'held', e.ts, e.summary, e.approval_id);
+        // A call made for another agent says so: whoever approves should know whom it is really for.
+        const summary = f?.behalf?.length ? `${e.summary ?? ''}${e.summary ? ' — ' : ''}for ${f.behalf[0]}${f.behalf.length > 1 ? ` via ${f.behalf.slice(1).join(' → ')}` : ''}` : e.summary;
+        if (f?.gateId) this.gateHit(e.flight_id, f.gateId, 'held', e.ts, summary, e.approval_id);
         return;
       }
       case 'flight.resolved': {

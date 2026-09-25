@@ -316,7 +316,8 @@ export interface Approval {
   key_name: string;
   rule_id: string | null;
   summary: string;
-  target: { kind: string; name: string; deployment_id?: string; provider?: string; zone_from?: string; zone_to?: string };
+  /** on_behalf_of: when an agent makes the call for others, those agents (the one that started it first). */
+  target: { kind: string; name: string; deployment_id?: string; provider?: string; zone_from?: string; zone_to?: string; on_behalf_of?: string[] };
   args_preview: Record<string, unknown> | null;
   status: 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
   waiters: number;

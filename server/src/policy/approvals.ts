@@ -104,11 +104,13 @@ export class ApprovalService implements Approvals {
     const budget = Math.max(0, Math.min(rule?.config.hold_ms ?? this.opts.holdBudgetMs, this.opts.holdBudgetMs));
     const argHash = d.argHash ?? '';
     const sh = d.scopeHash ?? '';
-    const dk = dedupeKey({ revision: this.opts.policyRevision(), keyId: key.id, targetName: flight.modelRequested, argHash });
+    // Whom the call is for is part of what is being approved: the same call made for someone else is another card.
+    const chain = flight.chain ?? [];
+    const dk = dedupeKey({ revision: this.opts.policyRevision(), keyId: key.id, targetName: flight.modelRequested, argHash, ...(chain.length ? { chain } : {}) });
 
     // A human already let this agent make more calls like this one: go straight through.
     if (d.ruleId) {
-      const w = await this.useWindow(key.id, d.ruleId, rule?.revision ?? null, flight.modelRequested, sh, flight.id);
+      const w = await this.useWindow(key.id, d.ruleId, rule?.revision ?? null, flight.modelRequested, sh, chain, flight.id);
       if (w) {
         flight.approvalId = w.approvalId;
         this.version.bump();
@@ -139,7 +141,7 @@ export class ApprovalService implements Approvals {
           rule_id: d.ruleId ?? null,
           rule_revision: rule?.revision ?? null,
           summary: d.summary ?? `${key.name} → ${flight.modelRequested}`,
-          target: JSON.stringify({ kind: isToolKind(flight.kind) ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo }),
+          target: JSON.stringify({ kind: isToolKind(flight.kind) ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo, ...(chain.length ? { on_behalf_of: chain } : {}) }),
           args_preview: JSON.stringify(previewArgs(flight)),
           arg_hash: argHash || null,
           scope_hash: sh,
@@ -283,7 +285,7 @@ export class ApprovalService implements Approvals {
       const held = Math.max(1, a.waiters);
       const uses = w ? held + Math.max(1, Math.min(WINDOW_MAX_USES, Math.floor(w.uses ?? 1))) : held;
       const ttl = Math.max(60_000, Math.min(WINDOW_MAX_TTL_MS, w?.ttl_ms ?? GRANT_TTL_MS));
-      const target = (typeof a.target === 'string' ? JSON.parse(a.target) : a.target) as { name?: string };
+      const target = (typeof a.target === 'string' ? JSON.parse(a.target) : a.target) as { name?: string; on_behalf_of?: string[] };
       await this.db
         .insertInto('grants')
         .values({
@@ -304,6 +306,7 @@ export class ApprovalService implements Approvals {
           rule_revision: a.rule_revision,
           target_name: target.name ?? null,
           any_args: w?.any_args ? 1 : 0,
+          chain: target.on_behalf_of?.length ? JSON.stringify(target.on_behalf_of) : null,
         })
         .execute();
       await this.db.updateTable('approvals').set({ grant_id: grantId }).where('id', '=', approvalId).execute();
@@ -315,12 +318,12 @@ export class ApprovalService implements Approvals {
   }
 
   /** Take one use of an open approval window that covers this call, if there is one. */
-  private async useWindow(keyId: string, ruleId: string, ruleRevision: number | null, targetName: string, scopeHash: string, flightId: string): Promise<{ grantId: string; approvalId: string; by: string | undefined } | undefined> {
+  private async useWindow(keyId: string, ruleId: string, ruleRevision: number | null, targetName: string, scopeHash: string, chain: string[], flightId: string): Promise<{ grantId: string; approvalId: string; by: string | undefined } | undefined> {
     const now = Date.now();
     const open = await this.db
       .selectFrom('grants')
       .innerJoin('approvals', 'approvals.id', 'grants.approval_id')
-      .select(['grants.id as id', 'grants.approval_id as approval_id', 'grants.any_args as any_args', 'grants.scope_hash as scope_hash', 'approvals.resolved_by as by'])
+      .select(['grants.id as id', 'grants.approval_id as approval_id', 'grants.any_args as any_args', 'grants.scope_hash as scope_hash', 'grants.chain as chain', 'approvals.resolved_by as by'])
       .where('grants.is_window', '=', 1)
       .where('grants.key_id', '=', keyId)
       .where('grants.rule_id', '=', ruleId)
@@ -330,8 +333,11 @@ export class ApprovalService implements Approvals {
       .where((eb) => eb('grants.uses_consumed', '<', eb.ref('grants.uses_allowed')))
       .orderBy('grants.created_at', 'desc')
       .execute();
+    // A window opened for calls made on someone's behalf covers calls for that same chain only.
+    const want = chain.length ? JSON.stringify(chain) : null;
     for (const g of open) {
       if (!g.any_args && g.scope_hash !== scopeHash) continue;
+      if ((g.chain ?? null) !== want) continue;
       const res = await this.db
         .updateTable('grants')
         .set((eb) => ({ uses_consumed: eb('uses_consumed', '+', 1), last_used_at: now, consumed_by_session: flightId }))

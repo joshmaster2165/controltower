@@ -269,6 +269,8 @@ export interface GrantsTable {
   target_name: string | null;
   /** 1: any arguments; 0: only the arguments on the card. */
   any_args: Generated<number>;
+  /** For a window on calls made on someone's behalf: that chain (JSON, origin first); it covers only calls for the same chain. */
+  chain: string | null;
 }
 
 export interface HttpApisTable {

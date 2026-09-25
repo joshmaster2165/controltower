@@ -532,3 +532,12 @@ CREATE INDEX grants_window ON grants(key_id, rule_id, target_name) WHERE is_wind
 ALTER TABLE approvals ADD COLUMN hold_until INTEGER;
 `,
 });
+
+// An approval window opened for calls made on someone's behalf covers only calls for that same chain.
+migrations.push({
+  version: 14,
+  name: 'grant_chain',
+  sqlite: `
+ALTER TABLE grants ADD COLUMN chain TEXT;
+`,
+});

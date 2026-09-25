@@ -46,10 +46,33 @@ function chatContent(content: unknown): unknown {
 
 export class ResponsesTranslationError extends Error {}
 
-/** The names of free-form ("custom") tools in a request, so calls to them go back in that shape. */
-export function customToolNames(body: Json): Set<string> {
-  const out = new Set<string>();
-  for (const t of (body.tools as Json[] | undefined) ?? []) if (t.type === 'custom' && typeof t.name === 'string') out.add(t.name);
+/**
+ * What calls to a request's tools must look like on the way back: free-form ("custom") tools by
+ * name, and tools inside a namespace — Codex groups each MCP server's tools as a `namespace` tool —
+ * by the flat name the chat model saw, mapped back to their namespace and own name.
+ */
+export interface RequestTools {
+  custom: Set<string>;
+  namespaced: Map<string, { namespace: string; name: string }>;
+}
+const NO_TOOLS: RequestTools = { custom: new Set(), namespaced: new Map() };
+
+/** A namespaced tool's name for a chat model: `<namespace>__<name>`, kept within the 64 characters providers allow. */
+export function flatToolName(namespace: string, name: string): string {
+  const flat = `${namespace}__${name}`;
+  if (flat.length <= 64) return flat;
+  let h = 0;
+  for (const c of flat) h = (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0;
+  return `${flat.slice(0, 55)}_${h.toString(36).padStart(8, '0').slice(0, 8)}`;
+}
+
+export function requestTools(body: Json): RequestTools {
+  const out: RequestTools = { custom: new Set(), namespaced: new Map() };
+  for (const t of (body.tools as Json[] | undefined) ?? []) {
+    if (t.type === 'custom' && typeof t.name === 'string') out.custom.add(t.name);
+    if (t.type === 'namespace' && typeof t.name === 'string')
+      for (const inner of (t.tools as Json[] | undefined) ?? []) if (typeof inner.name === 'string') out.namespaced.set(flatToolName(t.name, inner.name), { namespace: t.name, name: inner.name });
+  }
   return out;
 }
 
@@ -71,7 +94,8 @@ export function responsesRequestToChat(body: Json): Json {
         }
         case 'function_call':
         case 'custom_tool_call': {
-          const call = { id: str(it.call_id ?? it.id), type: 'function', function: { name: str(it.name), arguments: type === 'custom_tool_call' ? JSON.stringify({ input: str(it.input) }) : str(it.arguments) || '{}' } };
+          const name = typeof it.namespace === 'string' && it.namespace ? flatToolName(it.namespace, str(it.name)) : str(it.name);
+          const call = { id: str(it.call_id ?? it.id), type: 'function', function: { name, arguments: type === 'custom_tool_call' ? JSON.stringify({ input: str(it.input) }) : str(it.arguments) || '{}' } };
           // Calls follow the assistant turn they belong to; several in a row are one turn.
           if (last && last.role === 'assistant' && !('tool_call_id' in last)) (last.tool_calls as Json[] | undefined) ? (last.tool_calls as Json[]).push(call) : (last.tool_calls = [call]);
           else messages.push({ role: 'assistant', content: null, tool_calls: [call] });
@@ -90,8 +114,16 @@ export function responsesRequestToChat(body: Json): Json {
 
   const out: Json = { model: body.model, messages };
   const tools: Json[] = [];
+  const fn = (t: Json, name: unknown) => ({ type: 'function', function: { name, ...(t.description ? { description: t.description } : {}), parameters: t.parameters ?? { type: 'object', properties: {} } } });
+  const groups: string[] = [];
   for (const t of (body.tools as Json[] | undefined) ?? []) {
-    if (t.type === 'function') tools.push({ type: 'function', function: { name: t.name, ...(t.description ? { description: t.description } : {}), parameters: t.parameters ?? { type: 'object', properties: {} } } });
+    if (t.type === 'function') tools.push(fn(t, t.name));
+    else if (t.type === 'namespace' && typeof t.name === 'string') {
+      // A chat model has no namespaces: the group's tools become <namespace>__<tool>, and what the group is for goes in the instructions.
+      const inner = ((t.tools as Json[] | undefined) ?? []).filter((x) => x.type === 'function' && typeof x.name === 'string');
+      for (const x of inner) tools.push(fn(x, flatToolName(t.name, x.name as string)));
+      if (inner.length && t.description) groups.push(`Tools named ${t.name}__…: ${str(t.description)}`);
+    }
     else if (t.type === 'custom')
       tools.push({
         type: 'function',
@@ -103,6 +135,7 @@ export function responsesRequestToChat(body: Json): Json {
       });
   }
   if (tools.length) out.tools = tools;
+  if (groups.length) messages.splice(messages[0]?.role === 'system' ? 1 : 0, 0, { role: 'system', content: groups.join('\n') });
   const tc = body.tool_choice;
   if (tc && tools.length) out.tool_choice = typeof tc === 'string' ? tc : (tc as Json).type === 'function' || (tc as Json).type === 'custom' ? { type: 'function', function: { name: (tc as Json).name } } : 'auto';
   if (typeof body.parallel_tool_calls === 'boolean' && tools.length) out.parallel_tool_calls = body.parallel_tool_calls;
@@ -130,8 +163,8 @@ function usageOf(u: Json | undefined): Json | undefined {
   };
 }
 
-function toolItem(call: { id: string; name: string; arguments: string }, custom: Set<string>, status: string): Json {
-  if (custom.has(call.name)) {
+function toolItem(call: { id: string; name: string; arguments: string }, tools: RequestTools, status: string): Json {
+  if (tools.custom.has(call.name)) {
     let input = call.arguments;
     try {
       input = str((JSON.parse(call.arguments) as Json).input);
@@ -140,11 +173,12 @@ function toolItem(call: { id: string; name: string; arguments: string }, custom:
     }
     return { type: 'custom_tool_call', id: rid('ctc'), call_id: call.id, name: call.name, input, status };
   }
-  return { type: 'function_call', id: rid('fc'), call_id: call.id, name: call.name, arguments: call.arguments || '{}', status };
+  const ns = tools.namespaced.get(call.name);
+  return { type: 'function_call', id: rid('fc'), call_id: call.id, name: ns?.name ?? call.name, ...(ns ? { namespace: ns.namespace } : {}), arguments: call.arguments || '{}', status };
 }
 
 /** A Chat Completions reply as a Responses object. */
-export function chatResponseToResponses(chat: Json, requestedModel: string, custom: Set<string> = new Set()): Json {
+export function chatResponseToResponses(chat: Json, requestedModel: string, tools: RequestTools = NO_TOOLS): Json {
   const choice = ((chat.choices as Json[] | undefined) ?? [])[0] ?? {};
   const msg = (choice.message as Json | undefined) ?? {};
   const output: Json[] = [];
@@ -152,7 +186,7 @@ export function chatResponseToResponses(chat: Json, requestedModel: string, cust
   if (text) output.push({ type: 'message', id: rid('msg'), status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] });
   for (const tc of (msg.tool_calls as Json[] | undefined) ?? []) {
     const fn = (tc.function as Json | undefined) ?? {};
-    output.push(toolItem({ id: str(tc.id) || rid('call'), name: str(fn.name), arguments: str(fn.arguments) }, custom, 'completed'));
+    output.push(toolItem({ id: str(tc.id) || rid('call'), name: str(fn.name), arguments: str(fn.arguments) }, tools, 'completed'));
   }
   const incomplete = choice.finish_reason === 'length';
   return {
@@ -186,7 +220,7 @@ export class ChatToResponsesStream {
 
   constructor(
     private readonly model: string,
-    private readonly custom: Set<string> = new Set(),
+    private readonly tools: RequestTools = NO_TOOLS,
   ) {}
 
   private ev(type: string, data: Json): string {
@@ -247,7 +281,8 @@ export class ChatToResponsesStream {
         if (!call) {
           this.closeMessage(out);
           const name = str(fn.name);
-          const custom = this.custom.has(name);
+          const custom = this.tools.custom.has(name);
+          const ns = this.tools.namespaced.get(name);
           const index = this.items.length;
           this.items.push({});
           call = { index, itemId: rid(custom ? 'ctc' : 'fc'), id: str(tc.id) || rid('call'), name, arguments: '', custom };
@@ -255,7 +290,7 @@ export class ChatToResponsesStream {
           out.push(
             this.ev('response.output_item.added', {
               output_index: index,
-              item: custom ? { type: 'custom_tool_call', id: call.itemId, call_id: call.id, name, input: '', status: 'in_progress' } : { type: 'function_call', id: call.itemId, call_id: call.id, name, arguments: '', status: 'in_progress' },
+              item: custom ? { type: 'custom_tool_call', id: call.itemId, call_id: call.id, name, input: '', status: 'in_progress' } : { type: 'function_call', id: call.itemId, call_id: call.id, name: ns?.name ?? name, ...(ns ? { namespace: ns.namespace } : {}), arguments: '', status: 'in_progress' },
             }),
           );
         }
@@ -277,7 +312,7 @@ export class ChatToResponsesStream {
     this.start(out);
     this.closeMessage(out);
     for (const call of [...this.calls.values()].sort((a, b) => a.index - b.index)) {
-      const item = { ...toolItem({ id: call.id, name: call.name, arguments: call.arguments }, this.custom, 'completed'), id: call.itemId };
+      const item = { ...toolItem({ id: call.id, name: call.name, arguments: call.arguments }, this.tools, 'completed'), id: call.itemId };
       if (!call.custom) out.push(this.ev('response.function_call_arguments.done', { item_id: call.itemId, output_index: call.index, arguments: call.arguments || '{}' }));
       out.push(this.ev('response.output_item.done', { output_index: call.index, item }));
       this.items[call.index] = item;

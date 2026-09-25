@@ -9,7 +9,7 @@ Codex in the ChatGPT desktop app reads the same configuration as the Codex CLI, 
 | Config file | `~/.codex/config.toml` — shared with the Codex CLI |
 | Base URL | `http://<control-tower>:4000/v1` — with `/v1` |
 | Wire API | `wire_api = "responses"` |
-| Key | `CONTROLTOWER_API_KEY=ct_sk_…` in `~/.codex/.env` (a desktop app doesn't see your shell's exports) |
+| Key | `CONTROLTOWER_API_KEY=ct_sk_…` in `~/.codex/.env` — read by the app and the CLI alike |
 | Model | any model name Control Tower serves — GPT, Claude, Gemini, an alias |
 | MCP endpoint | `http://<control-tower>:4000/mcp` with `bearer_token_env_var` |
 
@@ -48,19 +48,21 @@ Put the key in `~/.codex/.env`, where Codex reads it at start-up:
 CONTROLTOWER_API_KEY=ct_sk_…
 ```
 
-> The app starts from the Dock, not from a shell, so an `export` in your shell profile doesn't reach it. `~/.codex/.env` does, for the app and the CLI alike.
+> `~/.codex/.env` is the dependable place for the key: Codex reads it at start-up whether it runs in the app or the CLI, however the app was opened.
 
-`model` can be any name Control Tower serves; Claude and Gemini models work too, translated from the Responses API Codex speaks.
+`model` can be any name Control Tower serves; Claude and Gemini models work too, translated from the Responses API Codex speaks — MCP tools included.
 
 ### Step 4: Start a Codex task
 
-Quit and reopen the ChatGPT app so it reads the file, switch to **Codex**, and start a task.
+Quit and reopen the ChatGPT app so it reads the file, and switch to **Codex**. The provider's name, **Control Tower**, shows at the bottom of Codex's sidebar. Start a task.
 
 ### Step 5: Check it works
 
 The key's **Connect** panel turns green on the first request, and the task's requests are in **Flights** under the key's name:
 
 ![Requests in Flights](images/client-verify-flights.png)
+
+Besides the model you chose, the app makes a call per new chat to a model of its own, `gpt-6-luna`, and it appears in Flights beside the task. If Control Tower can't serve it — no provider for it, or a gate — the task is unaffected, but the app retries: about five failed calls per chat, in Flights and on the map. Serve it with an [alias](providers-and-models.md) named `gpt-6-luna` pointing at a small, cheap model.
 
 The same configuration, run from the Codex CLI, answers like this — a quick way to check the file before opening the app:
 
@@ -78,9 +80,11 @@ url = "http://localhost:4000/mcp"
 bearer_token_env_var = "CONTROLTOWER_API_KEY"
 ```
 
+The app can write this for you: **Settings → Plugins → MCPs → Add**, with the URL and `CONTROLTOWER_API_KEY` as the **Bearer token env var**.
+
 ### Step 2: Check it's enabled
 
-Reopen the app; the `controltower` server appears in Codex's MCP settings, with the tools this key may use, named `<server>__<tool>`. Try a read-only tool first. `codex mcp list` in a terminal shows the same server:
+Reopen the app; `controltower` is listed and switched on under **Settings → Plugins → MCPs**. Codex offers the model the tools this key may use, named `<server>__<tool>` (`files__read_file`). Try a read-only tool first: the chat shows the call (**Files read file**) and lists `controltower` under **Sources**, and the call is in Flights under the key. `codex mcp list` in a terminal shows the same server:
 
 ![Codex's MCP servers](images/client-codex-mcp.png)
 

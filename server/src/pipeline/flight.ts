@@ -15,7 +15,7 @@ import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
 import { headerToken, resolveDelegation } from '../policy/delegation.js';
-import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, customToolNames, responsesRequestToChat } from '../translate/responses-chat.js';
+import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, requestTools, responsesRequestToChat } from '../translate/responses-chat.js';
 
 /** Extract the JSON payload of a raw SSE frame; null for comments, [DONE] and non-JSON. */
 function parseSseData(raw: Uint8Array | string): Record<string, unknown> | null {
@@ -491,7 +491,7 @@ export class FlightRunner {
           try {
             let parsed = JSON.parse(Buffer.from(result.body).toString('utf8')) as Record<string, unknown>;
             if (f.translateTo) parsed = f.translateTo === 'anthropic-messages' ? anthropicResponseToOa(parsed, f.modelRequested) : oaResponseToAnthropic(parsed, f.modelRequested);
-            if (f.viaChat) parsed = chatResponseToResponses(parsed, f.modelRequested, customToolNames(f.body));
+            if (f.viaChat) parsed = chatResponseToResponses(parsed, f.modelRequested, requestTools(f.body));
             bodyOut = Buffer.from(JSON.stringify(parsed));
             ctype = 'application/json';
           } catch {
@@ -569,7 +569,7 @@ export class FlightRunner {
           ? new OaToAnthropicStream(f.modelRequested, f.estInput)
           : null;
     // A Responses request served through Chat Completions: chat chunks (native, or from the step above) become Responses events.
-    const respXform = f.viaChat ? new ChatToResponsesStream(f.modelRequested, customToolNames(f.body)) : null;
+    const respXform = f.viaChat ? new ChatToResponsesStream(f.modelRequested, requestTools(f.body)) : null;
     const xform = respXform
       ? {
           feed: (parsed: Record<string, unknown>): { frames: string[]; hasContent: boolean } => {

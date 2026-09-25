@@ -106,11 +106,12 @@ function responsesApi(res: http.ServerResponse, body: string, reply: string): vo
 }
 
 /** Anthropic Messages API, as api.anthropic.com speaks it (JSON and SSE). */
-export function anthropicUpstream(opts: { reply?: string } = {}): Promise<Upstream> {
+export function anthropicUpstream(opts: { reply?: string; models?: string[] } = {}): Promise<Upstream> {
   const reply = opts.reply ?? 'Hello from the Anthropic upstream';
+  const models = opts.models ?? ['claude-sonnet-4-5'];
   return serve((req, res, body) => {
     const path = (req.url ?? '').replace(/\?.*$/, '');
-    if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { data: [{ id: 'claude-sonnet-4-5', type: 'model', display_name: 'Claude Sonnet 4.5' }], has_more: false });
+    if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { data: models.map((id) => ({ id, type: 'model', display_name: id })), has_more: false });
     if (path.endsWith('/messages/count_tokens')) return json(res, 200, { input_tokens: 42 });
     if (!path.endsWith('/messages')) return json(res, 404, { type: 'error', error: { type: 'not_found_error', message: 'not found' } });
     const b = JSON.parse(body || '{}') as { model: string; stream?: boolean };

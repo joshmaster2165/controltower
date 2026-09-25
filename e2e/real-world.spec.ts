@@ -140,6 +140,11 @@ test('Anthropic SDK (and Claude Code’s path) → /v1/messages → Anthropic, p
   expect(streamed.trim()).toBe('Hello from the Anthropic upstream');
   expect(final.usage.output_tokens).toBe(9);
 
+  // Claude Desktop's gateway mode lists models the Anthropic way (here with the x-api-key scheme the SDK uses).
+  const listed: string[] = [];
+  for await (const m of client.models.list()) listed.push(m.id);
+  expect(listed).toContain('claude-sonnet-4-5');
+
   // OpenAI dialect in, Anthropic out: translated both ways.
   const viaOpenAi = await new OpenAI({ baseURL: `${CT}/v1`, apiKey: agent.key }).chat.completions.create({ model: 'claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] });
   expect(viaOpenAi.choices[0]!.message.content).toBe('Hello from the Anthropic upstream');
@@ -178,17 +183,27 @@ test('OpenAI Responses API (Agents SDK, Codex) → /v1/responses → OpenAI-comp
     expect(JSON.parse(c.body)).not.toHaveProperty('stream_options');
   }
 
-  // Models on providers without a Responses API get a clear answer instead of a translation.
-  const claude = await client.responses.create({ model: 'claude-sonnet-4-5', input: 'hi' }).then(() => undefined, (e: unknown) => e as { status: number; message: string });
-  expect(claude?.status).toBe(400);
-  expect(claude?.message).toContain('/v1/chat/completions');
-
   // Recorded as responses flights, with the provider's usage (cached tokens split out) and a price.
   const flights = await flightsFor(agent.id, (f) => f.filter((x) => x.status === 'ok').length >= 2);
   const ok = flights.filter((f) => f.status === 'ok');
   expect(ok.every((f) => f.kind === 'responses')).toBe(true);
   expect(ok.every((f) => f.in_tokens === 16 && f.out_tokens === 9 && f.usage_source === 'provider')).toBe(true);
   expect(ok.every((f) => f.cost_nanousd > 0)).toBe(true);
+
+  // A model on a provider without a Responses API (here Anthropic): translated through Chat Completions and back,
+  // so Codex and the Agents SDK can use any model — JSON and streamed.
+  const viaChat = await client.responses.create({ model: 'claude-sonnet-4-5', instructions: 'Be brief.', input: 'hi' });
+  expect(viaChat.output_text).toBe('Hello from the Anthropic upstream');
+  expect(viaChat.usage?.output_tokens).toBeGreaterThan(0);
+  let streamed = '';
+  let finished: { status: string; output: unknown[] } | undefined;
+  for await (const ev of await client.responses.create({ model: 'claude-sonnet-4-5', input: 'hi', stream: true })) {
+    if (ev.type === 'response.output_text.delta') streamed += ev.delta;
+    if (ev.type === 'response.completed') finished = ev.response as unknown as { status: string; output: unknown[] };
+  }
+  expect(streamed.trim()).toBe('Hello from the Anthropic upstream');
+  expect(finished?.status).toBe('completed');
+  expect(finished?.output).toHaveLength(1);
 });
 
 test('Team budgets: count what the team already spent, cover keys added later, lift when removed', async () => {

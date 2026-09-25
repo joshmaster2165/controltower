@@ -82,14 +82,10 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
   const listModels = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const key = usableKey(ctx, req);
     if (!key) return reply.status(401).send(errorBody('openai-chat', E.unauthorized()));
-    const now = Math.floor(Date.now() / 1000);
-    const data = ctx.registry.visibleModels(key).map((m) => ({
-      id: m.id,
-      object: 'model',
-      created: now,
-      owned_by: m.provider ?? 'controltower',
-    }));
-    return reply.send({ object: 'list', data });
+    const data = ctx.registry.visibleModels(key).map((m) => modelEntry(m.id, m.provider));
+    // Both list shapes at once: OpenAI's ({object, data}) and Anthropic's ({data, has_more, first_id, last_id}),
+    // so OpenAI and Anthropic clients (Claude Desktop's model picker among them) read the same answer.
+    return reply.send({ object: 'list', data, has_more: false, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null });
   };
   const getModel = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const key = usableKey(ctx, req);
@@ -97,8 +93,12 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
     const id = (req.params as { id: string }).id;
     const m = ctx.registry.visibleModels(key).find((x) => x.id === id);
     if (!m) return reply.status(404).send(errorBody('openai-chat', E.modelNotFound(id)));
-    return reply.send({ id: m.id, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: m.provider ?? 'controltower' });
+    return reply.send(modelEntry(m.id, m.provider));
   };
+  function modelEntry(id: string, provider: string | undefined) {
+    const now = Date.now();
+    return { id, object: 'model', created: Math.floor(now / 1000), owned_by: provider ?? 'controltower', type: 'model', display_name: id, created_at: new Date(now).toISOString() };
+  }
   for (const prefix of ['/v1', '']) {
     app.get(`${prefix}/models`, listModels);
     app.get(`${prefix}/models/:id`, getModel);

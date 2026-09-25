@@ -5,6 +5,10 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 ## Unreleased
 
 - **Agent groups:** keys that share an [agent ID](keys.md#many-copies-of-one-agent) are one station on the map with a ×N count, and a gate or zone on it covers every copy (`match.groups`, `group:` members in policy files). The key form has an **Agent ID** field.
+- **Codex and the Agents SDK on any model:** `/v1/responses` calls for models without a Responses API — Claude, Gemini, Bedrock, Vertex AI — are translated through Chat Completions and back, streamed or not, including tool calls and Codex's free-form tools. They used to be refused.
+- **Client setup guides:** step-by-step pages with screenshots for [Claude Code](client-claude-code.md), [Claude Desktop](client-claude-desktop.md), [Codex in the ChatGPT desktop app](client-codex-desktop.md) and the [Codex CLI](client-codex-cli.md). The key's **Connect** panel has **Claude Desktop** and **Codex** tabs with the settings filled in.
+- `/v1/models` answers in both the OpenAI and the Anthropic list shape, for Anthropic clients such as Claude Desktop's model picker.
+- Fixed: a newly created key's Connect panel showed the previous key's "Connected" status.
 - **Matrix:** [every agent against every destination](airspace.md#matrix-every-agent-against-every-destination) — volume, live connections and which ones no gate can stop — with a click on any cell to gate that path.
 - **Flows:** line thickness on the Airspace is volume — calls per minute on live lines, the last day's calls on idle ones — so where traffic goes reads at a glance at any fleet size. Live lines no longer pulse; the map redraws only when something changes (about 5 times a second under load, was every frame).
 - **Attention:** [what needs a person](airspace.md#what-needs-attention) on the map — holds, blocks, direct provider calls, failing destinations, destructive tools with no gate, new connections and traffic spikes — plus the busiest stations, with everything else dimmed. Control Tower now records each connection's first and last use (kept 90 days after last use).

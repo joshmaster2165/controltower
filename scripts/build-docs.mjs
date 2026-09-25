@@ -23,9 +23,18 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf
 const SIDEBAR = [
   { title: 'Get Started', items: [['README', 'Overview'], ['getting-started', 'Quick start'], ['install', 'Deploy'], ['demo', 'Demo mode'], ['changelog', 'Changelog']] },
   {
+    title: 'Client setup',
+    items: [
+      ['connect-agents', 'Overview'],
+      ['client-claude-code', 'Claude Code (CLI)'],
+      ['client-claude-desktop', 'Claude Desktop (GUI)'],
+      ['client-codex-desktop', 'Codex (ChatGPT desktop)'],
+      ['client-codex-cli', 'Codex (CLI)'],
+    ],
+  },
+  {
     title: 'Gateway',
     items: [
-      ['connect-agents', 'Client setup'],
       ['providers-and-models', 'Models & providers'],
       ['keys', 'Keys, budgets & rate limits'],
       ['mcp', 'MCP gateway'],

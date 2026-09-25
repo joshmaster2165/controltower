@@ -89,7 +89,8 @@ export function KeysPage() {
           <div className="section-title" style={{ margin: '18px 0 8px' }}>
             <h2>Connect {created.name}</h2>
           </div>
-          <ConnectAgent keyId={created.id} secret={created.key} />
+          {/* Keyed by the key: a new key starts from "waiting", not from the last key's status. */}
+          <ConnectAgent key={created.id} keyId={created.id} secret={created.key} />
         </div>
       )}
 

@@ -14,10 +14,11 @@ import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
+import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, customToolNames, responsesRequestToChat } from '../translate/responses-chat.js';
 
 /** Extract the JSON payload of a raw SSE frame; null for comments, [DONE] and non-JSON. */
-function parseSseData(raw: Uint8Array): Record<string, unknown> | null {
-  const text = Buffer.from(raw).toString('utf8');
+function parseSseData(raw: Uint8Array | string): Record<string, unknown> | null {
+  const text = typeof raw === 'string' ? raw : Buffer.from(raw).toString('utf8');
   const data: string[] = [];
   for (const line of text.split(/\r?\n/)) if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
   const joined = data.join('\n');
@@ -59,6 +60,8 @@ export interface Flight {
   inspectOut: InspectGate[];
   /** Set when the upstream adapter speaks a different dialect than the client: its native dialect. */
   translateTo: WireDialect | undefined;
+  /** A Responses API request served through Chat Completions: the reply is translated back. */
+  viaChat: boolean;
   attempts: number;
   deployment: DeploymentRecord | undefined;
   provider: ProviderRecord | undefined;
@@ -102,6 +105,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     approvalId: undefined,
     inspectOut: [],
     translateTo: undefined,
+    viaChat: false,
     attempts: 0,
     deployment: undefined,
     provider: undefined,
@@ -383,19 +387,17 @@ export class FlightRunner {
     const ctx = this.ctx;
     let candidates = f.route!.candidates.slice(0, MAX_ATTEMPTS);
     let lastErr: NormalizedError | undefined;
-    // The Responses API is forwarded, never translated: only providers that speak it can serve it.
-    if (f.dialect === 'openai-responses') {
-      const speaks = (providerId: string) => {
-        const prov = ctx.registry.providers.get(providerId);
-        return !!prov && !!ctx.adapters.get(prov.kind)?.nativeDialects.has('openai-responses');
-      };
-      const served = candidates.filter((d) => speaks(d.providerId));
-      if (!served.length) {
-        const prov = ctx.registry.providers.get(candidates[0]?.providerId ?? '');
-        throw E.badRequest(`"${f.modelRequested}" is served by ${prov?.name ?? 'a provider'}, which does not support the Responses API. Call it through /v1/chat/completions instead.`);
+    // The Responses API goes as it came to providers that speak it, and through Chat Completions to the rest.
+    let asChat: Record<string, unknown> | undefined;
+    const responsesAsChat = () => {
+      if (asChat) return asChat;
+      try {
+        return (asChat = responsesRequestToChat(f.body));
+      } catch (err) {
+        if (err instanceof ResponsesTranslationError) throw E.badRequest(err.message);
+        throw err;
       }
-      candidates = served;
-    }
+    };
 
     for (const dep of candidates) {
       const prov = ctx.registry.providers.get(dep.providerId);
@@ -406,11 +408,15 @@ export class FlightRunner {
       f.provider = prov;
       f.t.upstreamSent = Date.now();
 
-      // Translate only when the adapter does not speak the client's dialect natively.
-      const native = adapter.nativeDialects.has(f.dialect);
-      const targetDialect: WireDialect = native ? f.dialect : adapter.nativeDialects.has('anthropic-messages') ? 'anthropic-messages' : 'openai-chat';
+      // Translate only when the adapter does not speak the client's dialect natively. A Responses
+      // request for a provider without the Responses API is first put in Chat Completions form.
+      f.viaChat = f.dialect === 'openai-responses' && !adapter.nativeDialects.has('openai-responses');
+      const inDialect: WireDialect = f.viaChat ? 'openai-chat' : f.dialect;
+      const inBody = f.viaChat ? responsesAsChat() : f.body;
+      const native = adapter.nativeDialects.has(inDialect);
+      const targetDialect: WireDialect = native ? inDialect : adapter.nativeDialects.has('anthropic-messages') ? 'anthropic-messages' : 'openai-chat';
       f.translateTo = native ? undefined : targetDialect;
-      let outBody: Record<string, unknown> = { ...f.body, model: dep.upstreamModel };
+      let outBody: Record<string, unknown> = { ...inBody, model: dep.upstreamModel };
       if (!native) outBody = targetDialect === 'anthropic-messages' ? oaRequestToAnthropic(outBody) : anRequestToOa(outBody);
 
       const result = await adapter.send(
@@ -424,7 +430,7 @@ export class FlightRunner {
           },
         },
         outBody,
-        { inboundDialect: f.dialect, stream: f.stream, upstreamModel: dep.upstreamModel },
+        { inboundDialect: inDialect, stream: f.stream, upstreamModel: dep.upstreamModel },
       );
 
       if (result.kind === 'error') {
@@ -470,11 +476,12 @@ export class FlightRunner {
         if (f.t.ttft == null) f.t.ttft = f.t.ttfb;
         let bodyOut: Uint8Array = result.body;
         let ctype = result.contentType;
-        if (f.translateTo) {
+        if (f.translateTo || f.viaChat) {
           try {
-            const parsed = JSON.parse(Buffer.from(result.body).toString('utf8')) as Record<string, unknown>;
-            const translated = f.translateTo === 'anthropic-messages' ? anthropicResponseToOa(parsed, f.modelRequested) : oaResponseToAnthropic(parsed, f.modelRequested);
-            bodyOut = Buffer.from(JSON.stringify(translated));
+            let parsed = JSON.parse(Buffer.from(result.body).toString('utf8')) as Record<string, unknown>;
+            if (f.translateTo) parsed = f.translateTo === 'anthropic-messages' ? anthropicResponseToOa(parsed, f.modelRequested) : oaResponseToAnthropic(parsed, f.modelRequested);
+            if (f.viaChat) parsed = chatResponseToResponses(parsed, f.modelRequested, customToolNames(f.body));
+            bodyOut = Buffer.from(JSON.stringify(parsed));
             ctype = 'application/json';
           } catch {
             /* forward as-is */
@@ -544,12 +551,31 @@ export class FlightRunner {
     // OpenAI-compat: the usage-only chunk (choices: []) crashes older SDKs unless the client asked for it.
     const clientWantsUsage =
       f.dialect !== 'openai-chat' || (f.body.stream_options as { include_usage?: boolean } | undefined)?.include_usage === true;
-    const xform =
+    const provXform =
       f.translateTo === 'anthropic-messages'
         ? new AnthropicToOaStream(f.modelRequested, clientWantsUsage)
         : f.translateTo === 'openai-chat'
           ? new OaToAnthropicStream(f.modelRequested, f.estInput)
           : null;
+    // A Responses request served through Chat Completions: chat chunks (native, or from the step above) become Responses events.
+    const respXform = f.viaChat ? new ChatToResponsesStream(f.modelRequested, customToolNames(f.body)) : null;
+    const xform = respXform
+      ? {
+          feed: (parsed: Record<string, unknown>): { frames: string[]; hasContent: boolean } => {
+            if (!provXform) return respXform.feed(parsed);
+            const frames: string[] = [];
+            let hasContent = false;
+            for (const fr of provXform.feed(parsed).frames) {
+              const chunk = parseSseData(fr);
+              if (!chunk) continue;
+              const r = respXform.feed(chunk);
+              frames.push(...r.frames);
+              hasContent ||= r.hasContent;
+            }
+            return { frames, hasContent };
+          },
+        }
+      : provXform;
 
     // Streamed replies can only be inspected after delivery: collect the text for a flag-only scan.
     const seen: string[] = [];
@@ -612,6 +638,7 @@ export class FlightRunner {
       if (xform instanceof OaToAnthropicStream && !f.clientGone && f.status !== 'error') {
         for (const fr of xform.finish()) await write(fr);
       }
+      if (respXform && !f.clientGone && f.status !== 'error') for (const fr of respXform.finish()) await write(fr);
       if (f.status !== 'error') f.status = f.clientGone ? 'client_aborted' : 'ok';
     } catch (err) {
       if (f.clientGone) {

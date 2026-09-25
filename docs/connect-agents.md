@@ -2,6 +2,8 @@
 
 An agent needs two things: Control Tower's address and **its own key** (create one per agent under **Keys** — see [Keys, budgets and limits](keys.md)). The key's **Connect** panel shows every snippet below with your address and key filled in, and turns green on the agent's first request.
 
+Step-by-step guides, with screenshots: [Claude Code (CLI)](client-claude-code.md) · [Claude Desktop (GUI)](client-claude-desktop.md) · [Codex in the ChatGPT desktop app](client-codex-desktop.md) · [Codex (CLI)](client-codex-cli.md).
+
 Keep the model names you use today. Control Tower resolves them to a connected provider, [adding models on first use](providers-and-models.md#models-are-added-on-first-use).
 
 | Client speaks | Point it at | Key goes in |
@@ -39,13 +41,15 @@ The same OpenAI client can call Claude or Gemini models: requests are translated
 
 ## OpenAI Agents SDK and Codex (Responses API)
 
-Both use OpenAI's Responses API. `/v1/responses` goes through the same pipeline — keys, limits, gates, approvals, inspection and cost — and is forwarded to OpenAI, Azure OpenAI and OpenAI-compatible providers. The environment variables above are all they need:
+Both use OpenAI's Responses API. `/v1/responses` goes through the same pipeline — keys, limits, gates, approvals, inspection and cost. It is forwarded as it is to OpenAI, Azure OpenAI and OpenAI-compatible providers, and translated through Chat Completions for Claude, Gemini, Bedrock and Vertex AI models, so both can run on any model. The Agents SDK needs only the environment variables above:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:4000/v1
 export OPENAI_API_KEY=ct_sk_…
-codex            # or: python my_agent.py
+python my_agent.py
 ```
+
+Codex is set up in `~/.codex/config.toml`: see [Codex (CLI)](client-codex-cli.md) and [Codex in the ChatGPT desktop app](client-codex-desktop.md).
 
 ```python
 from agents import Agent, Runner
@@ -53,11 +57,13 @@ agent = Agent(name="support", instructions="Be brief.", model="gpt-4.1-mini")
 print(Runner.run_sync(agent, "Summarise ticket 8812").final_output)
 ```
 
-Claude and Gemini models have no Responses API: a Responses call to one returns `400` with a pointer to `/v1/chat/completions`. Use a Chat Completions model provider in the Agents SDK for those (`OpenAIChatCompletionsModel`).
+Translated Responses calls keep text and image input, function tools and their results, JSON-schema output and usage. Reasoning items, OpenAI's built-in tools (web and file search, computer use) and `previous_response_id` need a provider with the Responses API.
 
 ## Claude Code and the Anthropic SDKs
 
-![The connect panel's Claude Code tab](images/connect-claude-code.png)
+Step by step: [Claude Code (CLI)](client-claude-code.md) · [Claude Desktop (GUI)](client-claude-desktop.md).
+
+![The connect panel's Claude Code tab](images/client-connect-claude-code.png)
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:4000

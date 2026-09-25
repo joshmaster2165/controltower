@@ -408,6 +408,52 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     return { flights: rows, next_before: rows.length === limit ? rows[rows.length - 1]!.ts : null };
   });
 
+  /**
+   * The calls behind an arc between two agents on the map: the caller's calls to the servers that
+   * front the callee (each with what it led to), and what the callee did on the caller's behalf.
+   * `from` and `to` are the key ids behind each station (a group or team stands for several).
+   */
+  app.get('/admin/api/airspace/agent-link', { preHandler: guard }, async (req) => {
+    const q = req.query as { from?: string; to?: string; since?: string };
+    const ids = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 500);
+    const fromKeys = ids(q.from);
+    const toKeys = ids(q.to);
+    const since = Number(q.since) || Date.now() - 7 * 24 * 3600_000;
+    const ref = (keyId: string) => ctx.registry.keysById.get(keyId)?.agentId ?? keyId;
+    const fromRefs = [...new Set(fromKeys.map(ref))];
+    const toRefs = new Set(toKeys.map(ref));
+    const fronting = [
+      ...[...ctx.mcp.servers.values()].filter((x) => x.agentId && toRefs.has(x.agentId)).map((x) => x.id),
+      ...[...ctx.http.apis.values()].filter((x) => x.agentId && toRefs.has(x.agentId)).map((x) => x.id),
+      ...[...ctx.a2a.agents.values()].filter((x) => x.agentId && toRefs.has(x.agentId)).map((x) => x.id),
+    ];
+    if (!fromKeys.length || !toKeys.length) return { calls: [], on_behalf: { count: 0, cost_nanousd: 0, last_ts: null }, from_agents: fromRefs };
+    const calls = fronting.length
+      ? await ctx.db.read
+          .selectFrom('flights as f')
+          .select(['f.id', 'f.ts', 'f.key_name', 'f.kind', 'f.model_requested', 'f.status', 'f.duration_ms', 'f.error_code'])
+          .select(sql<number>`(SELECT count(*) FROM flights c WHERE c.parent_flight_id = f.id)`.as('led_to'))
+          .select(sql<number>`(SELECT coalesce(sum(c.cost_nanousd), 0) FROM flights c WHERE c.parent_flight_id = f.id)`.as('led_to_cost_nanousd'))
+          .where('f.key_id', 'in', fromKeys)
+          .where('f.mcp_server_id', 'in', fronting)
+          .where('f.ts', '>=', since)
+          .orderBy('f.ts', 'desc')
+          .limit(50)
+          .execute()
+      : [];
+    // The callee's own calls made for the caller: the chain ends with the caller.
+    const last = sql<string>`json_extract(on_behalf_of, '$[#-1]')`;
+    const behalf = await ctx.db.read
+      .selectFrom('flights')
+      .select([sql<number>`count(*)`.as('n'), sql<number>`coalesce(sum(cost_nanousd), 0)`.as('cost'), sql<number>`max(ts)`.as('last')])
+      .where('key_id', 'in', toKeys)
+      .where('ts', '>=', since)
+      .where('on_behalf_of', 'is not', null)
+      .where(last, 'in', fromRefs.length ? fromRefs : [''])
+      .executeTakeFirst();
+    return { calls, on_behalf: { count: Number(behalf?.n ?? 0), cost_nanousd: Number(behalf?.cost ?? 0), last_ts: behalf?.last ?? null }, from_agents: fromRefs };
+  });
+
   app.get('/admin/api/flights/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const flight = await ctx.db.read.selectFrom('flights').selectAll().where('id', '=', id).executeTakeFirst();

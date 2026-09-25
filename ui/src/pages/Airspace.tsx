@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AgentLinkPanel, type AgentLinkEnd } from './airspace/AgentLink';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../store';
 import { onFlightEvent, onLiveTick } from '../ws';
@@ -28,7 +29,8 @@ type Popover =
   | { kind: 'lasso'; stationIds: string[]; x: number; y: number }
   | { kind: 'zone'; zone: Zone; x: number; y: number }
   | { kind: 'gate'; rule: Rule; x: number; y: number }
-  | { kind: 'bringin'; stationId: string; rect: [number, number, number, number] };
+  | { kind: 'bringin'; stationId: string; rect: [number, number, number, number] }
+  | { kind: 'agentlink'; from: AgentLinkEnd; to: AgentLinkEnd; x: number; y: number };
 
 export function AirspacePage() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -183,6 +185,8 @@ export function AirspacePage() {
             applyFocus(focusRef.current === c.station.id ? null : c.station.id);
           } else if (c.kind === 'lane') {
             setPopover({ kind: 'compose', draft: c.stationKind === 'agent' ? { from: agentRef(c.stationId), to: '' } : { from: 'all', to: destRef(c.stationId) }, x: c.x, y: c.y });
+          } else if (c.kind === 'agentlink') {
+            setPopover({ kind: 'agentlink', from: c.from, to: c.to, x: c.x, y: c.y });
           } else if (c.kind === 'tool') {
             setPopover({ kind: 'compose', draft: { from: 'all', to: `mcp:${c.serverId}`, tool: c.tool }, x: c.x, y: c.y });
           } else if (c.kind === 'connect') {
@@ -707,6 +711,7 @@ export function AirspacePage() {
           }}
         />
       )}
+      {popover?.kind === 'agentlink' && <AgentLinkPanel from={popover.from} to={popover.to} x={popover.x} y={popover.y} onClose={() => setPopover(null)} />}
       {popover?.kind === 'bringin' && topology && (
         <BringInside
           rect={popover.rect}

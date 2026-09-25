@@ -236,6 +236,35 @@ export function GettingStarted({ topology, rules, onGate, demo }: { topology: To
 
 export function Tooltip({ hover }: { hover: HoverInfo }) {
   const pos = { left: hover.x, top: hover.y };
+  if (hover.agentLink) {
+    const l = hover.agentLink;
+    return (
+      <div className="tooltip" style={pos}>
+        <div className="t">
+          {l.from} → {l.to}
+        </div>
+        {l.viaTool > 0 && (
+          <div className="r">
+            <span>calls to {l.to}</span>
+            <b>{l.viaTool.toLocaleString()}</b>
+          </div>
+        )}
+        {l.onBehalf > 0 && (
+          <div className="r">
+            <span>calls made for {l.from}</span>
+            <b>{l.onBehalf.toLocaleString()}</b>
+          </div>
+        )}
+        <div className="r">
+          <span>last</span>
+          <b>{ago(l.lastTs)}</b>
+        </div>
+        <div className="r">
+          <span className="hint">Click to see the calls</span>
+        </div>
+      </div>
+    );
+  }
   if (hover.observedLine) {
     const o = hover.observedLine;
     return (

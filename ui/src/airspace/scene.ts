@@ -194,6 +194,7 @@ export interface HoverInfo {
   hub?: { rpm: number; held: number; active: number };
   tool?: { server: string; name: string; op: ToolOp; rpm: number; count24h: number; gates: Rule[] };
   observedLine?: { agent: string; target: string; system: string | null; bypass: boolean; count24h: number; errors24h: number; writes24h: number; lastSeen: number };
+  agentLink?: { from: string; to: string; viaTool: number; onBehalf: number; lastTs: number };
 }
 
 export type ClickInfo =
@@ -206,6 +207,8 @@ export type ClickInfo =
   | { kind: 'lane'; stationId: string; stationKind: StationKind; x: number; y: number }
   /** A tool row was clicked. */
   | { kind: 'tool'; serverId: string; tool: string; x: number; y: number }
+  /** An arc between two agents: one calling the other. Keys are those behind each station. */
+  | { kind: 'agentlink'; from: { id: string; label: string; keyIds: string[] }; to: { id: string; label: string; keyIds: string[] }; requests: number; x: number; y: number }
   /** Gate mode: dragged from an agent to a destination (optionally a single tool). */
   | { kind: 'connect'; agentId: string; destId: string; tool?: string | undefined; x: number; y: number }
   /** Right-click on a node. */
@@ -373,6 +376,8 @@ export class AirspaceScene {
   private obsEdges: ObservedEdge[] = [];
   /** Agents calling agents, drawn as arcs beside the agent column. */
   private agentLinks: AgentLink[] = [];
+  /** Where each agent arc was last drawn (world coordinates), for clicking it. */
+  private agentLinkGeo: Array<{ l: AgentLink; a: Pt; c: Pt; b: Pt }> = [];
   /** Calls in the last day per station (agents and destinations): an idle line's thickness. */
   private day = new Map<string, number>();
   /** Key id → the station drawing it: its agent group when several keys share an agent id, else the key. */
@@ -2607,6 +2612,7 @@ export class AirspaceScene {
    * callee's server on the right); the arc says who is acting for whom.
    */
   private drawAgentLinks(now: number, rel: Set<string> | null): void {
+    this.agentLinkGeo = [];
     if (!this.agentLinks.length) return;
     const ctx = this.ctx;
     const max = Math.max(1, ...this.agentLinks.map((l) => l.requests));
@@ -2619,8 +2625,10 @@ export class AirspaceScene {
       const ay = a.y + a.headH / 2;
       const by = b.y + b.headH / 2;
       const cx = Math.min(a.x, b.x) - 24 - Math.min(110, Math.abs(by - ay) * 0.22);
-      const w = 1.4 + 2.6 * Math.sqrt(l.requests / max);
+      const hot = this.hovered === `alink:${l.from}>${l.to}`;
+      const w = 1.4 + 2.6 * Math.sqrt(l.requests / max) + (hot ? 1.5 : 0);
       const lit = !rel || (rel.has(a.id) && rel.has(b.id));
+      this.agentLinkGeo.push({ l, a: [a.x, ay], c: [cx, (ay + by) / 2], b: [b.x - 6, by] });
       ctx.globalAlpha = lit ? 1 : 0.18;
       ctx.beginPath();
       ctx.moveTo(a.x, ay);
@@ -3018,6 +3026,11 @@ export class AirspaceScene {
       const c = zb.chip;
       if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return { kind: 'zone', zone: zb.zone, x: sx, y: sy };
     }
+    const al = this.agentLinkAt(x, y);
+    if (al) {
+      const view = (id: string) => ({ id, label: this.stations.get(id)?.label ?? id, keyIds: (this.stationKeys.get(id) ?? []).map((k) => k.id) });
+      return { kind: 'agentlink', from: view(al.from), to: view(al.to), requests: al.requests, x: sx, y: sy };
+    }
     let best: { sp: Spoke; d: number } | null = null;
     for (const spk of this.spokes.values()) {
       for (let t = 0.04; t < 0.97; t += 0.04) {
@@ -3028,6 +3041,21 @@ export class AirspaceScene {
     }
     if (best && best.sp.station.kind !== 'unknown') return { kind: 'lane', stationId: best.sp.station.id, stationKind: best.sp.station.kind, x: sx, y: sy };
     return { kind: 'empty', x: sx, y: sy };
+  }
+
+  /** The agent arc under a world point, if any (within 6 px of the curve). */
+  private agentLinkAt(x: number, y: number): AgentLink | undefined {
+    let best: { l: AgentLink; d: number } | undefined;
+    for (const g of this.agentLinkGeo) {
+      for (let t = 0.05; t < 0.96; t += 0.03) {
+        const u = 1 - t;
+        const px = u * u * g.a[0] + 2 * u * t * g.c[0] + t * t * g.b[0];
+        const py = u * u * g.a[1] + 2 * u * t * g.c[1] + t * t * g.b[1];
+        const d = (px - x) ** 2 + (py - y) ** 2;
+        if (d < 36 && (!best || d < best.d)) best = { l: g.l, d };
+      }
+    }
+    return best?.l;
   }
 
   private setHovered(id: string | null): void {
@@ -3117,6 +3145,13 @@ export class AirspaceScene {
         this.hoverCb?.({ x: sx, y: sy, zone: zb.zone });
         return;
       }
+    }
+    const al = this.agentLinkAt(x, y);
+    if (al) {
+      this.setHovered(`alink:${al.from}>${al.to}`);
+      this.canvas.style.cursor = 'pointer';
+      this.hoverCb?.({ x: sx, y: sy, agentLink: { from: this.stations.get(al.from)?.label ?? al.from, to: this.stations.get(al.to)?.label ?? al.to, viaTool: al.viaTool, onBehalf: al.onBehalf, lastTs: al.lastTs } });
+      return;
     }
     const [hx, hy] = this.hub;
     if ((hx - x) ** 2 + (hy - y) ** 2 < (this.hubR + 6) ** 2) {

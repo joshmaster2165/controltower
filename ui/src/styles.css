@@ -914,3 +914,12 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .air-top .hud { align-items: center; row-gap: 8px; }
 .air-top .toolgroup { flex-wrap: nowrap; }
 .air-top .hud-actions { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+/* The calls behind an agent-to-agent arc */
+.agent-link-panel { position: absolute; z-index: 8; padding: 14px 16px; overflow: auto; }
+.agent-link-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.agent-link-calls { display: grid; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.agent-link-call { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; padding: 7px 10px; font-size: 12.5px; }
+.agent-link-call + .agent-link-call { border-top: 1px solid var(--border); }
+.agent-link-target .sub { display: block; color: var(--text-dim); font-size: 11.5px; }
+.agent-link-behalf { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.agent-link-panel .link-btn { white-space: nowrap; }

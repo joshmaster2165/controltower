@@ -43,8 +43,23 @@ export function FlightsPage() {
   const [q, setQ] = useState('');
   const [live, setLive] = useState(true);
   // Agents calling agents: calls made for one agent, or every call in one call's tree.
-  const [forAgent, setForAgent] = useState('');
-  const [trace, setTrace] = useState('');
+  // Opened from the map with #/flights/trace:<flight> or #/flights/for:<agent>.
+  const routeParam = useStore((s) => s.routeParam);
+  const [forAgent, setForAgent] = useState(() => (routeParam?.startsWith('for:') ? routeParam.slice(4) : ''));
+  const [trace, setTrace] = useState(() => (routeParam?.startsWith('trace:') ? routeParam.slice(6) : ''));
+  useEffect(() => {
+    if (routeParam?.startsWith('for:')) {
+      setTrace('');
+      setForAgent(routeParam.slice(4));
+    } else if (routeParam?.startsWith('trace:')) {
+      setForAgent('');
+      setTrace(routeParam.slice(6));
+    } else if (!routeParam) {
+      // Flights from the sidebar: every flight again.
+      setForAgent('');
+      setTrace('');
+    }
+  }, [routeParam]);
   const counters = useStore((s) => s.counters);
   // Only the latest request may fill the table: an older one (say, a live refresh from before a
   // filter changed) must not overwrite a newer answer.

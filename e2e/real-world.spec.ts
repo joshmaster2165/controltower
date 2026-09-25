@@ -482,6 +482,11 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   const forBot = (await admin.get('/admin/api/flights?for=rw-support-bot')).body.flights as Array<{ key_id: string }>;
   expect(forBot.length).toBeGreaterThan(0);
   expect(forBot.every((f) => f.key_id === research.id)).toBe(true);
+  // The arc on the map: support-bot's calls to the research agent, what each led to, and what was done for it.
+  const arc = (await admin.get(`/admin/api/airspace/agent-link?from=${bot.id}&to=${research.id}`)).body;
+  expect(arc.calls[0]).toMatchObject({ id: botCall.id, model_requested: 'research__ask', led_to: 1 });
+  expect(arc.on_behalf.count).toBeGreaterThan(0);
+  expect(arc.from_agents).toEqual(['rw-support-bot']);
   const stolen = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${oaiAgent.key}`, 'content-type': 'application/json', 'x-ct-delegation': tokens[0]! }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
   expect(stolen.status).toBe(200);
   expect((await flightsFor(oaiAgent.id))[0].on_behalf_of).toBeNull(); // not issued to it: counted as its own call

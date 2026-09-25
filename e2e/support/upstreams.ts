@@ -5,6 +5,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import express from 'express';
+import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore, type AgentExecutor } from '@a2a-js/sdk/server';
+import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
+import { Role, TaskState } from '@a2a-js/sdk';
 
 /**
  * Protocol-accurate upstreams for the real-world suite. Nothing here is demo
@@ -286,6 +290,65 @@ export function a2aUpstream(opts: { version: '1.0' | '0.3'; token: string; reply
     base = u.url;
     return { ...u, tasks };
   });
+}
+
+/**
+ * An A2A agent built with the official SDK (`@a2a-js/sdk`), the way its samples build one: an
+ * `AgentExecutor` behind `DefaultRequestHandler`, served by the SDK's Express handlers, behind a
+ * bearer check. Each message becomes a task that works, produces an artifact and completes. What
+ * the agent received — the text, the request metadata and the headers — is kept for the test.
+ */
+export async function a2aSdkAgent(token: string): Promise<{ url: string; received: Array<{ text: string; metadata: Record<string, unknown>; headers: http.IncomingHttpHeaders }>; close(): Promise<void> }> {
+  const received: Array<{ text: string; metadata: Record<string, unknown>; headers: http.IncomingHttpHeaders }> = [];
+  let lastHeaders: http.IncomingHttpHeaders = {};
+  const app = express();
+  const server = http.createServer(app);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const card = {
+    name: 'SDK research agent',
+    description: 'Built with the official A2A SDK',
+    version: '1.0.0',
+    supportedInterfaces: [{ url: `${url}/a2a/jsonrpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' }],
+    provider: undefined,
+    capabilities: { streaming: true, pushNotifications: false, extensions: [], extendedAgentCard: false },
+    securitySchemes: {},
+    securityRequirements: [],
+    defaultInputModes: ['text/plain'],
+    defaultOutputModes: ['text/plain'],
+    skills: [{ id: 'research', name: 'Research', description: 'Looks things up', tags: ['search'], examples: [], inputModes: [], outputModes: [], securityRequirements: [] }],
+    signatures: [],
+  };
+  const textPart = (text: string) => ({ content: { $case: 'text' as const, value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' });
+  const executor: AgentExecutor = {
+    async execute(ctx, bus) {
+      const text = ctx.userMessage.parts.map((p) => (p.content?.$case === 'text' ? p.content.value : '')).join('');
+      received.push({ text, metadata: (ctx.request.metadata ?? {}) as Record<string, unknown>, headers: lastHeaders });
+      const base = { id: ctx.taskId, contextId: ctx.contextId, artifacts: [], history: [ctx.userMessage], metadata: undefined };
+      bus.publish(AgentEvent.task({ ...base, status: { state: TaskState.TASK_STATE_SUBMITTED, message: undefined, timestamp: undefined } } as never));
+      bus.publish(AgentEvent.statusUpdate({ taskId: ctx.taskId, contextId: ctx.contextId, status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: undefined }, metadata: undefined } as never));
+      bus.publish(AgentEvent.artifactUpdate({ taskId: ctx.taskId, contextId: ctx.contextId, artifact: { artifactId: 'answer', name: 'answer', description: '', parts: [textPart(`researched: ${text}`)], metadata: undefined, extensions: [] }, append: false, lastChunk: true, metadata: undefined } as never));
+      bus.publish(
+        AgentEvent.statusUpdate({
+          taskId: ctx.taskId,
+          contextId: ctx.contextId,
+          status: { state: TaskState.TASK_STATE_COMPLETED, message: { messageId: crypto.randomUUID(), contextId: ctx.contextId, taskId: ctx.taskId, role: Role.ROLE_AGENT, parts: [textPart('done')], metadata: undefined, extensions: [], referenceTaskIds: [] }, timestamp: undefined },
+          metadata: undefined,
+        } as never),
+      );
+      bus.finished();
+    },
+    async cancelTask() {},
+  };
+  const handler = new DefaultRequestHandler(card as never, new InMemoryTaskStore(), executor);
+  app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: handler }));
+  app.use('/a2a/jsonrpc', (req, res, next) => {
+    if (req.headers.authorization !== `Bearer ${token}`) return void res.status(401).json({ error: 'unauthorized' });
+    lastHeaders = req.headers;
+    next();
+  });
+  app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: handler, userBuilder: UserBuilder.noAuthentication }));
+  return { url, received, close: () => new Promise((r) => server.close(() => r())) };
 }
 
 export function webhookReceiver(): Promise<Upstream> {

@@ -42,6 +42,28 @@ Authorization: Bearer ct_sk_…
 
 The published card is the agent's own — name, description, skills, capabilities — with its interface pointing at `https://tower.example.com/a2a/research` and a bearer security scheme asking for a Control Tower key. Any A2A client that reads the card then sends everything through Control Tower. Fetching the card needs a key too, so an agent's description and skills aren't open to anyone who can reach Control Tower; A2A clients send headers for the card request the same way they do for calls.
 
+Give clients the **full card URL**, not `…/a2a/research` as a base URL: A2A clients such as the official JavaScript SDK look for `/.well-known/agent-card.json` at the root of the host they're given, which here is Control Tower itself. With the official JavaScript SDK (`@a2a-js/sdk`):
+
+```ts
+import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
+
+// Every request — the card and the calls — carries the agent's Control Tower key.
+const withKey: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers);
+  headers.set('authorization', `Bearer ${process.env.CT_KEY}`);
+  return fetch(input, { ...init, headers });
+};
+const factory = new ClientFactory(
+  ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+    transports: [new JsonRpcTransportFactory({ fetchImpl: withKey })],
+    cardResolver: new DefaultAgentCardResolver({ fetchImpl: withKey }),
+  }),
+);
+const client = await factory.createFromUrl('https://tower.example.com/a2a/research/.well-known/agent-card.json', '');
+```
+
+For an agent on A2A 0.3, add `legacyCompat: { enabled: true }` to both the transport factory and the resolver.
+
 A call, by hand:
 
 ```bash

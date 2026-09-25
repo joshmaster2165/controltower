@@ -77,9 +77,15 @@ Tracing either agent lists the other as **calls** or **called by**:
 
 Agents that speak the [A2A protocol](a2a.md) are registered under **A2A agents** by their Agent Card, and are agents from the start — there is no **Fronts an agent** to set. Each call gets a delegation token in the request's `params.metadata["controltower/delegation"]` and the `x-ct-delegation` header; the agent passes it on exactly as in step 3, and everything above — the arc on the map, *for …* in Flights, gates on whom a call is for — works the same.
 
-```python
-# In an A2A agent's executor (the Python a2a-sdk): the token arrives with the message.
-token = (context.metadata or {}).get("controltower/delegation")
+```ts
+// In an agent built with the official JavaScript SDK (@a2a-js/sdk): the token arrives with the request.
+const executor: AgentExecutor = {
+  async execute(ctx, bus) {
+    const token = ctx.request.metadata?.['controltower/delegation'] as string | undefined;
+    // …pass it on as the x-ct-delegation header on this agent's own calls to Control Tower
+  },
+  async cancelTask() {},
+};
 ```
 
 ## Gates on whom a call is for

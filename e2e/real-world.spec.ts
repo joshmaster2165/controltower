@@ -8,7 +8,9 @@ import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trac
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
-import { a2aUpstream, anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
+import { Role } from '@a2a-js/sdk';
+import { a2aSdkAgent, a2aUpstream, anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
 import { field } from './support/ui';
 import { smtpCapture } from './support/smtp';
 
@@ -584,6 +586,77 @@ test('A2A: a remote agent behind Control Tower — its card, messages, streams, 
   expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-a2a-caller', key_id: research.id })]));
   const page = (await admin.get('/admin/api/a2a/agents')).body.agents.find((a: { slug: string }) => a.slug === 'researcher');
   expect(page.methods.map((m: { name: string }) => m.name)).toEqual(expect.arrayContaining(['SendMessage', 'GetTask']));
+});
+
+test('A2A with the official SDK: an SDK agent behind Control Tower, driven by the SDK client', async () => {
+  const agent = await a2aSdkAgent('sdk-secret');
+  upstreams.push({ url: agent.url, calls: [], close: agent.close });
+  const reg = await admin.post('/admin/api/a2a/agents', { name: 'SDK research agent', slug: 'sdk-research', url: agent.url, auth: { type: 'bearer', token: 'sdk-secret' }, agent_id: 'rw-sdk-research' });
+  expect(reg.status).toBe(201);
+  expect(reg.body.check.ok).toBe(true);
+  expect(reg.body.agent.protocol_version).toBe('1.0');
+
+  // The SDK client, pointed at the card Control Tower publishes, with the caller's Control Tower key.
+  const caller = await key('rw-sdk-caller', { agent_id: 'rw-sdk-caller' });
+  const withKey = (k: string): typeof fetch => (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.set('authorization', `Bearer ${k}`);
+    return fetch(input, { ...init, headers });
+  };
+  const clientFor = (k: string, legacy = false) =>
+    new ClientFactory(
+      ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
+        transports: [new JsonRpcTransportFactory({ fetchImpl: withKey(k), ...(legacy ? { legacyCompat: { enabled: true } } : {}) })],
+        cardResolver: new DefaultAgentCardResolver({ fetchImpl: withKey(k), ...(legacy ? { legacyCompat: { enabled: true } } : {}) }),
+      }),
+    );
+  const client = await clientFor(caller.key).createFromUrl(`${CT}/a2a/sdk-research/.well-known/agent-card.json`, ''); // the full card URL: a base URL would resolve /.well-known at the host root
+  const card = await client.getAgentCard();
+  expect(card.name).toBe('SDK research agent');
+  expect(card.supportedInterfaces[0]!.url).toBe(`${CT}/a2a/sdk-research`);
+
+  const message = (text: string) => ({ tenant: '', message: { messageId: crypto.randomUUID(), contextId: '', taskId: '', role: Role.ROLE_USER, parts: [{ content: { $case: 'text' as const, value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }], metadata: undefined, extensions: [], referenceTaskIds: [] }, configuration: undefined, metadata: undefined });
+  const textOfParts = (parts: Array<{ content?: { $case: string; value?: unknown } }>) => parts.map((p) => (p.content?.$case === 'text' ? String(p.content.value) : '')).join('');
+
+  // SendMessage: the SDK agent does the work; it received the text, and a delegation token in metadata and the header.
+  const result = (await client.sendMessage(message('What is the refund policy?'))) as any;
+  expect(result.status.state).toBe(3); // TASK_STATE_COMPLETED
+  expect(textOfParts(result.artifacts[0].parts)).toBe('researched: What is the refund policy?');
+  expect(agent.received[0]!.text).toBe('What is the refund policy?');
+  expect(String(agent.received[0]!.metadata['controltower/delegation'])).toMatch(/^ctd1\./);
+  expect(agent.received[0]!.headers['x-ct-delegation']).toBe(agent.received[0]!.metadata['controltower/delegation']);
+  expect(agent.received[0]!.headers.authorization).toBe('Bearer sdk-secret');
+
+  // GetTask, and a stream the SDK parses event by event.
+  const task = await client.getTask({ tenant: '', id: result.id, historyLength: undefined });
+  expect(task.id).toBe(result.id);
+  const kinds: string[] = [];
+  let streamed = '';
+  for await (const ev of client.sendMessageStream(message('stream it'))) {
+    kinds.push(ev.payload!.$case);
+    if (ev.payload?.$case === 'artifactUpdate') streamed = textOfParts(ev.payload.value.artifact!.parts as never);
+  }
+  expect(kinds[0]).toBe('task');
+  expect(kinds).toContain('artifactUpdate');
+  expect(kinds.at(-1)).toBe('statusUpdate');
+  expect(streamed).toBe('researched: stream it');
+
+  const flights = await flightsFor(caller.id, (f) => f.length >= 3);
+  expect(flights.map((f) => f.tool).sort()).toEqual(['GetTask', 'SendMessage', 'SendStreamingMessage']);
+
+  // A gate: the SDK client surfaces the refusal as an error, and nothing reaches the agent.
+  const deny = await admin.post('/admin/api/rules', { name: 'No work for the SDK agent', target_kind: 'tool', match: { tools: ['sdk-research__SendMessage'] }, effect: 'deny', priority: 5 });
+  const before = agent.received.length;
+  const err = (await client.sendMessage(message('blocked?')).catch((e: unknown) => e)) as Error;
+  expect(err).toBeInstanceOf(Error);
+  expect(err.message).toContain(`Blocked by gate "No work for the SDK agent"`);
+  expect(agent.received.length).toBe(before);
+  await admin.call('DELETE', `/admin/api/rules/${deny.body.id}`);
+
+  // The SDK's v0.3 compatibility client reads the 0.3 card Control Tower publishes for a 0.3 agent, and talks 0.3 through it.
+  const legacy = await clientFor(caller.key, true).createFromUrl(`${CT}/a2a/legacy/.well-known/agent-card.json`, '');
+  const r03 = (await legacy.sendMessage(message('old school'))) as any;
+  expect(textOfParts(r03.status.message.parts)).toBe('echo: old school');
 });
 
 // ---------------------------------------------------------------- gates on models

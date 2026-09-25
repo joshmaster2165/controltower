@@ -171,7 +171,7 @@ bearer_token_env_var = "CONTROLTOWER_API_KEY"`}
       {tab === 'a2a' && (
         <>
           <p className="connect-note">
-            For remote agents registered under <b>A2A agents</b>: give any A2A client the agent's card at Control Tower, and this key as a bearer token. The card points the client back at Control Tower, so every message and task call goes through it.
+            For remote agents registered under <b>A2A agents</b>: give any A2A client the agent's full card URL at Control Tower (not a base URL: clients look for <code>/.well-known</code> at the host's root), and this key as a bearer token. The card points the client back at Control Tower, so every message and task call goes through it.
           </p>
           <CodeBlock
             title="Agent Card"

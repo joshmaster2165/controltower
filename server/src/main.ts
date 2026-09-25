@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     },
     names: (kind, id) => {
       if (kind === 'key') return registry.keysById.get(id)?.name;
-      if (kind === 'mcp') return mcp.servers.get(id)?.name ?? http.apis.get(id)?.name;
+      if (kind === 'mcp') return mcp.servers.get(id)?.name ?? http.apis.get(id)?.name ?? a2a.agents.get(id)?.name;
       const d = registry.deployments.get(id);
       return d ? (d.publicName ?? d.upstreamModel) : undefined;
     },
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
       return d ? (d.publicName ?? d.upstreamModel) : undefined;
     },
     providerKind: (id) => (id ? registry.providers.get(id)?.kind : undefined),
-    mcpName: (id) => (id ? (mcp.servers.get(id)?.slug ?? http.apis.get(id)?.slug) : undefined),
+    mcpName: (id) => (id ? (mcp.servers.get(id)?.slug ?? http.apis.get(id)?.slug ?? a2a.agents.get(id)?.slug) : undefined),
     gateName: (id) => policy.rules.find((r) => r.id === id)?.name,
     heldRequests: () => approvals.heldCount,
     pendingEvents: () => dbSink.pendingCount,

@@ -4,6 +4,9 @@ import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import type { HttpApiAuth } from '../http/route.js';
 import { cardCandidates, jsonRpcEndpoint } from './card.js';
+import { readCapped } from '../util/body.js';
+
+const MAX_CARD = 1024 * 1024;
 
 type Json = Record<string, unknown>;
 
@@ -115,12 +118,21 @@ export class A2aRegistry {
     for (const url of cardCandidates(agent.cardUrl)) {
       try {
         const res = await request(url, { method: 'GET', headers: { accept: 'application/json', ...authHeaders(agent.auth) }, headersTimeout: 8000, bodyTimeout: 8000, signal: AbortSignal.timeout(10_000) });
-        const text = await res.body.text();
+        const raw = await readCapped(res.body, MAX_CARD);
         if (res.statusCode >= 400) {
           detail = `${url}: HTTP ${res.statusCode}`;
           continue;
         }
-        found = { card: JSON.parse(text) as Json, url };
+        if (!raw) {
+          detail = `${url}: the card is larger than 1 MB`;
+          continue;
+        }
+        const card = JSON.parse(raw.toString('utf8')) as unknown;
+        if (!card || typeof card !== 'object' || Array.isArray(card)) {
+          detail = `${url}: not an Agent Card (a JSON object)`;
+          continue;
+        }
+        found = { card: card as Json, url };
         break;
       } catch (err) {
         detail = `${url}: ${(err as Error).message}`;
@@ -132,7 +144,10 @@ export class A2aRegistry {
       await this.reload();
       return { ok: false, detail: detail || 'no Agent Card found', latencyMs: now - t0 };
     }
-    const ep = jsonRpcEndpoint(found.card, found.url);
+    let ep = jsonRpcEndpoint(found.card, found.url);
+    // The agent's credentials go wherever its endpoint is: only to the server that serves its card.
+    if (!('error' in ep) && new URL(ep.url).origin !== new URL(found.url).origin)
+      ep = { error: `the card sends calls to ${new URL(ep.url).origin}, a different server from the card's (${new URL(found.url).origin}). Control Tower only sends the agent's credentials to the server its card comes from: register the card as served by ${new URL(ep.url).origin}.` };
     if ('error' in ep) {
       await this.db.updateTable('a2a_agents').set({ health: 'down', health_detail: ep.error, card_cache: JSON.stringify(found.card), last_checked_at: now, updated_at: now }).where('id', '=', agent.id).execute();
       await this.reload();

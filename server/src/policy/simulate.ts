@@ -1,4 +1,5 @@
 import type { Kysely } from 'kysely';
+import { METHODS } from '../a2a/card.js';
 import type { Database } from '../db/schema.js';
 import type { Registry } from '../registry.js';
 import type { McpRegistry } from '../mcp/registry.js';
@@ -100,6 +101,11 @@ export async function simulate(
     let destName: string;
     if (f.kind === 'http.request') {
       target = { kind: 'tool', name: f.model_requested, mcpServerId: f.mcp_server_id ?? undefined, operation: routeOperation(f.tool) };
+      targetId = f.mcp_server_id ?? f.model_requested;
+      destName = f.model_requested;
+    } else if (f.kind === 'a2a.call') {
+      const method = String(f.tool ?? '');
+      target = { kind: 'tool', name: f.model_requested, mcpServerId: f.mcp_server_id ?? undefined, operation: METHODS[method]?.op ?? 'write' };
       targetId = f.mcp_server_id ?? f.model_requested;
       destName = f.model_requested;
     } else if (f.kind === 'mcp.tool') {

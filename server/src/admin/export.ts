@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { formatUsd } from '@controltower/shared';
+import { METHODS } from '../a2a/card.js';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { PolicyService, RuleRecord } from '../policy/policy.js';
@@ -60,7 +61,7 @@ function describeScope(r: RuleRecord, ctx: AppContext, policy: PolicyService): s
     const d = ctx.registry.deployments.get(id);
     return d ? (d.publicName ?? d.upstreamModel) : id;
   };
-  const mcp = (id: string) => ctx.mcp.servers.get(id)?.name ?? id;
+  const mcp = (id: string) => ctx.mcp.servers.get(id)?.name ?? ctx.http.apis.get(id)?.name ?? ctx.a2a.agents.get(id)?.name ?? id;
   const zone = (id: string) => policy.zones.get(id)?.name ?? id;
   const who = [...(r.match.keys ?? []).map(key), ...(r.match.groups ?? []).map((g) => `${g} (every copy)`), ...(r.match.teams ?? []).map((t) => `team ${t}`)];
   const from = who.length ? who.join(', ') : r.fromZone ? `${zone(r.fromZone)} agents` : 'any agent';
@@ -99,16 +100,18 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
     const key = ctx.registry.keysById.get(r.key_id);
     if (!key) continue;
     const isHttp = r.kind === 'http.request';
-    const isTool = r.kind === 'mcp.tool' || isHttp;
+    const isA2a = r.kind === 'a2a.call';
+    const isTool = r.kind === 'mcp.tool' || isHttp || isA2a;
     let target: PolicyTarget;
     let row: Pick<PathRow, 'kind' | 'target' | 'target_id' | 'provider' | 'tool' | 'operation'>;
     if (isTool) {
       const server = r.mcp_server_id ? ctx.mcp.servers.get(r.mcp_server_id) : undefined;
       const api = isHttp && r.mcp_server_id ? ctx.http.apis.get(r.mcp_server_id) : undefined;
+      const agent = isA2a && r.mcp_server_id ? ctx.a2a.agents.get(r.mcp_server_id) : undefined;
       const tool = server?.tools.find((t) => t.name === r.tool);
-      const op = isHttp ? routeOperation(r.tool) : tool ? classifyOperation(tool) : 'unknown';
+      const op = isHttp ? routeOperation(r.tool) : isA2a ? (METHODS[r.tool ?? '']?.op ?? 'write') : tool ? classifyOperation(tool) : 'unknown';
       target = { kind: 'tool', name: r.model_requested, mcpServerId: r.mcp_server_id ?? undefined, operation: op };
-      row = { kind: 'tool', target: api?.name ?? server?.name ?? r.model_requested, target_id: r.mcp_server_id ?? '', provider: isHttp ? 'HTTP' : 'MCP', tool: r.tool, operation: op };
+      row = { kind: 'tool', target: agent?.name ?? api?.name ?? server?.name ?? r.model_requested, target_id: r.mcp_server_id ?? '', provider: isHttp ? 'HTTP' : isA2a ? 'A2A' : 'MCP', tool: r.tool, operation: op };
     } else {
       const dep = r.deployment_id ? ctx.registry.deployments.get(r.deployment_id) : undefined;
       const prov = dep ? ctx.registry.providers.get(dep.providerId) : undefined;

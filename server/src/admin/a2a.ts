@@ -4,7 +4,7 @@ import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import type { HttpApiAuth } from '../http/route.js';
 import type { A2aAgentRecord } from '../a2a/registry.js';
-import { CARD_PATH, skillsOf } from '../a2a/card.js';
+import { CARD_PATH, METHODS, skillsOf } from '../a2a/card.js';
 import { requireAdmin } from './auth.js';
 
 const SEVEN_DAYS = 7 * 24 * 3600_000;
@@ -24,7 +24,7 @@ export async function recentMethods(ctx: AppContext, since = Date.now() - SEVEN_
   const out = new Map<string, Array<{ name: string; op: string; requests: number }>>();
   for (const r of rows) {
     const list = out.get(r.mcp_server_id!) ?? out.set(r.mcp_server_id!, []).get(r.mcp_server_id!)!;
-    list.push({ name: r.tool!, op: /^(Get|List|Subscribe)/.test(r.tool!) ? 'read' : 'write', requests: Number(r.n) });
+    list.push({ name: r.tool!, op: METHODS[r.tool!]?.op ?? 'write', requests: Number(r.n) });
   }
   return out;
 }
@@ -115,7 +115,10 @@ export async function a2aAdminRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const b = (req.body ?? {}) as { name?: string; url?: string; enabled?: boolean; auth?: HttpApiAuth; timeout_ms?: number; agent_id?: string };
     const patch: Record<string, unknown> = { updated_at: Date.now() };
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
-    if (typeof b.url === 'string' && /^https?:\/\/[^\s/]+/.test(b.url.trim())) patch.card_url = b.url.trim();
+    if (typeof b.url === 'string' && /^https?:\/\/[^\s/]+/.test(b.url.trim()) && b.url.trim() !== cur.cardUrl) {
+      // A new card: forget the old endpoint, so nothing — least of all new credentials — goes there if the new card can't be read.
+      Object.assign(patch, { card_url: b.url.trim(), endpoint: null, card_cache: null, protocol_version: null, health: 'unknown', health_detail: null });
+    }
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (typeof b.timeout_ms === 'number') patch.timeout_ms = Math.min(Math.max(b.timeout_ms, 1000), 600_000);
     if (typeof b.agent_id === 'string' && b.agent_id.trim()) patch.agent_id = b.agent_id.trim().slice(0, 100);

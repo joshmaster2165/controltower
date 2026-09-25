@@ -566,6 +566,37 @@ test('A2A: a remote agent behind Control Tower — its card, messages, streams, 
   expect(((await leaked.json()) as any).error.data[0].reason).toBe('CONTENT_BLOCKED');
   await admin.call('DELETE', `/admin/api/rules/${inspect.body.id}`);
 
+  // Approvals: a held message is ticketed; once a person approves, the same message sent again — as SDKs do, with a new
+  // messageId, the ticket in metadata — goes through. A different message can't ride on that approval.
+  const hold = await admin.post('/admin/api/rules', { name: 'Research needs a yes', target_kind: 'tool', match: { tools: ['researcher__SendMessage'] }, effect: 'require_approval', config: { hold_ms: 800 }, priority: 5 });
+  expect(hold.status).toBe(201);
+  const held = await rpc('SendMessage', message('Summarise the Q3 board pack'));
+  expect(held.status).toBe(403);
+  const heldErr = ((await held.json()) as any).error;
+  expect(heldErr.data[0].reason).toBe('APPROVAL_REQUIRED');
+  const ticket = heldErr.data[0].metadata.ticket as string;
+  expect(ticket).toBeTruthy();
+  const pendingId = ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as Array<{ id: string; key_id: string }>).find((x) => x.key_id === caller.id)!.id;
+  expect((await admin.post(`/admin/api/approvals/${pendingId}/decide`, { action: 'approve' })).status).toBe(200);
+  const other = await rpc('SendMessage', { ...message('Something else entirely'), metadata: { ct_approval: ticket } });
+  expect(other.status).toBe(403);
+  const retried = await rpc('SendMessage', { ...message('Summarise the Q3 board pack'), metadata: { ct_approval: ticket } });
+  expect(retried.status).toBe(200);
+  expect(((await retried.json()) as any).result.task.artifacts[0].parts[0].text).toBe('echo: Summarise the Q3 board pack');
+  expect(JSON.parse(remote.calls.at(-1)!.body).params.metadata.ct_approval).toBeUndefined();
+  await admin.call('DELETE', `/admin/api/rules/${hold.body.id}`);
+
+  // Names are one namespace across A2A agents, MCP servers and HTTP APIs.
+  expect((await admin.post('/admin/api/mcp/servers', { name: 'Clash', slug: 'researcher', url: `${remote.url}/mcp` })).status).toBe(409);
+  expect((await admin.post('/admin/api/http/apis', { name: 'Clash', slug: 'researcher', base_url: remote.url })).status).toBe(409);
+
+  // A card that sends calls to another server is refused: the agent's credentials only go where its card comes from.
+  const elsewhere = await admin.post('/admin/api/a2a/agents', { name: 'Elsewhere', slug: 'elsewhere', url: remote.url.replace('127.0.0.1', 'localhost'), auth: { type: 'bearer', token: 'agent-secret' } });
+  expect(elsewhere.body.check.ok).toBe(false);
+  expect(elsewhere.body.check.detail).toContain('different server');
+  expect((await rpc('SendMessage', message('hi'), auth, 'elsewhere')).status).toBe(404);
+  await admin.call('DELETE', `/admin/api/a2a/agents/${elsewhere.body.agent.id}`);
+
   // An A2A 0.3 agent works the same way, by its own method names.
   const legacy = await a2aUpstream({ version: '0.3', token: 'legacy-secret' });
   upstreams.push(legacy);

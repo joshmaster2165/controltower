@@ -68,10 +68,17 @@ export function flatToolName(namespace: string, name: string): string {
 
 export function requestTools(body: Json): RequestTools {
   const out: RequestTools = { custom: new Set(), namespaced: new Map() };
-  for (const t of (body.tools as Json[] | undefined) ?? []) {
+  const tools = (body.tools as Json[] | undefined) ?? [];
+  const topLevel = new Set(tools.map((t) => t.name).filter((n): n is string => typeof n === 'string' && tools.some((x) => x.type !== 'namespace' && x.name === n)));
+  for (const t of tools) {
     if (t.type === 'custom' && typeof t.name === 'string') out.custom.add(t.name);
     if (t.type === 'namespace' && typeof t.name === 'string')
-      for (const inner of (t.tools as Json[] | undefined) ?? []) if (typeof inner.name === 'string') out.namespaced.set(flatToolName(t.name, inner.name), { namespace: t.name, name: inner.name });
+      for (const inner of (t.tools as Json[] | undefined) ?? []) {
+        // The same tools the model is given (functions), and never one that shadows a top-level tool's name.
+        if (inner.type !== 'function' || typeof inner.name !== 'string') continue;
+        const flat = flatToolName(t.name, inner.name);
+        if (!topLevel.has(flat)) out.namespaced.set(flat, { namespace: t.name, name: inner.name });
+      }
   }
   return out;
 }

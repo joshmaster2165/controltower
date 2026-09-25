@@ -121,11 +121,16 @@ A denied call is a JSON-RPC error whose `code` is the HTTP status, with the reas
 
 A call held for approval that times out answers `APPROVAL_REQUIRED` with a `ticket` in `metadata`; once a person approves it in the Tower, send the same call again with `params.metadata.ct_approval` (or the `x-ct-approval` header) set to the ticket.
 
-**Inspect gates** read the message an agent sends (`params.message`) before it leaves, and the reply before the caller sees it. Streamed replies are relayed as they come and are not inspected.
+**Inspect gates** read the message an agent sends (`params.message`) before it leaves, and the reply before the caller sees it. Streamed replies (`SendStreamingMessage`, `SubscribeToTask`) are relayed as they come and are not inspected. An agent that answers a non-streaming method with a stream on a path with inspect gates is refused (`UNEXPECTED_STREAM`), so a reply can't slip past them that way.
+
+An approval is bound to the message's content, not its `messageId`: SDKs make a new `messageId` for every send, so resending the same message with the ticket works, while a different message is refused.
 
 ## What is and isn't covered
 
 - **JSON-RPC only.** An agent that offers only gRPC or HTTP+JSON can't be registered; the error says what it offers.
+- **The endpoint must be on the card's server.** The agent's credentials go wherever its card says to send calls, so Control Tower only accepts an endpoint with the same origin (scheme, host and port) as the card. If an agent's card lives elsewhere, register the card as its endpoint's server serves it.
+- **Replies are capped at 10 MB**, and a stream that goes silent for longer than the agent's timeout is ended.
+- **A key sees only the agents it may call.** `GET /a2a` and the card both follow the key's `allowed_mcp`.
 - **Push notifications** go from the agent straight to the webhook the caller gave it, not through Control Tower. Creating and listing push configurations do go through it and can be gated.
 - **The agent's card signatures** are removed from the published card: it is no longer the card the agent signed.
 - The card is read again every 10 minutes, and on **Re-read card**. An agent whose card can't be read is marked down and keeps its last good card.
@@ -140,6 +145,9 @@ A call held for approval that times out answers `APPROVAL_REQUIRED` with a `tick
 | `403`, reason `TOOL_NOT_ALLOWED` | The key's `allowed_mcp` doesn't include `<slug>__*` | Widen the key's `allowed_mcp` |
 | "offers GRPC … but not JSON-RPC" when registering | The agent doesn't serve the JSON-RPC binding | Enable JSON-RPC on the agent |
 | `502`, reason `INVALID_AGENT_RESPONSE` | The agent's endpoint didn't answer with JSON-RPC | Check the endpoint in its card and the credentials |
+| "sends calls to … a different server from the card's" when registering | The card's endpoint is on another origin | Register the card URL on the endpoint's server |
+| `502`, reason `UNEXPECTED_STREAM` | The agent streamed a reply to a non-streaming method, and inspect gates apply | Call `SendStreamingMessage` for streams, or have the agent answer `SendMessage` with JSON |
+| `403`, reason `POLICY_DENIED`, "scope mismatch" | The approval ticket was sent with a different message | Resend the original message with the ticket |
 
 ## Next steps
 

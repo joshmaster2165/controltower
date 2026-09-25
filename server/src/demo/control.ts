@@ -16,6 +16,7 @@ let unsubscribeApprover: (() => void) | undefined;
 async function reloadAll(ctx: AppContext): Promise<void> {
   await ctx.mcp.reload();
   await ctx.http.reload();
+  await ctx.a2a.reload();
   await ctx.registry.reload();
   await (ctx.policy as PolicyService).reload();
   await ctx.alerts.reload();
@@ -89,7 +90,7 @@ export async function stopDemo(ctx: AppContext): Promise<void> {
   unsubscribeApprover?.();
   unsubscribeApprover = undefined;
   const w = ctx.db.write;
-  for (const table of ['api_keys', 'aliases', 'deployments', 'providers', 'rules', 'zones', 'approvals', 'mcp_servers', 'http_apis', 'alert_rules'] as const) {
+  for (const table of ['api_keys', 'aliases', 'deployments', 'providers', 'rules', 'zones', 'approvals', 'mcp_servers', 'http_apis', 'a2a_agents', 'alert_rules'] as const) {
     await w.deleteFrom(table).where('demo', '=', 1).execute();
   }
   await sql`DELETE FROM flights WHERE key_id LIKE 'key_demo_%'`.execute(w);

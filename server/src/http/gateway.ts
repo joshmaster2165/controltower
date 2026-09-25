@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { readCapped } from '../util/body.js';
 import { request } from 'undici';
 import type { AppContext } from '../context.js';
 import { globMatch } from '../registry.js';
@@ -159,7 +160,7 @@ export class HttpGateway {
         bodyTimeout: api.timeoutMs,
       });
       f.t.ttfb = Date.now();
-      let data = await readCapped(res.body);
+      let data = await readCapped(res.body, MAX_BODY);
       if (!data) {
         ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: api.id, provider_id: api.id, upstream_model: route, outcome: 'error', status: res.statusCode, error_code: 'response_too_large' });
         return refuse(502, 'error', 'response_too_large', 'The API replied with more than 10 MB; Control Tower does not relay replies that large.');
@@ -212,15 +213,4 @@ function parseBody(raw: Buffer | undefined, contentType: string | undefined): un
   return text;
 }
 
-async function readCapped(body: AsyncIterable<Uint8Array>): Promise<Buffer | undefined> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const c of body) {
-    const b = Buffer.isBuffer(c) ? c : Buffer.from(c);
-    size += b.length;
-    if (size > MAX_BODY) return undefined;
-    chunks.push(b);
-  }
-  return Buffer.concat(chunks);
-}
 

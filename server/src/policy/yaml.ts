@@ -21,7 +21,7 @@ import type { PolicyService, RuleConfig, RuleMatch, RuleRecord, ZoneMatch, ZoneR
  *       effect: deny
  *
  * Member references: agent:<key name>, model:<public name or provider/model>,
- * provider:<slug>, mcp:<slug>, http:<slug>, tool:<namespaced tool>.
+ * provider:<slug>, mcp:<slug>, http:<slug>, a2a:<slug>, tool:<namespaced tool>.
  * Demo zones and gates are never exported, changed or removed.
  */
 
@@ -102,7 +102,9 @@ function names(ctx: AppContext) {
           const m = ctx.mcp.servers.get(id);
           if (m) return `mcp:${m.slug}`;
           const h = ctx.http.apis.get(id);
-          return h ? `http:${h.slug}` : undefined;
+          if (h) return `http:${h.slug}`;
+          const a = ctx.a2a.agents.get(id);
+          return a ? `a2a:${a.slug}` : undefined;
         }
         case 'tool':
           return station;
@@ -113,7 +115,7 @@ function names(ctx: AppContext) {
     /** Reference → station id, or an error message. */
     station(ref: string): { id: string } | { error: string } {
       const i = ref.indexOf(':');
-      if (i < 1) return { error: `"${ref}" is not a member reference (use agent:, group:, team:, model:, provider:, mcp:, http: or tool:)` };
+      if (i < 1) return { error: `"${ref}" is not a member reference (use agent:, group:, team:, model:, provider:, mcp:, http:, a2a: or tool:)` };
       const kind = ref.slice(0, i);
       const name = ref.slice(i + 1).trim();
       switch (kind) {
@@ -135,9 +137,10 @@ function names(ctx: AppContext) {
           return id ? { id: `provider:${id}` } : { error: `no provider with slug "${name}"` };
         }
         case 'mcp':
-        case 'http': {
-          const id = kind === 'mcp' ? ctx.mcp.bySlug.get(name)?.id : ctx.http.bySlug.get(name)?.id;
-          return id ? { id: `mcp:${id}` } : { error: `no ${kind === 'mcp' ? 'MCP server' : 'HTTP API'} with slug "${name}"` };
+        case 'http':
+        case 'a2a': {
+          const id = (kind === 'mcp' ? ctx.mcp.bySlug : kind === 'http' ? ctx.http.bySlug : ctx.a2a.bySlug).get(name)?.id;
+          return id ? { id: `mcp:${id}` } : { error: `no ${kind === 'mcp' ? 'MCP server' : kind === 'http' ? 'HTTP API' : 'A2A agent'} with slug "${name}"` };
         }
         case 'tool':
           return name ? { id: `tool:${name}` } : { error: 'tool: needs a tool name' };
@@ -163,8 +166,8 @@ function names(ctx: AppContext) {
     agentProblem: (name: string) => ((agents.get(name) ?? []).length > 1 ? `${agents.get(name)!.length} agents are named "${name}"` : `no agent named "${name}"`),
     deploymentName: depName,
     deploymentId: (name: string) => deployments.get(name),
-    serverSlug: (id: string) => ctx.mcp.servers.get(id)?.slug ?? ctx.http.apis.get(id)?.slug,
-    serverId: (slug: string) => ctx.mcp.bySlug.get(slug)?.id ?? ctx.http.bySlug.get(slug)?.id,
+    serverSlug: (id: string) => ctx.mcp.servers.get(id)?.slug ?? ctx.http.apis.get(id)?.slug ?? ctx.a2a.agents.get(id)?.slug,
+    serverId: (slug: string) => ctx.mcp.bySlug.get(slug)?.id ?? ctx.http.bySlug.get(slug)?.id ?? ctx.a2a.bySlug.get(slug)?.id,
   };
 }
 
@@ -232,7 +235,7 @@ export function policyYaml(ctx: AppContext): string {
   const head = [
     '# Control Tower policy: zones and the gates between them.',
     `# Exported ${new Date().toISOString()}. Apply with Airspace → Export → Import policy, or POST /admin/api/policy/import.`,
-    '# Members: agent:<name>, model:<name>, provider:<slug>, mcp:<slug>, http:<slug>, tool:<server__tool>.',
+    '# Members: agent:<name>, model:<name>, provider:<slug>, mcp:<slug>, http:<slug>, a2a:<slug>, tool:<server__tool>.',
     ...warnings.map((w) => `# Note: ${w}`),
   ];
   return `${head.join('\n')}\n${stringify(doc, { lineWidth: 0 })}`;

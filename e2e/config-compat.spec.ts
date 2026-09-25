@@ -200,7 +200,7 @@ test('Anthropic SDK and Claude Code: /v1/messages and /v1/messages/count_tokens 
   expect(await count.json()).toEqual({ input_tokens: 42 });
 });
 
-test('Other client headers: x-litellm-api-key, api-key and Azure-style /openai/deployments/<model>', async () => {
+test('Other client headers: the key header other gateways use, api-key and Azure-style /openai/deployments/<model>', async () => {
   const viaAltHeader = await fetch(`${CT}/chat/completions`, {
     method: 'POST',
     headers: { 'x-litellm-api-key': `Bearer ${virtualKey}`, 'content-type': 'application/json' },

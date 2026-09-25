@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { once } from 'node:events';
 import { request } from 'undici';
 import type { AppContext } from '../context.js';
 import { globMatch } from '../registry.js';
@@ -11,12 +12,36 @@ import { namespaced } from '../mcp/registry.js';
 import { DELEGATION_HEADER, DELEGATION_META, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 import { CARD_PATH, LEGACY_CARD_PATH, METHODS, publishedCard, skillsOf } from './card.js';
 import { authHeaders, type A2aAgentRecord } from './registry.js';
+import { readCapped } from '../util/body.js';
 
 type Json = Record<string, unknown>;
 type Status = NonNullable<Flight['status']>;
 const MAX_BODY = 10 * 1024 * 1024;
 /** A2A service parameters a caller may send the agent (A2A-Version, A2A-Extensions). */
 const PASS_HEADERS = ['a2a-version', 'a2a-extensions'];
+
+/**
+ * What a gate's decision — and an approval — is bound to: the call without what changes on every
+ * try of the same call. SDKs make a new messageId per send; the retry carries the approval ticket;
+ * each call gets a new delegation token.
+ */
+export function stableArgs(params: Json): Json {
+  const out: Json = { ...params };
+  if (params.message && typeof params.message === 'object') {
+    const m = { ...(params.message as Json) };
+    delete m.messageId;
+    out.message = m;
+  }
+  if (params.metadata && typeof params.metadata === 'object') {
+    const md = { ...(params.metadata as Json) };
+    delete md.ct_approval;
+    delete md[DELEGATION_META];
+    // Metadata that only carried those is the same call as none at all.
+    if (Object.keys(md).length) out.metadata = md;
+    else delete out.metadata;
+  }
+  return out;
+}
 
 /**
  * The A2A gateway. A remote agent registered under **A2A agents** is served
@@ -63,6 +88,7 @@ export class A2aGateway {
     const key = usableKey(this.ctx, req);
     if (!key) return reply.status(401).send({ error: { code: 'invalid_api_key', message: 'Send your Control Tower key as Authorization: Bearer ct_sk_….' } });
     const agent = this.agentFor((req.params as { slug: string }).slug);
+    if (agent && !key.allowedMcp.some((g) => globMatch(g, namespaced(agent.slug, 'SendMessage')))) return reply.status(403).send({ error: { code: 'tool_not_allowed', message: 'This key may not call that agent.' } });
     if (!agent?.card || !agent.endpoint) return reply.status(404).send({ error: { code: 'agent_not_found', message: 'No A2A agent with that name is registered (or its card could not be read).' } });
     return publishedCard(agent.card, `${this.base(req)}/a2a/${agent.slug}`, agent.protocolVersion ?? '1.0');
   }
@@ -129,7 +155,7 @@ export class A2aGateway {
     try {
       // ---- policy, with the real message as arguments ----
       const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: agent.id, operation: info.op };
-      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args: params, onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });
+      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args: stableArgs(params), onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });
       const approval = typeof meta.ct_approval === 'string' ? meta.ct_approval : req.headers['x-ct-approval'];
       if (decision.effect === 'hold' && typeof approval === 'string' && approval) {
         const r = await ctx.approvals.redeem(approval, key.id, (decision as { scopeHash?: string }).scopeHash ?? '', undefined);
@@ -189,23 +215,50 @@ export class A2aGateway {
 
       // A stream is relayed as it comes (not inspected: it has already reached the caller).
       if (ctype.includes('text/event-stream')) {
+        // A stream can't be inspected before the caller reads it. A method that doesn't stream mustn't slip past inspect gates that way.
+        if (!info.stream && gates.length) {
+          res.body.destroy();
+          return refuse(502, 'error', 'unexpected_stream', `${agent.name} answered ${info.name} with a stream, which the inspect gates on this path can't read.`);
+        }
         reply.hijack();
         reply.raw.writeHead(res.statusCode, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-ct-flight-id': f.id });
         let bytes = 0;
+        // A task may stream for as long as it runs, but not go silent for longer than the agent's timeout.
+        let idle: NodeJS.Timeout | undefined;
+        let idled = false;
+        const arm = () => {
+          clearTimeout(idle);
+          idle = setTimeout(() => {
+            idled = true;
+            f.abort.abort();
+          }, agent.timeoutMs);
+        };
         try {
+          arm();
           for await (const chunk of res.body) {
+            arm();
             bytes += (chunk as Buffer).length;
-            if (!reply.raw.write(chunk)) await new Promise((r) => reply.raw.once('drain', r));
+            if (!reply.raw.write(chunk)) await Promise.race([once(reply.raw, 'drain'), once(reply.raw, 'close')]);
+            if (reply.raw.destroyed) {
+              f.abort.abort();
+              break;
+            }
           }
-          complete(res.statusCode < 400 ? 'ok' : 'error', res.statusCode, undefined, bytes);
+          if (reply.raw.destroyed) complete('client_aborted', 499, { code: 'client_aborted', message: 'client disconnected' }, bytes);
+          else complete(res.statusCode < 400 ? 'ok' : 'error', res.statusCode, undefined, bytes);
         } catch (err) {
-          complete(f.abort.signal.aborted ? 'client_aborted' : 'error', 502, { code: 'stream_error', message: (err as Error).message }, bytes);
+          if (idled) complete('error', 504, { code: 'upstream_timeout', message: `${agent.name} sent nothing for ${Math.round(agent.timeoutMs / 1000)} s` }, bytes);
+          else complete(f.abort.signal.aborted ? 'client_aborted' : 'error', 502, { code: 'stream_error', message: (err as Error).message }, bytes);
+        } finally {
+          clearTimeout(idle);
         }
         reply.raw.end();
         return reply;
       }
 
-      const text = await res.body.text();
+      const raw = await readCapped(res.body, MAX_BODY);
+      if (!raw) return refuse(502, 'error', 'response_too_large', `${agent.name} replied with more than 10 MB; Control Tower does not relay replies that large.`);
+      const text = raw.toString('utf8');
       let parsed: Json | undefined;
       try {
         parsed = JSON.parse(text) as Json;
@@ -236,7 +289,10 @@ export class A2aGateway {
       }
       const timeout = e.name === 'TimeoutError' || e.code === 'UND_ERR_HEADERS_TIMEOUT' || e.code === 'UND_ERR_BODY_TIMEOUT' || e.code === 'UND_ERR_CONNECT_TIMEOUT';
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: agent.id, provider_id: agent.id, upstream_model: info.name, outcome: 'error', error_code: timeout ? 'timeout' : 'unreachable' });
-      return timeout ? refuse(504, 'error', 'upstream_timeout', `${agent.name} did not answer within ${Math.round(agent.timeoutMs / 1000)} s.`) : refuse(502, 'error', 'upstream_unreachable', `Could not reach ${agent.name}: ${e.message}`);
+      if (timeout) return refuse(504, 'error', 'upstream_timeout', `${agent.name} did not answer within ${Math.round(agent.timeoutMs / 1000)} s.`);
+      // The detail (hosts, ports) is for the flight record, not for the calling agent.
+      complete('error', 502, { code: 'upstream_unreachable', message: `Could not reach ${agent.name}: ${e.message}` });
+      return rpcError(502, 502, `Could not reach ${agent.name}.`, { reason: 'UPSTREAM_UNREACHABLE', flight_id: f.id });
     }
   }
 }

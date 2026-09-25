@@ -283,7 +283,9 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
     if (defaultEnv) {
       const v = lookupEnv(defaultEnv);
       if (v) values[field] = v;
-      return { field, label, secret, required, from: v ? 'default_env' : 'missing', env: defaultEnv };
+      // Read quietly, never named back to the user: a variable from another gateway's conventions.
+      const shown = /^LITELLM_/.test(defaultEnv) ? {} : { env: defaultEnv };
+      return { field, label, secret, required, from: v ? 'default_env' : 'missing', ...shown };
     }
     return { field, label, secret, required, from: 'missing' };
   };

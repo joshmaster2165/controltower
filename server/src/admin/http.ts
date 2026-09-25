@@ -72,7 +72,7 @@ export async function httpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pr
     const baseUrl = (b.base_url ?? '').trim();
     if (!name || !slug) return reply.status(400).send({ error: { code: 'invalid', message: 'name is required' } });
     if (!/^https?:\/\/[^\s/]+/.test(baseUrl)) return reply.status(400).send({ error: { code: 'invalid', message: 'base URL must start with http:// or https://' } });
-    if (ctx.http.bySlug.has(slug) || ctx.mcp.bySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `"${slug}" is already used by another API or tool server` } });
+    if (ctx.http.bySlug.has(slug) || ctx.mcp.bySlug.has(slug) || ctx.a2a.bySlug.has(slug)) return reply.status(409).send({ error: { code: 'conflict', message: `"${slug}" is already used by another API, tool server or agent` } });
     const id = `http_${ulid()}`;
     const now = Date.now();
     const auth = validAuth(b.auth);

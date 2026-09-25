@@ -27,6 +27,25 @@ const PASS_HEADERS = ['a2a-version', 'a2a-extensions'];
  * try of the same call. SDKs make a new messageId per send; the retry carries the approval ticket;
  * each call gets a new delegation token.
  */
+/** Task states, in either protocol version, that mean the agent did not do what it was asked. */
+const FAILED_STATES: Record<string, 'failed' | 'rejected'> = { TASK_STATE_FAILED: 'failed', failed: 'failed', TASK_STATE_REJECTED: 'rejected', rejected: 'rejected' };
+const STATE_RE = /"state"\s*:\s*"([A-Za-z_-]+)"/g;
+
+/**
+ * A well-formed reply can still report failure: the agent answers with a task whose state is failed
+ * or rejected. That call failed, and is recorded so — with what the agent said about it.
+ */
+export function failedTask(result: unknown): { code: string; message: string } | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const r = result as Record<string, any>;
+  const task = r.task && typeof r.task === 'object' ? r.task : r; // 1.0 wraps the task; 0.3 returns it
+  const state = FAILED_STATES[String(task?.status?.state ?? '')];
+  if (!state) return undefined;
+  const parts = (task.status?.message?.parts ?? []) as Array<Record<string, any>>;
+  const said = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join(' ').trim();
+  return { code: `agent_task_${state}`, message: said ? said.slice(0, 300) : `the agent reported its task ${state}` };
+}
+
 export function stableArgs(params: Json): Json {
   const out: Json = { ...params };
   if (params.message && typeof params.message === 'object') {
@@ -237,6 +256,9 @@ export class A2aGateway {
         reply.hijack();
         reply.raw.writeHead(res.statusCode, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-ct-flight-id': f.id });
         let bytes = 0;
+        // The last task state the stream reported: a task that ends failed or rejected is a failed call.
+        let tail = '';
+        let lastState = '';
         // A task may stream for as long as it runs, but not go silent for longer than the agent's timeout.
         let idle: NodeJS.Timeout | undefined;
         let idled = false;
@@ -252,6 +274,9 @@ export class A2aGateway {
           for await (const chunk of res.body) {
             arm();
             bytes += (chunk as Buffer).length;
+            const seen = tail + (chunk as Buffer).toString('utf8');
+            for (const m of seen.matchAll(STATE_RE)) lastState = m[1]!;
+            tail = seen.slice(-256);
             if (!reply.raw.write(chunk)) await Promise.race([once(reply.raw, 'drain'), once(reply.raw, 'close')]);
             if (reply.raw.destroyed) {
               f.abort.abort();
@@ -259,6 +284,7 @@ export class A2aGateway {
             }
           }
           if (reply.raw.destroyed) complete('client_aborted', 499, { code: 'client_aborted', message: 'client disconnected' }, bytes);
+          else if (FAILED_STATES[lastState]) complete('error', res.statusCode, { code: `agent_task_${FAILED_STATES[lastState]}`, message: `the agent reported its task ${FAILED_STATES[lastState]}` }, bytes);
           else complete(res.statusCode < 400 ? 'ok' : 'error', res.statusCode, undefined, bytes);
         } catch (err) {
           if (idled) complete('error', 504, { code: 'upstream_timeout', message: `${agent.name} sent nothing for ${Math.round(agent.timeoutMs / 1000)} s` }, bytes);
@@ -281,6 +307,7 @@ export class A2aGateway {
       }
       if (!parsed) {
         complete('error', 502, { code: 'invalid_agent_response', message: `the agent answered HTTP ${res.statusCode} without JSON-RPC` }, text.length);
+        ctx.a2a.recheck(agent);
         return rpcError(502, -32006, `${agent.name} did not answer with JSON-RPC (HTTP ${res.statusCode}).`, { reason: 'INVALID_AGENT_RESPONSE', flight_id: f.id });
       }
       // ---- inspect what comes back: what the calling agent is about to read ----
@@ -293,7 +320,8 @@ export class A2aGateway {
       // An extended card is published pointing at Control Tower too.
       if (info.card && parsed.result && typeof parsed.result === 'object') parsed = { ...parsed, result: publishedCard(parsed.result as Json, `${this.base(req)}/a2a/${agent.slug}`, agent.protocolVersion ?? '1.0') };
       const err = parsed.error as { code?: number; message?: string } | undefined;
-      complete(err ? 'error' : res.statusCode < 400 ? 'ok' : 'error', res.statusCode, err ? { code: `a2a_${err.code ?? 'error'}`, message: String(err.message ?? '') } : undefined, text.length);
+      const failed = err ? undefined : failedTask(parsed.result);
+      complete(err || failed ? 'error' : res.statusCode < 400 ? 'ok' : 'error', res.statusCode, err ? { code: `a2a_${err.code ?? 'error'}`, message: String(err.message ?? '') } : failed, text.length);
       return reply.status(res.statusCode).header('content-type', 'application/json').send(parsed);
     } catch (err) {
       const e = err as Error & { code?: string; name?: string };
@@ -306,6 +334,7 @@ export class A2aGateway {
       if (timeout) return refuse(504, 'error', 'upstream_timeout', `${agent.name} did not answer within ${Math.round(agent.timeoutMs / 1000)} s.`);
       // The detail (hosts, ports) is for the flight record, not for the calling agent.
       complete('error', 502, { code: 'upstream_unreachable', message: `Could not reach ${agent.name}: ${e.message}` });
+      ctx.a2a.recheck(agent);
       return rpcError(502, 502, `Could not reach ${agent.name}.`, { reason: 'UPSTREAM_UNREACHABLE', flight_id: f.id });
     }
   }

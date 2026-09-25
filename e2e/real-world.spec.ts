@@ -607,6 +607,11 @@ test('A2A: a remote agent behind Control Tower — its card, messages, streams, 
   expect(reg.body.check.ok).toBe(true);
   expect(reg.body.agent).toMatchObject({ protocol_version: '1.0', endpoint: `${remote.url}/rpc`, agent_id: 'rw-a2a-research', skills: [{ id: 'research', name: 'Research' }] });
   expect((await admin.post('/admin/api/a2a/agents', { name: 'Research', slug: 'researcher', url: remote.url })).status).toBe(409);
+  // A card that's fine in front of an endpoint that doesn't answer JSON-RPC (here: wrong credentials) is down, not ok.
+  const broken = await admin.post('/admin/api/a2a/agents', { name: 'Broken research', slug: 'broken-research', url: remote.url, auth: { type: 'bearer', token: 'wrong-secret' } });
+  expect(broken.body.check).toMatchObject({ ok: false });
+  expect(broken.body.check.detail).toMatch(/card is fine, but its endpoint answered HTTP 401/);
+  await admin.call('DELETE', `/admin/api/a2a/agents/${broken.body.agent?.id ?? broken.body.id}`);
 
   const caller = await key('rw-a2a-caller', { agent_id: 'rw-a2a-caller', team: 'support' });
   const auth = { authorization: `Bearer ${caller.key}` };
@@ -633,7 +638,12 @@ test('A2A: a remote agent behind Control Tower — its card, messages, streams, 
   const task = ((await sent.json()) as any).result.task;
   expect(task.status.state).toBe('TASK_STATE_COMPLETED');
   expect(task.artifacts[0].parts[0].text).toBe('echo: What is our refund policy?');
-  const call = remote.calls.find((c) => c.path === '/rpc')!;
+  // Health checks ask the endpoint for a task that doesn't exist, with the agent's credentials and no delegation.
+  const probe = remote.calls.find((c) => c.path === '/rpc' && c.body.includes('controltower-health'))!;
+  expect(JSON.parse(probe.body)).toMatchObject({ method: 'GetTask' });
+  expect(probe.headers.authorization).toBe('Bearer agent-secret');
+  expect(probe.headers['x-ct-delegation']).toBeUndefined();
+  const call = remote.calls.find((c) => c.path === '/rpc' && c.body.includes('SendMessage'))!;
   expect(call.headers.authorization).toBe('Bearer agent-secret');
   expect(JSON.stringify(call.headers)).not.toContain(caller.key);
   const token = String(call.headers['x-ct-delegation']);

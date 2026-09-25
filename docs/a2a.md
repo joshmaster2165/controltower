@@ -136,6 +136,8 @@ An approval is bound to the message's content, not its `messageId`: SDKs make a 
 - **Push notifications** go from the agent straight to the webhook the caller gave it, not through Control Tower. Creating and listing push configurations do go through it and can be gated.
 - **The agent's card signatures** are removed from the published card: it is no longer the card the agent signed.
 - The card is read again every 10 minutes, and on **Re-read card**. An agent whose card can't be read is marked down and keeps its last good card.
+- Each check also asks the agent's endpoint for a task that doesn't exist (`GetTask`, or `tasks/get` for 0.3), with the agent's credentials: any JSON-RPC answer means the agent is there. A card in front of an endpoint that doesn't answer is marked down (*its card is fine, but its endpoint answered HTTP 404 without JSON-RPC*). A call that finds the endpoint broken or unreachable checks it again at once (at most once a minute).
+- A reply that reports the task **failed** or **rejected** is a failed call: its flight is an error (`agent_task_failed`, `agent_task_rejected`) with what the agent said — for streams, the last state the stream reported.
 
 ## Troubleshooting
 

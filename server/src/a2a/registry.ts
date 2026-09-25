@@ -156,8 +156,16 @@ export class A2aRegistry {
       await this.reload();
       return { ok: false, detail: ep.error, latencyMs: now - t0 };
     }
+    // The card can be fine while nothing answers at its endpoint: ask the endpoint something harmless.
+    const answers = await this.probeEndpoint(agent, ep.url, ep.version);
+    if (!answers.ok) {
+      const at = Date.now();
+      await this.db.updateTable('a2a_agents').set({ health: 'down', health_detail: `its card is fine, but ${answers.detail}`, card_cache: JSON.stringify(found.card), endpoint: ep.url, protocol_version: ep.version, last_checked_at: at, updated_at: at }).where('id', '=', agent.id).execute();
+      await this.reload();
+      return { ok: false, detail: `its card is fine, but ${answers.detail}`, latencyMs: at - t0 };
+    }
     const skills = Array.isArray(found.card.skills) ? found.card.skills.length : 0;
-    detail = `A2A ${ep.version} · ${skills} skill${skills === 1 ? '' : 's'} · card in ${now - t0} ms`;
+    detail = `A2A ${ep.version} · ${skills} skill${skills === 1 ? '' : 's'} · card in ${now - t0} ms · endpoint answers`;
     await this.db
       .updateTable('a2a_agents')
       .set({ health: 'ok', health_detail: detail, card_cache: JSON.stringify(found.card), endpoint: ep.url, protocol_version: ep.version, last_checked_at: now, updated_at: now })
@@ -165,6 +173,44 @@ export class A2aRegistry {
       .execute();
     await this.reload();
     return { ok: true, detail, latencyMs: now - t0 };
+  }
+
+  /**
+   * Is anything answering JSON-RPC at the endpoint? Asks for a task that doesn't exist: any JSON-RPC
+   * reply — an error saying so included — means the agent is there. Reads nothing and changes nothing.
+   */
+  private async probeEndpoint(agent: A2aAgentRecord, url: string, version: string): Promise<{ ok: boolean; detail: string }> {
+    const method = version.startsWith('0.') ? 'tasks/get' : 'GetTask';
+    try {
+      const res = await request(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json', ...authHeaders(agent.auth) },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 'controltower-health', method, params: { id: 'controltower-health-check' } }),
+        headersTimeout: 8000,
+        bodyTimeout: 8000,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const raw = await readCapped(res.body, 64 * 1024);
+      let body: unknown;
+      try {
+        body = raw ? JSON.parse(raw.toString('utf8')) : undefined;
+      } catch {
+        body = undefined;
+      }
+      if (body && typeof body === 'object' && (body as { jsonrpc?: unknown }).jsonrpc === '2.0') return { ok: true, detail: 'endpoint answers' };
+      return { ok: false, detail: `its endpoint answered HTTP ${res.statusCode} without JSON-RPC` };
+    } catch (err) {
+      return { ok: false, detail: `its endpoint can't be reached: ${(err as Error).message}` };
+    }
+  }
+
+  private rechecked = new Map<string, number>();
+  /** After a call finds an agent's endpoint broken, check its health again — at most once a minute per agent. */
+  recheck(agent: A2aAgentRecord): void {
+    const last = this.rechecked.get(agent.id) ?? 0;
+    if (Date.now() - last < 60_000) return;
+    this.rechecked.set(agent.id, Date.now());
+    void this.discover(agent).catch(() => undefined);
   }
 
   startHealthLoop(intervalMs = 10 * 60_000): void {

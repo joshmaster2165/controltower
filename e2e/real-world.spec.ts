@@ -966,6 +966,40 @@ test('MCP: an inspect gate masks personal data in a tool result before the agent
   await client.close();
 });
 
+test('MCP: resources and prompts are flights too — recorded, gated and inspected', async () => {
+  const agent = await key('rw-resource-reader');
+  const client = new Client({ name: 'resource-reader', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${CT}/mcp/files`), { requestInit: { headers: { authorization: `Bearer ${agent.key}` } } }));
+  expect((await client.listResources()).resources.map((r) => r.uri)).toEqual(['file:///notes/plan.md']);
+  const doc = await client.readResource({ uri: 'file:///notes/plan.md' });
+  expect(String((doc.contents[0] as { text: string }).text)).toContain('Q3 plan');
+  const prompt = await client.getPrompt({ name: 'summarise', arguments: { path: 'plan.md' } });
+  expect(JSON.stringify(prompt.messages)).toContain('three bullet points');
+  const flights = await flightsFor(agent.id, (f) => f.length >= 2);
+  expect(flights.map((f) => f.tool).sort()).toEqual(['prompts/get', 'resources/read']);
+  expect(flights.every((f) => f.kind === 'mcp.tool' && f.status === 'ok')).toBe(true);
+
+  // An inspect gate strips the instruction hidden in the document before the agent reads it.
+  const clean = await admin.post('/admin/api/rules', { name: 'No injected instructions from files', target_kind: 'tool', match: { tools: ['files__resources/read'] }, effect: 'inspect', config: { detectors: ['injection'], action: 'mask', direction: 'output' }, priority: 30 });
+  expect(clean.status).toBe(201);
+  const masked = String(((await client.readResource({ uri: 'file:///notes/plan.md' })).contents[0] as { text: string }).text);
+  expect(masked).toContain('Q3 plan');
+  expect(masked).not.toMatch(/ignore all previous instructions/i);
+  await admin.call('DELETE', `/admin/api/rules/${clean.body.id}`);
+
+  // A deny gate refuses reading resources; a key allowed only tools doesn't see them listed.
+  const deny = await admin.post('/admin/api/rules', { name: 'No reading files resources', target_kind: 'tool', match: { tools: ['files__resources/read'] }, effect: 'deny', priority: 5 });
+  await expect(client.readResource({ uri: 'file:///notes/plan.md' })).rejects.toThrow(/No reading files resources/);
+  await admin.call('DELETE', `/admin/api/rules/${deny.body.id}`);
+  await client.close();
+  const toolsOnly = await key('rw-tools-only', { allowed_mcp: ['files__read_file'] });
+  const narrow = new Client({ name: 'tools-only', version: '1.0.0' });
+  await narrow.connect(new StreamableHTTPClientTransport(new URL(`${CT}/mcp/files`), { requestInit: { headers: { authorization: `Bearer ${toolsOnly.key}` } } }));
+  expect((await narrow.listResources()).resources).toEqual([]);
+  await expect(narrow.readResource({ uri: 'file:///notes/plan.md' })).rejects.toThrow();
+  await narrow.close();
+});
+
 test('MCP: health checks do not leak upstream sessions', async () => {
   const deletesBefore = mcp.calls.filter((c) => c.method === 'DELETE').length;
   const initsBefore = mcp.calls.filter((c) => c.body.includes('"method":"initialize"')).length;

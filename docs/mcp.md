@@ -40,6 +40,15 @@ Everything in [the Airspace](airspace.md) applies: drag from an agent to a serve
 - **Held** — the call waits for a human; the card shows the tool's actual arguments. Unanswered, the result carries a ticket to retry with once approved.
 - **Inspected** — arguments and results are scanned. Scanning tool **results** is where indirect prompt injection and data leaks are caught before the model reads them: mask an email address in a CRM record, block instructions hidden in a web page.
 
+## Resources and prompts
+
+On a single server's endpoint (`/mcp/<slug>`), agents can also list and read the server's **resources** and get its **prompts**. Reading a resource and getting a prompt are flights like tool calls — recorded, gated and inspected — named `<slug>__resources/read` and `<slug>__prompts/get`, with the URI or prompt name and arguments as their arguments:
+
+- A key's `allowed_mcp` must cover them (`docs__*` does; `docs__search` alone doesn't): otherwise the lists come back empty and reads are refused.
+- A gate on `docs__resources/read` blocks, holds or inspects reads — an inspect gate on the output is where instructions hidden in documents are caught. Match a single resource with an argument constraint on `uri`.
+- A refused read or prompt comes back as a JSON-RPC error with the reason.
+- A server that fronts an agent is sent a delegation token with them too.
+
 ## In the config file
 
 `mcp_servers` entries in a [config file](config-file.md) (URL, `auth_type`, `auth_value`, `static_headers`) become MCP servers, both with **Import config** and with `--config`. See [Config file](config-file.md#mcp_servers).

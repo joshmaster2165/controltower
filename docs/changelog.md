@@ -4,6 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **MCP resources and prompts are flights:** reading a resource and getting a prompt on `/mcp/<slug>` are recorded, gated (`<slug>__resources/read`, `<slug>__prompts/get`), inspected and carry delegation tokens; lists follow the key's `allowed_mcp`. They used to pass through unrecorded.
 - **Delegation tokens can be renewed** for tasks that outlast them: `POST /v1/delegation/renew` gives the agent a fresh token for the same chain, for up to 24 hours from the first.
 - **Agent loops stop at the first repeat:** a call to an agent already earlier in the chain (A → B → A) is refused with `delegation_loop` and recorded, instead of going round until the chain is 8 agents deep.
 - **Arcs on the Airspace open the calls behind them:** click an arc between two agents to see each call, what it led to, and a trace into Flights.

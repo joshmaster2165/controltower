@@ -179,12 +179,22 @@ export class McpGateway {
       case 'tools/call':
         return this.callTool(m, key, only, req);
       case 'resources/list':
-      case 'resources/read':
       case 'resources/templates/list':
-      case 'prompts/list':
-      case 'prompts/get': {
-        if (!only) return m.method.endsWith('/list') ? { [m.method.startsWith('resources') ? (m.method.includes('templates') ? 'resourceTemplates' : 'resources') : 'prompts']: [] } : rpcFail(-32601, 'Use /mcp/<server> for resources and prompts');
+      case 'prompts/list': {
+        const empty = { [m.method.startsWith('resources') ? (m.method.includes('templates') ? 'resourceTemplates' : 'resources') : 'prompts']: [] };
+        if (!only) return empty;
+        // A key that may read none of this server's resources or prompts doesn't see them listed.
+        const what = m.method.startsWith('resources') ? 'resources/read' : 'prompts/get';
+        if (!key.allowedMcp.some((g) => globMatch(g, namespaced(only.slug, what)))) return empty;
         return this.ctx.mcp.client(only).call(m.method, m.params ?? {});
+      }
+      case 'resources/read':
+      case 'prompts/get': {
+        if (!only) rpcFail(-32601, 'Use /mcp/<server> for resources and prompts');
+        // Reading a resource or getting a prompt is a flight like a tool call: recorded, gated, inspected.
+        const r = await this.callTool(m, key, only, req, m.method);
+        if (r && typeof r === 'object' && '__ct_blocked' in r) throw new RpcFailure(-32003, String((r as unknown as { text: string }).text));
+        return r;
       }
       default:
         throw new RpcFailure(-32601, `Method not found: ${m.method}`);
@@ -193,11 +203,17 @@ export class McpGateway {
 
   // ---- tools/call as a Flight ----
 
-  private async callTool(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest): Promise<unknown> {
+  /**
+   * A tools/call — or, with `method`, a resources/read or prompts/get on one server — as a flight.
+   * Those two are reads named `<server>__resources/read` and `<server>__prompts/get`, their
+   * parameters the arguments, so gates, allow-lists and inspect gates apply to them as to tools.
+   */
+  private async callTool(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest, method?: 'resources/read' | 'prompts/get'): Promise<unknown> {
     const ctx = this.ctx;
     const params = m.params ?? {};
-    const requested = String(params.name ?? '');
-    const args = (params.arguments as Record<string, unknown> | undefined) ?? {};
+    const requested = method ?? String(params.name ?? '');
+    const { _meta: _ignored, ...plain } = params as Record<string, unknown>;
+    const args = method ? plain : ((params.arguments as Record<string, unknown> | undefined) ?? {});
     let server: McpServerRecord | undefined;
     let toolName: string;
     if (only) {
@@ -210,7 +226,7 @@ export class McpGateway {
       toolName = split.tool;
     }
     const full = server ? namespaced(server.slug, toolName) : requested;
-    const tool = server?.tools.find((t) => t.name === toolName);
+    const tool = method ? { name: method, annotations: { readOnlyHint: true } } : server?.tools.find((t) => t.name === toolName);
 
     const f: Flight = newFlight('mcp.tool', 'openai-chat', { name: full, arguments: args, stream: false });
     f.modelRequested = full;
@@ -258,10 +274,11 @@ export class McpGateway {
         error,
       });
     };
-    const blocked = (ctStatus: string, message: string, extra: Record<string, unknown>) => ({
-      content: [{ type: 'text', text: `${message}\n${JSON.stringify({ ct_status: ctStatus, flight_id: f.id, ...extra })}` }],
-      isError: true,
-    });
+    const blocked = (ctStatus: string, message: string, extra: Record<string, unknown>) => {
+      const text = `${message}\n${JSON.stringify({ ct_status: ctStatus, flight_id: f.id, ...extra })}`;
+      // A tool's refusal is a tool result the model reads; a resource or prompt has no such shape, so it is an error.
+      return method ? { __ct_blocked: true, text } : { content: [{ type: 'text', text }], isError: true };
+    };
 
     // Whom this call is for, when an agent is acting for another: the token arrives in _meta or as a header.
     const metaToken = (params._meta as Record<string, unknown> | undefined)?.[DELEGATION_META];
@@ -303,7 +320,7 @@ export class McpGateway {
       if (!('error' in deleg) && deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
 
       // ---- policy (with the real arguments) ----
-      const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: server.id, operation: classifyOperation(tool) };
+      const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: server.id, operation: method ? 'read' : classifyOperation(tool as McpTool) };
       let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args, onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });
       const presentedApproval = req.headers['x-ct-approval'] ?? (params._meta as { ct_approval?: string } | undefined)?.ct_approval;
       if (decision.effect === 'hold' && typeof presentedApproval === 'string' && presentedApproval) {
@@ -356,7 +373,9 @@ export class McpGateway {
       const client = ctx.mcp.client(server);
       // A server that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
       const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id) : undefined;
-      let result = await client.callTool(toolName, callArgs, f.abort.signal, token ? { headers: { [DELEGATION_HEADER]: token }, meta: { [DELEGATION_META]: token } } : {});
+      let result = method
+        ? ((await client.call(method, { ...callArgs, ...(token ? { _meta: { [DELEGATION_META]: token } } : {}) }, f.abort.signal, token ? { [DELEGATION_HEADER]: token } : undefined)) as Record<string, unknown>)
+        : await client.callTool(toolName, callArgs, f.abort.signal, token ? { headers: { [DELEGATION_HEADER]: token }, meta: { [DELEGATION_META]: token } } : {});
       if (f.t.ttfb == null) f.t.ttfb = Date.now();
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: server.id, provider_id: server.id, upstream_model: toolName, outcome: 'ok', status: 200, ttfb_ms: f.t.ttfb - f.t.start });
       // ---- inspect the result: what the model is about to read ----

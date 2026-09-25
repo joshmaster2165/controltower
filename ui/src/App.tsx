@@ -11,6 +11,7 @@ import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
 import { McpPage } from './pages/Mcp';
 import { HttpApisPage } from './pages/HttpApis';
+import { A2aAgentsPage } from './pages/A2aAgents';
 import { WelcomePage } from './pages/Welcome';
 import { LedgerPage } from './pages/Ledger';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
@@ -43,6 +44,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'keys', label: 'Keys', icon: 'key', hint: 'One API key per agent' },
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
+      { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
     ],
   },
   {
@@ -222,6 +224,7 @@ export function App() {
         {route === 'models' && <ModelsPage />}
         {route === 'mcp' && <McpPage />}
         {route === 'http' && <HttpApisPage />}
+        {route === 'a2a' && <A2aAgentsPage />}
         {route === 'welcome' && <WelcomePage />}
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}

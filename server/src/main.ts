@@ -15,6 +15,7 @@ import { EventRing } from './events/ring.js';
 import { LiveFrames } from './admin/live.js';
 import { PathsStore } from './events/paths.js';
 import { Delegations } from './policy/delegation.js';
+import { A2aRegistry } from './a2a/registry.js';
 import { PolicyService } from './policy/policy.js';
 import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
@@ -90,6 +91,8 @@ async function main(): Promise<void> {
   const mcp = new McpRegistry(db.write, secrets);
   await mcp.reload();
   const http = new HttpApiRegistry(db.write, secrets);
+  const a2a = new A2aRegistry(db.write, secrets);
+  await a2a.reload();
   await http.reload();
   const policy = new PolicyService(db.read, () => config.mode === 'on');
   await policy.reload();
@@ -179,6 +182,7 @@ async function main(): Promise<void> {
     live,
     paths,
     delegations: new Delegations(secrets.deriveKey('delegation')),
+    a2a,
     policy,
     approvals,
     approvalsVersion,
@@ -266,6 +270,7 @@ async function main(): Promise<void> {
 
   mcp.startHealthLoop();
   http.startHealthLoop();
+  a2a.startHealthLoop();
 
   const checkpoint = setInterval(() => {
     try {
@@ -295,6 +300,7 @@ async function main(): Promise<void> {
     observed.stop();
     mcp.stop();
     http.stop();
+    a2a.stop();
     live.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);

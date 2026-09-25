@@ -479,3 +479,30 @@ ALTER TABLE api_keys ADD COLUMN delegated_only INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE flights ADD COLUMN on_behalf_of TEXT;
 `,
 });
+
+// Remote agents reached over A2A (Agent2Agent), served at /a2a/<slug>.
+migrations.push({
+  version: 11,
+  name: 'a2a_agents',
+  sqlite: `
+CREATE TABLE a2a_agents (
+  id              TEXT PRIMARY KEY,
+  slug            TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL,
+  card_url        TEXT NOT NULL,
+  endpoint        TEXT,
+  protocol_version TEXT,
+  auth_enc        TEXT,
+  agent_id        TEXT,
+  card_cache      TEXT,
+  timeout_ms      INTEGER NOT NULL DEFAULT 120000,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  health          TEXT NOT NULL DEFAULT 'unknown',
+  health_detail   TEXT,
+  last_checked_at INTEGER,
+  demo            INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+`,
+});

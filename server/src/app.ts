@@ -22,11 +22,13 @@ import { importRoutes } from './admin/import.js';
 import { exportRoutes } from './admin/export.js';
 import { McpGateway } from './mcp/gateway.js';
 import { HttpGateway } from './http/gateway.js';
+import { A2aGateway } from './a2a/gateway.js';
 import { httpAdminRoutes } from './admin/http.js';
 import { managementApiRoutes } from './admin/management-api.js';
 import { budgetRoutes } from './admin/budgets.js';
 import { replayRoutes } from './admin/replay.js';
 import { viewRoutes } from './admin/views.js';
+import { a2aAdminRoutes } from './admin/a2a.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 import { mountDemoHttpApis } from './demo/http-apis.js';
 
@@ -91,6 +93,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   await app.register(async (g) => compatRoutes(g, full));
   await app.register(async (g) => new McpGateway(full).register(g));
   await app.register(async (g) => new HttpGateway(full).register(g));
+  await app.register(async (g) => new A2aGateway(full).register(g));
   // Demo upstreams are always mounted but answer only while demo mode is on (it can be started from the console).
   await app.register(async (g) => {
     g.addHook('onRequest', async (_req, reply) => {
@@ -111,6 +114,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await budgetRoutes(a, full);
     await replayRoutes(a, full);
     await viewRoutes(a, full);
+    await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);
     await exportRoutes(a, full);

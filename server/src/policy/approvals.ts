@@ -9,6 +9,7 @@ import { E, type GatewayError } from '../gateway/errors.js';
 import type { FlightBus } from '../events/bus.js';
 import type { Versioned } from '../util/versioned.js';
 import { dedupeKey, opaqueToken } from './hash.js';
+import { isToolKind } from '@controltower/shared';
 
 /**
  * Human-in-the-loop hold.
@@ -106,7 +107,7 @@ export class ApprovalService implements Approvals {
           rule_id: d.ruleId ?? null,
           rule_revision: rule?.revision ?? null,
           summary: d.summary ?? `${key.name} → ${flight.modelRequested}`,
-          target: JSON.stringify({ kind: flight.kind === 'mcp.tool' || flight.kind === 'http.request' ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo }),
+          target: JSON.stringify({ kind: isToolKind(flight.kind) ? 'tool' : 'model', name: flight.modelRequested, deployment_id: flight.deployment?.id, provider: flight.provider?.slug, zone_from: d.zoneFrom, zone_to: d.zoneTo }),
           args_preview: JSON.stringify(previewArgs(flight)),
           arg_hash: argHash || null,
           scope_hash: sh,
@@ -345,6 +346,13 @@ function previewArgs(flight: Flight): Record<string, unknown> {
     const a = (flight.body.arguments as Record<string, unknown>) ?? {};
     const body = a.body === undefined ? '' : typeof a.body === 'string' ? a.body : JSON.stringify(a.body);
     return body.length > 4000 ? { ...a, body: `${body.slice(0, 4000)}… (${Math.round(body.length / 1024)} KB, truncated)` } : a;
+  }
+  // A2A: the method and the message's text, and which task it continues.
+  if (flight.kind === 'a2a.call') {
+    const a = (flight.body.arguments as Record<string, unknown>) ?? {};
+    const msg = (a.message ?? {}) as { parts?: Array<{ text?: unknown }>; taskId?: unknown; contextId?: unknown };
+    const text = (msg.parts ?? []).map((p) => (typeof p?.text === 'string' ? p.text : '')).join(' ').trim();
+    return { method: flight.body.method, ...(text ? { message: text.slice(0, 2000) } : {}), ...(msg.taskId ? { task_id: msg.taskId } : a.id ? { task_id: a.id } : {}), ...(msg.contextId ? { context_id: msg.contextId } : {}) };
   }
   // Chat and Messages carry `messages`; the Responses API carries `input` (a string or input items).
   const input = flight.body.input;

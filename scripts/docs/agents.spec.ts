@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { openAiUpstream, subAgentUpstream } from '../../e2e/support/upstreams';
+import { a2aUpstream, openAiUpstream, subAgentUpstream } from '../../e2e/support/upstreams';
 import { field } from '../../e2e/support/ui';
 import { nav, shot, startServer } from './helpers';
 
@@ -105,5 +105,60 @@ test('agents calling agents', async ({ page }) => {
   } finally {
     await ct.stop();
     await Promise.all([oai.close(), sub.close()]);
+  }
+});
+
+test('A2A agents', async ({ page }) => {
+  const remote = await a2aUpstream({ version: '1.0', token: 'research-secret', reply: () => 'Refunds within 30 days, no questions asked.' });
+  const ct = await startServer(4711, { CT_ADMIN_KEY: ADMIN_KEY });
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(ct.url);
+    await field(page, /^Email or username/).fill('admin');
+    await field(page, /^Password/).fill(ADMIN_KEY);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('link', { name: 'Keys' })).toBeVisible();
+
+    // Register the remote agent by its card.
+    await nav(page, 'A2A agents');
+    await page.getByRole('button', { name: /Add agent/ }).click();
+    const form = page.locator('form.card');
+    await field(form, /^Name$/).fill('Research agent');
+    await field(form, /^Slug/).fill('research');
+    const url = field(form, /Agent Card URL/);
+    await url.fill(remote.url);
+    await form.locator('select').selectOption('bearer');
+    await field(form, /Token/).fill('research-secret');
+    await shot(page, 'a2a-protocol-form', { clip: form, el: url });
+    await form.getByRole('button', { name: /Add & read card/ }).click();
+    await expect(page.locator('.provider-card')).toContainText('reachable');
+
+    // support-bot sends it a few messages over A2A.
+    const bot = (await fetch(`${ct.url}/admin/api/keys`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'support-bot', team: 'support' }) }).then((r) => r.json())) as { key: string };
+    const rpc = (method: string, params: unknown) =>
+      fetch(`${ct.url}/a2a/research`, { method: 'POST', headers: { authorization: `Bearer ${bot.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<any>);
+    let taskId = '';
+    for (const q of ['What is the refund policy?', 'Do refunds cover shipping?', 'Can a refund go to a different card?']) {
+      const r = await rpc('SendMessage', { message: { messageId: q, role: 'ROLE_USER', parts: [{ text: q }] } });
+      taskId = r.result.task.id;
+    }
+    await rpc('GetTask', { id: taskId });
+
+    await expect
+      .poll(async () => ((await fetch(`${ct.url}/admin/api/a2a/agents`, { headers: { authorization: `Bearer ${ADMIN_KEY}` } }).then((r) => r.json())) as any).agents[0].methods.length)
+      .toBe(2);
+    await page.reload();
+    const card = page.locator('.provider-card').first();
+    await expect(card).toContainText('SendMessage');
+    await shot(page, 'a2a-protocol-agent', { clip: card });
+
+    await nav(page, 'Airspace');
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => (window as unknown as { __ctScene: { fit(): void } }).__ctScene.fit());
+    await page.waitForTimeout(500);
+    await shot(page, 'a2a-protocol-map');
+  } finally {
+    await ct.stop();
+    await remote.close();
   }
 });

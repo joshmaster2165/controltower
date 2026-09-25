@@ -117,7 +117,7 @@ export interface TopologyMcpServer {
   tools: TopologyMcpTool[];
   demo: boolean;
   /** 'http': a plain HTTP API proxied at /http/<slug>/…, its rows are routes rather than tools. */
-  protocol?: 'mcp' | 'http';
+  protocol?: 'mcp' | 'http' | 'a2a';
   /** The agent this server fronts: calls to it are agent-to-agent. */
   agent_id?: string;
 }

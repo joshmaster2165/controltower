@@ -209,7 +209,7 @@ export function HttpApisPage() {
                   <div key={r.name} className="tool-row" title={`${num(r.requests)} calls in the last 7 days`}>
                     <span className="mono">{r.name}</span>
                     <span className={`op ${r.op === 'admin' ? 'admin' : r.op}`}>{r.op === 'admin' ? 'destructive' : r.op}</span>
-                    <span className="tool-desc">{num(r.requests)} calls · 7 d</span>
+                    <span className="tool-desc">{num(r.requests)} call{r.requests === 1 ? '' : 's'} · 7 d</span>
                   </div>
                 ))}
               </div>

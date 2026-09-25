@@ -205,6 +205,89 @@ export function subAgentUpstream(work: (question: string, token: string | undefi
   });
 }
 
+/**
+ * A remote agent speaking A2A over JSON-RPC, as the specification describes it: an Agent Card at
+ * `/.well-known/agent-card.json` and a JSON-RPC endpoint at `/rpc` that requires `token`. Version
+ * '1.0' uses `supportedInterfaces` and PascalCase methods (SendMessage, SendStreamingMessage,
+ * GetTask, GetExtendedAgentCard); '0.3' uses `url` / `preferredTransport` and `message/send`.
+ * Replies echo the message's text, so a test can see what arrived.
+ */
+export function a2aUpstream(opts: { version: '1.0' | '0.3'; token: string; reply?: (text: string) => string }): Promise<Upstream & { tasks: Map<string, unknown> }> {
+  const tasks = new Map<string, unknown>();
+  let base = '';
+  const card = () =>
+    opts.version === '1.0'
+      ? {
+          name: 'Research agent',
+          description: 'Answers research questions',
+          version: '2.1.0',
+          supportedInterfaces: [{ url: `${base}/rpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
+          capabilities: { streaming: true, extendedAgentCard: true },
+          securitySchemes: { upstream: { httpAuthSecurityScheme: { scheme: 'Bearer' } } },
+          securityRequirements: [{ schemes: { upstream: { list: [] } } }],
+          defaultInputModes: ['text/plain'],
+          defaultOutputModes: ['text/plain'],
+          skills: [{ id: 'research', name: 'Research', description: 'Looks things up', tags: ['search'] }],
+          signatures: [{ protected: 'e30', signature: 'c2ln' }],
+        }
+      : {
+          name: 'Legacy agent',
+          description: 'An A2A 0.3 agent',
+          version: '0.9.0',
+          protocolVersion: '0.3.0',
+          url: `${base}/rpc`,
+          preferredTransport: 'JSONRPC',
+          capabilities: { streaming: false },
+          securitySchemes: { upstream: { type: 'http', scheme: 'bearer' } },
+          security: [{ upstream: [] }],
+          defaultInputModes: ['text/plain'],
+          defaultOutputModes: ['text/plain'],
+          skills: [{ id: 'legacy', name: 'Legacy', description: 'Old but gold', tags: [] }],
+        };
+  const textOf = (message: any): string => (message?.parts ?? []).map((p: any) => p.text ?? '').join('');
+  const say = (text: string) => (opts.reply ? opts.reply(text) : `echo: ${text}`);
+  const up = serve((req, res, body) => {
+    const path = (req.url ?? '').replace(/\?.*$/, '');
+    if (req.method === 'GET' && path === '/.well-known/agent-card.json') return json(res, 200, card());
+    if (path !== '/rpc' || req.method !== 'POST') return json(res, 404, { error: 'not found' });
+    if (req.headers.authorization !== `Bearer ${opts.token}`) return json(res, 401, { error: 'unauthorized' });
+    const rpc = JSON.parse(body) as { id: unknown; method: string; params: any };
+    const ok = (result: unknown) => json(res, 200, { jsonrpc: '2.0', id: rpc.id, result });
+    const fail = (code: number, message: string) => json(res, 200, { jsonrpc: '2.0', id: rpc.id, error: { code, message } });
+    const newTask = (text: string, v1: boolean) => {
+      const id = crypto.randomUUID();
+      const reply = { messageId: crypto.randomUUID(), role: v1 ? 'ROLE_AGENT' : 'agent', parts: v1 ? [{ text: say(text) }] : [{ kind: 'text', text: say(text) }], ...(v1 ? {} : { kind: 'message' }) };
+      const task = v1
+        ? { id, contextId: 'ctx-1', status: { state: 'TASK_STATE_COMPLETED', message: reply }, artifacts: [{ artifactId: 'a1', parts: [{ text: say(text) }] }] }
+        : { kind: 'task', id, contextId: 'ctx-1', status: { state: 'completed', message: reply } };
+      tasks.set(id, task);
+      return task;
+    };
+    if (opts.version === '1.0') {
+      if (rpc.method === 'SendMessage') return ok({ task: newTask(textOf(rpc.params.message), true) });
+      if (rpc.method === 'GetTask') return tasks.has(rpc.params.id) ? ok(tasks.get(rpc.params.id)) : fail(-32001, 'Task not found');
+      if (rpc.method === 'GetExtendedAgentCard') return ok({ ...card(), description: 'The extended card' });
+      if (rpc.method === 'SendStreamingMessage') {
+        const task = newTask(textOf(rpc.params.message), true) as any;
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+        const send = (result: unknown) => res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result })}\n\n`);
+        send({ task: { id: task.id, contextId: task.contextId, status: { state: 'TASK_STATE_WORKING' } } });
+        send({ artifactUpdate: { taskId: task.id, contextId: task.contextId, artifact: task.artifacts[0], lastChunk: true } });
+        send({ statusUpdate: { taskId: task.id, contextId: task.contextId, status: task.status } });
+        return void res.end();
+      }
+      return fail(-32601, 'Method not found');
+    }
+    if (rpc.method === 'message/send') return ok(newTask(textOf(rpc.params.message), false));
+    if (rpc.method === 'tasks/get') return tasks.has(rpc.params.id) ? ok(tasks.get(rpc.params.id)) : fail(-32001, 'Task not found');
+    return fail(-32601, 'Method not found');
+  });
+  return up.then((u) => {
+    base = u.url;
+    return { ...u, tasks };
+  });
+}
+
 export function webhookReceiver(): Promise<Upstream> {
   return serve((_req, res) => json(res, 200, { ok: true }));
 }

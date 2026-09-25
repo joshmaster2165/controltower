@@ -370,6 +370,26 @@ export interface ObservedHourlyTable {
   last_seen: number;
 }
 
+export interface A2aAgentsTable {
+  id: string;
+  slug: string;
+  name: string;
+  card_url: string;
+  endpoint: string | null;
+  protocol_version: string | null;
+  auth_enc: string | null;
+  agent_id: string | null;
+  card_cache: string | null;
+  timeout_ms: Generated<number>;
+  enabled: Generated<number>;
+  health: Generated<string>;
+  health_detail: string | null;
+  last_checked_at: number | null;
+  demo: Generated<number>;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface PathsTable {
   agent: string;
   target: string;
@@ -411,6 +431,7 @@ export interface Database {
   observed_targets: ObservedTargetsTable;
   observed_hourly: ObservedHourlyTable;
   paths: PathsTable;
+  a2a_agents: A2aAgentsTable;
   schema_migrations: SchemaMigrationsTable;
 }
 

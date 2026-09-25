@@ -19,7 +19,7 @@ const WINDOWS = [
   { id: '7d', label: 'Last 7 days', ms: 7 * 24 * 3600_000, speed: 10_000 },
 ] as const;
 const SPEEDS = [10, 60, 300, 1800, 10_000];
-const TOOL_KINDS = new Set(['mcp.tool', 'http.request']);
+const TOOL_KINDS = new Set(['mcp.tool', 'http.request', 'a2a.call']);
 
 const fmtTime = (ts: number, span: number) =>
   new Date(ts).toLocaleString([], span > 24 * 3600_000 ? { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit', second: '2-digit' });

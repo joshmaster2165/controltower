@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { CodeBlock } from './CodeBlock';
 import { ago } from '../format';
 
-type Tab = 'openai' | 'anthropic' | 'desktop' | 'codex' | 'mcp' | 'curl' | 'http';
+type Tab = 'openai' | 'anthropic' | 'desktop' | 'codex' | 'mcp' | 'curl' | 'http' | 'a2a';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'openai', label: 'OpenAI SDKs' },
@@ -13,6 +13,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'codex', label: 'Codex' },
   { id: 'mcp', label: 'MCP clients' },
   { id: 'http', label: 'REST APIs' },
+  { id: 'a2a', label: 'A2A agents' },
   { id: 'curl', label: 'Test with curl' },
 ];
 
@@ -164,6 +165,26 @@ bearer_token_env_var = "CONTROLTOWER_API_KEY"`}
             title="curl"
             code={`curl ${origin}/http/<name>/<path> \\
   -H "x-ct-key: ${secret}"`}
+          />
+        </>
+      )}
+      {tab === 'a2a' && (
+        <>
+          <p className="connect-note">
+            For remote agents registered under <b>A2A agents</b>: give any A2A client the agent's card at Control Tower, and this key as a bearer token. The card points the client back at Control Tower, so every message and task call goes through it.
+          </p>
+          <CodeBlock
+            title="Agent Card"
+            code={`${origin}/a2a/<name>/.well-known/agent-card.json
+
+Authorization: Bearer ${secret}`}
+          />
+          <CodeBlock
+            title="curl"
+            code={`curl ${origin}/a2a/<name> \\
+  -H "Authorization: Bearer ${secret}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"hello"}]}}}'`}
           />
         </>
       )}

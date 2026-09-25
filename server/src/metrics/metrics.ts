@@ -1,4 +1,5 @@
 import type { FlightEvent } from '@controltower/shared';
+import { isToolKind } from '@controltower/shared';
 import { NANO_PER_USD } from '@controltower/shared';
 
 /**
@@ -122,13 +123,13 @@ export class Metrics {
     switch (e.t) {
       case 'flight.started': {
         if (this.live.size > 50_000) this.live.delete(this.live.keys().next().value!);
-        const model = e.kind === 'mcp.tool' || e.kind === 'http.request' ? (this.src.mcpName(e.mcp_server_id) ?? 'other') : (this.src.modelName(e.deployment_id) ?? 'other');
+        const model = isToolKind(e.kind) ? (this.src.mcpName(e.mcp_server_id) ?? 'other') : (this.src.modelName(e.deployment_id) ?? 'other');
         this.live.set(e.flight_id, {
           agent: e.key_name,
           team: e.team ?? '',
           kind: e.kind,
           model,
-          provider: e.kind === 'mcp.tool' ? 'mcp' : e.kind === 'http.request' ? 'http' : (e.provider_kind ?? this.src.providerKind(e.provider_id) ?? ''),
+          provider: e.kind === 'mcp.tool' ? 'mcp' : e.kind === 'http.request' ? 'http' : e.kind === 'a2a.call' ? 'a2a' : (e.provider_kind ?? this.src.providerKind(e.provider_id) ?? ''),
           stream: e.stream,
         });
         return;
@@ -151,12 +152,12 @@ export class Metrics {
         this.live.delete(e.flight_id);
         if (!t) return;
         // The deployment that actually served the request, which may differ after a fallback.
-        const model = t.kind === 'mcp.tool' || t.kind === 'http.request' ? t.model : (this.src.modelName(e.deployment_id) ?? t.model);
+        const model = isToolKind(t.kind) ? t.model : (this.src.modelName(e.deployment_id) ?? t.model);
         this.requests.inc({ agent: t.agent, team: t.team, kind: t.kind, model, provider: t.provider, status: e.status });
         this.duration.observe({ kind: t.kind, model, provider: t.provider }, e.duration_ms / 1000);
         this.overhead.observe({}, e.gateway_overhead_ms / 1000);
         if (t.stream && e.ttft_ms != null) this.ttft.observe({ model, provider: t.provider }, e.ttft_ms / 1000);
-        if (e.usage && t.kind !== 'mcp.tool' && t.kind !== 'http.request') {
+        if (e.usage && !isToolKind(t.kind)) {
           const base = { agent: t.agent, model };
           if (e.usage.input) this.tokens.inc({ ...base, type: 'input' }, e.usage.input);
           if (e.usage.output) this.tokens.inc({ ...base, type: 'output' }, e.usage.output);

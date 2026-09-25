@@ -71,7 +71,7 @@ export interface Station {
   lastAt: number;
   held: number;
   /** Tool servers only: 'http' for a plain HTTP API (rows are routes), else MCP. */
-  protocol?: 'mcp' | 'http' | undefined;
+  protocol?: 'mcp' | 'http' | 'a2a' | undefined;
   /** Observed systems only: reported by agents, not proxied, so never enforced. */
   obs?: { target: string; kind: string; bypass: boolean; lastSeen: number; count24h: number; errors24h: number } | undefined;
   /** An agent group: how many keys (copies of the agent) it stands for. */
@@ -1277,11 +1277,11 @@ export class AirspaceScene {
         m.id,
         'mcp',
         m.name,
-        m.agent_id ? `agent ${m.agent_id} · via ${http ? 'HTTP' : 'MCP'}` : http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`,
+        m.protocol === 'a2a' ? `A2A agent${m.agent_id && m.agent_id !== m.slug ? ` · ${m.agent_id}` : ''}` : m.agent_id ? `agent ${m.agent_id} · via ${http ? 'HTTP' : 'MCP'}` : http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`,
         m.agent_id ? agentColor(m.agent_id) : MCP_COLOR,
         m.slug,
       );
-      s.protocol = http ? 'http' : 'mcp';
+      s.protocol = m.protocol ?? 'mcp';
       s.agentOf = m.agent_id;
       const prev = new Map(s.tools.map((r) => [r.name, r]));
       s.tools = m.tools.map((tool) => {

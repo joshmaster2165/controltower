@@ -16,6 +16,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 - [**Keys, budgets and limits**](keys.md) — one key per agent, with allowed models and tools, rate limits and budgets.
 - [**MCP tool servers**](mcp.md) — register tool servers; per-key tool visibility.
 - [**HTTP APIs and observed traffic**](http-apis.md) — route REST APIs through the gateway, and map what doesn't go through it.
+- [**A2A agents**](a2a.md) — put remote agents that speak the Agent2Agent protocol behind the gateway.
 
 ## Control
 

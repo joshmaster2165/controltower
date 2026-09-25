@@ -27,7 +27,8 @@ export type IconName =
   | 'more'
   | 'external'
   | 'check'
-  | 'x';
+  | 'x'
+  | 'agents';
 
 const PATHS: Record<IconName, string> = {
   map: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14',
@@ -55,6 +56,7 @@ const PATHS: Record<IconName, string> = {
   external: 'M14 3h7v7m0-7L10 14M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5',
   check: 'M20 6 9 17l-5-5',
   x: 'M18 6 6 18M6 6l12 12',
+  agents: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c0-2.5 1.8-4.5 4-4.5M22 4c0 2.5-1.8 4.5-4 4.5M9 6h4a4 4 0 0 1 4 4v1M15 18h-4a4 4 0 0 1-4-4v-1',
 };
 
 export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string }) {

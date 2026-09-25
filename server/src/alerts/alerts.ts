@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { sql, type Kysely } from 'kysely';
 import { ulid } from 'ulid';
 import type { FlightEvent } from '@controltower/shared';
+import { isToolKind } from '@controltower/shared';
 import { formatUsd } from '@controltower/shared';
 import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
@@ -368,7 +369,7 @@ export class AlertService {
     switch (e.t) {
       case 'flight.started': {
         if (this.flights.size >= MAX_TRACKED) this.flights.delete(this.flights.keys().next().value!);
-        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: e.kind === 'mcp.tool' || e.kind === 'http.request' });
+        this.flights.set(e.flight_id, { agent: e.key_name, keyId: e.key_id, team: e.team, project: e.project, dest: e.tool ?? e.model_requested, targetId: e.mcp_server_id ?? e.deployment_id, isTool: isToolKind(e.kind) });
         return;
       }
       case 'flight.decision': {

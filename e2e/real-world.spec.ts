@@ -8,7 +8,7 @@ import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trac
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
-import { anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { a2aUpstream, anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
 import { field } from './support/ui';
 import { smtpCapture } from './support/smtp';
 
@@ -460,6 +460,130 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   const topo = (await admin.get('/admin/api/topology')).body;
   expect(topo.mcp_servers.find((s: { slug: string }) => s.slug === 'research').agent_id).toBe('rw-research');
   expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-support-bot', key_id: research.id })]));
+});
+
+test('A2A: a remote agent behind Control Tower — its card, messages, streams, gates and delegation', async () => {
+  // The research agent is a remote A2A 1.0 agent. Its own key acts only on behalf of other agents.
+  const research = await key('rw-a2a-research', { agent_id: 'rw-a2a-research', delegated_only: true });
+  const remote = await a2aUpstream({ version: '1.0', token: 'agent-secret' });
+  upstreams.push(remote);
+  const reg = await admin.post('/admin/api/a2a/agents', { name: 'Research agent', slug: 'researcher', url: remote.url, auth: { type: 'bearer', token: 'agent-secret' }, agent_id: 'rw-a2a-research' });
+  expect(reg.status).toBe(201);
+  expect(reg.body.check.ok).toBe(true);
+  expect(reg.body.agent).toMatchObject({ protocol_version: '1.0', endpoint: `${remote.url}/rpc`, agent_id: 'rw-a2a-research', skills: [{ id: 'research', name: 'Research' }] });
+  expect((await admin.post('/admin/api/a2a/agents', { name: 'Research', slug: 'researcher', url: remote.url })).status).toBe(409);
+
+  const caller = await key('rw-a2a-caller', { agent_id: 'rw-a2a-caller', team: 'support' });
+  const auth = { authorization: `Bearer ${caller.key}` };
+  const rpc = (method: string, params: unknown, headers: Record<string, string> = auth, slug = 'researcher') =>
+    fetch(`${CT}/a2a/${slug}`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', 'a2a-version': '1.0' }, body: JSON.stringify({ jsonrpc: '2.0', id: 7, method, params }) });
+  const message = (text: string) => ({ message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{ text }] } });
+
+  // The card Control Tower publishes points at Control Tower and asks for a Control Tower key.
+  expect((await fetch(`${CT}/a2a/researcher/.well-known/agent-card.json`)).status).toBe(401);
+  const card = (await (await fetch(`${CT}/a2a/researcher/.well-known/agent-card.json`, { headers: auth })).json()) as any;
+  expect(card.supportedInterfaces).toEqual([{ url: `${CT}/a2a/researcher`, protocolBinding: 'JSONRPC', protocolVersion: '1.0' }]);
+  expect(card.securitySchemes).toEqual({ controltower: { httpAuthSecurityScheme: expect.objectContaining({ scheme: 'Bearer' }) } });
+  expect(card.signatures).toBeUndefined();
+  expect(card.skills[0].id).toBe('research');
+  expect(JSON.stringify(card)).not.toContain(remote.url);
+  expect((await fetch(`${CT}/a2a/researcher/.well-known/agent.json`, { headers: auth })).status).toBe(200);
+  const listed = (await (await fetch(`${CT}/a2a`, { headers: auth })).json()) as any;
+  expect(listed.agents.map((a: { slug: string }) => a.slug)).toContain('researcher');
+
+  // SendMessage reaches the agent with the agent's credentials — never the caller's key — and a delegation token.
+  const sent = await rpc('SendMessage', message('What is our refund policy?'));
+  expect(sent.status).toBe(200);
+  expect(sent.headers.get('x-ct-flight-id')).toBeTruthy();
+  const task = ((await sent.json()) as any).result.task;
+  expect(task.status.state).toBe('TASK_STATE_COMPLETED');
+  expect(task.artifacts[0].parts[0].text).toBe('echo: What is our refund policy?');
+  const call = remote.calls.find((c) => c.path === '/rpc')!;
+  expect(call.headers.authorization).toBe('Bearer agent-secret');
+  expect(JSON.stringify(call.headers)).not.toContain(caller.key);
+  const token = String(call.headers['x-ct-delegation']);
+  expect(token).toMatch(/^ctd1\./);
+  const upstreamBody = JSON.parse(call.body);
+  expect(upstreamBody).toMatchObject({ jsonrpc: '2.0', id: 7, method: 'SendMessage' });
+  expect(upstreamBody.params.metadata['controltower/delegation']).toBe(token);
+  expect(call.headers['a2a-version']).toBe('1.0');
+
+  // The agent passes the token on with its own model call: that call is made on the caller's behalf.
+  const own = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${research.key}`, 'content-type': 'application/json', 'x-ct-delegation': token }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+  expect(own.status).toBe(200);
+  expect(JSON.parse((await flightsFor(research.id))[0].on_behalf_of)).toEqual(['rw-a2a-caller']);
+
+  // Reads, streams and the extended card.
+  const got = (await (await rpc('GetTask', { id: task.id })).json()) as any;
+  expect(got.result.id).toBe(task.id);
+  const stream = await rpc('SendStreamingMessage', message('stream it'));
+  expect(stream.headers.get('content-type')).toContain('text/event-stream');
+  const events = (await stream.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)).result);
+  expect(events.map((e) => Object.keys(e)[0])).toEqual(['task', 'artifactUpdate', 'statusUpdate']);
+  expect(events[1].artifactUpdate.artifact.parts[0].text).toBe('echo: stream it');
+  const extended = (await (await rpc('GetExtendedAgentCard', {})).json()) as any;
+  expect(extended.result.description).toBe('The extended card');
+  expect(extended.result.supportedInterfaces[0].url).toBe(`${CT}/a2a/researcher`);
+
+  // Every call is a flight, named for the agent and method.
+  const flights = await flightsFor(caller.id, (f) => f.length >= 4);
+  expect(flights.every((f) => f.kind === 'a2a.call' && f.mcp_server_id === reg.body.agent.id)).toBe(true);
+  expect(flights.map((f) => f.tool).sort()).toEqual(['GetExtendedAgentCard', 'GetTask', 'SendMessage', 'SendStreamingMessage']);
+
+  // Errors, as JSON-RPC.
+  const unknown = (await (await rpc('DoSomethingElse', {})).json()) as any;
+  expect(unknown.error.code).toBe(-32601);
+  const missing = await rpc('SendMessage', message('hi'), auth, 'nobody');
+  expect(missing.status).toBe(404);
+  expect(((await missing.json()) as any).error.data[0].reason).toBe('AGENT_NOT_FOUND');
+  expect((await rpc('SendMessage', message('hi'), {})).status).toBe(401);
+
+  // A key allowed only other tools can't reach it, or see it listed.
+  const narrow = await key('rw-a2a-narrow', { allowed_mcp: ['files__*'] });
+  const refused = await rpc('SendMessage', message('hi'), { authorization: `Bearer ${narrow.key}` });
+  expect(refused.status).toBe(403);
+  expect(((await refused.json()) as any).error.data[0].reason).toBe('TOOL_NOT_ALLOWED');
+  expect(((await (await fetch(`${CT}/a2a`, { headers: { authorization: `Bearer ${narrow.key}` } })).json()) as any).agents).toEqual([]);
+
+  // Gates: sending messages to it is denied, reading tasks is not; nothing denied reaches the agent.
+  const deny = await admin.post('/admin/api/rules', { name: 'No messages to the research agent', target_kind: 'tool', match: { tools: ['researcher__SendMessage'] }, effect: 'deny', priority: 5 });
+  expect(deny.status).toBe(201);
+  const before = remote.calls.length;
+  const denied = await rpc('SendMessage', message('hi'));
+  expect(denied.status).toBe(403);
+  expect(((await denied.json()) as any).error).toMatchObject({ code: 403, data: [expect.objectContaining({ reason: 'POLICY_DENIED' })] });
+  expect(remote.calls.length).toBe(before);
+  expect((await rpc('GetTask', { id: task.id })).status).toBe(200);
+  await admin.call('DELETE', `/admin/api/rules/${deny.body.id}`);
+
+  // Inspect gates read the message before it leaves.
+  const inspect = await admin.post('/admin/api/rules', { name: 'No secrets to agents', target_kind: 'tool', match: { tools: ['researcher__*'] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input' }, priority: 6 });
+  expect(inspect.status).toBe(201);
+  const leaked = await rpc('SendMessage', message('use AKIAIOSFODNN7EXAMPLE'));
+  expect(leaked.status).toBe(400);
+  expect(((await leaked.json()) as any).error.data[0].reason).toBe('CONTENT_BLOCKED');
+  await admin.call('DELETE', `/admin/api/rules/${inspect.body.id}`);
+
+  // An A2A 0.3 agent works the same way, by its own method names.
+  const legacy = await a2aUpstream({ version: '0.3', token: 'legacy-secret' });
+  upstreams.push(legacy);
+  const reg03 = await admin.post('/admin/api/a2a/agents', { name: 'Legacy agent', slug: 'legacy', url: `${legacy.url}/.well-known/agent-card.json`, auth: { type: 'bearer', token: 'legacy-secret' } });
+  expect(reg03.body.agent.protocol_version).toBe('0.3.0');
+  const card03 = (await (await fetch(`${CT}/a2a/legacy/.well-known/agent-card.json`, { headers: auth })).json()) as any;
+  expect(card03).toMatchObject({ url: `${CT}/a2a/legacy`, preferredTransport: 'JSONRPC', security: [{ controltower: [] }] });
+  const r03 = (await (await rpc('message/send', { message: { kind: 'message', messageId: 'm1', role: 'user', parts: [{ kind: 'text', text: 'old school' }] } }, auth, 'legacy')).json()) as any;
+  expect(r03.result).toMatchObject({ kind: 'task', status: { state: 'completed' } });
+  expect(r03.result.status.message.parts[0].text).toBe('echo: old school');
+  expect((await flightsFor(caller.id, (f) => f.some((x) => x.model_requested === 'legacy__SendMessage'))).length).toBeGreaterThan(0);
+
+  // The map: both agents are destinations, the research agent is an agent, and the caller delegated to it.
+  const topo = (await admin.get('/admin/api/topology')).body;
+  const station = topo.mcp_servers.find((s: { slug: string }) => s.slug === 'researcher');
+  expect(station).toMatchObject({ protocol: 'a2a', agent_id: 'rw-a2a-research' });
+  expect(station.tools.map((t: { name: string }) => t.name)).toEqual(expect.arrayContaining(['SendMessage', 'GetTask']));
+  expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-a2a-caller', key_id: research.id })]));
+  const page = (await admin.get('/admin/api/a2a/agents')).body.agents.find((a: { slug: string }) => a.slug === 'researcher');
+  expect(page.methods.map((m: { name: string }) => m.name)).toEqual(expect.arrayContaining(['SendMessage', 'GetTask']));
 });
 
 // ---------------------------------------------------------------- gates on models

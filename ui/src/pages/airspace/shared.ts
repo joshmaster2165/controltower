@@ -23,8 +23,8 @@ export const STATE_LABEL: Record<LinkState, string> = {
 };
 
 export const KIND_LABEL = { agent: 'agent', model: 'model', mcp: 'MCP server', observed: 'observed system', unknown: 'unrouted' } as const;
-export const kindLabel = (s: { kind: keyof typeof KIND_LABEL; protocol?: 'mcp' | 'http' | undefined; grouping?: 'team' | 'group' | undefined }) =>
-  s.grouping === 'team' ? 'Team' : s.grouping === 'group' ? 'Agent group' : s.protocol === 'http' ? 'HTTP API' : KIND_LABEL[s.kind];
+export const kindLabel = (s: { kind: keyof typeof KIND_LABEL; protocol?: 'mcp' | 'http' | 'a2a' | undefined; grouping?: 'team' | 'group' | undefined }) =>
+  s.grouping === 'team' ? 'Team' : s.grouping === 'group' ? 'Agent group' : s.protocol === 'http' ? 'HTTP API' : s.protocol === 'a2a' ? 'A2A agent' : KIND_LABEL[s.kind];
 
 export function ago(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));

@@ -51,6 +51,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
     const unsubPolicy = ctx.policy.onChange?.(topology) ?? (() => undefined);
     const unsubMcp = ctx.mcp.onChange(topology);
     const unsubHttp = ctx.http.onChange(topology);
+    const unsubA2a = ctx.a2a.onChange(topology);
     const unsubAlerts = ctx.alertsVersion.onChange((v) => send({ type: 'alerts', version: v }));
     const unsubObserved = ctx.observedVersion.onChange(topology);
     const unsubViews = ctx.viewsVersion.onChange(topology);
@@ -73,6 +74,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       unsubPolicy();
       unsubMcp();
       unsubHttp();
+      unsubA2a();
       unsubAlerts();
       unsubObserved();
       unsubViews();

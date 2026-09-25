@@ -11,10 +11,12 @@ import { z } from 'zod';
  * 64-bit DB integers.
  */
 
-export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'responses', 'mcp.tool', 'http.request']);
+export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'responses', 'mcp.tool', 'http.request', 'a2a.call']);
 export type FlightKind = z.infer<typeof FlightKind>;
+/** Calls to a tool server rather than a model: MCP tools, HTTP API routes and A2A agents. */
+export const isToolKind = (kind: string): boolean => kind === 'mcp.tool' || kind === 'http.request' || kind === 'a2a.call';
 
-export const Dialect = z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'mcp', 'http']);
+export const Dialect = z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'mcp', 'http', 'a2a']);
 export type Dialect = z.infer<typeof Dialect>;
 
 export const ProviderKind = z.enum([

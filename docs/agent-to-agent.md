@@ -7,7 +7,8 @@ Agents increasingly work through other agents: a support bot asks a research age
 | | |
 |---|---|
 | An agent behind a tool | Register its MCP server or HTTP API with **Fronts an agent** set to that agent's ID |
-| The delegation token | Sent to that agent with each call: `_meta["controltower/delegation"]` (MCP) and the `x-ct-delegation` header |
+| An agent that speaks A2A | Register it under [A2A agents](a2a.md): it is an agent by definition |
+| The delegation token | Sent to that agent with each call: `_meta["controltower/delegation"]` (MCP), `params.metadata["controltower/delegation"]` (A2A) and the `x-ct-delegation` header |
 | What the called agent does | Sends the same token back as `x-ct-delegation` on its own calls to Control Tower |
 | Keys that only act for others | **Acts only on behalf of other agents** on the key: calls without a valid token are refused |
 | Gates on whom a call is for | `match.on_behalf_of: [agent:<agent id>, team:<name>]` — anywhere up the chain |
@@ -72,6 +73,15 @@ Tracing either agent lists the other as **calls** or **called by**:
 
 ![Tracing the called agent](images/a2a-trace.png)
 
+## An agent over A2A
+
+Agents that speak the [A2A protocol](a2a.md) are registered under **A2A agents** by their Agent Card, and are agents from the start — there is no **Fronts an agent** to set. Each call gets a delegation token in the request's `params.metadata["controltower/delegation"]` and the `x-ct-delegation` header; the agent passes it on exactly as in step 3, and everything above — the arc on the map, *for …* in Flights, gates on whom a call is for — works the same.
+
+```python
+# In an A2A agent's executor (the Python a2a-sdk): the token arrives with the message.
+token = (context.metadata or {}).get("controltower/delegation")
+```
+
 ## Gates on whom a call is for
 
 A gate can match calls made **on behalf of** an agent or a team, however many agents deep. In the gate editor, choose **Only when acting for**; in a policy file, `match.on_behalf_of`:
@@ -119,4 +129,5 @@ When sub-agents run inside one process — LangGraph nodes, CrewAI crews, handof
 
 - [Airspace, gates & approvals](airspace.md)
 - [Policy as code](policy-as-code.md) — `on_behalf_of` in files
+- [A2A agents](a2a.md)
 - [MCP gateway](mcp.md)

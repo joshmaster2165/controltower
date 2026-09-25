@@ -36,6 +36,9 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | POST | `/openai/deployments/:model/chat/completions`, `…/embeddings` | Azure OpenAI style |
 | POST, GET, DELETE | `/mcp`, `/mcp/:slug` | MCP (Streamable HTTP): every server, or one |
 | any | `/http/:slug/*` | A [registered HTTP API](http-apis.md) |
+| GET | `/a2a` | The [A2A agents](a2a.md) this key may reach |
+| GET | `/a2a/:slug/.well-known/agent-card.json` | An A2A agent's card, pointing at Control Tower |
+| POST | `/a2a/:slug` | A2A JSON-RPC: `SendMessage`, `GetTask`, … (1.0) or `message/send`, … (0.3) |
 | POST | `/v1/observe` | Report calls made outside the gateway |
 | POST | `/v1/traces` | OpenTelemetry traces (OTLP/HTTP JSON) |
 
@@ -88,6 +91,9 @@ All paths are under `/admin/api`.
 | GET, POST | `/http/apis` | List, register an HTTP API |
 | PATCH, DELETE | `/http/apis/:id` | Update, remove |
 | POST | `/http/apis/:id/test` | Check it is reachable |
+| GET, POST | `/a2a/agents` | List, register an A2A agent (`{name, slug?, url, auth?, agent_id?}`; `url` is its card or base URL) |
+| PATCH, DELETE | `/a2a/agents/:id` | Update, remove |
+| POST | `/a2a/agents/:id/test` | Read its card again |
 
 ### Policy and approvals
 

@@ -39,6 +39,7 @@ const SIDEBAR = [
       ['keys', 'Keys, budgets & rate limits'],
       ['mcp', 'MCP gateway'],
       ['http-apis', 'HTTP APIs & observed traffic'],
+      ['a2a', 'A2A agents'],
     ],
   },
   { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['agent-to-agent', 'Agents calling agents'], ['policy-as-code', 'Policy as code'], ['threat-model', 'What is enforced']] },

@@ -10,6 +10,7 @@ import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 import { ADMIN_KEY_ID } from './admin-key.js';
 import { PLAYGROUND_KEY_ID } from './playground.js';
 import { loadViews } from './views.js';
+import { recentMethods } from './a2a.js';
 
 const BUILT_IN_KEYS = new Set([ADMIN_KEY_ID, PLAYGROUND_KEY_ID]);
 /** Width of the buckets the map's last minute is seeded from. */
@@ -44,6 +45,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const r = ctx.registry;
     const since = Date.now() - 24 * 3600 * 1000;
     const routes = await recentRoutes(ctx);
+    const a2aMethods = await recentMethods(ctx);
     // Connectivity: who actually talked to what (model, tool server, tool) in the last 24h.
     const edgeRows = await sql<{ key_id: string; target: string | null; tool: string | null; requests: number; errors: number; denied: number; cost: number; last_ts: number }>`
       SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool,
@@ -178,6 +180,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           demo: a.demo,
           ...(a.agentId ? { agent_id: a.agentId } : {}),
           protocol: 'http' as const,
+        })),
+        // Remote agents over A2A: one row per method they have been called with; they front an agent.
+        ...[...ctx.a2a.agents.values()].map((a) => ({
+          id: a.id,
+          slug: a.slug,
+          name: a.name,
+          health: a.health,
+          enabled: a.enabled,
+          tools: (a2aMethods.get(a.id) ?? []).map((t) => ({ name: t.name, op: t.op })),
+          demo: a.demo,
+          protocol: 'a2a' as const,
+          agent_id: a.agentId,
         })),
       ],
       edges,

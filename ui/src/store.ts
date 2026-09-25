@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { FlightEvent, LiveTick } from '@controltower/shared';
 import { api, setCsrf, type AlertChannel, type AlertItem, type AlertRule, type Approval, type Me, type PolicyBundle, type Status, type Topology } from './api';
 
-export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'http' | 'playground' | 'welcome' | 'ledger';
+export type Route = 'airspace' | 'tower' | 'alerts' | 'report' | 'flights' | 'keys' | 'providers' | 'models' | 'mcp' | 'http' | 'a2a' | 'playground' | 'welcome' | 'ledger';
 
 interface FeedItem {
   id: string;

@@ -20,7 +20,7 @@ Most agent-to-agent calls today are one agent calling another through a tool: th
 
 ### Step 1: Give the called agent a key that only acts for others
 
-Create a key for the agent being called — here `research-agent` — and tick **Acts only on behalf of other agents**. Every call it makes must then carry the delegation token it was called with, so a gate on whom a call is for can't be escaped by leaving the token off.
+Create a key for the agent being called — here `research-agent` — and tick **Acts only on behalf of other agents**. Every call it makes must then carry the delegation token it was called with, so a gate on whom a call is for can't be escaped by leaving the token off. In the API this is `"delegated_only": true` on `POST /admin/api/keys` or `PATCH /admin/api/keys/:id`.
 
 ![A key that only acts on behalf of other agents](images/a2a-key-delegated.png)
 
@@ -65,6 +65,12 @@ The called agent's calls are in **Flights** with whom they were made for:
 
 ![Calls made on behalf of another agent](images/a2a-flights.png)
 
+- Click an agent in the purple *for …* chain to show only the calls made for it, anywhere up the chain.
+- A call that is part of a chain has a **trace** link: it shows the whole chain — the call that started it and every call it led to — indented in call order.
+- A call refused with `delegation_required` or `delegation_too_deep` is recorded as rejected, with the chain it carried.
+
+In the API: `GET /admin/api/flights?for=<agent id>` and `GET /admin/api/flights?trace=<flight id>`; each flight has `parent_flight_id` (the call that led to it) and `has_children`. See [API reference](api.md#traffic-spend-and-the-map).
+
 On the **Airspace** a purple arc beside the agents runs from the calling agent to the called one — thicker with more calls, bright while live. The calls themselves still go through the tower (to the agent's server on the right); the arc says who is acting for whom.
 
 ![support-bot calling research-agent on the Airspace](images/a2a-map.png)
@@ -75,7 +81,7 @@ Tracing either agent lists the other as **calls** or **called by**:
 
 ## An agent over A2A
 
-Agents that speak the [A2A protocol](a2a.md) are registered under **A2A agents** by their Agent Card, and are agents from the start — there is no **Fronts an agent** to set. Each call gets a delegation token in the request's `params.metadata["controltower/delegation"]` and the `x-ct-delegation` header; the agent passes it on exactly as in step 3, and everything above — the arc on the map, *for …* in Flights, gates on whom a call is for — works the same.
+Agents that speak the [A2A protocol](a2a.md) are registered under **A2A agents** by their Agent Card. Set its **Agent ID** to the agent ID on its own Control Tower key. Each call gets a delegation token in the request's `params.metadata["controltower/delegation"]` and the `x-ct-delegation` header; the agent passes it on exactly as in step 3, and everything above — the arc on the map, *for …* in Flights, gates on whom a call is for — works the same.
 
 ```ts
 // In an agent built with the official JavaScript SDK (@a2a-js/sdk): the token arrives with the request.
@@ -114,7 +120,7 @@ Gates on the caller itself keep working as usual: *support-bot may not call rese
 ## How the token works
 
 - It is signed with a key derived from Control Tower's master key and never stored, so it can't be forged or edited.
-- It is issued to one agent: presented by any other agent it is ignored (and refused for a key that only acts for others).
+- It is issued to one agent: presented by any other agent it is ignored, and the flight carries a flagged event *delegation token ignored: <reason>* (a key that only acts for others is refused instead). An expired token is treated the same way.
 - It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`), which also ends loops.
 - It never appears in logs, events or Flights — only the chain of agent IDs does.
 

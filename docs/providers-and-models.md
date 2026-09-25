@@ -4,7 +4,7 @@ A **provider** is an account at a model API: its endpoint and credentials. A **d
 
 ## Connect a provider
 
-**Providers** lists the catalogue: OpenAI, Azure OpenAI, Anthropic, Google Gemini, Google Vertex AI and AWS Bedrock; OpenAI-compatible APIs (Groq, Together, Fireworks, Mistral, DeepSeek, xAI, OpenRouter, Perplexity, Cerebras, DeepInfra); and local servers (Ollama, vLLM, LM Studio, or any OpenAI-compatible URL).
+**Providers** lists the catalogue: OpenAI, Azure OpenAI, Anthropic, Google Gemini, Google Vertex AI and AWS Bedrock; OpenAI-compatible APIs (Groq, Together, Fireworks, Mistral, DeepSeek, xAI, OpenRouter, Perplexity); and local servers (Ollama, vLLM, LM Studio, or any OpenAI-compatible URL). Other OpenAI-compatible APIs — Cerebras, DeepInfra, NVIDIA NIM, SambaNova — connect as **Custom OpenAI-compatible** with their base URL, or by name in a [config file](config-file.md).
 
 ![The provider catalogue](images/providers-catalog.png)
 
@@ -30,6 +30,7 @@ You don't have to register every model. When a request names a model that no dep
 
 - `gpt-4.1-mini`, `claude-sonnet-4-5`, `llama3.2` … resolve to whichever connected provider offers them.
 - `<provider-slug>/<model>` pins a provider: `openai/gpt-4.1-mini`, `groq/llama-3.3-70b-versatile`.
+- A key's allowed-models globs are matched against the name the agent sends. A key limited to `gpt-4.1*` can ask for `gpt-4.1-mini` but not `openai/gpt-4.1-mini`; use `*gpt-4.1*` to allow both.
 - A name nobody serves fails with `404 model_not_found` and says which provider to connect.
 - Stand-in demo providers never adopt models, so demo traffic can't reach real providers.
 - `CT_AUTO_MODELS=0` turns this off: every model must then be added under **Models**.
@@ -55,9 +56,11 @@ Prices come from a bundled table of about 1,800 models, refreshed with releases.
 | Strategy | Picks |
 |---|---|
 | **priority** | The first healthy deployment in the list; the rest are fallbacks in order |
-| **weighted** | By weight, for spreading load across keys, regions or providers |
-| **least latency** | The deployment with the lowest recent time to first token |
-| **least cost** | The cheapest (set with `routing_strategy` in a [config file](config-file.md)) |
+| **weighted** | At random in proportion to weight among the deployments with the best priority, for spreading load across keys, regions or providers; the rest are fallbacks |
+| **least latency** | The deployment with the lowest recent time to first token among those with the best priority; ones with no measurement yet go last. Later priorities stay fallbacks |
+| **least cost** | The cheapest among those with the best priority, by the price of a typical call (input price × 3 plus output price, per million tokens); deployments without a known price go last. Later priorities stay fallbacks. Set with `routing_strategy: cost-based-routing` in a [config file](config-file.md) |
+
+In the console, the order you click deployments in is the fallback order for **priority**; with the other strategies they all share the best priority. Through the API, give each target a `priority` (lower is tried first) and a `weight`.
 
 - A request **falls back** to the next deployment on rate limits (429), server errors (5xx), timeouts and provider authentication failures — never on a 400 or a policy decision — and only if nothing has been sent to the client yet, up to three attempts.
 - A deployment that fails is **cooled down** (2 s, doubling to 30 s) and skipped while others are healthy; the next success resets it.

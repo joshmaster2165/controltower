@@ -17,7 +17,8 @@ Start with the flight. Every gateway response carries `x-ct-flight-id`; search f
 | `429 budget_exceeded` | A key, team or project budget is used up | The message names the budget; raise it on the **Ledger** or wait for the period to reset |
 | `502 provider_auth_error` | The **provider** rejected the stored credential (not the agent's key) | **Providers → Test connection**; update the credential |
 | `429 provider_rate_limited`, `502 provider_error`, `504 provider_timeout` | The provider failed, after any fallbacks | Add a fallback with an [alias](providers-and-models.md#aliases-load-balancing-and-fallbacks); set up an [outage alert](alerts.md) |
-| `400` on `/v1/responses` for a Claude or Gemini model | Those providers have no Responses API | Call them through `/v1/chat/completions` or `/v1/messages` |
+| `400 provider_bad_request` | The provider rejected the request as invalid; it is not retried elsewhere | The message is the provider's; fix the request (a parameter or input the model doesn't accept) |
+| `400` on `/v1/responses` mentioning `previous_response_id` | The model's provider has no Responses API, so Control Tower translates the call through Chat Completions and can't continue a stored response | Send the whole conversation in `input` (`store: false`), or use an OpenAI model. OpenAI built-in tools (web search, file search, computer use) are dropped for these providers |
 
 ## Setup and deployment
 

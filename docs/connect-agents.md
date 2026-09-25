@@ -104,6 +104,8 @@ Register tool servers under **MCP servers** (see [MCP tool servers](mcp.md)), th
 claude mcp add --transport http controltower http://localhost:4000/mcp --header "Authorization: Bearer ct_sk_…"
 ```
 
+This saves the server for the current project only (local scope). Add `--scope user` to use it in every project.
+
 **Cursor** (`~/.cursor/mcp.json`) and other clients that take a URL and headers:
 
 ```json
@@ -157,4 +159,6 @@ Errors use the envelope of the API the client speaks (OpenAI or Anthropic), with
 | 400 | `content_blocked` | An inspect gate found something it blocks |
 | 404 | `model_not_found` | No connected provider serves that model name |
 | 429 | `rate_limit_exceeded`, `too_many_parallel_requests`, `budget_exceeded` | The key's rate limit, parallel-request limit or budget |
-| 502 / 504 | `provider_*` | The provider failed after fallbacks |
+| 429 | `provider_rate_limited` | The provider rate-limited the call, after any fallbacks |
+| 400 | `provider_bad_request` | The provider rejected the request as invalid (not retried elsewhere) |
+| 502 / 504 | `provider_error`, `provider_auth_error`, `provider_timeout`, … | The provider failed, after any fallbacks |

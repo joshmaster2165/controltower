@@ -24,7 +24,7 @@ model_list:
       model: openai/gpt-4o
       api_key: os.environ/OPENAI_API_KEY
 
-  # Two entries with the same name: load-balanced, with fallback
+  # Two entries with the same name and different `order`: tried in order
   - model_name: claude-sonnet
     params:
       model: anthropic/claude-sonnet-4-5
@@ -63,7 +63,7 @@ router_settings:
   routing_strategy: simple-shuffle
 
 settings:
-  fallbacks: [{ "gpt-4o": ["claude-sonnet"] }]
+  fallbacks: [{ "gpt-4o": ["claude-sonnet"] }]   # claude-sonnet only when gpt-4o fails
 
 mcp_servers:
   github:
@@ -95,7 +95,16 @@ Each entry becomes a provider (one per distinct endpoint and credential) and a d
 | `model_info.input_cost_per_token`, `output_cost_per_token` | A price override, in dollars per token |
 | `model_info.mode: embedding` | An embeddings model |
 
-Several entries with the same `model_name` become an **alias** that routes across them; `router_settings.routing_strategy` picks how (`simple-shuffle` → weighted, `latency-based-routing` → fastest first, `cost-based-routing` → cheapest first; anything else → in order). `settings.fallbacks` adds fallback targets to an alias.
+Several entries with the same `model_name` become an **alias** that routes across them:
+
+- If every entry has a different `order`, they are tried **in order**, lowest first; the next is tried only when the one before fails.
+- Otherwise `router_settings.routing_strategy` picks how:
+  - `simple-shuffle` (the default) → **weighted**: each request goes to one of the entries with the lowest `order` (or no `order`), picked at random in proportion to `weight`. Entries with a higher `order` are tried only if it fails.
+  - `latency-based-routing` → fastest first.
+  - `cost-based-routing` → cheapest first, by the price of a typical call (input price × 3 plus output price, per million tokens); entries without a known price go last.
+  - Anything else is treated as weighted, with a warning.
+
+`settings.fallbacks` adds other models from the file as fallbacks: whatever the routing strategy, they are tried only after all of the model's own entries.
 
 **Providers**: `openai`, `azure`, `azure_ai`, `anthropic`, `gemini`, `vertex_ai`, `bedrock`, `groq`, `mistral`, `together_ai`, `fireworks_ai`, `deepseek`, `xai`, `openrouter`, `perplexity`, `cerebras`, `deepinfra`, `nvidia_nim`, `sambanova`, `ollama`, `ollama_chat`, `hosted_vllm`, `lm_studio`, and `openai/` with any `api_base` (any OpenAI-compatible server).
 
@@ -112,8 +121,12 @@ mcp_servers:
     transport: http                  # Streamable HTTP
     auth_type: bearer_token          # bearer_token | api_key (x-api-key) | basic
     auth_value: os.environ/FILES_MCP_TOKEN
-    static_headers: { X-Team: support }
+  crm:
+    url: https://crm.example.com/mcp
+    static_headers: { X-Team: support, X-Api-Key: os.environ/CRM_MCP_KEY }
 ```
+
+`static_headers` are sent on their own or together with `api_key` or `basic` auth. Next to `bearer_token` they are ignored (the startup log warns): only the token is sent.
 
 Each entry becomes an [MCP server](mcp.md) whose tools agents reach at `/mcp` as `files__<tool>`. Servers with only a `command` (stdio) are skipped with a warning.
 
@@ -137,4 +150,4 @@ Settings Control Tower manages itself — database, authentication, UI access an
 OPENAI_API_KEY=sk-… controltower --model openai/gpt-4.1-mini
 ```
 
-Serves one model with credentials from the environment, with no config file.
+Serves one model with credentials from the environment, with no config file. Agents ask for it by the name you passed — here `openai/gpt-4.1-mini`; after `--model ollama/llama3.2` it is `ollama/llama3.2`. `GET /v1/models` lists it.

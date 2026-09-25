@@ -56,7 +56,10 @@ Labels are bounded: a model name the gateway doesn't know is reported as `other`
 `pnpm load:fleet` (from a checkout) drives a fleet of agents against a running server and measures the gateway and the Airspace under that load. Point it at a server started in demo mode, so the models, MCP servers and HTTP API it calls are the built-in stand-ins and nothing leaves the machine:
 
 ```bash
-CT_DEMO=1 CT_ADMIN_KEY=… pnpm start
+export CT_ADMIN_KEY=sk-$(openssl rand -hex 32)   # the admin key for the test server
+CT_DEMO=1 pnpm start
+
+# in a second terminal, with the same CT_ADMIN_KEY exported
 pnpm load:fleet --admin-key "$CT_ADMIN_KEY" --agents 1500 --rps 300 --duration 60
 ```
 

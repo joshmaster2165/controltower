@@ -21,7 +21,7 @@ Three ways:
 | **Budget** | A budget reaching a percentage (default 80%) and being used up — once per budget period |
 | **Daily summary** | Requests, tokens, spend, blocked / held / masked counts, errors, top spenders and the slowest and most-failing models, at a chosen hour (UTC); skipped on quiet days |
 
-**Condition**: every time, or *N times within M minutes*. After firing, a rule stays quiet for its cooldown and then sends one digest of what happened in the meantime — so a burst of 400 blocked calls is one message, not 400.
+**How often** (gate alerts): **Every time**, or **When it repeats** — *N times within M minutes*. Failed requests, slow requests and outages set the same *N within M minutes* under **Failures needed** or **Slow requests needed**. After firing, a rule stays quiet for the time set in **After an alert, stay quiet for** and then sends one digest of what happened in the meantime — so a burst of 400 blocked calls is one message, not 400.
 
 ## Channels
 
@@ -30,7 +30,7 @@ Three ways:
 - **Email** — one or more recipients, through your SMTP server (set on the channel, or once for the server with `CT_SMTP_URL`).
 - **Webhook** — any URL; add a signing secret to verify deliveries.
 
-Channel URLs and secrets are encrypted at rest and never returned by the API. Set `CT_PUBLIC_URL` so links in messages point at your console (detected on Render, Fly.io and Railway).
+Channel URLs and secrets are encrypted at rest and never returned by the API. Set `CT_PUBLIC_URL` so links in messages point at your console (detected on Render, Fly.io and Railway); without it they use `http://localhost:<port>`, with the port the server listens on.
 
 ### Approving by email
 
@@ -55,17 +55,29 @@ A `held` alert about one request links straight to its approval card, with a **R
 ```json
 {
   "type": "controltower.alert",
+  "id": "alert_…",
   "kind": "gate",
   "title": "Deleting Salesforce contacts needs approval: outbound-sdr → delete_contact held for approval",
   "trigger": "held",
   "count": 1,
+  "digest": false,
+  "window_s": 300,
+  "first_at": "2026-09-25T14:02:11.000Z",
+  "last_at": "2026-09-25T14:02:11.000Z",
+  "alert_rule": { "id": "alr_…", "name": "Contact deletes" },
+  "subject": { "kind": "gate", "id": "rule_…", "name": "Deleting Salesforce contacts needs approval" },
   "gate": { "id": "rule_…", "name": "Deleting Salesforce contacts needs approval", "effect": "require_approval" },
   "agents": [{ "name": "outbound-sdr", "count": 1 }],
-  "destinations": ["salesforce__delete_contact"],
-  "approval": { "id": "apr_…", "scope": "Approve this ONE call …", "url": "https://tower.example.com/#/tower/apr_…" },
-  "console_url": "https://tower.example.com/#/alerts"
+  "destinations": [{ "name": "delete_contact", "count": 1 }],
+  "reason": "Deletes need a human",
+  "lines": [],
+  "flights": ["01K…"],
+  "approval": { "id": "apr_…", "scope": "Approve ONE call to delete_contact from outbound-sdr", "url": "https://tower.example.com/#/tower/apr_…" },
+  "console_url": "https://tower.example.com/#/tower/apr_…"
 }
 ```
+
+`console_url` points at the page to act on: the request's card in the **Tower** for a single held request, the Tower queue for several, and otherwise the page for that kind of alert.
 
 With a signing secret, each delivery carries `x-ct-signature: t=<unix seconds>,v1=<hex>`, where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Deliveries are retried twice on network errors, 408, 429 and 5xx.
 

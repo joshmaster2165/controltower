@@ -338,7 +338,8 @@ export class Registry {
         return [head, ...candidates.filter((d) => d !== head)];
       }
       case 'least-latency':
-        return [...candidates].sort((a, b) => (a.ewmaTtftMs ?? 1e9) - (b.ewmaTtftMs ?? 1e9));
+        // Fastest first within each priority tier; a later tier stays a fallback.
+        return byTier(alias, candidates, (a, b) => (a.ewmaTtftMs ?? 1e9) - (b.ewmaTtftMs ?? 1e9));
       case 'priority':
       case 'least-cost':
       default:
@@ -382,4 +383,13 @@ export class Registry {
     if (!d) return;
     d.ewmaTtftMs = d.ewmaTtftMs == null ? ttftMs : d.ewmaTtftMs * 0.8 + ttftMs * 0.2;
   }
+}
+
+/** An alias's candidates by priority tier, ordered within each tier by `cmp`: the order fallbacks keep. */
+export function byTier(alias: AliasRecord, candidates: DeploymentRecord[], cmp: (a: DeploymentRecord, b: DeploymentRecord) => number): DeploymentRecord[] {
+  const prio = new Map(alias.targets.map((t) => [t.deploymentId, t.priority]));
+  return candidates
+    .map((d, i) => ({ d, i, p: prio.get(d.id) ?? 0 }))
+    .sort((a, b) => a.p - b.p || cmp(a.d, b.d) || a.i - b.i)
+    .map((x) => x.d);
 }

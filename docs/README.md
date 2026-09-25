@@ -9,6 +9,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 1. [**Getting started**](getting-started.md) — from `docker run` to your own agent on the map, in five minutes.
 2. [**Install**](install.md) — Docker, Compose, Render, Fly.io, Railway, any container platform, or from source; upgrades and backups.
 3. [**Connect your agents**](connect-agents.md) — OpenAI SDKs, the OpenAI Agents SDK and Codex, Claude Code, LangChain, MCP clients, plain HTTP.
+   Step by step: [Claude Code](client-claude-code.md), [Claude Desktop](client-claude-desktop.md), [Codex in the ChatGPT desktop app](client-codex-desktop.md), [Codex CLI](client-codex-cli.md).
 
 ## Set up
 
@@ -17,6 +18,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 - [**MCP tool servers**](mcp.md) — register tool servers; per-key tool visibility.
 - [**HTTP APIs and observed traffic**](http-apis.md) — route REST APIs through the gateway, and map what doesn't go through it.
 - [**A2A agents**](a2a.md) — put remote agents that speak the Agent2Agent protocol behind the gateway.
+- [**Agents calling agents**](agent-to-agent.md) — follow calls from one agent to the next, and gate on whom a call is made for.
 
 ## Control
 

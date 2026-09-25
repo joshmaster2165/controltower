@@ -19,7 +19,7 @@ controltower [options]            (docker: pass the same options after the image
 
 ```bash
 controltower --config config.yaml --port 4000                 # from source: pnpm start --config config.yaml
-docker run -p 4000:4000 ghcr.io/joshmaster2165/controltower --model openai/gpt-4.1-mini   # uses OPENAI_API_KEY
+docker run -p 4000:4000 -e OPENAI_API_KEY ghcr.io/joshmaster2165/controltower --model openai/gpt-4.1-mini   # agents ask for openai/gpt-4.1-mini
 ```
 
 `--num_workers` is accepted and ignored: Control Tower is one process; run more instances to scale.
@@ -47,7 +47,7 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_CONFIG` | — | [Config file](config-file.md) applied at every start. Also `CONFIG_FILE_PATH` or `--config` |
 | `CT_POLICY` | — | [Policy file](policy-as-code.md#at-startup-gitops) applied at every start. Also `--policy` |
 | `CT_POLICY_MODE` | `merge` | `replace` makes the policy match the file exactly |
-| `CT_PUBLIC_URL` | detected | Public URL for links in alerts and approval messages. Detected on Render, Fly.io and Railway |
+| `CT_PUBLIC_URL` | detected | Public URL for links in alerts and approval messages. Detected on Render, Fly.io and Railway; otherwise `http://localhost:<port>` |
 | `CT_DEMO` | `0` | `1` starts the demo fleet at boot (or use **Get started → Start the demo fleet**) |
 | `CT_AUTO_MODELS` | `1` | Add a model the first time a connected provider is asked for it; `0` requires every model under **Models** |
 | `CT_MODE` | `on` | `off` stops enforcing gates (everything is allowed and still recorded) — a kill switch |

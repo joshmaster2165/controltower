@@ -43,7 +43,7 @@ gates:
 | Field | |
 |---|---|
 | `name` | Unique; gates refer to zones by name |
-| `members` | `agent:<key name>`, `group:<agent id>` (every key with that agent ID), `team:<team>` (every key in the team), `model:<model name or provider/model>`, `provider:<slug>`, `mcp:<slug>`, `http:<slug>`, `tool:<server__tool>` |
+| `members` | `agent:<key name>`, `group:<agent id>` (every key with that agent ID), `team:<team>` (every key in the team), `model:<model name or provider/model>`, `provider:<slug>`, `mcp:<slug>`, `http:<slug>`, `a2a:<slug>` (an [A2A agent](a2a.md)), `tool:<server__tool>` |
 | `match` | `teams`, `projects`, `tags` (keys) and `provider_kinds` (models): stations join automatically |
 | `color` | Optional |
 
@@ -59,7 +59,7 @@ gates:
 | `match.teams` | Teams: every key labelled with one, including keys added later |
 | `match.on_behalf_of` | Calls made on behalf of `agent:<agent id>` or `team:<name>`, anywhere up a chain of [agents calling agents](agent-to-agent.md) |
 | `match.deployments` | Model names (specific deployments) |
-| `match.servers` | MCP server or HTTP API slugs |
+| `match.servers` | MCP server, HTTP API or A2A agent slugs |
 | `match.models`, `match.tools` | Globs: `gpt-4*`, `github__merge_*`, `statuspage__DELETE *` |
 | `match.operations` | `read`, `write`, `admin` (destructive: deletes, merges, payments, HTTP `DELETE`), `unknown` |
 | `match.args` | Argument conditions: `{path, op: eq \| neq \| glob \| in \| gt \| lt \| exists, value}` |
@@ -91,6 +91,8 @@ docker run … -v $(pwd)/policy.yaml:/app/policy.yaml ghcr.io/joshmaster2165/con
 
 ## From CI
 
+The import examples use `jq` to wrap the file in a JSON body; install it or build the body another way.
+
 ```bash
 # export
 curl -s http://localhost:4000/admin/api/policy/export -H "Authorization: Bearer $CT_ADMIN_KEY" > policy.yaml
@@ -102,4 +104,4 @@ jq -Rs '{yaml: ., mode: "replace", apply: true}' policy.yaml | curl -s -X POST h
   -H "Authorization: Bearer $CT_ADMIN_KEY" -H "Content-Type: application/json" -d @-
 ```
 
-The preview returns `{errors, warnings, zones: {create, update, unchanged, remove}, gates: {…}}`; applying a file with errors returns `400`. `GET /admin/api/policy/export?format=json` returns the same document as JSON (which is also valid YAML to import).
+The preview returns `{errors, warnings, zones: {create, update, unchanged, remove}, gates: {…}}`; applying a file with errors returns `400`. `GET /admin/api/policy/export?format=json` returns `{doc, warnings}`: the same document as JSON, plus notes about anything skipped. You can import that response as it is — the importer takes the document out of `doc` — or import `doc` alone (JSON is also valid YAML).

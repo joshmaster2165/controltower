@@ -5,6 +5,9 @@ import { requireAdmin } from './auth.js';
 import { PROVIDER_CATALOG, catalogEntry } from '../providers/catalog.js';
 import type { ProviderRecord } from '../registry.js';
 
+/** How an alias picks among its deployments. With anything but priority, targets share one tier unless given one. */
+const STRATEGIES = ['priority', 'weighted', 'least-latency', 'least-cost'];
+
 /** Providers, deployments, aliases and the pricing table. */
 export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const guard = requireAdmin(ctx);
@@ -244,12 +247,14 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (ctx.registry.aliasesByName.has(name) || ctx.registry.deploymentsByPublicName.has(name)) {
       return reply.status(409).send({ error: { code: 'conflict', message: `"${name}" is already used by another model or alias.` } });
     }
+    const strategy = b.strategy ?? 'priority';
+    if (!STRATEGIES.includes(strategy)) return reply.status(400).send({ error: { code: 'invalid', message: `strategy must be one of ${STRATEGIES.join(', ')}` } });
     const id = ulid();
     await ctx.db.write.transaction().execute(async (trx) => {
-      await trx.insertInto('aliases').values({ id, name, strategy: b.strategy ?? 'priority', fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, created_at: Date.now() }).execute();
+      await trx.insertInto('aliases').values({ id, name, strategy, fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, created_at: Date.now() }).execute();
       for (const [i, t] of (b.targets ?? []).entries()) {
         if (!ctx.registry.deployments.has(t.deployment_id)) continue;
-        await trx.insertInto('alias_targets').values({ alias_id: id, deployment_id: t.deployment_id, priority: t.priority ?? i, weight: t.weight ?? 100 }).execute();
+        await trx.insertInto('alias_targets').values({ alias_id: id, deployment_id: t.deployment_id, priority: t.priority ?? (strategy === 'priority' ? i : 0), weight: t.weight ?? 100 }).execute();
       }
     });
     await ctx.registry.reload();
@@ -260,16 +265,17 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const id = (req.params as { id: string }).id;
     if (!ctx.registry.aliases.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'alias not found' } });
     const b = (req.body ?? {}) as { name?: string; strategy?: string; targets?: Array<{ deployment_id: string; priority?: number; weight?: number }> };
+    const strategy = typeof b.strategy === 'string' && STRATEGIES.includes(b.strategy) ? b.strategy : ctx.registry.aliases.get(id)!.strategy;
     await ctx.db.write.transaction().execute(async (trx) => {
       const patch: Record<string, unknown> = {};
       if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
-      if (typeof b.strategy === 'string') patch.strategy = b.strategy;
+      if (typeof b.strategy === 'string' && STRATEGIES.includes(b.strategy)) patch.strategy = b.strategy;
       if (Object.keys(patch).length) await trx.updateTable('aliases').set(patch).where('id', '=', id).execute();
       if (b.targets) {
         await trx.deleteFrom('alias_targets').where('alias_id', '=', id).execute();
         for (const [i, t] of b.targets.entries()) {
           if (!ctx.registry.deployments.has(t.deployment_id)) continue;
-          await trx.insertInto('alias_targets').values({ alias_id: id, deployment_id: t.deployment_id, priority: t.priority ?? i, weight: t.weight ?? 100 }).execute();
+          await trx.insertInto('alias_targets').values({ alias_id: id, deployment_id: t.deployment_id, priority: t.priority ?? (strategy === 'priority' ? i : 0), weight: t.weight ?? 100 }).execute();
         }
       }
     });

@@ -13,7 +13,7 @@
 | Versions | A2A 1.0 (`SendMessage`, `GetTask`, …) and 0.3 (`message/send`, `tasks/get`, …), over the JSON-RPC binding |
 | On the map | A destination station, **A2A agent**, with a row for each method called |
 | In gates | Tools named `<slug>__<Method>` — `research__SendMessage`, `research__GetTask` |
-| Delegation | The agent is sent a token (in `params.metadata` and the `x-ct-delegation` header) to pass on with its own calls — see [Agents calling agents](agent-to-agent.md) |
+| Delegation | With an **Agent ID**, the agent is sent a token (in `params.metadata` and the `x-ct-delegation` header) to pass on with its own calls — see [Agents calling agents](agent-to-agent.md) |
 
 ## Step 1: Register the agent
 
@@ -21,11 +21,13 @@ Under **A2A agents**, click **Add agent**. Give it a name and a slug (its path u
 
 ![Registering an A2A agent](images/a2a-protocol-form.png)
 
-Control Tower reads the card, finds the agent's JSON-RPC endpoint and lists its skills. **Agent ID** is the agent ID on the remote agent's own Control Tower key, if it has one, so that its own model and tool calls join it on the map; it defaults to the slug.
+Control Tower reads the card, finds the agent's JSON-RPC endpoint and lists its skills. **Agent ID** is the agent ID on the remote agent's own Control Tower key, if it has one: its own model and tool calls then join it on the map, and it is sent a delegation token so they count as made on the caller's behalf. Leave it empty for an agent outside Control Tower; it is then a destination only.
 
-The API equivalent:
+The API equivalent, with `CT` and `ADMIN` set as in the [API reference](api.md#authentication):
 
 ```bash
+export CT=http://localhost:4000
+export ADMIN="Authorization: Bearer $CT_ADMIN_KEY"
 curl -s $CT/admin/api/a2a/agents -H "$ADMIN" -H 'content-type: application/json' \
   -d '{"name": "Research agent", "slug": "research", "url": "https://research.internal.example.com",
        "auth": {"type": "bearer", "token": "…"}}'

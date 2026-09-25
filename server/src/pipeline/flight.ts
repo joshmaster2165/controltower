@@ -4,6 +4,7 @@ import { ulid } from 'ulid';
 import type { FlightKind, FlightStatus, Usage, UsageSource, CostConfidence } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import type { AliasRecord, DeploymentRecord, KeyRecord, ProviderRecord } from '../registry.js';
+import { byTier } from '../registry.js';
 import type { NormalizedError, WireDialect } from '../providers/adapter.js';
 import type { PriceRef } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
@@ -242,7 +243,7 @@ export class FlightRunner {
       // A model a connected provider serves is added on first use: no Models step needed.
       if (res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
       if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
-      if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.candidates) };
+      if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.alias, res.candidates) };
       const head = res.candidates[0]!;
       const headProv = ctx.registry.providers.get(head.providerId);
       const price = headProv
@@ -766,17 +767,16 @@ export class FlightRunner {
 }
 
 /**
- * A least-cost alias's deployments, cheapest first: by the price of a typical call (input and output
+ * A least-cost alias's deployments, cheapest first within each priority tier: by the price of a typical call (input and output
  * per million tokens, weighted 3:1). Deployments without a known price go last, in their own order.
  */
-function cheapestFirst(ctx: AppContext, candidates: DeploymentRecord[]): DeploymentRecord[] {
+function cheapestFirst(ctx: AppContext, alias: AliasRecord, candidates: DeploymentRecord[]): DeploymentRecord[] {
   const cost = (d: DeploymentRecord): number => {
     const prov = ctx.registry.providers.get(d.providerId);
     const e = prov ? ctx.pricing.resolve(prov.kind, d.upstreamModel, d.pricingOverride, prov.slug).entry : undefined;
     return e ? e.input * 3 + e.output : Number.POSITIVE_INFINITY;
   };
-  return candidates
-    .map((d, i) => ({ d, i, c: cost(d) }))
-    .sort((a, b) => a.c - b.c || a.i - b.i)
-    .map((x) => x.d);
+  const c = new Map(candidates.map((d) => [d.id, cost(d)]));
+  // Within each priority tier: a later tier stays a fallback, however cheap.
+  return byTier(alias, candidates, (a, b) => (c.get(a.id) ?? Infinity) - (c.get(b.id) ?? Infinity));
 }

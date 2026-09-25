@@ -20,6 +20,17 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 - **Teams view and search:** with a large fleet the Airspace starts with [one station per team](airspace.md#large-fleets-teams-agents-and-search); open a team to see its agents, or switch to **Agents**. **Find** (or <kbd>/</kbd>) jumps to any team, agent, key, model, tool server or tool. Gates on a team (`match.teams`) cover every key in it; zones take `team:` members.
 - **Large fleets:** the Airspace stays live with 1,500 agents at 300 requests a second. The console's live updates are a summary a second plus the full events of held, denied and failed flights — about 4 KB/s per open console at 300 calls a second (was 350 KB/s, and the browser fell behind) — and the map lays out large fleets without stalling. `pnpm load:fleet` drives a fleet against your own server and reports gateway overhead and map performance; see [Monitoring](monitoring.md#load-testing).
 - **Outbound proxy:** `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` route Control Tower's own calls to providers, MCP servers, HTTP APIs and alert channels through a corporate proxy.
+- **Chains of calls in Flights:** each call records the call that led to it (`parent_flight_id`). Click an agent in a *for …* chain to see everything done for it, or **trace** to see one chain in call order, from the call that started it. API: `GET /admin/api/flights?for=<agent id>` and `?trace=<flight id>`; see [Agents calling agents](agent-to-agent.md#step-4-see-it).
+- Refused delegated calls (`delegation_required`, `delegation_too_deep`) are recorded as rejected flights with their chain. A token an ordinary key presents that doesn't hold (expired, issued to another agent) is ignored, and the flight is flagged *delegation token ignored*.
+- Fixed: gates that list `tools` apply only to tool calls, and gates that list `models` only to model calls, even with target `any`. Such gates used to hold every model call too.
+- Fixed: weighted aliases pick only among the deployments with the best priority, so fallbacks are only tried when those fail. Config files with `settings.fallbacks` used to send half the traffic to the fallbacks.
+- Fixed: least-cost aliases (`cost-based-routing`) order deployments by the price of a typical call, unknown prices last. They used to keep the listed order.
+- Fixed: a model first used pinned (`openai/gpt-4.1-mini`) now also answers to its bare name (`gpt-4.1-mini`).
+- Fixed: without `CT_PUBLIC_URL`, the approval link in a held call's error uses the port the server listens on; it always said 4000.
+- Fixed: `/v1/models` answers `401 key_expired` or `key_disabled` like every other route, not `invalid_api_key`.
+- Fixed: the policy JSON export (`?format=json`, `{doc, warnings}`) can be imported as it is.
+- **A2A hardening:** approvals for A2A calls work (the approval is bound to the message, so a retry is no longer a scope mismatch); streams end when the client leaves or the agent goes silent; replies are capped at 10 MB and cards at 1 MB; an agent's credentials are only sent to the origin that serves its card; without an **Agent ID** an A2A agent is a destination only and gets no delegation token.
+- The sign-in page shows an animated air-traffic scene (still with reduced motion), and the empty Airspace says what to do without covering the hub's label.
 
 ## 0.1.4 — 25 September 2026
 

@@ -101,7 +101,7 @@ export function ModelsPage() {
     e.preventDefault();
     setError(null);
     try {
-      await api.post('/admin/api/aliases', { name: aliasForm.name, strategy: aliasForm.strategy, targets: aliasForm.targets.map((id, i) => ({ deployment_id: id, priority: i })) });
+      await api.post('/admin/api/aliases', { name: aliasForm.name, strategy: aliasForm.strategy, targets: aliasForm.targets.map((id, i) => ({ deployment_id: id, priority: aliasForm.strategy === 'priority' ? i : 0 })) });
       setShowAlias(false);
       setAliasForm({ name: '', strategy: 'priority', targets: [] });
       await load();
@@ -212,8 +212,9 @@ export function ModelsPage() {
               <label>Strategy</label>
               <select className="input" value={aliasForm.strategy} onChange={(e) => setAliasForm({ ...aliasForm, strategy: e.target.value })}>
                 <option value="priority">priority (first healthy wins)</option>
-                <option value="weighted">weighted</option>
-                <option value="least-latency">least latency</option>
+                <option value="weighted">weighted (spread evenly)</option>
+                <option value="least-latency">least latency (fastest first)</option>
+                <option value="least-cost">least cost (cheapest first)</option>
               </select>
             </div>
           </div>

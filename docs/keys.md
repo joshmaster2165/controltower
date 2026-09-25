@@ -15,9 +15,10 @@ Every agent gets its own key. The key is how Control Tower knows *who* is callin
 | **Name (agent)** | The agent's name on the map and in every report |
 | **Agent ID** | Optional. Keys with the same agent ID are [copies of one agent](#many-copies-of-one-agent). Defaults to the name |
 | **Team**, **Project** | Labels for grouping spend, for zones (a zone can match every key of a team) and for alerts |
-| **Allowed models** | Comma-separated globs, e.g. `gpt-4.1*, claude-*-haiku*`. Empty means any model. Other models get `403 model_not_allowed` |
+| **Allowed models** | Comma-separated globs, e.g. `gpt-4.1*, claude-haiku-*`. They are matched against the name the agent sends, so a pinned name like `openai/gpt-4.1-mini` needs a glob such as `*gpt-4.1*`. Empty means any model. Other models get `403 model_not_allowed` |
 | **Requests per minute** | Rate limit; over it, `429 rate_limit_exceeded` |
-| **Monthly budget (USD)** | Hard budget; once spent, `429 budget_exceeded` until the next period |
+| **Monthly budget USD (optional)** | Hard budget; once spent, `429 budget_exceeded` until the next period |
+| **Acts only on behalf of other agents** | For a sub-agent other agents call: its calls must carry a valid delegation token, or they are refused. See [Agents calling agents](agent-to-agent.md) |
 
 The key (`ct_sk_` + 32 characters + a checksum) is shown **once**. Only its hash is stored. The format is fixed so secret scanners can recognise a leaked key.
 
@@ -38,7 +39,8 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
   "allowed_mcp": ["salesforce__search_*", "zendesk__*"],
   "limits": { "rpm": 120, "tpm": 200000, "maxParallel": 4 },
   "budget": { "limit_usd": 50, "period": "monthly", "hard": true },
-  "expires_at": 1798761600000
+  "expires_at": 1798761600000,
+  "delegated_only": false
 }
 ```
 
@@ -46,6 +48,7 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
 - **`limits`** — requests per minute, tokens per minute (charged up front from an estimate, then corrected), and concurrent requests.
 - **`budget`** — `daily`, `weekly`, `monthly` or `total`. A soft budget (`hard: false`) alerts instead of refusing. Budget alerts fire at a percentage and when exhausted; see [Alerts](alerts.md).
 - **`expires_at`** — epoch milliseconds; afterwards `401 key_expired`.
+- **`delegated_only`** — the API name for **Acts only on behalf of other agents**: `true` refuses the key's calls that carry no valid delegation token (`403 delegation_required`).
 
 ### Key management API
 

@@ -87,7 +87,7 @@ claude mcp add --transport http controltower http://localhost:4000/mcp \
   --header "Authorization: Bearer ct_sk_…"
 ```
 
-Use the same key as for the model, so tool calls and model calls are one agent on the map. The **MCP clients** tab of the Connect panel has this command with your key filled in.
+This saves the server for the current project only (local scope); add `--scope user` to use it in every project. Use the same key as for the model, so tool calls and model calls are one agent on the map. The **MCP clients** tab of the Connect panel has this command with your key filled in.
 
 ### Step 2: Check the connection
 

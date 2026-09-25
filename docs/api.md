@@ -28,7 +28,7 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | Method | Path | |
 |---|---|---|
 | POST | `/v1/chat/completions` | OpenAI Chat Completions, streaming or not — to any provider (translated where needed) |
-| POST | `/v1/responses` | OpenAI Responses API (Agents SDK, Codex) — OpenAI-wire providers |
+| POST | `/v1/responses` | OpenAI Responses API (Agents SDK, Codex) — to any provider (translated through Chat Completions where needed) |
 | POST | `/v1/embeddings` | Embeddings |
 | GET | `/v1/models`, `/v1/models/:id` | The models this key may use |
 | POST | `/v1/messages` | Anthropic Messages API (Claude Code, Anthropic SDKs) |
@@ -54,7 +54,8 @@ All paths are under `/admin/api`.
 |---|---|---|
 | GET | `/status` | Version, whether setup is complete |
 | POST | `/setup` | First run: create the admin (`{email, password}`) |
-| POST | `/login`, `/logout` | Console session |
+| POST | `/login` | Start a console session (`{email, password}`) |
+| POST | `/logout` | End it |
 | GET | `/me` | The signed-in admin and the CSRF token |
 
 ### Providers, models, aliases
@@ -88,7 +89,7 @@ All paths are under `/admin/api`.
 | GET, POST | `/mcp/servers` | List, register (`{name, slug, url, auth?: {type: "bearer", token} \| {type: "headers", headers}}`) |
 | PATCH, DELETE | `/mcp/servers/:id` | Update, remove |
 | POST | `/mcp/servers/:id/test` | Connect and refresh the tool list |
-| GET, POST | `/http/apis` | List, register an HTTP API |
+| GET, POST | `/http/apis` | List, register an [HTTP API](http-apis.md) (`{name, slug?, base_url, auth?: {type: "bearer", token} \| {type: "header", header, token}, agent_id?}`) |
 | PATCH, DELETE | `/http/apis/:id` | Update, remove |
 | POST | `/http/apis/:id/test` | Check it is reachable |
 | GET, POST | `/a2a/agents` | List, register an A2A agent (`{name, slug?, url, auth?, agent_id?}`; `url` is its card or base URL) |
@@ -127,7 +128,7 @@ All paths are under `/admin/api`.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/flights` | Recent flights (`?limit`, `before`, `status`, `key_id`, `kind`) |
+| GET | `/flights` | Recent flights (`?limit`, `before`, `status`, `key_id`, `kind`; `for=<agent id>`: calls made on behalf of that agent anywhere up the chain; `trace=<flight id>`: every call in the same chain, from the call that started it to everything it led to). Each flight has `parent_flight_id` (the call that led to it) and `has_children` |
 | GET | `/flights/:id` | One flight with its events |
 | GET | `/events/recent` | The latest flight events |
 | GET | `/replay` | Flights in a window, compact, for replay (`?from`, `to` in epoch ms) |
@@ -150,6 +151,8 @@ All paths are under `/admin/api`.
 ## Key and model management API
 
 With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/delete`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` (also `/key/:key/regenerate`), `GET /model/info` (also `/v1/model/info`), `POST /model/new`, `POST /model/delete`. See [Keys](keys.md#key-management-api).
+
+`POST /model/new` takes one entry in the form of a [config file](config-file.md#model_list)'s `model_list`: `{model_name, params: {model: "<provider>/<model>", api_key?, api_base?, …}, model_info?}`. Credentials it leaves out are read from the usual environment variables; it reuses a provider with the same endpoint and credentials, and returns the new model's `model_id`. `POST /model/delete` takes `{id}`.
 
 ## Health and metrics
 

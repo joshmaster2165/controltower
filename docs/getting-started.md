@@ -13,7 +13,7 @@ The terminal prints where to open the console, the two environment variables age
 ```text
   Control Tower 0.1.4 is running
 
-     Open        http://localhost:4000  → create your admin account
+     Open        http://localhost:4000  → create your admin account  (or the host port you published)
      Models      OPENAI_BASE_URL=http://localhost:4000/v1       (OpenAI SDKs)
                  ANTHROPIC_BASE_URL=http://localhost:4000      (Claude Code, Anthropic SDKs)
      Tools       http://localhost:4000/mcp    ·    REST APIs: http://localhost:4000/http/<name>

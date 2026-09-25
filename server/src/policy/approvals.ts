@@ -61,7 +61,7 @@ export class ApprovalService implements Approvals {
     private readonly bus: FlightBus,
     private readonly version: Versioned,
     private readonly getLog: () => FastifyBaseLogger,
-    private readonly opts: { holdBudgetMs: number; maxHeld: number; publicUrl: string | undefined; policyRevision: () => number },
+    private readonly opts: { holdBudgetMs: number; maxHeld: number; publicUrl: string; policyRevision: () => number },
   ) {}
 
   get heldCount(): number {
@@ -78,7 +78,7 @@ export class ApprovalService implements Approvals {
   }
 
   private consoleUrl(approvalId: string): string {
-    return `${this.opts.publicUrl ?? 'http://localhost:4000'}/#/tower?approval=${approvalId}`;
+    return `${this.opts.publicUrl}/#/tower/${approvalId}`;
   }
 
   async hold(flight: Flight, decision: PolicyDecision): Promise<HoldOutcome> {

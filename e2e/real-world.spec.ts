@@ -597,6 +597,32 @@ test('Approvals for chained calls: the card says whom a call is for, and approvi
   for (const c of await pending()) await admin.post(`/admin/api/approvals/${c.id}/decide`, { action: 'deny' });
 });
 
+test('MCP: a health check never cuts off a tool call in flight', async () => {
+  // A slow tool: it answers after 2.5 s. A health check runs while it works.
+  const slow = await subAgentUpstream(async () => {
+    await new Promise((r) => setTimeout(r, 2500));
+    return 'finished';
+  });
+  upstreams.push(slow);
+  const reg = await admin.post('/admin/api/mcp/servers', { name: 'Slow agent', slug: 'slowpoke', url: `${slow.url}/mcp` });
+  expect(reg.status).toBe(201);
+  const caller = await key('rw-slow-caller');
+  const c = await mcpClient(caller.key);
+  const results = await Promise.all([
+    c.callTool({ name: 'slowpoke__ask', arguments: { question: 'take your time' } }),
+    (async () => {
+      await new Promise((r) => setTimeout(r, 600));
+      return admin.post(`/admin/api/mcp/servers/${reg.body.server.id}/test`, {});
+    })(),
+  ]);
+  expect(textOf(results[0])).toBe('finished');
+  expect((results[1] as { status: number }).status).toBe(200);
+  // …and the live session still works afterwards.
+  expect(textOf(await c.callTool({ name: 'slowpoke__ask', arguments: { question: 'again' } }))).toBe('finished');
+  await c.close();
+  await admin.call('DELETE', `/admin/api/mcp/servers/${reg.body.server.id}`);
+});
+
 test('A2A: a remote agent behind Control Tower — its card, messages, streams, gates and delegation', async () => {
   // The research agent is a remote A2A 1.0 agent. Its own key acts only on behalf of other agents.
   const research = await key('rw-a2a-research', { agent_id: 'rw-a2a-research', delegated_only: true });

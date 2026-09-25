@@ -125,12 +125,14 @@ export class McpRegistry {
     return c;
   }
 
-  /** Initialize, list tools, persist health + cache. */
+  /**
+   * Initialize, list tools, persist health + cache. A check runs on a session of its own, closed after:
+   * resetting the session live calls share would cut off any tool call in flight on it.
+   */
   async check(server: McpServerRecord): Promise<{ ok: boolean; latencyMs: number; detail?: string; tools: McpTool[] }> {
     const t0 = Date.now();
-    const c = this.client(server);
+    const c = new McpUpstream(server.slug, server.url, server.auth, server.timeoutMs);
     try {
-      c.reset();
       const tools = await c.listTools();
       const hash = crypto.createHash('sha256').update(JSON.stringify(tools.map((t) => [t.name, t.description ?? '', t.inputSchema ?? null]))).digest('hex').slice(0, 16);
       const detail = `${tools.length} tools · ${c.serverInfo?.name ?? 'server'} ${c.serverInfo?.version ?? ''}`.trim();
@@ -146,6 +148,8 @@ export class McpRegistry {
       await this.db.updateTable('mcp_servers').set({ health: 'down', health_detail: detail, last_checked_at: Date.now(), updated_at: Date.now() }).where('id', '=', server.id).execute();
       await this.reload();
       return { ok: false, latencyMs: Date.now() - t0, detail, tools: server.tools };
+    } finally {
+      c.reset();
     }
   }
 

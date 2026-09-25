@@ -17,17 +17,23 @@ import { E, type GatewayError } from '../gateway/errors.js';
  * cannot drop its token to escape a rule — its calls without one are refused.
  *
  *   ctd1.<payload, base64url JSON>.<HMAC-SHA256, base64url>
- *   payload: { c: chain (origin first), t: agent the token was issued to, e: expiry (ms), f: flight id }
+ *   payload: { c: chain (origin first), t: agent the token was issued to, e: expiry (ms), f: flight id,
+ *              o: when the first token of this delegation was issued (ms) — renewals keep it }
+ *
+ * A long task can outlast a token: the agent it was issued to renews it while it is still valid
+ * (POST /v1/delegation/renew), for up to MAX_LIFETIME_MS after the first one.
  */
 export const DELEGATION_HEADER = 'x-ct-delegation';
 /** Where an MCP server finds the token in a tools/call: params._meta[DELEGATION_META]. */
 export const DELEGATION_META = 'controltower/delegation';
 const PREFIX = 'ctd1';
 const TTL_MS = 15 * 60_000;
+/** How long a delegation can be kept alive by renewing its token. */
+export const MAX_LIFETIME_MS = 24 * 3600_000;
 /** A chain deeper than this is refused: agents calling agents calling agents in a loop. */
 export const MAX_CHAIN = 8;
 
-export type DelegationCheck = { ok: true; chain: string[]; parent?: string } | { ok: false; reason: string };
+export type DelegationCheck = { ok: true; chain: string[]; parent?: string; origin?: number; expiresAt?: number } | { ok: false; reason: string };
 
 export class Delegations {
   constructor(private readonly secret: Buffer) {}
@@ -37,9 +43,22 @@ export class Delegations {
   }
 
   /** A token for `to`, called on behalf of `chain` (origin first). */
-  issue(chain: string[], to: string, flightId: string, now = Date.now()): string {
-    const payload = Buffer.from(JSON.stringify({ c: chain, t: to, e: now + TTL_MS, f: flightId })).toString('base64url');
+  issue(chain: string[], to: string, flightId: string, now = Date.now(), origin = now): string {
+    const payload = Buffer.from(JSON.stringify({ c: chain, t: to, e: Math.min(now + TTL_MS, origin + MAX_LIFETIME_MS), f: flightId, o: origin })).toString('base64url');
     return `${PREFIX}.${payload}.${this.sign(payload)}`;
+  }
+
+  /**
+   * A fresh token for the same delegation — same chain, same call it came from — for the agent it
+   * was issued to, while the current one is still valid and within MAX_LIFETIME_MS of the first.
+   */
+  renew(token: string, presenter: string, now = Date.now()): { ok: true; token: string; expiresAt: number } | { ok: false; reason: string } {
+    const r = this.verify(token, presenter, now);
+    if (!r.ok) return r;
+    const origin = r.origin ?? now;
+    if (now - origin >= MAX_LIFETIME_MS) return { ok: false, reason: 'this delegation has been renewed for as long as Control Tower allows (24 hours)' };
+    const fresh = this.issue(r.chain, presenter, r.parent ?? '', now, origin);
+    return { ok: true, token: fresh, expiresAt: Math.min(now + TTL_MS, origin + MAX_LIFETIME_MS) };
   }
 
   /** Check a presented token against the agent presenting it. */
@@ -50,7 +69,7 @@ export class Delegations {
     const want = Buffer.from(this.sign(payload));
     const got = Buffer.from(sig);
     if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return { ok: false, reason: 'the delegation token signature does not match' };
-    let p: { c?: unknown; t?: unknown; e?: unknown; f?: unknown };
+    let p: { c?: unknown; t?: unknown; e?: unknown; f?: unknown; o?: unknown };
     try {
       p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as typeof p;
     } catch {
@@ -59,7 +78,7 @@ export class Delegations {
     if (typeof p.e !== 'number' || p.e < now) return { ok: false, reason: 'the delegation token has expired' };
     if (p.t !== presenter) return { ok: false, reason: `the delegation token was issued to another agent ("${String(p.t)}")` };
     if (!Array.isArray(p.c) || !p.c.every((x) => typeof x === 'string')) return { ok: false, reason: 'the delegation token is malformed' };
-    return { ok: true, chain: p.c as string[], ...(typeof p.f === 'string' ? { parent: p.f } : {}) };
+    return { ok: true, chain: p.c as string[], expiresAt: p.e, ...(typeof p.f === 'string' ? { parent: p.f } : {}), ...(typeof p.o === 'number' ? { origin: p.o } : {}) };
   }
 }
 

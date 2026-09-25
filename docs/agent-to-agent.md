@@ -125,6 +125,18 @@ Gates on the caller itself keep working as usual: *support-bot may not call rese
 - It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`).
 - It never appears in logs, events or Flights — only the chain of agent IDs does.
 
+### Long tasks: renew the token
+
+A task that runs longer than 15 minutes — a long A2A task or stream — renews its token before it expires. The agent it was issued to sends it, with its own key, and gets a fresh one for the same chain:
+
+```bash
+curl -s $CT/v1/delegation/renew -H "Authorization: Bearer $RESEARCH_AGENT_KEY" \
+  -H "x-ct-delegation: $TOKEN"
+# {"token": "ctd1.…", "expires_at": 1790360000000}
+```
+
+Renew whenever less than a few minutes are left, and use the new token from then on. Only a token that is still valid can be renewed, and only by the agent it was issued to; a delegation can be kept alive this way for up to 24 hours from its first token (`delegation_invalid` after that).
+
 ## Agents inside one app
 
 When sub-agents run inside one process — LangGraph nodes, CrewAI crews, handoffs in the OpenAI Agents SDK — there is no network hop between them for Control Tower to see. Give each sub-agent its own key so each is its own station with its own gates and budget; when one of them calls another through a tool served by Control Tower, the rules above apply.

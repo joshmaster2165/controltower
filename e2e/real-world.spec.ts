@@ -488,6 +488,19 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   expect(arc.on_behalf.count).toBeGreaterThan(0);
   expect(arc.from_agents).toEqual(['rw-support-bot']);
 
+  // A long task renews its token before it expires: same chain, fresh expiry; only the agent it was issued to can.
+  const renew = (k: string, token: string) => fetch(`${CT}/v1/delegation/renew`, { method: 'POST', headers: { authorization: `Bearer ${k}`, 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
+  const renewed = await renew(research.key, tokens.at(-1)!);
+  expect(renewed.status).toBe(200);
+  const fresh = (await renewed.json()) as { token: string; expires_at: number };
+  expect(fresh.token).toMatch(/^ctd1\./);
+  expect(fresh.expires_at).toBeGreaterThan(Date.now() + 14 * 60_000);
+  expect((await renew(bot.key, tokens.at(-1)!)).status).toBe(403);
+  const later = await ask(fresh.token);
+  expect(later.status).toBe(200);
+  const laterId = later.headers.get('x-ct-flight-id')!;
+  await expect.poll(async () => (await admin.get(`/admin/api/flights/${laterId}`)).body.flight?.on_behalf_of).toBe('["rw-support-bot"]');
+
   // A loop is refused at the first repeat: acting for support-bot, the research agent can't call support-bot back.
   const botApi = await admin.post('/admin/api/http/apis', { name: 'Support bot', slug: 'support-bot-api', base_url: oai.url, agent_id: 'rw-support-bot' });
   expect(botApi.status).toBe(201);

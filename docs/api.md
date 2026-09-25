@@ -39,6 +39,7 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | GET | `/a2a` | The [A2A agents](a2a.md) this key may reach |
 | GET | `/a2a/:slug/.well-known/agent-card.json` | An A2A agent's card, pointing at Control Tower |
 | POST | `/a2a/:slug` | A2A JSON-RPC: `SendMessage`, `GetTask`, … (1.0) or `message/send`, … (0.3) |
+| POST | `/v1/delegation/renew` | Renew a delegation token (`x-ct-delegation` header or `{"token"}`) for the agent it was issued to: `{token, expires_at}` — see [Agents calling agents](agent-to-agent.md#long-tasks-renew-the-token) |
 | POST | `/v1/observe` | Report calls made outside the gateway |
 | POST | `/v1/traces` | OpenTelemetry traces (OTLP/HTTP JSON) |
 

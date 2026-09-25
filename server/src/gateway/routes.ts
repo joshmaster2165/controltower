@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { DELEGATION_HEADER, agentRef, headerToken } from '../policy/delegation.js';
 import type { AppContext } from '../context.js';
 import { FlightRunner } from '../pipeline/flight.js';
 import { extractApiKey, keyProblem, usableKey } from './key.js';
@@ -59,6 +60,18 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
       /* ignore */
     }
   }
+  // Agents calling agents: renew a delegation token before it expires, for a task that outlasts it.
+  app.post('/v1/delegation/renew', { bodyLimit: 16 * 1024 }, async (req, reply) => {
+    const key = usableKey(ctx, req);
+    if (!key) return reply.status(401).send(errorBody('openai-chat', keyRefusal(req)));
+    const body = (req.body ?? {}) as { token?: unknown };
+    const token = typeof body.token === 'string' ? body.token : headerToken(req.headers);
+    if (!token) return reply.status(400).send(errorBody('openai-chat', E.badRequest(`Send the token to renew as the ${DELEGATION_HEADER} header or {"token": "…"}.`)));
+    const r = ctx.delegations.renew(token, agentRef(key));
+    if (!r.ok) return reply.status(403).send(errorBody('openai-chat', { status: 403, code: 'delegation_invalid', message: `The token can't be renewed: ${r.reason}.` }));
+    return { token: r.token, expires_at: r.expiresAt };
+  });
+
   app.post('/v1/observe', { bodyLimit: 1024 * 1024 }, async (req, reply) => {
     const key = usableKey(ctx, req);
     if (!key) return reply.status(401).send(errorBody('openai-chat', keyRefusal(req)));

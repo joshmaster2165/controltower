@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { Delegations, MAX_CHAIN, resolveDelegation } from '../src/policy/delegation.js';
+import { Delegations, MAX_CHAIN, MAX_LIFETIME_MS, resolveDelegation } from '../src/policy/delegation.js';
 import type { KeyRecord } from '../src/registry.js';
 
 const key = (agentId: string, delegatedOnly = false): KeyRecord => ({
@@ -14,7 +14,7 @@ describe('delegation tokens', () => {
 
   it('carry the chain to the agent they were issued to, and only to it', () => {
     const t = d.issue(['support-bot'], 'billing-agent', 'f1');
-    expect(d.verify(t, 'billing-agent')).toEqual({ ok: true, chain: ['support-bot'], parent: 'f1' });
+    expect(d.verify(t, 'billing-agent')).toMatchObject({ ok: true, chain: ['support-bot'], parent: 'f1' });
     expect(d.verify(t, 'other-agent')).toMatchObject({ ok: false, reason: expect.stringContaining('issued to another agent') });
   });
 
@@ -48,5 +48,28 @@ describe('delegation tokens', () => {
     const chain = Array.from({ length: MAX_CHAIN }, (_, i) => `a${i}`);
     const r = resolveDelegation(ctx, key('last'), d.issue(chain, 'last', 'f_parent'));
     expect(r).toMatchObject({ error: { code: 'delegation_too_deep' }, chain, parentFlightId: 'f_parent' });
+  });
+
+  it('renew for the agent they were issued to, keeping the chain and the call they came from, for up to a day', () => {
+    const t0 = 1_000_000;
+    const t = d.issue(['support-bot'], 'billing-agent', 'f_parent', t0);
+    expect(d.renew(t, 'other-agent', t0 + 60_000)).toMatchObject({ ok: false });
+    const r = d.renew(t, 'billing-agent', t0 + 14 * 60_000);
+    expect(r.ok).toBe(true);
+    const fresh = (r as { token: string }).token;
+    // Valid past the first token's expiry, with the same chain and parent.
+    expect(d.verify(fresh, 'billing-agent', t0 + 20 * 60_000)).toMatchObject({ ok: true, chain: ['support-bot'], parent: 'f_parent', origin: t0 });
+    expect(d.verify(t, 'billing-agent', t0 + 20 * 60_000).ok).toBe(false);
+    // Renewing again and again stops at the delegation's lifetime.
+    let tok = fresh;
+    let now = t0 + 14 * 60_000;
+    while (now < t0 + MAX_LIFETIME_MS - 60_000) {
+      now += 14 * 60_000;
+      const n = d.renew(tok, 'billing-agent', now);
+      if (!n.ok) break;
+      tok = n.token;
+      expect(n.expiresAt).toBeLessThanOrEqual(t0 + MAX_LIFETIME_MS);
+    }
+    expect(d.renew(tok, 'billing-agent', t0 + MAX_LIFETIME_MS + 1).ok).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { E } from '../gateway/errors.js';
 import { readCapped } from '../util/body.js';
 import { request } from 'undici';
 import type { AppContext } from '../context.js';
@@ -9,7 +10,7 @@ import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { ctKey, downstreamHeaders, httpOperation, isTextual, routeLabel, upstreamHeaders, upstreamUrl } from './route.js';
-import { DELEGATION_HEADER, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The HTTP gateway: plain REST APIs, gated like tools. An agent calls
@@ -105,6 +106,7 @@ export class HttpGateway {
     if (!api || !api.enabled) return refuse(404, 'rejected', 'api_not_found', `No HTTP API "${slug}" is registered in Control Tower.`);
     if (!url) return refuse(400, 'denied', 'path_not_allowed', 'That path leaves the registered API (dot segments and encoded dots are refused).');
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${slug} (${route}).`);
+    if (loopsBack(f.chain, api.agentId)) return refuse(403, 'rejected', 'delegation_loop', E.delegationLoop(api.agentId!).message);
     const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
     if (!admit.ok) {
       reply.header('retry-after', String(Math.ceil(admit.retryAfterMs / 1000)));

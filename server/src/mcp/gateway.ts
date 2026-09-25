@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { E } from '../gateway/errors.js';
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
 import type { KeyRecord } from '../registry.js';
@@ -10,7 +11,7 @@ import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js
 import type { PolicyTarget } from '../policy/engine.js';
 import { describeFindings, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
-import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The MCP gateway. Agents point their MCP client at /mcp (all servers, tools
@@ -285,6 +286,12 @@ export class McpGateway {
         started();
         complete('denied', 403, { code: 'tool_not_allowed', message: `Key may not use ${full}` });
         return blocked('denied', `This API key is not allowed to use ${full}.`, { reason: 'key_not_allowed' });
+      }
+      if (loopsBack(f.chain, server.agentId)) {
+        started();
+        const e = E.delegationLoop(server.agentId!);
+        complete('rejected', 403, { code: e.code, message: e.message });
+        return blocked('denied', e.message, { reason: e.code });
       }
       const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
       if (!admit.ok) {

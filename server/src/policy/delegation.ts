@@ -91,6 +91,14 @@ export function principalsOf(registry: Pick<AppContext['registry'], 'agentTeams'
   return chain.flatMap((a) => [`agent:${a}`, ...[...(registry.agentTeams.get(a) ?? [])].map((t) => `team:${t}`)]);
 }
 
+/**
+ * A call to an agent already earlier in the chain goes round in a loop (A → B → A): refused at the
+ * first repeat rather than when the chain runs out of depth. An agent calling its own server is not.
+ */
+export function loopsBack(chain: string[], to: string | undefined): boolean {
+  return !!to && chain.includes(to);
+}
+
 /** The token for an agent this call reaches (a tool server or HTTP API that fronts it). */
 export function tokenFor(ctx: Pick<AppContext, 'delegations'>, chain: string[], key: KeyRecord, to: string, flightId: string): string {
   return ctx.delegations.issue([...chain, agentRef(key)], to, flightId);

@@ -94,6 +94,11 @@ export const E = {
     code: 'delegation_required',
     message: `This key acts only on behalf of other agents, and ${why}. Pass on the x-ct-delegation header of the request that called this agent.`,
   }),
+  delegationLoop: (to: string): GatewayError => ({
+    status: 403,
+    code: 'delegation_loop',
+    message: `Agents calling each other in a loop: "${to}" is already earlier in this chain of calls, so this call would go round again. Answer the agent that called you instead of calling it back.`,
+  }),
   delegationTooDeep: (): GatewayError => ({ status: 403, code: 'delegation_too_deep', message: 'Too many agents deep: this call is at the end of a chain of agents calling agents that is longer than Control Tower allows.' }),
   rateLimited: (which: string, retryAfterMs: number): GatewayError => ({
     status: 429,

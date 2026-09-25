@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { E } from '../gateway/errors.js';
 import { once } from 'node:events';
 import { request } from 'undici';
 import type { AppContext } from '../context.js';
@@ -9,7 +10,7 @@ import type { PolicyTarget } from '../policy/engine.js';
 import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
-import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
 import { CARD_PATH, LEGACY_CARD_PATH, METHODS, publishedCard, skillsOf } from './card.js';
 import { authHeaders, type A2aAgentRecord } from './registry.js';
 import { readCapped } from '../util/body.js';
@@ -151,6 +152,7 @@ export class A2aGateway {
     if ('error' in deleg) return refuse(deleg.error.status, 'rejected', deleg.error.code, deleg.error.message);
     if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${agent.name} (${info.name}).`);
+    if (loopsBack(f.chain, agent.agentId)) return refuse(403, 'rejected', 'delegation_loop', E.delegationLoop(agent.agentId!).message);
     const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
     if (!admit.ok) return refuse(429, 'rejected', 'rate_limit_exceeded', 'Rate limit exceeded for this key.', { retry_after_ms: String(admit.retryAfterMs) });
 

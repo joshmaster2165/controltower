@@ -487,6 +487,14 @@ test('Agents calling agents: an agent behind a tool, delegation tokens passed on
   expect(arc.calls[0]).toMatchObject({ id: botCall.id, model_requested: 'research__ask', led_to: 1 });
   expect(arc.on_behalf.count).toBeGreaterThan(0);
   expect(arc.from_agents).toEqual(['rw-support-bot']);
+
+  // A loop is refused at the first repeat: acting for support-bot, the research agent can't call support-bot back.
+  const botApi = await admin.post('/admin/api/http/apis', { name: 'Support bot', slug: 'support-bot-api', base_url: oai.url, agent_id: 'rw-support-bot' });
+  expect(botApi.status).toBe(201);
+  const back = await fetch(`${CT}/http/support-bot-api/v1/models`, { headers: { authorization: `Bearer ${research.key}`, 'x-ct-delegation': tokens.at(-1)! } });
+  expect(back.status).toBe(403);
+  expect(((await back.json()) as { error: { code: string } }).error.code).toBe('delegation_loop');
+  await admin.call('DELETE', `/admin/api/http/apis/${botApi.body.api?.id ?? botApi.body.id}`);
   const stolen = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${oaiAgent.key}`, 'content-type': 'application/json', 'x-ct-delegation': tokens[0]! }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
   expect(stolen.status).toBe(200);
   expect((await flightsFor(oaiAgent.id))[0].on_behalf_of).toBeNull(); // not issued to it: counted as its own call

@@ -4,6 +4,9 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Agent loops stop at the first repeat:** a call to an agent already earlier in the chain (A → B → A) is refused with `delegation_loop` and recorded, instead of going round until the chain is 8 agents deep.
+- **Arcs on the Airspace open the calls behind them:** click an arc between two agents to see each call, what it led to, and a trace into Flights.
+- **Airspace top bar:** counters, actions and map controls share one left edge and wrap as groups on narrow screens.
 - **A2A agents:** Control Tower stands in front of [remote agents that speak A2A](a2a.md) (1.0 and 0.3, JSON-RPC). Register one by its Agent Card; callers use the card Control Tower publishes at `/a2a/<slug>/.well-known/agent-card.json` and their own key. Every message and task call is a flight, on the map as a destination with a row per method, and open to gates (`<slug>__SendMessage`), approvals and inspect gates; the agent is sent a delegation token so its own calls count as made on the caller's behalf. The key's **Connect** panel has an **A2A agents** tab. Tested with the official A2A JavaScript SDK on both sides, including its 0.3 compatibility client.
 - **Agent groups:** keys that share an [agent ID](keys.md#many-copies-of-one-agent) are one station on the map with a ×N count, and a gate or zone on it covers every copy (`match.groups`, `group:` members in policy files). The key form has an **Agent ID** field.
 - **Agents calling agents:** a tool server or HTTP API can [front an agent](agent-to-agent.md); calls to it carry a signed delegation token the called agent passes on, so its calls are recorded — and can be gated — as made on the caller's behalf (`match.on_behalf_of`). Keys can be limited to acting on behalf of others. Flights show whom a call was for; the Airspace draws an arc from caller to callee.

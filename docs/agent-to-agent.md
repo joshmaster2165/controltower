@@ -67,7 +67,7 @@ The called agent's calls are in **Flights** with whom they were made for:
 
 - Click an agent in the purple *for …* chain to show only the calls made for it, anywhere up the chain.
 - A call that is part of a chain has a **trace** link: it shows the whole chain — the call that started it and every call it led to — indented in call order.
-- A call refused with `delegation_required` or `delegation_too_deep` is recorded as rejected, with the chain it carried.
+- A call refused with `delegation_required`, `delegation_loop` or `delegation_too_deep` is recorded as rejected, with the chain it carried.
 
 In the API: `GET /admin/api/flights?for=<agent id>` and `GET /admin/api/flights?trace=<flight id>`; each flight has `parent_flight_id` (the call that led to it) and `has_children`. See [API reference](api.md#traffic-spend-and-the-map).
 
@@ -121,7 +121,8 @@ Gates on the caller itself keep working as usual: *support-bot may not call rese
 
 - It is signed with a key derived from Control Tower's master key and never stored, so it can't be forged or edited.
 - It is issued to one agent: presented by any other agent it is ignored, and the flight carries a flagged event *delegation token ignored: <reason>* (a key that only acts for others is refused instead). An expired token is treated the same way.
-- It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`), which also ends loops.
+- A call to an agent already earlier in the chain — A calls B, and B calls A back — is refused (`delegation_loop`): agents answer the agent that called them rather than calling it again. An agent calling its own server is not a loop.
+- It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`).
 - It never appears in logs, events or Flights — only the chain of agent IDs does.
 
 ## Agents inside one app
@@ -134,7 +135,8 @@ When sub-agents run inside one process — LangGraph nodes, CrewAI crews, handof
 |---|---|---|
 | `403 delegation_required` | A key that only acts for others made a call without a valid token | Pass on the `x-ct-delegation` header of the call it received; check it didn't expire (15 min) |
 | `…issued to another agent` | The token was passed to a different agent than the one called | Each agent passes on only the token it received; the server must front the right agent ID |
-| `403 delegation_too_deep` | More than 8 agents in the chain, or agents calling each other in a loop | Check for a loop between agents |
+| `403 delegation_loop` | The call goes to an agent already earlier in the chain | Return the answer to the calling agent instead of calling it back |
+| `403 delegation_too_deep` | More than 8 agents in the chain | Shorten the chain |
 | No arc on the map | The server isn't marked as fronting an agent, and no call carried a token | Set **Fronts an agent**, and pass the token on (step 3) |
 
 ## Next steps

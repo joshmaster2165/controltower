@@ -2430,10 +2430,14 @@ export class AirspaceScene {
     }
 
     if (this.stations.size === 0) {
-      ctx.font = `500 13px ${FONT}`;
-      ctx.fillStyle = INK_DIM;
+      // Below the hub's own label and status line, never over them.
       ctx.textAlign = 'center';
-      ctx.fillText('No agents yet — create an API key or start with CT_DEMO=1', hx, hy + this.hubR + 60);
+      ctx.font = `600 13px ${FONT}`;
+      ctx.fillStyle = INK;
+      ctx.fillText('No agents yet', hx, hy + this.holdR + 72);
+      ctx.font = `400 12px ${FONT}`;
+      ctx.fillStyle = INK_DIM;
+      ctx.fillText('Create a key, point an agent here, and it appears.', hx, hy + this.holdR + 91);
       ctx.textAlign = 'left';
     }
   }

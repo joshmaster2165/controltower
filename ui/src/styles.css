@@ -732,6 +732,8 @@ select.input { padding-right: 28px; }
 .auth-brand { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 40px 48px; color: #e8eefb; background: radial-gradient(120% 90% at 0% 0%, #1f5eff 0%, #0b3d91 45%, #0a1f45 100%); }
 .auth-brand::after { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(180deg, transparent, #000 40%, transparent); pointer-events: none; }
 .auth-brand > * { position: relative; z-index: 1; }
+.auth-brand > .auth-sky { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.auth-pitch h2, .auth-pitch p, .auth-pitch li { text-shadow: 0 1px 12px rgba(10, 31, 69, 0.6); }
 .auth-logo { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; color: #fff; }
 .auth-logo img { width: 30px; height: 30px; filter: brightness(0) invert(1); }
 .auth-logo span { color: #9cc0ff; }

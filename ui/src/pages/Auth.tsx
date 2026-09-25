@@ -2,12 +2,14 @@ import { useState, type FormEvent } from 'react';
 import { api, ApiError, type Me } from '../api';
 import { useStore } from '../store';
 import type { ReactNode } from 'react';
+import { AuthSky } from '../components/AuthSky';
 
 /** Brand story on the left, the form on the right. */
 function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="auth-shell">
       <aside className="auth-brand">
+        <AuthSky />
         <div className="auth-logo">
           <img src="/logo.svg" alt="" /> Control <span>Tower</span>
         </div>

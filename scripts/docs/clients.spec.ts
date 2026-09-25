@@ -165,6 +165,18 @@ test('client setup: Claude Code, Claude Desktop, Codex', async ({ page }) => {
       ]);
       const mcpList = await run(CODEX, ['mcp', 'list'], cxEnv, tmp);
       await terminalShot(page, 'client-codex-mcp', 'Terminal — Codex MCP servers', [{ cmd: 'codex mcp list', out: mcpList.out }]);
+    } else {
+      // Without the Codex CLI, the requests it sends: streamed Responses API calls with the codex key
+      // (the terminal screenshots above keep their last recording).
+      for (const model of ['gpt-5', 'claude-sonnet-4-5']) {
+        const r = await fetch(`${ct.url}/v1/responses`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${cxKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ model, stream: true, instructions: 'You are Codex.', input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Which gateway are you going through?' }] }] }),
+        });
+        expect(r.status).toBe(200);
+        await r.text();
+      }
     }
 
     // ---- Verify: Flights, and the map ----

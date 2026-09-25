@@ -55,6 +55,8 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
     const unsubAlerts = ctx.alertsVersion.onChange((v) => send({ type: 'alerts', version: v }));
     const unsubObserved = ctx.observedVersion.onChange(topology);
     const unsubViews = ctx.viewsVersion.onChange(topology);
+    // A connection used for the first time needs a line on the map (a console open elsewhere missed its live frames).
+    const unsubPaths = ctx.paths.onNew(topology);
 
     socket.on('message', (raw) => {
       let msg: WsClientMessage | undefined;
@@ -78,6 +80,7 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       unsubAlerts();
       unsubObserved();
       unsubViews();
+      unsubPaths();
     });
   });
 }

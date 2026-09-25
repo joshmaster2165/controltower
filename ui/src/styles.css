@@ -908,7 +908,9 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .behalf .link-btn { color: inherit; }
 
 /* Airspace top bar: two rows on one left edge — counters and tools, then the map controls. */
-.air-top { position: absolute; left: 16px; top: 14px; z-index: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+.air-top { position: absolute; left: 16px; top: 14px; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; pointer-events: none; }
+/* The counters, the actions and the map controls are one row of groups that wrap as the screen narrows. */
+.air-top .hud { display: contents; }
 .air-top .hud { position: static; flex-wrap: wrap; max-width: 100%; }
 .air-top .map-controls { position: static; pointer-events: auto; max-width: 100%; flex-wrap: wrap; }
 .air-top .hud { align-items: center; row-gap: 8px; }

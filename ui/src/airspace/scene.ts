@@ -405,6 +405,8 @@ export class AirspaceScene {
   private hubR = 36;
   private holdR = 70;
   private rightInset = 0;
+  /** How far down the page's top bar reaches: stations are laid out and fitted below it. */
+  private topInset = 0;
   private pointer: Pt | null = null;
   private hovered: string | null = null;
   private lasso: Pt[] | null = null;
@@ -686,6 +688,12 @@ export class AirspaceScene {
     this.layout();
   }
 
+  setTopInset(px: number): void {
+    if (Math.abs(this.topInset - px) < 2) return;
+    this.topInset = px;
+    this.layout();
+  }
+
   onLayoutChange(cb: (positions: Record<string, Pt>) => void): void {
     this.layoutCb = cb;
   }
@@ -792,7 +800,7 @@ export class AirspaceScene {
       x1 = Math.max(x1, s.x + s.w + 16);
       y1 = Math.max(y1, s.y + s.h + 16);
     }
-    const top = 110;
+    const top = Math.max(110, this.topInset + 12);
     const bottom = 60;
     const aw = Math.max(200, this.w - this.rightInset - 32);
     const ah = Math.max(200, this.h - top - bottom);
@@ -1513,7 +1521,7 @@ export class AirspaceScene {
     if (!this.canvas) return;
     this.dirty = true;
     const W = Math.max(480, this.w - this.rightInset);
-    const padTop = 118;
+    const padTop = Math.max(118, this.topInset + 20);
     const padBottom = 64;
     const avail = Math.max(200, this.h - padTop - padBottom);
     const cardW = Math.round(Math.max(208, Math.min(252, W * 0.18)));

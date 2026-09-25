@@ -63,11 +63,19 @@ export class PathsStore {
       this.paths.set(k, { first: e.ts, last: e.ts });
       this.dirty.add(k);
       if (this.since === null) this.since = e.ts;
+      for (const l of this.newListeners) l();
       return;
     }
     if (e.ts > p.last) p.last = e.ts;
     if (p.last - (this.written.get(k) ?? 0) > TOUCH_MS) this.dirty.add(k);
   };
+
+  private newListeners = new Set<() => void>();
+  /** Called when a connection is used for the first time: the map needs a line it doesn't have yet. */
+  onNew(fn: () => void): () => void {
+    this.newListeners.add(fn);
+    return () => this.newListeners.delete(fn);
+  }
 
   get(agent: string, target: string, tool: string | null | undefined): PathInfo | undefined {
     return this.paths.get(key(agent, target, tool ?? ''));

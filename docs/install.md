@@ -8,10 +8,10 @@ Control Tower is one process with one data directory: a SQLite database (`contro
 docker run -d --name controltower \
   -p 4000:4000 \
   -v controltower-data:/data \
-  ghcr.io/joshmaster2165/controltower:0.1.4
+  ghcr.io/joshmaster2165/controltower:0.1.5
 ```
 
-- **Tags:** `latest` is the newest release, `0.1.4` pins one, `main` follows the main branch.
+- **Tags:** `latest` is the newest release, `0.1.5` pins one, `main` follows the main branch.
 - **Architectures:** `linux/amd64` and `linux/arm64`.
 - **Data:** keep `/data` on a named volume (or a platform disk). Without one, Docker gives each new container an empty anonymous volume, so an upgrade starts from scratch. On platforms that ignore the image's `VOLUME`, the server warns at startup that `/data` is not on a volume.
 - **Port:** 4000, or `PORT` / `CT_PORT` / `--port`.
@@ -58,7 +58,7 @@ fly deploy --config deploy/fly.toml
 
 Railway runs the published image directly; the only extra step is a volume, so the database and master key survive redeploys.
 
-1. In [Railway](https://railway.com/new), create a project and choose **Docker Image** as the source: `ghcr.io/joshmaster2165/controltower:latest` (or pin `:0.1.4`).
+1. In [Railway](https://railway.com/new), create a project and choose **Docker Image** as the source: `ghcr.io/joshmaster2165/controltower:latest` (or pin `:0.1.5`).
 2. Right-click the service → **Attach Volume**, mount path **`/data`**. Railway mounts volumes as root; the image fixes the ownership at startup and still runs as a non-root user.
 3. **Settings → Networking → Generate Domain.** Railway sets `PORT` and the image listens on it.
 4. Optional: **Settings → Deploy → Healthcheck Path** `/healthz`.

@@ -392,6 +392,21 @@ export function AirspacePage() {
   useEffect(() => {
     sceneRef.current?.setRightInset(showTower || focusId || attentionOpen ? 372 : 0);
   }, [showTower, focusId, attentionOpen, topology, policy]);
+  // Opening the map: fetch the connections fresh — calls made while another page was open aren't in the last copy.
+  useEffect(() => {
+    void useStore.getState().refreshTopology();
+  }, []);
+  // The top bar wraps to more rows on narrow screens: keep the map's stations below it.
+  const topBarRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = topBarRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => sceneRef.current?.setTopInset(el.offsetTop + el.offsetHeight);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [topology]);
 
   const chooseLevel = (v: AgentLevel) => {
     sceneRef.current?.setLevel(v);
@@ -450,7 +465,7 @@ export function AirspacePage() {
   return (
     <div className={`airspace ${mode === 'matrix' ? 'matrix-mode' : ''}`} ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
       {/* The top bar: counters and tools, then the map controls, on one left edge; clear of a side panel. */}
-      <div className="air-top" style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
+      <div className="air-top" ref={topBarRef} style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
         <div className={`hud ${view ? 'in-view' : ''}`}>
           <div className="hud-strip">
             {view && (

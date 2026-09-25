@@ -132,6 +132,11 @@ export function FlightsPage() {
                       <div>
                         <span className="strong">{f.key_name}</span>
                         {f.team && <span className="sub">{f.team}</span>}
+                        {behalf(f.on_behalf_of) && (
+                          <span className="sub behalf" title="Made on behalf of these agents (first one first), from a verified delegation token">
+                            for {behalf(f.on_behalf_of)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -187,4 +192,15 @@ export function FlightsPage() {
       </div>
     </div>
   );
+}
+
+/** "support-bot → triage" from a flight's on_behalf_of chain. */
+function behalf(v: string | null | undefined): string {
+  if (!v) return '';
+  try {
+    const chain = JSON.parse(v) as string[];
+    return Array.isArray(chain) ? chain.join(' → ') : '';
+  } catch {
+    return '';
+  }
 }

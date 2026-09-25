@@ -57,6 +57,7 @@ gates:
 | `match.agents` | Key names |
 | `match.groups` | Agent IDs: every key carrying one, including keys added later |
 | `match.teams` | Teams: every key labelled with one, including keys added later |
+| `match.on_behalf_of` | Calls made on behalf of `agent:<agent id>` or `team:<name>`, anywhere up a chain of [agents calling agents](agent-to-agent.md) |
 | `match.deployments` | Model names (specific deployments) |
 | `match.servers` | MCP server or HTTP API slugs |
 | `match.models`, `match.tools` | Globs: `gpt-4*`, `github__merge_*`, `statuspage__DELETE *` |

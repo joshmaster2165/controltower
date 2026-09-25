@@ -10,6 +10,7 @@ import { namespaced, splitNamespaced, type McpServerRecord } from './registry.js
 import type { PolicyTarget } from '../policy/engine.js';
 import { describeFindings, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
+import { DELEGATION_HEADER, DELEGATION_META, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The MCP gateway. Agents point their MCP client at /mcp (all servers, tools
@@ -232,6 +233,7 @@ export class McpGateway {
         model_requested: full,
         mcp_server_id: server?.id,
         tool: toolName,
+        ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
         est_input_tokens: f.estInput,
         projected_nanousd: 0,
       });
@@ -259,8 +261,19 @@ export class McpGateway {
       isError: true,
     });
 
+    // Whom this call is for, when an agent is acting for another: the token arrives in _meta or as a header.
+    const metaToken = (params._meta as Record<string, unknown> | undefined)?.[DELEGATION_META];
+    const deleg = resolveDelegation(ctx, key, typeof metaToken === 'string' ? metaToken : headerToken(req.headers));
+    if (!('error' in deleg)) f.chain = deleg.chain;
+    const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
+
     try {
       if (ctx.shuttingDown) throw new RpcFailure(-32000, 'Control Tower is restarting');
+      if ('error' in deleg) {
+        started();
+        complete('rejected', deleg.error.status, { code: deleg.error.code, message: deleg.error.message });
+        return blocked('denied', deleg.error.message, { reason: deleg.error.code });
+      }
       if (!server || !tool) {
         started();
         complete('rejected', 404, { code: 'tool_not_found', message: `Unknown tool ${requested}` });
@@ -281,7 +294,7 @@ export class McpGateway {
 
       // ---- policy (with the real arguments) ----
       const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: server.id, operation: classifyOperation(tool) };
-      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args, estInputTokens: f.estInput, projectedNanousd: 0 });
+      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args, onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });
       const presentedApproval = req.headers['x-ct-approval'] ?? (params._meta as { ct_approval?: string } | undefined)?.ct_approval;
       if (decision.effect === 'hold' && typeof presentedApproval === 'string' && presentedApproval) {
         const scope = (decision as { scopeHash?: string }).scopeHash ?? '';
@@ -316,7 +329,7 @@ export class McpGateway {
       }
 
       // ---- inspect the arguments ----
-      const gates = ctx.policy.inspectors?.(key, target) ?? [];
+      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let callArgs = args;
       if (gates.length) {
         const r = runInspectors(gates, 'input', args);
@@ -331,7 +344,9 @@ export class McpGateway {
       // ---- dispatch ----
       f.t.upstreamSent = Date.now();
       const client = ctx.mcp.client(server);
-      let result = await client.callTool(toolName, callArgs, f.abort.signal);
+      // A server that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
+      const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id) : undefined;
+      let result = await client.callTool(toolName, callArgs, f.abort.signal, token ? { headers: { [DELEGATION_HEADER]: token }, meta: { [DELEGATION_META]: token } } : {});
       if (f.t.ttfb == null) f.t.ttfb = Date.now();
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: server.id, provider_id: server.id, upstream_model: toolName, outcome: 'ok', status: 200, ttfb_ms: f.t.ttfb - f.t.start });
       // ---- inspect the result: what the model is about to read ----

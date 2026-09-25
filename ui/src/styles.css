@@ -891,3 +891,9 @@ button.pill.demo { cursor: pointer; font: inherit; }
 @media (max-width: 1400px) {
   .hud-strip .seg { padding: 9px 12px; min-width: 78px; }
 }
+
+/* A checkbox with a title and an explanation */
+.check-row { display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 14px; cursor: pointer; font-size: 13px; }
+.check-row input { margin-top: 3px; }
+.check-row > span { display: grid; gap: 2px; }
+.agent-cell .sub.behalf { display: block; color: #6d28d9; font-size: 11px; }

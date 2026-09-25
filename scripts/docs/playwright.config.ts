@@ -7,7 +7,7 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: '.',
-  testMatch: ['screenshots.spec.ts', 'clients.spec.ts'],
+  testMatch: ['screenshots.spec.ts', 'clients.spec.ts', 'agents.spec.ts'],
   timeout: 240_000,
   expect: { timeout: 20_000 },
   workers: 1,

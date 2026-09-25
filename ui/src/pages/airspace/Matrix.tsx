@@ -91,7 +91,7 @@ export function MatrixView({
                     <i style={{ background: hex(c.color) }} />
                     <span>{c.label}</span>
                   </div>
-                  <div className="col-sub">{c.outside ? (c.bypass ? 'direct call' : 'outside') : KIND[c.kind]}</div>
+                  <div className="col-sub">{c.outside ? (c.bypass ? 'direct call' : 'outside') : c.agent ? `agent ${c.agent}` : KIND[c.kind]}</div>
                 </th>
               ))}
             </tr>

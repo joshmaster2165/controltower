@@ -8,6 +8,7 @@ import { runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { ctKey, downstreamHeaders, httpOperation, isTextual, routeLabel, upstreamHeaders, upstreamUrl } from './route.js';
+import { DELEGATION_HEADER, headerToken, resolveDelegation, tokenFor } from '../policy/delegation.js';
 
 /**
  * The HTTP gateway: plain REST APIs, gated like tools. An agent calls
@@ -75,10 +76,14 @@ export class HttpGateway {
       if (!reply.raw.writableFinished) f.abort.abort();
     });
 
+    // Whom this call is for, when an agent is acting for another.
+    const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
+    if (!('error' in deleg)) f.chain = deleg.chain;
+    const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
     const started = (): void => {
       if (f.started) return;
       f.started = true;
-      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, est_input_tokens: f.estInput, projected_nanousd: 0 });
+      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
     };
     const complete = (status: Status, http: number, error?: { code: string; message: string }, outBytes = 0): void => {
       f.t.end = Date.now();
@@ -93,6 +98,7 @@ export class HttpGateway {
 
     started();
     if (ctx.shuttingDown) return refuse(503, 'shutdown', 'shutting_down', 'Control Tower is restarting; retry shortly.');
+    if ('error' in deleg) return refuse(deleg.error.status, 'rejected', deleg.error.code, deleg.error.message);
     if (!api || !api.enabled) return refuse(404, 'rejected', 'api_not_found', `No HTTP API "${slug}" is registered in Control Tower.`);
     if (!url) return refuse(400, 'denied', 'path_not_allowed', 'That path leaves the registered API (dot segments and encoded dots are refused).');
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${slug} (${route}).`);
@@ -105,7 +111,7 @@ export class HttpGateway {
     try {
       // ---- policy, with the real request as arguments ----
       const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: api.id, operation: httpOperation(method) };
-      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args, estInputTokens: f.estInput, projectedNanousd: 0 });
+      let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args, onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });
       const approval = req.headers['x-ct-approval'];
       if (decision.effect === 'hold' && typeof approval === 'string' && approval) {
         const r = await ctx.approvals.redeem(approval, key.id, (decision as { scopeHash?: string }).scopeHash ?? '', undefined);
@@ -132,7 +138,7 @@ export class HttpGateway {
       }
 
       // ---- inspect what is being sent ----
-      const gates = ctx.policy.inspectors?.(key, target) ?? [];
+      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let outBody: Buffer | undefined = raw && method !== 'GET' && method !== 'HEAD' ? raw : undefined;
       if (gates.length && body !== undefined) {
         const r = runInspectors(gates, 'input', body);
@@ -145,7 +151,8 @@ export class HttpGateway {
       f.t.upstreamSent = Date.now();
       const res = await request(url, {
         method: method as 'GET',
-        headers: upstreamHeaders(req.headers, presented.source, api.auth),
+        // An API that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
+        headers: { ...upstreamHeaders(req.headers, presented.source, api.auth), ...(api.agentId ? { [DELEGATION_HEADER]: tokenFor(ctx, f.chain, key, api.agentId, f.id) } : {}) },
         body: outBody ?? null,
         signal: AbortSignal.any([f.abort.signal, AbortSignal.timeout(api.timeoutMs)]),
         headersTimeout: api.timeoutMs,

@@ -40,7 +40,7 @@ export interface GateDoc {
   from?: string;
   to?: string;
   target?: RuleRecord['targetKind'];
-  match?: { agents?: string[]; groups?: string[]; teams?: string[]; deployments?: string[]; servers?: string[]; models?: string[]; tools?: string[]; operations?: RuleMatch['operations']; args?: RuleMatch['args'] };
+  match?: { agents?: string[]; groups?: string[]; teams?: string[]; on_behalf_of?: string[]; deployments?: string[]; servers?: string[]; models?: string[]; tools?: string[]; operations?: RuleMatch['operations']; args?: RuleMatch['args'] };
   effect: RuleRecord['effect'];
   config?: RuleConfig;
   priority?: number;
@@ -148,6 +148,14 @@ function names(ctx: AppContext) {
     agentName: (id: string) => r.keysById.get(id)?.name,
     group: (agentId: string) => (groups.has(agentId) ? agentId : undefined),
     team: (name: string) => (teams.has(name) ? name : undefined),
+    principal: (ref: string) => {
+      const i = ref.indexOf(':');
+      const kind = ref.slice(0, i);
+      const name = ref.slice(i + 1);
+      if (kind === 'team') return teams.has(name) ? ref : undefined;
+      if (kind === 'agent') return groups.has(name) || r.keysById.has(name) ? ref : undefined;
+      return undefined;
+    },
     agentId: (name: string) => {
       const ids = agents.get(name) ?? [];
       return ids.length === 1 ? ids[0] : undefined;
@@ -196,6 +204,7 @@ export function exportPolicy(ctx: AppContext): { doc: PolicyDoc; warnings: strin
         agents: list(m.keys, n.agentName, 'agent'),
         groups: list(m.groups, n.group, 'agent group'),
         teams: list(m.teams, n.team, 'team'),
+        on_behalf_of: nonEmpty(m.on_behalf_of),
         deployments: list(m.deployments, n.deploymentName, 'model'),
         servers: list(m.mcp_servers, n.serverSlug, 'tool server'),
         models: nonEmpty(m.models),
@@ -355,8 +364,8 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
     }
     const m = (g.match ?? {}) as NonNullable<GateDoc['match']>;
     if (typeof m !== 'object' || Array.isArray(m)) return fail(`Gate "${name}": match must be a mapping.`);
-    for (const k of Object.keys(m)) if (!['agents', 'groups', 'teams', 'deployments', 'servers', 'models', 'tools', 'operations', 'args'].includes(k)) fail(`Gate "${name}": unknown match field "${k}".`);
-    for (const k of ['agents', 'groups', 'teams', 'deployments', 'servers', 'models', 'tools', 'operations'] as const) if (m[k] !== undefined && !strings(m[k])) fail(`Gate "${name}": match.${k} must be a list of strings.`);
+    for (const k of Object.keys(m)) if (!['agents', 'groups', 'teams', 'on_behalf_of', 'deployments', 'servers', 'models', 'tools', 'operations', 'args'].includes(k)) fail(`Gate "${name}": unknown match field "${k}".`);
+    for (const k of ['agents', 'groups', 'teams', 'on_behalf_of', 'deployments', 'servers', 'models', 'tools', 'operations'] as const) if (m[k] !== undefined && !strings(m[k])) fail(`Gate "${name}": match.${k} must be a list of strings.`);
     const resolve = (xs: string[] | undefined, f: (x: string) => string | undefined, problem: (x: string) => string) =>
       (xs ?? []).flatMap((x) => {
         const id = f(x);
@@ -370,6 +379,8 @@ export function planPolicyImport(ctx: AppContext, text: string, mode: 'merge' | 
       keys: resolve(m.agents, n.agentId, n.agentProblem),
       groups: resolve(m.groups, n.group, (x) => `no keys carry the agent id "${x}"`),
       teams: resolve(m.teams, n.team, (x) => `no keys are in the team "${x}"`),
+      // Principals up the delegation chain: agent:<agent id> or team:<name>.
+      on_behalf_of: resolve(m.on_behalf_of, n.principal, (x) => `"${x}" is not agent:<agent id> or team:<name> of an existing agent or team`),
       deployments: resolve(m.deployments, n.deploymentId, (x) => `no model named "${x}"`),
       mcp_servers: resolve(m.servers, n.serverId, (x) => `no tool server with slug "${x}"`),
       models: m.models,

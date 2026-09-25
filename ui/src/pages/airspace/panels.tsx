@@ -484,11 +484,11 @@ export function FocusPanel({ summary, onClose, onPick }: { summary: FocusSummary
         </div>
         {summary.links.length === 0 && <div className="hint">No connections in the last 24 hours.</div>}
         {summary.links.map((l) => (
-          <div key={l.id} className="focus-link" onClick={() => onPick(l.id)} role="button" tabIndex={0}>
+          <div key={`${l.id}:${l.relation ?? ''}`} className="focus-link" onClick={() => onPick(l.id)} role="button" tabIndex={0}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <i className="swatch" style={{ background: hex(l.color) }} />
               <span className="name">{l.label}</span>
-              <span className="kind">{KIND_LABEL[l.kind]}</span>
+              <span className="kind">{l.relation ? `${l.relation === 'calls' ? 'calls' : 'called by'} · agent` : KIND_LABEL[l.kind]}</span>
               {l.observed && <span className={`obs-tag ${l.bypass ? 'bypass' : ''}`}>{l.bypass ? 'bypasses gateway' : 'not enforced'}</span>}
               {l.live && <span className="live-dot" title="active in the last minute" />}
               <span className="num">{l.requests.toLocaleString()}</span>

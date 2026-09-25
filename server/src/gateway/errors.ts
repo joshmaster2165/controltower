@@ -89,6 +89,12 @@ export const E = {
     message: `No connected provider serves the model "${model}". Connect the provider that offers it (Providers in the Control Tower console) and retry — models are added on first use — or pin one with "<provider>/${model}".`,
   }),
   badRequest: (msg: string): GatewayError => ({ status: 400, code: 'invalid_request', message: msg }),
+  delegationRequired: (why: string): GatewayError => ({
+    status: 403,
+    code: 'delegation_required',
+    message: `This key acts only on behalf of other agents, and ${why}. Pass on the x-ct-delegation header of the request that called this agent.`,
+  }),
+  delegationTooDeep: (): GatewayError => ({ status: 403, code: 'delegation_too_deep', message: 'Too many agents deep: this call is at the end of a chain of agents calling agents that is longer than Control Tower allows.' }),
   rateLimited: (which: string, retryAfterMs: number): GatewayError => ({
     status: 429,
     code: 'rate_limit_exceeded',

@@ -81,6 +81,8 @@ export const FlightStarted = z.object({
   provider_kind: ProviderKind.optional(),
   mcp_server_id: z.string().optional(),
   tool: z.string().optional(),
+  /** Agents this call was made on behalf of (origin first), from a verified delegation token. */
+  on_behalf_of: z.array(z.string()).optional(),
   est_input_tokens: z.number().int().nonnegative(),
   projected_nanousd: z.number().nonnegative(),
 });

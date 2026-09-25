@@ -56,6 +56,11 @@ export class SecretBox {
     return this.mk.id;
   }
 
+  /** A key for one purpose (e.g. signing delegation tokens), derived from the master key and never stored. */
+  deriveKey(label: string): Buffer {
+    return Buffer.from(crypto.hkdfSync('sha256', this.mk.key, Buffer.alloc(0), Buffer.from(`controltower:${label}`, 'utf8'), 32));
+  }
+
   encrypt(plaintext: string, aad: string): string {
     const nonce = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', this.mk.key, nonce);

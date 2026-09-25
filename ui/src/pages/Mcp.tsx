@@ -24,8 +24,11 @@ interface McpServer {
 export function McpPage() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: '', slug: '', url: '', auth_type: 'none', token: '' });
+  const [form, setForm] = useState({ name: '', slug: '', url: '', auth_type: 'none', token: '', agent_id: '' });
   const [error, setError] = useState<string | null>(null);
+  // Agent ids in use, to suggest for "Fronts an agent".
+  const topologyKeys = useStore((st) => st.topology?.keys);
+  const agentIds = [...new Set((topologyKeys ?? []).map((k) => k.agent_id).filter((a): a is string => !!a))].sort();
   const [busy, setBusy] = useState<string | null>(null);
   const refreshTopology = useStore((s) => s.refreshTopology);
 
@@ -57,9 +60,10 @@ export function McpPage() {
         slug: form.slug || undefined,
         url: form.url,
         auth: form.auth_type === 'bearer' ? { type: 'bearer', token: form.token } : { type: 'none' },
+        ...(form.agent_id.trim() ? { agent_id: form.agent_id.trim() } : {}),
       });
       setShowAdd(false);
-      setForm({ name: '', slug: '', url: '', auth_type: 'none', token: '' });
+      setForm({ name: '', slug: '', url: '', auth_type: 'none', token: '', agent_id: '' });
       await load();
       await refreshTopology();
     } catch (err) {
@@ -124,6 +128,16 @@ export function McpPage() {
           <div className="field">
             <label>Streamable HTTP endpoint</label>
             <input className="input mono" required value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://api.githubcopilot.com/mcp/" />
+          </div>
+          <div className="field">
+            <label>Fronts an agent (optional)</label>
+            <input className="input" list="ct-agent-ids" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })} placeholder="research-agent" />
+            <datalist id="ct-agent-ids">
+              {agentIds.map((a) => (
+                <option key={a} value={a} />
+              ))}
+            </datalist>
+            <div className="hint">If this is another agent exposed as tools, name that agent (its keys' agent ID). Calls to it are drawn agent to agent, and it is sent a delegation token to pass on with its own calls, so they count as made on the caller's behalf.</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 12 }}>
             <div className="field">

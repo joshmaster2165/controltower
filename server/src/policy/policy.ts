@@ -42,6 +42,11 @@ export interface RuleMatch {
   groups?: string[];
   /** Teams: every key labelled with one of these teams. */
   teams?: string[];
+  /**
+   * Calls made on behalf of these principals, anywhere up the delegation chain: `agent:<agent id>`,
+   * `team:<name>`. Only calls carrying a verified delegation token can match.
+   */
+  on_behalf_of?: string[];
   /** Specific model deployments. */
   deployments?: string[];
   /** Specific MCP tool servers. */
@@ -225,13 +230,18 @@ export class PolicyService implements PolicyEngine {
     return [...seen.values()];
   }
 
-  private matchRule(r: RuleRecord, key: KeyRecord, target: PolicyTarget, src: Set<string>, dst: Set<string>, args: Record<string, unknown> | undefined): 'match' | 'no' | 'needs_args' {
+  private matchRule(r: RuleRecord, key: KeyRecord, target: PolicyTarget, src: Set<string>, dst: Set<string>, args: Record<string, unknown> | undefined, behalf?: string[]): 'match' | 'no' | 'needs_args' {
     if (!r.enabled) return 'no';
     if (r.targetKind !== 'any' && r.targetKind !== target.kind) return 'no';
     if (r.fromZone && !src.has(r.fromZone)) return 'no';
     if (r.toZone && !dst.has(r.toZone)) return 'no';
     // Station-level scope: gates drawn directly on the Airspace between a specific agent and destination.
     const m = r.match;
+    // Whom the call is for is only known per call (listing tools can't tell), so it decides then.
+    if (m.on_behalf_of?.length) {
+      if (!behalf) return 'needs_args';
+      if (!m.on_behalf_of.some((p) => behalf.includes(p))) return 'no';
+    }
     if ((m.keys?.length || m.groups?.length || m.teams?.length) && !m.keys?.includes(key.id) && !(key.agentId && m.groups?.includes(key.agentId)) && !(key.team && m.teams?.includes(key.team))) return 'no';
     const dests = [...(r.match.deployments ?? []), ...(r.match.mcp_servers ?? [])];
     if (dests.length) {
@@ -264,7 +274,7 @@ export class PolicyService implements PolicyEngine {
     const dst = new Set(dstZones.map((z) => z.id));
     for (const r of rules) {
       if (r.effect === 'inspect') continue;
-      const m = this.matchRule(r, input.key, input.target, src, dst, input.args);
+      const m = this.matchRule(r, input.key, input.target, src, dst, input.args, input.onBehalfOf ?? []);
       if (m !== 'match') continue;
       const zoneFrom = r.fromZone ? this.zones.get(r.fromZone)?.name : undefined;
       const zoneTo = r.toZone ? this.zones.get(r.toZone)?.name : undefined;
@@ -291,7 +301,7 @@ export class PolicyService implements PolicyEngine {
    * Inspect gates on this path, in priority order. Unlike access gates they do
    * not compete: every matching inspect gate runs, after the access decision.
    */
-  inspectors(key: KeyRecord, target: PolicyTarget): Array<{ rule: RuleRecord; compiled: CompiledInspector }> {
+  inspectors(key: KeyRecord, target: PolicyTarget, onBehalfOf: string[] = []): Array<{ rule: RuleRecord; compiled: CompiledInspector }> {
     if (!this.enforcement() || !this.compiled.size) return [];
     const src = new Set(this.sourceZones(key).map((z) => z.id));
     const dst = new Set(this.targetZones(target).map((z) => z.id));
@@ -299,7 +309,7 @@ export class PolicyService implements PolicyEngine {
     for (const r of this.rules) {
       if (r.effect !== 'inspect') continue;
       // Inspect gates have no argument constraints; `needs_args` cannot occur.
-      if (this.matchRule(r, key, target, src, dst, {}) !== 'match') continue;
+      if (this.matchRule(r, key, target, src, dst, {}, onBehalfOf) !== 'match') continue;
       const compiled = this.compiled.get(r.id);
       if (compiled) out.push({ rule: r, compiled });
     }

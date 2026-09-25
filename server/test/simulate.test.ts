@@ -6,7 +6,7 @@ import type { KeyRecord, Registry } from '../src/registry.js';
 import type { McpRegistry } from '../src/mcp/registry.js';
 
 function key(id: string): KeyRecord {
-  return { id, name: id.replace('k_', ''), hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined };
+  return { id, name: id.replace('k_', ''), hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly: false };
 }
 
 function rule(over: Partial<RuleRecord>): RuleRecord {

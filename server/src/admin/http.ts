@@ -7,6 +7,9 @@ import type { HttpApiRecord } from '../http/registry.js';
 import { routeOperation, type HttpApiAuth } from '../http/route.js';
 import { OUTSIDE } from '../http/gateway.js';
 
+/** An agent id from a request body: trimmed, or null to clear. */
+const agentIdOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 100) : null);
+
 const SEVEN_DAYS = 7 * 86_400_000;
 
 /** Routes an API has actually served lately — the rows under it on the map. */
@@ -53,6 +56,7 @@ export async function httpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pr
     health_detail: a.healthDetail,
     last_checked_at: a.lastCheckedAt,
     demo: a.demo,
+    agent_id: a.agentId ?? null,
     routes,
   });
 
@@ -62,7 +66,7 @@ export async function httpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pr
   });
 
   app.post('/admin/api/http/apis', { preHandler: guard }, async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; slug?: string; base_url?: string; auth?: HttpApiAuth; timeout_ms?: number };
+    const b = (req.body ?? {}) as { name?: string; slug?: string; base_url?: string; auth?: HttpApiAuth; timeout_ms?: number; agent_id?: string | null };
     const name = (b.name ?? '').trim();
     const slug = (b.slug || name).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
     const baseUrl = (b.base_url ?? '').trim();
@@ -81,6 +85,8 @@ export async function httpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pr
         base_url: baseUrl.replace(/\/+$/, ''),
         auth_enc: auth.type === 'none' ? null : ctx.secrets.encrypt(JSON.stringify(auth), `http_apis.auth_enc.${id}`),
         timeout_ms: Math.min(Math.max(b.timeout_ms ?? 30_000, 1000), 600_000),
+        // An API that fronts an agent: calls to it are agent-to-agent.
+        agent_id: agentIdOf(b.agent_id),
         enabled: 1,
         health: 'unknown',
         health_detail: null,
@@ -105,12 +111,13 @@ export async function httpAdminRoutes(app: FastifyInstance, ctx: AppContext): Pr
   app.patch('/admin/api/http/apis/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     if (!ctx.http.apis.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'API not found' } });
-    const b = (req.body ?? {}) as { name?: string; base_url?: string; enabled?: boolean; auth?: HttpApiAuth; timeout_ms?: number };
+    const b = (req.body ?? {}) as { name?: string; base_url?: string; enabled?: boolean; auth?: HttpApiAuth; timeout_ms?: number; agent_id?: string | null };
     const patch: Record<string, unknown> = { updated_at: Date.now() };
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
     if (typeof b.base_url === 'string' && /^https?:\/\/[^\s/]+/.test(b.base_url.trim())) patch.base_url = b.base_url.trim().replace(/\/+$/, '');
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (typeof b.timeout_ms === 'number') patch.timeout_ms = Math.min(Math.max(b.timeout_ms, 1000), 600_000);
+    if ('agent_id' in b) patch.agent_id = agentIdOf(b.agent_id);
     if (b.auth) {
       const auth = validAuth(b.auth);
       patch.auth_enc = auth.type === 'none' ? null : ctx.secrets.encrypt(JSON.stringify(auth), `http_apis.auth_enc.${id}`);

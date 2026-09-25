@@ -118,9 +118,10 @@ export class McpUpstream {
     return tools;
   }
 
-  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  /** `extra` adds headers to this one request and `_meta` to its params (a delegation token, for one). */
+  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal, extra: { headers?: Record<string, string>; meta?: Record<string, unknown> } = {}): Promise<Record<string, unknown>> {
     await this.initialize();
-    return (await this.call('tools/call', { name, arguments: args }, signal)) as Record<string, unknown>;
+    return (await this.call('tools/call', { name, arguments: args, ...(extra.meta ? { _meta: extra.meta } : {}) }, signal, extra.headers)) as Record<string, unknown>;
   }
 
   async ping(): Promise<void> {
@@ -129,15 +130,15 @@ export class McpUpstream {
   }
 
   /** Generic passthrough for resources/* and prompts/*. */
-  async call(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
+  async call(method: string, params: unknown, signal?: AbortSignal, headers?: Record<string, string>): Promise<unknown> {
     try {
-      return await this.rpc(method, params, signal);
+      return await this.rpc(method, params, signal, headers);
     } catch (err) {
       // A 404 means the upstream forgot our session: re-initialize once.
       if (err instanceof McpUpstreamError && err.status === 404 && this.initialized) {
         this.reset();
         await this.initialize();
-        return this.rpc(method, params, signal);
+        return this.rpc(method, params, signal, headers);
       }
       throw err;
     }
@@ -157,7 +158,7 @@ export class McpUpstream {
     if (sid) this.sessionId = sid;
   }
 
-  private async rpc(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
+  private async rpc(method: string, params: unknown, signal?: AbortSignal, extraHeaders?: Record<string, string>): Promise<unknown> {
     const id = nextId++;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('timeout')), this.timeoutMs);
@@ -165,7 +166,7 @@ export class McpUpstream {
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
       // A tool may legitimately work for longer than the default idle timeout: honour the server's own timeout.
-      const r = await sendUpstream(this.slug, { url: this.url, method: 'POST', headers: this.headers(), body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) }, ctrl.signal, { headersTimeoutMs: this.timeoutMs, bodyTimeoutMs: this.timeoutMs });
+      const r = await sendUpstream(this.slug, { url: this.url, method: 'POST', headers: { ...this.headers(), ...extraHeaders }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) }, ctrl.signal, { headersTimeoutMs: this.timeoutMs, bodyTimeoutMs: this.timeoutMs });
       if (!r.ok) {
         if (r.err.code === 'provider_timeout' || ctrl.signal.aborted) throw new McpUpstreamError(`${this.slug}: ${method} timed out`, 'timeout');
         throw new McpUpstreamError(`${this.slug}: ${r.err.message}`, 'unreachable');

@@ -61,7 +61,7 @@ export function destRef(id: string): string {
 
 /** Plain-language description of what a gate covers. */
 export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string {
-  const m = r.match as { keys?: string[]; groups?: string[]; teams?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
+  const m = r.match as { keys?: string[]; groups?: string[]; teams?: string[]; on_behalf_of?: string[]; deployments?: string[]; mcp_servers?: string[]; tools?: string[] };
   const keyName = (id: string) => t?.keys.find((k) => k.id === id)?.name ?? id;
   const depName = (id: string) => {
     const d = t?.deployments.find((x) => x.id === id);
@@ -76,5 +76,6 @@ export function describeRule(r: Rule, t: Topology | null, zones: Zone[]): string
   else if (m.mcp_servers?.length) to = m.mcp_servers.map(mcpName).join(', ');
   else if (r.to_zone) to = zoneName(r.to_zone);
   if (m.tools?.length) to += ` → ${m.tools.map((x) => x.split('__').pop()).join(', ')}`;
-  return `${from} → ${to}`;
+  const behalf = m.on_behalf_of?.length ? `, on behalf of ${m.on_behalf_of.map((p) => (p.startsWith('team:') ? `team ${p.slice(5)}` : p.replace(/^agent:/, ''))).join(' or ')}` : '';
+  return `${from} → ${to}${behalf}`;
 }

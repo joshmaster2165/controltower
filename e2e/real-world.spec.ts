@@ -8,7 +8,7 @@ import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trac
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
-import { anthropicUpstream, mcpUpstream, openAiUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
 import { field } from './support/ui';
 import { smtpCapture } from './support/smtp';
 
@@ -412,6 +412,54 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
   await page.locator('.popover.composer').getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('radio', { name: 'Map' }).click();
   await expect(page.locator('table.matrix')).toHaveCount(0);
+});
+
+test('Agents calling agents: an agent behind a tool, delegation tokens passed on, on-behalf-of gates', async () => {
+  // research-agent: exposed as an MCP tool. Its tool asks a model through Control Tower with its own key,
+  // passing on the delegation token it was called with. Its key acts only on behalf of other agents.
+  const research = await key('rw-research-agent', { agent_id: 'rw-research', team: 'research', delegated_only: true });
+  const tokens: Array<string | undefined> = [];
+  const ask = (token: string | undefined, body = { model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${research.key}`, 'content-type': 'application/json', ...(token ? { 'x-ct-delegation': token } : {}) }, body: JSON.stringify(body) });
+  const sub = await subAgentUpstream(async (_question, token) => {
+    tokens.push(token);
+    return String((await ask(token)).status);
+  });
+  upstreams.push(sub);
+  const reg = await admin.post('/admin/api/mcp/servers', { name: 'Research agent', slug: 'research', url: `${sub.url}/mcp`, agent_id: 'rw-research' });
+  expect(reg.status).toBe(201);
+  expect(reg.body.server.agent_id).toBe('rw-research');
+
+  // support-bot calls the research agent's tool: the research agent's own model call runs on its behalf.
+  const bot = await key('rw-support-bot', { agent_id: 'rw-support-bot', team: 'support' });
+  const client = await mcpClient(bot.key);
+  expect(textOf(await client.callTool({ name: 'research__ask', arguments: { question: 'What is the refund policy?' } }))).toBe('200');
+  expect(tokens[0]).toMatch(/^ctd1\./);
+  const own = await flightsFor(research.id);
+  expect(JSON.parse(own[0].on_behalf_of)).toEqual(['rw-support-bot']);
+
+  // Delegated-only: without its token the research agent can't act; another agent can't use its token.
+  const bare = await ask(undefined);
+  expect(bare.status).toBe(403);
+  expect(((await bare.json()) as { error: { code: string } }).error.code).toBe('delegation_required');
+  const stolen = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${oaiAgent.key}`, 'content-type': 'application/json', 'x-ct-delegation': tokens[0]! }, body: JSON.stringify({ model: 'gpt-4.1-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+  expect(stolen.status).toBe(200);
+  expect((await flightsFor(oaiAgent.id))[0].on_behalf_of).toBeNull(); // not issued to it: counted as its own call
+
+  // A gate on whom a call is for: nothing on behalf of team support may use gpt-4.1-mini, however many agents deep.
+  const gate = await admin.post('/admin/api/rules', { name: 'Not for support, via any agent', effect: 'deny', target_kind: 'model', match: { on_behalf_of: ['team:support'], models: ['gpt-4.1-mini'] }, priority: 5 });
+  expect(gate.status).toBe(201);
+  expect(textOf(await client.callTool({ name: 'research__ask', arguments: { question: 'again' } }))).toBe('403');
+  const yamlText = (await admin.get<string>('/admin/api/policy/export')).body;
+  expect(yamlText).toMatch(/on_behalf_of:\s*\n\s*- team:support/);
+  await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
+  expect(textOf(await client.callTool({ name: 'research__ask', arguments: { question: 'and again' } }))).toBe('200');
+  await client.close();
+
+  // The map knows: the research server fronts an agent, and support-bot delegated to it.
+  const topo = (await admin.get('/admin/api/topology')).body;
+  expect(topo.mcp_servers.find((s: { slug: string }) => s.slug === 'research').agent_id).toBe('rw-research');
+  expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-support-bot', key_id: research.id })]));
 });
 
 // ---------------------------------------------------------------- gates on models

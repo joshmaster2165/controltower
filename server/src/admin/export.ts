@@ -68,7 +68,8 @@ function describeScope(r: RuleRecord, ctx: AppContext, policy: PolicyService): s
   let to = dests.length ? dests.join(', ') : r.toZone ? zone(r.toZone) : 'anything';
   if (r.match.tools?.length) to += ` (${r.match.tools.join(', ')})`;
   if (r.match.operations?.length) to += ` [${r.match.operations.join('/')}]`;
-  return `${from} → ${to}`;
+  const behalf = r.match.on_behalf_of?.length ? `, on behalf of ${r.match.on_behalf_of.map((p) => (p.startsWith('team:') ? `team ${p.slice(5)}` : p.replace(/^agent:/, ''))).join(' or ')}` : '';
+  return `${from} → ${to}${behalf}`;
 }
 
 export async function buildInventory(ctx: AppContext, hours: number): Promise<DataflowInventory> {

@@ -100,6 +100,32 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       return { ...e, keys: keys.size, recent: [...recent].sort((a, b) => a[0] - b[0]), ...(first ? { first_ts: first } : {}) };
     });
 
+    // Agents calling agents: who called whom (the last agent in each call's chain → the key making the call), last 24h.
+    const delegationLinks = async () => {
+      const rows = await sql<{ on_behalf_of: string; key_id: string; n: number; last_ts: number }>`
+        SELECT on_behalf_of, key_id, COUNT(*) AS n, MAX(ts) AS last_ts
+        FROM flights WHERE ts >= ${since} AND on_behalf_of IS NOT NULL
+        GROUP BY on_behalf_of, key_id`.execute(ctx.db.read);
+      const out = new Map<string, { from: string; origin: string; key_id: string; requests: number; last_ts: number }>();
+      for (const row of rows.rows) {
+        let chain: string[];
+        try {
+          chain = JSON.parse(row.on_behalf_of) as string[];
+        } catch {
+          continue;
+        }
+        if (!chain.length || !r.keysById.has(row.key_id)) continue;
+        const from = chain[chain.length - 1]!;
+        const k = `${from}>${bucketOf(row.key_id)}`;
+        const cur = out.get(k);
+        if (cur) {
+          cur.requests += Number(row.n);
+          cur.last_ts = Math.max(cur.last_ts, Number(row.last_ts));
+        } else out.set(k, { from, origin: chain[0]!, key_id: row.key_id, requests: Number(row.n), last_ts: Number(row.last_ts) });
+      }
+      return [...out.values()];
+    };
+
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.
     const active = new Set(edgeRows.rows.map((e) => e.key_id));
     const shown = [...r.keysById.values()].filter((k) => !BUILT_IN_KEYS.has(k.id) || active.has(k.id));
@@ -115,6 +141,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         tags: k.tags,
         enabled: k.enabled,
         demo: k.demo,
+        ...(k.delegatedOnly ? { delegated_only: true } : {}),
       })),
       providers: [...r.providers.values()].map((p) => ({ id: p.id, kind: p.kind, name: p.name, slug: p.slug, health: p.health, demo: p.demo })),
       deployments: [...r.deployments.values()].map((d) => ({
@@ -138,6 +165,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         tools: s.tools.map((t) => ({ name: t.name, op: classifyOperation(t) })),
         demo: s.demo,
         protocol: 'mcp' as const,
+        ...(s.agentId ? { agent_id: s.agentId } : {}),
         })),
         // HTTP APIs are tool servers too: one row per route they have served.
         ...[...ctx.http.apis.values()].map((a) => ({
@@ -148,12 +176,14 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           enabled: a.enabled,
           tools: (routes.get(a.id) ?? []).map((t) => ({ name: t.name, op: t.op })),
           demo: a.demo,
+          ...(a.agentId ? { agent_id: a.agentId } : {}),
           protocol: 'http' as const,
         })),
       ],
       edges,
       observed: await ctx.observed.summary(since),
       views: await loadViews(ctx),
+      delegations: await delegationLinks(),
       // Since when connections have been recorded: a connection is only "new" once there is history to compare with.
       paths_since: ctx.paths.since,
     };
@@ -226,6 +256,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           enabled: k.enabled,
           expires_at: k.expiresAt,
           demo: k.demo,
+          delegated_only: k.delegatedOnly,
           created_at: k.createdAt,
           last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,
         })),
@@ -243,6 +274,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       allowed_mcp?: string[];
       limits?: { rpm?: number; tpm?: number; maxParallel?: number };
       expires_at?: number | null;
+      delegated_only?: boolean;
       budget?: { limit_usd: number; period: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null;
     };
     const name = (b.name ?? '').trim();
@@ -267,6 +299,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         limits: JSON.stringify(b.limits ?? {}),
         enabled: 1,
         expires_at: b.expires_at ?? null,
+        delegated_only: b.delegated_only ? 1 : 0,
         created_by: req.admin?.email ?? null,
         demo: 0,
         created_at: now,
@@ -294,6 +327,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (Array.isArray(b.tags)) patch.tags = JSON.stringify(b.tags);
     if (b.limits && typeof b.limits === 'object') patch.limits = JSON.stringify(b.limits);
     if ('expires_at' in b) patch.expires_at = (b.expires_at as number | null) ?? null;
+    if (typeof b.delegated_only === 'boolean') patch.delegated_only = b.delegated_only ? 1 : 0;
     const budget = b.budget as { limit_usd?: number; period?: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null | undefined;
     if (budget !== undefined && budget !== null && !(typeof budget.limit_usd === 'number' && budget.limit_usd > 0 && ['daily', 'weekly', 'monthly', 'total'].includes(budget.period ?? ''))) {
       return reply.status(400).send({ error: { code: 'invalid', message: 'budget needs limit_usd > 0 and period daily | weekly | monthly | total' } });

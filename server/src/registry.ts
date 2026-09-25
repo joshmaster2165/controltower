@@ -33,6 +33,8 @@ export interface KeyRecord {
   demo: boolean;
   createdAt: number;
   lastUsedAt: number | undefined;
+  /** Acts only on behalf of other agents: calls without a valid delegation token are refused. */
+  delegatedOnly: boolean;
 }
 
 export interface ProviderRecord {
@@ -109,6 +111,7 @@ function escapeRe(s: string): string {
 export class Registry {
   keysByHash = new Map<string, KeyRecord>();
   keysById = new Map<string, KeyRecord>();
+  agentTeams = new Map<string, Set<string>>();
   providers = new Map<string, ProviderRecord>();
   providersBySlug = new Map<string, ProviderRecord>();
   deployments = new Map<string, DeploymentRecord>();
@@ -159,6 +162,7 @@ export class Registry {
         demo: k.demo === 1,
         createdAt: k.created_at,
         lastUsedAt: k.last_used_at ?? undefined,
+        delegatedOnly: k.delegated_only === 1,
       };
       keysByHash.set(rec.hash, rec);
       keysById.set(rec.id, rec);
@@ -239,6 +243,14 @@ export class Registry {
 
     this.keysByHash = keysByHash;
     this.keysById = keysById;
+    // An agent's teams (by agent id, or key id for a key without one), for "on behalf of team X" gates.
+    const agentTeams = new Map<string, Set<string>>();
+    for (const k of keysById.values()) {
+      if (!k.team) continue;
+      const a = k.agentId ?? k.id;
+      (agentTeams.get(a) ?? agentTeams.set(a, new Set()).get(a)!).add(k.team);
+    }
+    this.agentTeams = agentTeams;
     this.providers = provs;
     this.providersBySlug = provsBySlug;
     this.deployments = deps;

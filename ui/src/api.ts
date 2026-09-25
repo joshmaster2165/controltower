@@ -76,6 +76,8 @@ export interface TopologyKey {
   tags: string[];
   enabled: boolean;
   demo: boolean;
+  /** Acts only on behalf of other agents (calls without a delegation token are refused). */
+  delegated_only?: boolean;
 }
 export interface TopologyProvider {
   id: string;
@@ -116,6 +118,18 @@ export interface TopologyMcpServer {
   demo: boolean;
   /** 'http': a plain HTTP API proxied at /http/<slug>/…, its rows are routes rather than tools. */
   protocol?: 'mcp' | 'http';
+  /** The agent this server fronts: calls to it are agent-to-agent. */
+  agent_id?: string;
+}
+
+/** Agents calling agents, last 24 h: `from` (an agent id) called the agent behind `key_id`, directly or on someone's behalf. */
+export interface TopologyDelegation {
+  from: string;
+  /** The first agent in the chain. */
+  origin: string;
+  key_id: string;
+  requests: number;
+  last_ts: number;
 }
 /** Who talked to what in the last 24h: agent → model deployment or tool server (and tool). */
 export interface TopologyEdge {
@@ -147,6 +161,7 @@ export interface Topology {
   views?: AirspaceView[];
   /** Since when connections have been recorded (null: no traffic yet). */
   paths_since?: number | null;
+  delegations?: TopologyDelegation[];
 }
 
 export interface AirspaceView {
@@ -184,6 +199,8 @@ export interface FlightRow {
   ts: number;
   key_id: string;
   key_name: string;
+  /** JSON array of the agents this call was made on behalf of (origin first), or null. */
+  on_behalf_of?: string | null;
   agent_id: string | null;
   team: string | null;
   project: string | null;

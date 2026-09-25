@@ -14,6 +14,7 @@ import { DbSink } from './events/db-sink.js';
 import { EventRing } from './events/ring.js';
 import { LiveFrames } from './admin/live.js';
 import { PathsStore } from './events/paths.js';
+import { Delegations } from './policy/delegation.js';
 import { PolicyService } from './policy/policy.js';
 import { ApprovalService } from './policy/approvals.js';
 import { Versioned } from './util/versioned.js';
@@ -177,6 +178,7 @@ async function main(): Promise<void> {
     ring,
     live,
     paths,
+    delegations: new Delegations(secrets.deriveKey('delegation')),
     policy,
     approvals,
     approvalsVersion,

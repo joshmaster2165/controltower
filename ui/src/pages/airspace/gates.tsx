@@ -316,6 +316,8 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
   const [from, setFrom] = useState(draft.from);
   const [to, setTo] = useState(draft.to);
   const [tool, setTool] = useState(draft.tool ?? '');
+  // Optional: only calls made on behalf of this agent or team (anywhere up the delegation chain).
+  const [behalf, setBehalf] = useState('');
   const [effect, setEffect] = useState<Rule['effect']>('require_approval');
   const [reason, setReason] = useState('');
   const [hold, setHold] = useState('20');
@@ -336,7 +338,8 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
           return d?.public_name ?? d?.upstream_model ?? '?';
         })();
   const verb = effect === 'deny' ? 'Block' : effect === 'require_approval' ? 'Require approval for' : effect === 'inspect' ? 'Inspect' : 'Allow';
-  const sentence = effect === 'inspect' ? `Inspect ${agentLabel} → ${destLabel}: ${inspectSummary(inspect)}` : `${verb} ${agentLabel} → ${destLabel}`;
+  const behalfLabel = behalf ? `, on behalf of ${behalf.startsWith('team:') ? `team ${behalf.slice(5)}` : behalf.slice(6)}` : '';
+  const sentence = effect === 'inspect' ? `Inspect ${agentLabel} → ${destLabel}${behalfLabel}: ${inspectSummary(inspect)}` : `${verb} ${agentLabel} → ${destLabel}${behalfLabel}`;
 
   const [sim, setSim] = useState<SimResult | null>(null);
   const [simBusy, setSimBusy] = useState(false);
@@ -354,6 +357,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
     if (from.startsWith('key:')) match.keys = [from.slice(4)];
     if (isGroup(from)) match.groups = [from.slice(GROUP_PREFIX.length)];
     if (isTeam(from)) match.teams = [from.slice(TEAM_PREFIX.length)];
+    if (behalf) match.on_behalf_of = [behalf];
     if (from.startsWith('zone:')) body.from_zone = from.slice(5);
     if (to.startsWith('dep:')) {
       match.deployments = [to.slice(4)];
@@ -455,6 +459,28 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
             {singles.map((k) => (
               <option key={k.id} value={`key:${k.id}`}>
                 {k.name}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      </div>
+      <div className="field">
+        <label>Only when acting for (optional)</label>
+        <select className="input" value={behalf} onChange={(e) => setBehalf(e.target.value)} title="Match only calls made on behalf of this agent or team, anywhere up a chain of agents calling agents">
+          <option value="">Anyone, including the agent itself</option>
+          {teams.length > 0 && (
+            <optgroup label="Teams">
+              {teams.map((t) => (
+                <option key={t} value={`team:${t}`}>
+                  team {t}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Agents">
+            {[...new Set(topology.keys.map((k) => k.agent_id ?? k.id))].sort().map((a) => (
+              <option key={a} value={`agent:${a}`}>
+                {a}
               </option>
             ))}
           </optgroup>

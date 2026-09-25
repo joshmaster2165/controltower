@@ -16,6 +16,8 @@ export interface HttpApiRecord {
   healthDetail: string | undefined;
   lastCheckedAt: number | undefined;
   demo: boolean;
+  /** The agent this API fronts, when it is one: calls to it are agent-to-agent. */
+  agentId: string | undefined;
 }
 
 /** Registered plain-HTTP APIs, reachable by agents at /http/<slug>/…. */
@@ -61,6 +63,7 @@ export class HttpApiRegistry {
         healthDetail: r.health_detail ?? undefined,
         lastCheckedAt: r.last_checked_at ?? undefined,
         demo: r.demo === 1,
+        agentId: r.agent_id ?? undefined,
       };
       apis.set(rec.id, rec);
       bySlug.set(rec.slug, rec);

@@ -12,7 +12,7 @@ export function KeysPage() {
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
+  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '', delegated_only: false });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
   const load = async () => {
@@ -30,6 +30,7 @@ export function KeysPage() {
       const body: Record<string, unknown> = {
         name: form.name,
         agent_id: form.agent_id.trim() || undefined,
+        ...(form.delegated_only ? { delegated_only: true } : {}),
         team: form.team || undefined,
         project: form.project || undefined,
         allowed_models: form.allowed_models.split(',').map((s) => s.trim()).filter(Boolean),
@@ -39,7 +40,7 @@ export function KeysPage() {
       const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
-      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '' });
+      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '', delegated_only: false });
       await load();
       await refreshTopology();
     } catch (err) {
@@ -129,6 +130,15 @@ export function KeysPage() {
               <input className="input" type="number" min={0} step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
             </div>
           </div>
+          <label className="check-row">
+            <input type="checkbox" checked={form.delegated_only} onChange={(e) => setForm({ ...form, delegated_only: e.target.checked })} />
+            <span>
+              <b>Acts only on behalf of other agents</b>
+              <span className="hint">
+                For a sub-agent that other agents call. Its calls must carry the delegation token it was called with, so gates on whom a call is for always apply; calls without one are refused.
+              </span>
+            </span>
+          </label>
           {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn primary" type="submit">

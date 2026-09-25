@@ -1,0 +1,122 @@
+# Agents calling agents
+
+Agents increasingly work through other agents: a support bot asks a research agent, a planner hands work to a coder. Control Tower follows these calls from one agent to the next, draws who acts for whom, and lets you put gates on **whom a call is made for** — so a low-privilege, public-facing agent can't get a high-privilege agent to do what it may not do itself.
+
+## Quick reference
+
+| | |
+|---|---|
+| An agent behind a tool | Register its MCP server or HTTP API with **Fronts an agent** set to that agent's ID |
+| The delegation token | Sent to that agent with each call: `_meta["controltower/delegation"]` (MCP) and the `x-ct-delegation` header |
+| What the called agent does | Sends the same token back as `x-ct-delegation` on its own calls to Control Tower |
+| Keys that only act for others | **Acts only on behalf of other agents** on the key: calls without a valid token are refused |
+| Gates on whom a call is for | `match.on_behalf_of: [agent:<agent id>, team:<name>]` — anywhere up the chain |
+| Where it shows | Flights (*for support-bot*), a purple arc between the two agents on the Airspace, the trace panel (*called by*) |
+
+## An agent behind a tool
+
+Most agent-to-agent calls today are one agent calling another through a tool: the second agent is an MCP server (or an HTTP API) whose tools do their own work — and make their own model and tool calls.
+
+### Step 1: Give the called agent a key that only acts for others
+
+Create a key for the agent being called — here `research-agent` — and tick **Acts only on behalf of other agents**. Every call it makes must then carry the delegation token it was called with, so a gate on whom a call is for can't be escaped by leaving the token off.
+
+![A key that only acts on behalf of other agents](images/a2a-key-delegated.png)
+
+### Step 2: Register its server as fronting that agent
+
+Under **MCP servers → Add server** (or **HTTP APIs**), register the agent's endpoint and set **Fronts an agent** to its agent ID:
+
+![Registering an agent's MCP server](images/a2a-server-form.png)
+
+Calls to it now go agent to agent: each carries a delegation token saying which agent called — and, further up, on whose behalf. The API equivalent is `agent_id` on `POST /admin/api/mcp/servers` or `/admin/api/http/apis`.
+
+### Step 3: Pass the token on
+
+The called agent reads the token from the call it received and sends it back with its own calls to Control Tower, as the `x-ct-delegation` header. An MCP server built with the official TypeScript SDK:
+
+```ts
+server.registerTool('ask', { inputSchema: { question: z.string() } }, async ({ question }, extra) => {
+  // Control Tower puts the token in the call's _meta, and in the x-ct-delegation header.
+  const token = (extra._meta?.['controltower/delegation'] as string | undefined) ?? (extra.requestInfo?.headers['x-ct-delegation'] as string | undefined);
+  const openai = new OpenAI({ baseURL: 'http://localhost:4000/v1', apiKey: process.env.RESEARCH_AGENT_KEY, defaultHeaders: token ? { 'x-ct-delegation': token } : {} });
+  const r = await openai.chat.completions.create({ model: 'gpt-4.1-mini', messages: [{ role: 'user', content: question }] });
+  return { content: [{ type: 'text', text: r.choices[0]!.message.content ?? '' }] };
+});
+```
+
+An agent behind an HTTP API, in Python:
+
+```python
+@app.post("/ask")
+def ask(req: Request, body: Question):
+    token = req.headers.get("x-ct-delegation")
+    client = OpenAI(base_url="http://localhost:4000/v1", api_key=RESEARCH_AGENT_KEY,
+                    default_headers={"x-ct-delegation": token} if token else None)
+    ...
+```
+
+Pass it on every call the agent makes while handling that request — model calls, MCP tool calls (as a header, or `_meta["controltower/delegation"]`) and HTTP API calls. When the agent in turn calls a third agent through Control Tower, that one gets a new token for the longer chain.
+
+### Step 4: See it
+
+The called agent's calls are in **Flights** with whom they were made for:
+
+![Calls made on behalf of another agent](images/a2a-flights.png)
+
+On the **Airspace** a purple arc beside the agents runs from the calling agent to the called one — thicker with more calls, bright while live. The calls themselves still go through the tower (to the agent's server on the right); the arc says who is acting for whom.
+
+![support-bot calling research-agent on the Airspace](images/a2a-map.png)
+
+Tracing either agent lists the other as **calls** or **called by**:
+
+![Tracing the called agent](images/a2a-trace.png)
+
+## Gates on whom a call is for
+
+A gate can match calls made **on behalf of** an agent or a team, however many agents deep. In the gate editor, choose **Only when acting for**; in a policy file, `match.on_behalf_of`:
+
+```yaml
+gates:
+  # Nothing done for the public-facing agents may touch finance tools — even through another agent.
+  - name: No finance on behalf of support
+    match:
+      on_behalf_of: [team:support]
+      servers: [ledger]
+    effect: deny
+
+  # A person approves before any agent spends money for the SDR bot.
+  - name: Payments for the SDR bot need approval
+    match:
+      on_behalf_of: [agent:outbound-sdr]
+      tools: ["payments__*"]
+    effect: require_approval
+```
+
+Gates on the caller itself keep working as usual: *support-bot may not call research-agent* is a gate from support-bot to the research agent's server.
+
+## How the token works
+
+- It is signed with a key derived from Control Tower's master key and never stored, so it can't be forged or edited.
+- It is issued to one agent: presented by any other agent it is ignored (and refused for a key that only acts for others).
+- It expires after 15 minutes; a chain may be at most 8 agents deep (`delegation_too_deep`), which also ends loops.
+- It never appears in logs, events or Flights — only the chain of agent IDs does.
+
+## Agents inside one app
+
+When sub-agents run inside one process — LangGraph nodes, CrewAI crews, handoffs in the OpenAI Agents SDK — there is no network hop between them for Control Tower to see. Give each sub-agent its own key so each is its own station with its own gates and budget; when one of them calls another through a tool served by Control Tower, the rules above apply.
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|---|---|---|
+| `403 delegation_required` | A key that only acts for others made a call without a valid token | Pass on the `x-ct-delegation` header of the call it received; check it didn't expire (15 min) |
+| `…issued to another agent` | The token was passed to a different agent than the one called | Each agent passes on only the token it received; the server must front the right agent ID |
+| `403 delegation_too_deep` | More than 8 agents in the chain, or agents calling each other in a loop | Check for a loop between agents |
+| No arc on the map | The server isn't marked as fronting an agent, and no call carried a token | Set **Fronts an agent**, and pass the token on (step 3) |
+
+## Next steps
+
+- [Airspace, gates & approvals](airspace.md)
+- [Policy as code](policy-as-code.md) — `on_behalf_of` in files
+- [MCP gateway](mcp.md)

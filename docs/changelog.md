@@ -5,6 +5,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 ## Unreleased
 
 - **Agent groups:** keys that share an [agent ID](keys.md#many-copies-of-one-agent) are one station on the map with a ×N count, and a gate or zone on it covers every copy (`match.groups`, `group:` members in policy files). The key form has an **Agent ID** field.
+- **Agents calling agents:** a tool server or HTTP API can [front an agent](agent-to-agent.md); calls to it carry a signed delegation token the called agent passes on, so its calls are recorded — and can be gated — as made on the caller's behalf (`match.on_behalf_of`). Keys can be limited to acting on behalf of others. Flights show whom a call was for; the Airspace draws an arc from caller to callee.
 - **Codex and the Agents SDK on any model:** `/v1/responses` calls for models without a Responses API — Claude, Gemini, Bedrock, Vertex AI — are translated through Chat Completions and back, streamed or not, including tool calls and Codex's free-form tools. They used to be refused.
 - **Client setup guides:** step-by-step pages with screenshots for [Claude Code](client-claude-code.md), [Claude Desktop](client-claude-desktop.md), [Codex in the ChatGPT desktop app](client-codex-desktop.md) and the [Codex CLI](client-codex-cli.md). The key's **Connect** panel has **Claude Desktop** and **Codex** tabs with the settings filled in.
 - `/v1/models` answers in both the OpenAI and the Anthropic list shape, for Anthropic clients such as Claude Desktop's model picker.

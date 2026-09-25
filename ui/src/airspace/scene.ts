@@ -82,6 +82,8 @@ export interface Station {
   team?: { name: string; agents: number; keys: number } | undefined;
   /** Agent stations inside an opened team: that team (they sit together under its header). */
   teamOf?: string | undefined;
+  /** A tool server or HTTP API that fronts an agent: that agent's id. */
+  agentOf?: string | undefined;
 }
 
 export interface MatrixCell {
@@ -107,6 +109,8 @@ export interface MatrixHead {
   team: string | undefined;
   outside: boolean;
   bypass: boolean;
+  /** A destination that fronts an agent: that agent. */
+  agent: string | undefined;
 }
 export interface MatrixData {
   rows: MatrixHead[];
@@ -210,7 +214,18 @@ export type ClickInfo =
 
 export interface FocusSummary {
   station: StationView;
-  links: Array<{ id: string; label: string; kind: StationKind; color: number; requests: number; cost: number; denied: number; errors: number; live: boolean; tools: Array<{ name: string; requests: number }>; observed?: boolean; bypass?: boolean }>;
+  links: Array<{ id: string; label: string; kind: StationKind; color: number; requests: number; cost: number; denied: number; errors: number; live: boolean; tools: Array<{ name: string; requests: number }>; observed?: boolean; bypass?: boolean; relation?: 'calls' | 'called by' }>;
+}
+
+/** One agent calling another: through a tool server that fronts it, or on someone's behalf (delegation). */
+interface AgentLink {
+  from: string;
+  to: string;
+  /** Calls between the two: the caller's calls to the callee's server, or (without one) the callee's calls on its behalf. */
+  requests: number;
+  viaTool: number;
+  onBehalf: number;
+  lastTs: number;
 }
 
 export interface SceneStats {
@@ -356,6 +371,8 @@ export class AirspaceScene {
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private obsEdges: ObservedEdge[] = [];
+  /** Agents calling agents, drawn as arcs beside the agent column. */
+  private agentLinks: AgentLink[] = [];
   /** Calls in the last day per station (agents and destinations): an idle line's thickness. */
   private day = new Map<string, number>();
   /** Key id → the station drawing it: its agent group when several keys share an agent id, else the key. */
@@ -762,6 +779,8 @@ export class AirspaceScene {
     let y0 = this.hub[1] - this.holdR - 30;
     let x1 = this.hub[0] + this.holdR + 40;
     let y1 = this.hub[1] + this.holdR + 50;
+    // Room for agent-to-agent arcs beside the agent column.
+    if (this.agentLinks.length) x0 -= 70;
     for (const s of items) {
       x0 = Math.min(x0, s.x - 16);
       y0 = Math.min(y0, s.y - 36);
@@ -1091,7 +1110,7 @@ export class AirspaceScene {
       total.set(a, (total.get(a) ?? 0) + c.requests);
       total.set(d, (total.get(d) ?? 0) + c.requests);
     }
-    const head = (s: Station) => ({ id: s.id, label: s.label, sub: s.sub, kind: s.kind, color: s.color, total: total.get(s.id) ?? 0, rpm: s.recent.length, team: s.team?.name, outside: s.kind === 'observed', bypass: !!s.obs?.bypass });
+    const head = (s: Station) => ({ id: s.id, label: s.label, sub: s.sub, kind: s.kind, color: s.color, total: total.get(s.id) ?? 0, rpm: s.recent.length, team: s.team?.name, outside: s.kind === 'observed', bypass: !!s.obs?.bypass, agent: s.agentOf });
     const byTotal = (a: { total: number; label: string }, b: { total: number; label: string }) => b.total - a.total || a.label.localeCompare(b.label);
     return { rows: rows.map(head).sort(byTotal), cols: cols.map(head).sort((a, b) => Number(a.outside) - Number(b.outside) || byTotal(a, b)), cells };
   }
@@ -1254,8 +1273,16 @@ export class AirspaceScene {
       if (!shows(m.id)) continue;
       const http = m.protocol === 'http';
       const n = m.tools.length;
-      const s = upsert(m.id, 'mcp', m.name, http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`, MCP_COLOR, m.slug);
+      const s = upsert(
+        m.id,
+        'mcp',
+        m.name,
+        m.agent_id ? `agent ${m.agent_id} · via ${http ? 'HTTP' : 'MCP'}` : http ? `HTTP API · ${n ? `${n} route${n === 1 ? '' : 's'}` : 'no calls yet'}` : `MCP server · ${n} tool${n === 1 ? '' : 's'}`,
+        m.agent_id ? agentColor(m.agent_id) : MCP_COLOR,
+        m.slug,
+      );
       s.protocol = http ? 'http' : 'mcp';
+      s.agentOf = m.agent_id;
       const prev = new Map(s.tools.map((r) => [r.name, r]));
       s.tools = m.tools.map((tool) => {
         const old = prev.get(tool.name);
@@ -1299,6 +1326,29 @@ export class AirspaceScene {
       into.last_ts = Math.max(into.last_ts, e.last_ts);
       if (e.recent?.length) (into.recent ??= []).push(...e.recent);
     });
+    // Agents calling agents: through a server that fronts an agent, and on someone's behalf.
+    const stationOfAgent = new Map<string, string>();
+    for (const k of inKeys) {
+      const st = this.keyStation.get(k.id);
+      if (!st) continue;
+      if (k.agent_id && !stationOfAgent.has(k.agent_id)) stationOfAgent.set(k.agent_id, st);
+      stationOfAgent.set(k.id, st);
+    }
+    const links = new Map<string, AgentLink>();
+    // The same exchange shows up twice — A's calls to B's server, and B's calls on A's behalf — so each is counted on its own.
+    const link = (from: string | undefined, to: string | undefined, via: 'viaTool' | 'onBehalf', requests: number, lastTs: number) => {
+      if (!from || !to || from === to) return;
+      const l = links.get(`${from}>${to}`) ?? links.set(`${from}>${to}`, { from, to, requests: 0, viaTool: 0, onBehalf: 0, lastTs: 0 }).get(`${from}>${to}`)!;
+      l[via] += requests;
+      l.requests = l.viaTool || l.onBehalf;
+      l.lastTs = Math.max(l.lastTs, lastTs);
+    };
+    for (const e of this.edges) {
+      const agent = this.stations.get(e.target_id)?.agentOf;
+      if (agent) link(e.key_id, stationOfAgent.get(agent), 'viaTool', e.requests, e.last_ts);
+    }
+    for (const d of t.delegations ?? []) link(stationOfAgent.get(d.from), this.keyStation.get(d.key_id), 'onBehalf', d.requests, d.last_ts);
+    this.agentLinks = [...links.values()];
     this.used24h.clear();
     this.day.clear();
     for (const e of this.edges) {
@@ -1358,6 +1408,12 @@ export class AirspaceScene {
       else out.set(k, { ...e, key_id, ...('recent' in e && Array.isArray(e.recent) ? { recent: [...e.recent] } : {}) });
     }
     return [...out.values()];
+  }
+
+  /** The station drawing an agent (by agent id), if it is on the map. */
+  private agentStation(agentId: string): string | undefined {
+    const k = this.keys.find((x) => x.agent_id === agentId || x.id === agentId);
+    return k ? this.keyStation.get(k.id) : undefined;
   }
 
   /** The station that draws a key's traffic. */
@@ -1958,6 +2014,15 @@ export class AirspaceScene {
     };
     for (const e of this.edges) add(e.key_id, e.target_id);
     for (const e of this.obsEdges) add(e.key_id, e.target_id);
+    for (const l of this.agentLinks) {
+      if (l.from === f.id) set.add(l.to);
+      if (l.to === f.id) set.add(l.from);
+    }
+    // A server that fronts an agent traces to that agent too.
+    if (f.agentOf) {
+      const own = this.agentStation(f.agentOf);
+      if (own) set.add(own);
+    }
     for (const k of this.livePairs.keys()) {
       const [a, d] = k.split('>') as [string, string];
       add(a, d);
@@ -2015,6 +2080,17 @@ export class AirspaceScene {
       if (other) {
         const l = get(other);
         if (l) l.live = true;
+      }
+    }
+    if (f.kind === 'agent') {
+      for (const l of this.agentLinks) {
+        const other = l.from === f.id ? l.to : l.to === f.id ? l.from : null;
+        if (!other) continue;
+        const o = this.stations.get(other);
+        if (!o) continue;
+        byId.set(`agent:${other}:${l.from === f.id ? 'out' : 'in'}`, {
+          id: o.id, label: o.label, kind: o.kind, color: o.color, requests: l.requests, cost: 0, denied: 0, errors: 0, live: now - l.lastTs < WINDOW_MS, tools: [], relation: l.from === f.id ? 'calls' : 'called by',
+        });
       }
     }
     const links = [...byId.values()].sort((a, b) => Number(b.live) - Number(a.live) || b.requests - a.requests);
@@ -2314,6 +2390,7 @@ export class AirspaceScene {
     this.drawHub(now, held);
     for (const g of this.hubGates) this.drawGate(g.x, g.y, g.rule, 10, this.hovered === `hubgate:${g.rule.id}`);
 
+    this.drawAgentLinks(now, rel);
     for (const s of this.stations.values()) {
       ctx.globalAlpha = dim(s.id);
       this.drawCard(s, now, rel);
@@ -2518,6 +2595,45 @@ export class AirspaceScene {
     ctx.fillStyle = INK_FAINT;
     halo(`${active} active link${active === 1 ? '' : 's'} · ${rpm}/min${held ? ` · ${held} holding` : ''}`, hx, hy + this.holdR + 37);
     ctx.textAlign = 'left';
+  }
+
+  /**
+   * Agents calling agents: an arc beside the agent column from caller to callee, arrow at the callee,
+   * thicker with more calls; bright while live. The call itself still goes through the tower (the
+   * callee's server on the right); the arc says who is acting for whom.
+   */
+  private drawAgentLinks(now: number, rel: Set<string> | null): void {
+    if (!this.agentLinks.length) return;
+    const ctx = this.ctx;
+    const max = Math.max(1, ...this.agentLinks.map((l) => l.requests));
+    const tone = 0x7c3aed;
+    for (const l of this.agentLinks) {
+      const a = this.stations.get(l.from);
+      const b = this.stations.get(l.to);
+      if (!a || !b) continue;
+      const live = now - l.lastTs < WINDOW_MS;
+      const ay = a.y + a.headH / 2;
+      const by = b.y + b.headH / 2;
+      const cx = Math.min(a.x, b.x) - 24 - Math.min(110, Math.abs(by - ay) * 0.22);
+      const w = 1.4 + 2.6 * Math.sqrt(l.requests / max);
+      const lit = !rel || (rel.has(a.id) && rel.has(b.id));
+      ctx.globalAlpha = lit ? 1 : 0.18;
+      ctx.beginPath();
+      ctx.moveTo(a.x, ay);
+      ctx.quadraticCurveTo(cx, (ay + by) / 2, b.x - 6, by);
+      ctx.strokeStyle = rgba(tone, live ? 0.85 : 0.4);
+      ctx.lineWidth = w;
+      ctx.stroke();
+      // Arrowhead into the callee's card.
+      ctx.beginPath();
+      ctx.moveTo(b.x - 1, by);
+      ctx.lineTo(b.x - 9, by - 4.5);
+      ctx.lineTo(b.x - 9, by + 4.5);
+      ctx.closePath();
+      ctx.fillStyle = rgba(tone, live ? 0.9 : 0.5);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 
   /** "▾ SUPPORT · 12 agents" over an opened team; click to close it. */

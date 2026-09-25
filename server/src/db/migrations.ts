@@ -466,3 +466,16 @@ INSERT INTO paths (agent, target, tool, first_seen, last_seen)
   GROUP BY 1, 2, 3;
 `,
 });
+
+// Agents calling agents: a tool server or HTTP API can front an agent (agent_id); a key can be
+// limited to acting on behalf of others (delegated_only); a flight records whom it ran for.
+migrations.push({
+  version: 10,
+  name: 'agent_to_agent',
+  sqlite: `
+ALTER TABLE mcp_servers ADD COLUMN agent_id TEXT;
+ALTER TABLE http_apis ADD COLUMN agent_id TEXT;
+ALTER TABLE api_keys ADD COLUMN delegated_only INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE flights ADD COLUMN on_behalf_of TEXT;
+`,
+});

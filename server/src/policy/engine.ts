@@ -23,6 +23,11 @@ export interface PolicyInput {
   target: PolicyTarget;
   /** Tool arguments or a reduced view of the request. Never logged. */
   args: Record<string, unknown> | undefined;
+  /**
+   * Whom the call is made on behalf of, from a verified delegation token: `agent:<id>` for each agent in
+   * the chain and `team:<name>` for their teams. Empty for a call an agent makes on its own account.
+   */
+  onBehalfOf?: string[];
   estInputTokens: number;
   projectedNanousd: number;
 }
@@ -47,7 +52,7 @@ export interface InspectGate {
 export interface PolicyEngine {
   readonly version: number;
   /** Content-inspection gates on this path, in priority order. */
-  inspectors?(key: KeyRecord, target: PolicyTarget): InspectGate[];
+  inspectors?(key: KeyRecord, target: PolicyTarget, onBehalfOf?: string[]): InspectGate[];
   evaluate(input: PolicyInput): PolicyDecision | Promise<PolicyDecision>;
   /** Static decision (no args) used to filter MCP tools/list pre-emptively. */
   staticDecision(key: KeyRecord, target: PolicyTarget): 'deny' | 'maybe';

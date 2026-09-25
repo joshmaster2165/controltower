@@ -12,6 +12,7 @@ import type { DbSink } from './events/db-sink.js';
 import type { EventRing } from './events/ring.js';
 import type { LiveFrames } from './admin/live.js';
 import type { PathsStore } from './events/paths.js';
+import type { Delegations } from './policy/delegation.js';
 import type { PolicyEngine } from './policy/engine.js';
 import type { Approvals } from './policy/approvals.js';
 import type { SecretBox } from './crypto/secrets.js';
@@ -43,6 +44,8 @@ export interface AppContext {
   live: LiveFrames;
   /** Every connection agents have used, with first and last use. */
   paths: PathsStore;
+  /** Signs and checks delegation tokens (agents calling agents). */
+  delegations: Delegations;
   policy: PolicyEngine;
   approvals: Approvals;
   /** Bumped whenever the approvals queue changes; the console re-fetches. */

@@ -171,6 +171,40 @@ export function mcpUpstream(token: string, port = 0): Promise<Upstream & { delet
 }
 
 /** Captures webhook deliveries (alerts). */
+/**
+ * A sub-agent exposed as an MCP tool, the way people build them: an MCP server (official SDK) whose
+ * `ask` tool does its own work — here, `work(question, delegationToken)` — and returns the answer.
+ * The delegation token Control Tower attaches is read from the request's `_meta`, falling back to
+ * the `x-ct-delegation` header, exactly as the docs tell a sub-agent to do.
+ */
+export function subAgentUpstream(work: (question: string, token: string | undefined) => Promise<string>): Promise<Upstream> {
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const build = () => {
+    const server = new McpServer({ name: 'research-agent', version: '1.0.0' });
+    server.registerTool('ask', { description: 'Ask the research agent a question', inputSchema: { question: z.string() } }, async ({ question }, extra) => {
+      const meta = (extra._meta ?? {}) as Record<string, unknown>;
+      const header = extra.requestInfo?.headers['x-ct-delegation'];
+      const token = typeof meta['controltower/delegation'] === 'string' ? (meta['controltower/delegation'] as string) : typeof header === 'string' ? header : undefined;
+      return { content: [{ type: 'text', text: await work(question, token) }] };
+    });
+    return server;
+  };
+  return serve(async (req, res, body) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    const parsed = body ? (JSON.parse(body) as unknown) : undefined;
+    let transport = sid ? transports.get(sid) : undefined;
+    if (!transport) {
+      if (req.method !== 'POST' || !isInitializeRequest(parsed)) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return void res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'No valid session' }, id: null }));
+      }
+      transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID(), onsessioninitialized: (id) => void transports.set(id, transport!) });
+      await build().connect(transport);
+    }
+    await transport.handleRequest(req, res, parsed);
+  });
+}
+
 export function webhookReceiver(): Promise<Upstream> {
   return serve((_req, res) => json(res, 200, { ok: true }));
 }

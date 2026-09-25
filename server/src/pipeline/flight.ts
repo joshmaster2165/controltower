@@ -14,6 +14,7 @@ import { MAX_SCAN_CHARS, runInspectors } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
+import { headerToken, resolveDelegation } from '../policy/delegation.js';
 import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, customToolNames, responsesRequestToChat } from '../translate/responses-chat.js';
 
 /** Extract the JSON payload of a raw SSE frame; null for comments, [DONE] and non-JSON. */
@@ -62,6 +63,8 @@ export interface Flight {
   translateTo: WireDialect | undefined;
   /** A Responses API request served through Chat Completions: the reply is translated back. */
   viaChat: boolean;
+  /** Agents this call is made on behalf of (origin first), from a verified delegation token. */
+  chain: string[];
   attempts: number;
   deployment: DeploymentRecord | undefined;
   provider: ProviderRecord | undefined;
@@ -106,6 +109,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     inspectOut: [],
     translateTo: undefined,
     viaChat: false,
+    chain: [],
     attempts: 0,
     deployment: undefined,
     provider: undefined,
@@ -212,6 +216,10 @@ export class FlightRunner {
       f.key = key;
       const problem = keyProblem(key);
       if (problem) throw problem === 'disabled' ? E.keyDisabled() : E.keyExpired();
+      // Whom this call is for, when an agent is acting for another (refused below if the key needs it).
+      const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
+      if (!('error' in deleg)) f.chain = deleg.chain;
+      const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
 
       // ---- admission ----
       if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);
@@ -243,6 +251,7 @@ export class FlightRunner {
       f.route = { alias: res.alias, candidates: res.candidates, price, projected, budgetScopes };
       f.deployment = head;
       f.provider = headProv;
+      if ('error' in deleg) throw deleg.error; // recorded as a refused flight
       this.emitStarted(f);
 
       // ---- policy ----
@@ -260,6 +269,7 @@ export class FlightRunner {
         key,
         target,
         args: { model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body) },
+        onBehalfOf,
         estInputTokens: f.estInput,
         projectedNanousd: projected,
       });
@@ -318,7 +328,7 @@ export class FlightRunner {
       }
 
       // ---- inspect (what the agent sends) ----
-      const gates = ctx.policy.inspectors?.(key, target) ?? [];
+      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       if (gates.length) {
         f.inspectOut = gates.filter((g) => g.compiled.direction !== 'input');
         const fields = ['messages', 'system', 'instructions', 'input', 'prompt'].filter((k) => body[k] !== undefined);
@@ -378,6 +388,7 @@ export class FlightRunner {
       deployment_id: f.deployment?.id,
       provider_id: f.provider?.id,
       provider_kind: f.provider?.kind,
+      ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,
     });

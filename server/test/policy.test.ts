@@ -4,7 +4,7 @@ import { PolicyService } from '../src/policy/policy.js';
 import type { KeyRecord } from '../src/registry.js';
 
 function key(id: string): KeyRecord {
-  return { id, name: id, hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined };
+  return { id, name: id, hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly: false };
 }
 
 describe('station-scoped gates', () => {

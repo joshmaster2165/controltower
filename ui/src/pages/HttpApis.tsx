@@ -23,7 +23,7 @@ interface HttpApi {
   routes: Array<{ name: string; op: string; requests: number }>;
 }
 
-const EMPTY = { name: '', slug: '', base_url: '', auth_type: 'none', token: '', header: 'x-api-key' };
+const EMPTY = { name: '', slug: '', base_url: '', auth_type: 'none', token: '', header: 'x-api-key', agent_id: '' };
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
@@ -34,6 +34,9 @@ export function HttpApisPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  // Agent ids in use, to suggest for "Fronts an agent".
+  const topologyKeys = useStore((st) => st.topology?.keys);
+  const agentIds = [...new Set((topologyKeys ?? []).map((k) => k.agent_id).filter((a): a is string => !!a))].sort();
   const [busy, setBusy] = useState<string | null>(null);
   const refreshTopology = useStore((s) => s.refreshTopology);
 
@@ -65,6 +68,7 @@ export function HttpApisPage() {
         slug: form.slug || undefined,
         base_url: form.base_url,
         auth: form.auth_type === 'bearer' ? { type: 'bearer', token: form.token } : form.auth_type === 'header' ? { type: 'header', header: form.header, token: form.token } : { type: 'none' },
+        ...(form.agent_id.trim() ? { agent_id: form.agent_id.trim() } : {}),
       });
       setShowAdd(false);
       setForm(EMPTY);
@@ -133,6 +137,16 @@ export function HttpApisPage() {
           <div className="field">
             <label>Base URL</label>
             <input className="input mono" required value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://api.statuspage.io/v1" />
+          </div>
+          <div className="field">
+            <label>Fronts an agent (optional)</label>
+            <input className="input" list="ct-agent-ids" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })} placeholder="research-agent" />
+            <datalist id="ct-agent-ids">
+              {agentIds.map((a) => (
+                <option key={a} value={a} />
+              ))}
+            </datalist>
+            <div className="hint">If this is another agent exposed as an HTTP API, name that agent (its keys' agent ID). Calls to it are drawn agent to agent, and it is sent a delegation token to pass on with its own calls, so they count as made on the caller's behalf.</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: form.auth_type === 'header' ? '170px 150px 1fr' : '170px 1fr', gap: 12 }}>
             <div className="field">

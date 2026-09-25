@@ -19,6 +19,8 @@ export interface McpServerRecord {
   toolsHash: string | undefined;
   lastCheckedAt: number | undefined;
   demo: boolean;
+  /** The agent this server fronts, when it is one (a sub-agent exposed as tools): calls to it are agent-to-agent. */
+  agentId: string | undefined;
 }
 
 export const TOOL_SEP = '__';
@@ -93,6 +95,7 @@ export class McpRegistry {
         toolsHash: r.tools_hash ?? undefined,
         lastCheckedAt: r.last_checked_at ?? undefined,
         demo: r.demo === 1,
+        agentId: r.agent_id ?? undefined,
       };
       servers.set(rec.id, rec);
       bySlug.set(rec.slug, rec);

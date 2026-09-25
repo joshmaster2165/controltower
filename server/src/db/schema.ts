@@ -100,6 +100,7 @@ export interface ApiKeysTable {
   expires_at: number | null;
   created_by: string | null;
   demo: Bool;
+  delegated_only: Generated<number>;
   created_at: number;
   last_used_at: number | null;
 }
@@ -132,6 +133,7 @@ export interface FlightsTable {
   provider_kind: string | null;
   mcp_server_id: string | null;
   tool: string | null;
+  on_behalf_of: string | null;
   status: string | null;
   http_status: number | null;
   decision: string | null;
@@ -270,6 +272,7 @@ export interface HttpApisTable {
   health_detail: string | null;
   last_checked_at: number | null;
   demo: number;
+  agent_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -289,6 +292,7 @@ export interface McpServersTable {
   tools_hash: string | null;
   last_checked_at: number | null;
   demo: Bool;
+  agent_id: string | null;
   created_at: number;
   updated_at: number;
   /** 'config' when declared in a --config file (replaced on every boot). */

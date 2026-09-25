@@ -11,6 +11,7 @@ The Airspace is a live map of every agentic data flow: agents on the left, the t
 | **Station** | An agent (one key, or every key sharing an [agent ID](keys.md#many-copies-of-one-agent), drawn once with a ×N count), a model, an MCP tool server with its tools, an HTTP API with its routes, or a system seen outside the gateway |
 | **Line** | A path an agent uses. **Solid** = through the gateway, enforceable. **Dashed** = reported by the agent's SDK or OpenTelemetry, *seen but not enforced* |
 | Line state | **active** (last minute) · **idle** (last 24 h) · **no traffic** · **holding** (waiting for approval) · **blocked** |
+| Line thickness | Volume: calls in the last minute on a live line, calls in the last day on an idle (grey) one, relative to the busiest line on the map. Nothing moves — the busiest flows are simply the widest |
 | **Zone** | A coloured region grouping stations — *Sales*, *AI Labs sandbox*, *Frontier models* |
 | **Gate** | An icon on a path: red = deny, amber = approval, blue = inspect. The badge counts what it did recently |
 | Top bar | Flights, spend, blocked · errors, active links and requests holding right now |

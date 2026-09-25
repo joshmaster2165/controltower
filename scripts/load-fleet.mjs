@@ -222,6 +222,14 @@ if (BROWSER) {
   const sample = await page.evaluate(async () => {
     const w = window;
     const ws0 = { ...w.__ws, byType: JSON.parse(JSON.stringify(w.__ws.byType)) };
+    // Count the map's actual redraws (it only redraws when something changed).
+    let draws = 0;
+    const scene = w.__ctScene;
+    const draw = scene.draw.bind(scene);
+    scene.draw = () => {
+      draws++;
+      draw();
+    };
     let frames = 0;
     const t0 = performance.now();
     await new Promise((res) => {
@@ -239,6 +247,7 @@ if (BROWSER) {
     const bottom = Math.max(...stations.map((x) => x.y + x.h));
     return {
       fps: frames / secs,
+      redraws_per_s: draws / secs,
       ws_messages_per_s: (w.__ws.messages - ws0.messages) / secs,
       ws_kb_per_s: (w.__ws.bytes - ws0.bytes) / 1024 / secs,
       ws_by_type: Object.fromEntries(
@@ -308,7 +317,7 @@ const md = [
         row('Map: topology request', `${map.topology_ms?.toFixed(0)} ms, ${map.topology_kb?.toFixed(0)} KB`),
         row('Map: stations (agents)', `${map.stations} (${map.agent_stations})`),
         row('Map: height', `${map.map_height_px} px (viewport 900)`),
-        row('Map: frame rate', `${map.fps.toFixed(0)} fps`),
+        row('Map: frame rate', `${map.fps.toFixed(0)} fps (map redrawn ${map.redraws_per_s.toFixed(1)}×/s)`),
         row('Map: live updates', `${map.ws_messages_per_s.toFixed(0)} messages/s, ${map.ws_kb_per_s.toFixed(0)} KB/s (${Object.entries(map.ws_by_type).map(([t, v]) => `${t}: ${v.per_s}/s, ${v.kb_per_s} KB/s`).join('; ')})`),
         row('Map: JS heap', map.js_heap_mb ? `${map.js_heap_mb.toFixed(0)} MB` : 'n/a'),
       ]

@@ -719,6 +719,9 @@ export function AirspacePage() {
         <span title="Traffic in the last minute">
           <em className="ln active" /> active
         </span>
+        <span title="Line thickness is volume: calls in the last minute on a live line, calls in the last day on an idle one, relative to the busiest line on the map">
+          <em className="flow" /> busier
+        </span>
         <span title="Traffic in the last 24 hours, none in the last minute">
           <em className="ln idle" /> idle
         </span>

@@ -211,6 +211,8 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .legend em.ln.unused { border-color: #c9d3e1; border-top-style: dashed; border-top-width: 1.5px; }
 .legend em.ln.holding { border-color: var(--warn); }
 .legend em.ln.blocked { border-color: var(--danger); }
+/* Thickness is volume: a thin-to-thick wedge. */
+.legend em.flow { display: inline-block; width: 22px; height: 7px; background: rgba(31, 94, 255, 0.62); clip-path: polygon(0 45%, 100% 0, 100% 100%, 0 55%); }
 .focus-panel { padding: 14px; }
 .focus-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .focus-stats .label { font-size: 11px; color: var(--text-dim); }

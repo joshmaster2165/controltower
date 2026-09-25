@@ -10,7 +10,7 @@ import { agentGroups, agentRef, groupStation, isTeam, keyStations, teamStation }
  * and MCP tool servers (right); tool servers list their tools. Nothing
  * travels: every connection shows its *state*, which stays legible at scale.
  *
- *   active   traffic in the last minute — agent/station colour, weight ∝ rate
+ *   active   traffic in the last minute — agent/station colour, thickness ∝ calls/min
  *   idle     used in the last 24h, quiet now — solid grey
  *   unused   never used — faint dashed
  *   holding  a flight is waiting for human approval — amber
@@ -325,6 +325,8 @@ export class AirspaceScene {
   /** Gates that cover every path (no agent, destination or zone): drawn on the tower itself. */
   private hubGates: Array<{ rule: Rule; x: number; y: number }> = [];
   private obsEdges: ObservedEdge[] = [];
+  /** Calls in the last day per station (agents and destinations): an idle line's thickness. */
+  private day = new Map<string, number>();
   /** Key id → the station drawing it: its agent group when several keys share an agent id, else the key. */
   private keyStation = new Map<string, string>();
   /** Agent station → the keys it stands for (one for a plain key, all copies for a group, a whole team). */
@@ -577,9 +579,8 @@ export class AirspaceScene {
 
     this.ready = true;
     const frame = (now: number) => {
-      // No per-flight motion: redraw only when something changed, plus a slow tick for ageing states.
-      const pulsing = this.anyLive();
-      if (this.dirty || now - this.lastDraw > (pulsing ? 33 : 1000)) {
+      // No motion: redraw when something changed, plus a slow tick for ageing states.
+      if (this.dirty || now - this.lastDraw > 1000) {
         try {
           this.draw();
         } catch (err) {
@@ -1189,6 +1190,11 @@ export class AirspaceScene {
       if (e.recent?.length) (into.recent ??= []).push(...e.recent);
     });
     this.used24h.clear();
+    this.day.clear();
+    for (const e of this.edges) {
+      this.day.set(e.key_id, (this.day.get(e.key_id) ?? 0) + e.requests);
+      this.day.set(e.target_id, (this.day.get(e.target_id) ?? 0) + e.requests);
+    }
     // Seed the per-minute counters from the server, so traffic from just before the map opened reads as active.
     const seeded = new Set<string>();
     // Each 5-second bucket's calls become points spread over the bucket (capped so the bucket's end is not in the future).
@@ -1814,11 +1820,6 @@ export class AirspaceScene {
     return this.used24h.has(s.id) || s.lastAt > now - 24 * 3600e3 ? 'idle' : 'unused';
   }
 
-  private anyLive(): boolean {
-    for (const s of this.stations.values()) if (s.recent.length || s.held) return true;
-    return false;
-  }
-
   private activePairs(now: number): number {
     let n = 0;
     for (const ts of this.livePairs.values()) if (now - ts < WINDOW_MS) n++;
@@ -2019,20 +2020,28 @@ export class AirspaceScene {
       ctx.globalAlpha = 1;
     }
 
-    // Connections: state, not motion. Idle/unused first so active ones sit on top.
+    // Connections as flows: state by colour, volume by thickness — calls in the last minute on a
+    // live line, the last day's calls (thinner, grey) on an idle one — relative to the busiest line
+    // on the map. Nothing moves. Thin and idle lines first, so heavy and live ones sit on top.
     const order: LinkState[] = ['unused', 'idle', 'active', 'blocked', 'holding'];
     const spokes = [...this.spokes.values()].map((sp) => ({ sp, st: this.stateOf(sp.station, now) }));
-    spokes.sort((a, b) => order.indexOf(a.st) - order.indexOf(b.st));
+    let maxRpm = 1;
+    let maxDay = 1;
+    for (const { sp } of spokes) {
+      maxRpm = Math.max(maxRpm, sp.station.recent.length);
+      maxDay = Math.max(maxDay, this.day.get(sp.station.id) ?? 0);
+    }
+    const flowWidth = (sp: Spoke, st: LinkState) =>
+      st === 'unused' ? 1 : st === 'idle' ? 1 + 2 * Math.sqrt((this.day.get(sp.station.id) ?? 0) / maxDay) : 1.5 + 8.5 * Math.sqrt(sp.station.recent.length / maxRpm);
+    spokes.sort((a, b) => order.indexOf(a.st) - order.indexOf(b.st) || a.sp.station.recent.length - b.sp.station.recent.length);
     for (const { sp, st } of spokes) {
       const s = sp.station;
       const { p0, p1, p2, p3 } = sp.bez;
       ctx.beginPath();
       ctx.moveTo(p0[0], p0[1]);
       ctx.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
-      // Thin lines everywhere; live lines pulse their colour in place (slow breathing, per-line phase).
-      const pulse = 0.5 + 0.5 * Math.sin(now / 650 + s.py * 0.031);
       let color = LINE_IDLE;
-      let width = 1;
+      let width = flowWidth(sp, st);
       let dash: number[] = [];
       switch (st) {
         case 'unused':
@@ -2042,20 +2051,18 @@ export class AirspaceScene {
         case 'idle':
           break;
         case 'active':
-          color = rgba(s.color, 0.3 + 0.55 * pulse);
-          width = 1.5;
+          color = rgba(s.color, 0.62);
           break;
         case 'blocked':
-          color = rgba(STATUS_COLORS.denied, 0.3 + 0.55 * pulse);
-          width = 1.5;
+          color = rgba(STATUS_COLORS.denied, 0.72);
           break;
         case 'holding':
-          color = rgba(STATUS_COLORS.held, 0.35 + 0.55 * pulse);
-          width = 1.5;
+          color = rgba(STATUS_COLORS.held, 0.78);
           break;
       }
       if (this.hovered === `spoke:${s.id}`) {
         width += 1.5;
+        if (st === 'active') color = rgba(s.color, 0.9);
         dash = [];
         if (st === 'idle' || st === 'unused') color = '#8ea1bb';
       }
@@ -2104,17 +2111,19 @@ export class AirspaceScene {
     }
 
     // Observed traffic: dashed, straight from agent to system, never through the tower.
+    const maxObs = Math.max(1, ...this.obsLines.map((l) => l.edge.count_24h));
     for (const l of this.obsLines) {
       const live = now - l.edge.last_seen < WINDOW_MS;
       if (this.layer === 'gateway' || (this.layer === 'active' && !live)) continue;
       const bypass = !!l.target.obs?.bypass;
-      const pulse = 0.5 + 0.5 * Math.sin(now / 650 + l.agent.py * 0.031);
       const base = bypass ? STATUS_COLORS.denied : 0x64748b;
       const hot = this.hovered === `obs:${l.agent.id}>${l.target.id}`;
       const focused = rel && rel.has(l.agent.id) && rel.has(l.target.id);
       this.roundedPath(l.pts);
-      ctx.strokeStyle = rgba(base, hot || focused ? 0.95 : live ? 0.35 + 0.45 * pulse : bypass ? 0.6 : 0.42);
-      ctx.lineWidth = hot || focused ? 2.2 : live ? 1.5 : 1.2;
+      ctx.strokeStyle = rgba(base, hot || focused ? 0.95 : live ? 0.75 : bypass ? 0.6 : 0.42);
+      // Thicker with more calls over the last day (up to 3 px): observed volume is reported, not measured per minute.
+      const obsW = 1.2 + 1.8 * Math.sqrt(l.edge.count_24h / maxObs);
+      ctx.lineWidth = hot || focused ? obsW + 1 : obsW;
       ctx.setLineDash([5, 4]);
       ctx.globalAlpha = Math.min(dim(l.agent.id), dim(l.target.id)) * (this.sim ? 0.25 : 1);
       ctx.stroke();

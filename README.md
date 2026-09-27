@@ -254,6 +254,7 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.1 — see it and stop it**: gateway (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/v1/messages`), OpenAI-compatible + Anthropic adapters, keys/limits/budgets, pricing and cost, live Airspace, zones + gates + approvals, MCP gateway, demo mode, Docker image.
 - **v0.2 — understand it** (shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓, Flight Recorder replay ✓.
 - **v0.1.5 — agents calling agents** (shipped): delegation tokens, on-behalf-of gates, call chains and traces, the A2A gateway, MCP resources and prompts as flights, spend rolled up to the origin agent.
+- **v0.1.6 — approvals that keep up, agents that come and go** (shipped): approve the next N calls, approvals that say whom a chained call is for, hide idle agents, expiring and retired keys, allow-with-limits gates, model-checked prompt injection; chains tested with four agent frameworks.
 - **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
 
 ## License

@@ -825,7 +825,7 @@ li.done .step-label { color: var(--text-faint); text-decoration: line-through; f
 .connect-status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgba(26, 158, 107, 0.15); animation: none; }
 .connect-status .btn { margin-left: auto; }
 @keyframes connectPulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .connect-status i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .connect-status i, .approval { animation: none; } }
 
 /* ---------------------------------------------------------------- get started */
 .welcome-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }

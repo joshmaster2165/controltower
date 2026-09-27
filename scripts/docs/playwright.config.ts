@@ -12,5 +12,6 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   workers: 1,
   reporter: 'list',
-  use: { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 },
+  // Reduced motion: a card or panel caught mid-animation looks faded or disabled in a still.
+  use: { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, contextOptions: { reducedMotion: 'reduce' } },
 });

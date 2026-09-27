@@ -4,17 +4,40 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
-- **MCP health checks no longer cut off tool calls:** the health check that runs every minute reset the session live calls share, so a tool call in flight at that moment could fail with *no response for tools/call*. Checks now use a session of their own. Found by LangGraph, whose first research call through a chain failed and had to be retried.
-- **A2A failures are recorded as failures:** a reply that reports the task failed or rejected — well-formed JSON-RPC, so it looked like success — is now an error flight (`agent_task_failed`, `agent_task_rejected`) with the agent's message, for plain and streamed replies. Health checks also ask the agent's endpoint (not only its card), so an agent whose card is fine but whose endpoint is gone shows as down, and a call that finds the endpoint broken checks it again.
-- **Approvals for chained calls say whom they are for:** a held call an agent makes on another agent's behalf shows *For orchestrator-agent → planner-agent* on its card, in the Tower's history and in held alerts. The same call made for two different agents is two cards, and an approval window opened for one chain doesn't cover another.
-- **Agents that come and go:** an expired key leaves the map (its history stays). Keys can be created with an expiry for short-lived sub-agents. **Retire keys unused for 7 / 30 / 90 days** expires idle keys automatically, and the Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, with **Disable all** and **Delete all** for each list. See [Agents that come and go](keys.md#agents-that-come-and-go).
+## 0.1.6 — 27 September 2026
+
+Approvals that keep up with busy agents, a map that shows only what is really in use, and agent chains tested end to end — with four agent frameworks (the OpenAI Agents SDK, LangGraph, the Claude Agent SDK and CrewAI), streaming, 16-minute chains, failures in the middle of a chain, eight agents deep and under load. That testing found three bugs, fixed here.
+
+### Approvals
+
 - **Approve the next N calls:** **Approve more…** on an approval card approves the call and lets the agent make the next 1–1,000 calls of the same kind — to the same target, through the same gate — for up to an hour, with any arguments or only the ones on the card. **Approved ahead** on the Tower lists open windows with what is left, and **End now** closes one; editing the gate closes its windows. See [Approve the next N calls](airspace.md#approve-the-next-n-calls).
-- The Tower's countdown follows the gate's real hold time (it assumed 20 seconds).
-- **Hide idle agents on the Airspace:** **Agents: All / Used today / Active (15 min)** in the map controls draws only the agents that have made a call in that window, so the map shows what is really in use. A chip counts the hidden agents and brings them back with **Show all**; a hidden agent that makes a call reappears on its own, and the choice is remembered. See [Hide idle agents](airspace.md#hide-idle-agents).
+- **Approvals for chained calls say whom they are for:** a held call an agent makes on another agent's behalf shows *For orchestrator-agent → planner-agent* on its card, in the Tower's history and in held alerts. The same call made for two different agents is two cards, and an approval window opened for one chain doesn't cover another.
+- The Tower's countdown follows the gate's real hold time (it assumed 20 seconds), and its decisions table scrolls instead of overlapping on narrow screens.
+
+### Agents that come and go
+
+- **Hide idle agents on the Airspace:** **Agents: All / Used today / Active (15 min)** in the map controls draws only the agents that have made a call in that window. A chip counts the hidden agents and brings them back with **Show all**; a hidden agent that makes a call reappears on its own. See [Hide idle agents](airspace.md#hide-idle-agents).
+- **Expiring keys leave the map:** keys can be created with an expiry for short-lived sub-agents, and an expired key is no longer drawn (its history stays in Flights and the Ledger).
+- **Retire idle keys:** **Retire keys unused for 7 / 30 / 90 days** expires keys that have done nothing for that long. The Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, with **Disable all** and **Delete all** for each list. See [Agents that come and go](keys.md#agents-that-come-and-go).
+
+### Gates and inspection
+
 - **Allow with limits works:** the gate lets calls through within `config.limits` — `rpm` and `tpm` per agent on its path, and `max_tokens` capping a model's reply — and answers `429 rate_limit_exceeded` naming the gate over the rate. It was accepted before but let everything through. The gate editor offers it, with the three limits.
-- The gate editor accepts an inspect gate that only asks a model.
-- **Inspect gates can ask a model:** *Also ask a model* on a prompt-injection gate sends the content to a model you choose, through Control Tower under a system key (**guardrail**), to catch paraphrased, translated or disguised injections the patterns miss. `config.model_check: { model, on_error }` in the API and policy files. See [How inspection works](airspace.md#how-inspection-works).
+- **Inspect gates can ask a model:** *Also ask a model* on a prompt-injection gate sends the content to a model you choose, through Control Tower under a system key (**guardrail**), to catch paraphrased, translated or disguised injections the patterns miss. `config.model_check: { model, on_error }` in the API and policy files. See [How inspection works](airspace.md#how-inspection-works). The gate editor accepts an inspect gate that only asks a model.
+
+### Fixes
+
+- **MCP health checks no longer cut off tool calls:** the check that runs every minute reset the session live calls share, so a tool call in flight at that moment could fail with *no response for tools/call*. Checks now use a session of their own. Found when LangGraph drove a chain through Control Tower.
+- **A2A failures are recorded as failures:** a reply that reports the task failed or rejected — well-formed JSON-RPC, so it looked like success — is now an error flight (`agent_task_failed`, `agent_task_rejected`) with the agent's message, for plain and streamed replies.
+- **A2A health checks ask the endpoint,** not only the card: an agent whose card is fine but whose endpoint is gone shows as down, with the reason, and a call that finds the endpoint broken checks it again.
 - The Codex CLI guide's terminal screenshots are re-recorded with Codex CLI 0.157.
+
+### Upgrading
+
+- Two database migrations run on start (approval windows, and the chain an approval window covers); nothing to do.
+- An A2A agent whose endpoint doesn't answer a JSON-RPC `GetTask` (or `tasks/get` for 0.3) for a task that doesn't exist — any JSON-RPC reply counts, an error included — now shows as down. Check **A2A agents** after upgrading.
+- In `POST /admin/api/approvals/<id>/decide`, `window.uses` is the number of calls allowed *after* the ones on the card, and a window now lets new calls through without a ticket.
+- Identical held calls made for different agents no longer share one approval card.
 
 ## 0.1.5 — 25 September 2026
 

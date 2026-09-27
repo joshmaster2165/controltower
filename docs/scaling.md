@@ -17,7 +17,7 @@ Any load balancer works, with no sticky sessions: each request carries its key, 
 
 ## Step 1: Postgres and Redis
 
-Any Postgres 14 or later and Redis 6 or later. Create an empty database; Control Tower creates its tables when the first instance starts, and instances starting together wait for each other.
+Postgres and Redis — tested with Postgres 17 and Redis 7, the versions CI runs, including managed ones such as Railway's. Create an empty database; Control Tower creates its tables when the first instance starts, and instances starting together wait for each other.
 
 ## Step 2: Move your data (optional)
 

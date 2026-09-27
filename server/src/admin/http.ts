@@ -15,12 +15,12 @@ const SEVEN_DAYS = 7 * 86_400_000;
 /** Routes an API has actually served lately — the rows under it on the map. */
 export async function recentRoutes(ctx: AppContext, since = Date.now() - SEVEN_DAYS): Promise<Map<string, Array<{ name: string; op: string; requests: number }>>> {
   const rows = await ctx.db.read
-    .selectFrom('flights')
-    .select(['mcp_server_id', 'tool', sql<number>`count(*)`.as('n')])
+    .selectFrom('traffic_hourly')
+    .select(['mcp_server_id', 'tool', sql<number>`sum(requests)`.as('n')])
     .where('kind', '=', 'http.request')
-    .where('ts', '>=', since)
-    .where('mcp_server_id', 'is not', null)
-    .where('tool', 'is not', null)
+    .where('bucket', '>=', Math.floor(since / 3_600_000) * 3_600_000)
+    .where('mcp_server_id', '!=', '')
+    .where('tool', '!=', '')
     .where('tool', 'not like', `%${OUTSIDE}`)
     .groupBy(['mcp_server_id', 'tool'])
     .orderBy('n', 'desc')

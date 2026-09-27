@@ -43,6 +43,9 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   if (policy.flightsDays > 0) await run('flights', sql`ts < ${now - policy.flightsDays * DAY}`);
   if (policy.eventsDays > 0) await run('flight_events', sql`ts < ${now - policy.eventsDays * DAY}`);
   await run('usage_hourly', sql`bucket < ${new Date(history).toISOString().slice(0, 13)}`);
+  // The hourly traffic summary is small (one row per path per hour) and has no rowid: one delete.
+  const traffic = await sql`DELETE FROM traffic_hourly WHERE bucket < ${history}`.execute(db);
+  if (Number(traffic.numAffectedRows ?? 0)) out.traffic_hourly = Number(traffic.numAffectedRows);
   await run('observed_hourly', sql`bucket < ${history}`);
   // A connection unused for 90 days counts as new again when it comes back.
   await run('paths', sql`last_seen < ${history}`);

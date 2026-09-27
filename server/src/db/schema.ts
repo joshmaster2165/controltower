@@ -273,6 +273,28 @@ export interface GrantsTable {
   chain: string | null;
 }
 
+/** Traffic by the hour per agent, destination, tool, chain and gate (text columns use '' for none). */
+export interface TrafficHourlyTable {
+  bucket: number;
+  key_id: string;
+  kind: string;
+  deployment_id: string;
+  mcp_server_id: string;
+  tool: string;
+  model_requested: string;
+  on_behalf_of: string;
+  rule_id: string;
+  requests: number;
+  errors: number;
+  denied: number;
+  rejected: number;
+  ticketed: number;
+  held: number;
+  cost_nanousd: number;
+  tokens: number;
+  last_ts: number;
+}
+
 export interface HttpApisTable {
   id: string;
   slug: string;
@@ -436,6 +458,7 @@ export interface Database {
   approvals: ApprovalsTable;
   tickets: TicketsTable;
   grants: GrantsTable;
+  traffic_hourly: TrafficHourlyTable;
   mcp_servers: McpServersTable;
   http_apis: HttpApisTable;
   alert_channels: AlertChannelsTable;

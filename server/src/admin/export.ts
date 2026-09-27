@@ -79,32 +79,27 @@ function describeScope(r: RuleRecord, ctx: AppContext, policy: PolicyService): s
 export async function buildInventory(ctx: AppContext, hours: number): Promise<DataflowInventory> {
   const policy = ctx.policy as PolicyService;
   const since = Date.now() - hours * 3600_000;
-  const rows = await ctx.db.read
-    .selectFrom('flights')
-    .select(['key_id', 'kind', 'deployment_id', 'mcp_server_id', 'tool', 'model_requested'])
-    .select((eb) => [
-      eb.fn.countAll<number>().as('requests'),
-      eb.fn.sum<number>(eb.case().when('status', '=', 'error').then(1).else(0).end()).as('errors'),
-      eb.fn.sum<number>(eb.case().when('status', '=', 'denied').then(1).else(0).end()).as('blocked'),
-      eb.fn.sum<number>(eb.case().when('approval_id', 'is not', null).then(1).else(0).end()).as('held'),
-      eb.fn.sum<number>(eb.fn.coalesce('cost_nanousd', eb.lit(0))).as('spend'),
-      eb.fn.sum<number>(eb(eb.fn.coalesce('in_tokens', eb.lit(0)), '+', eb.fn.coalesce('out_tokens', eb.lit(0)))).as('tokens'),
-      eb.fn.max<number>('ts').as('last_seen'),
-      sql<string | null>`group_concat(DISTINCT json_extract(on_behalf_of, '$[0]'))`.as('origins'),
-    ])
-    .where('ts', '>', since)
-    .where('status', '!=', 'rejected')
-    .groupBy(['key_id', 'kind', 'deployment_id', 'mcp_server_id', 'tool', 'model_requested'])
-    .execute();
+  // Counted from the hourly traffic summary (to the hour), so the export is as quick with millions of calls as with a few.
+  // Calls refused before they were decided (rejected) aren't paths anyone uses.
+  const from = Math.floor(since / 3_600_000) * 3_600_000;
+  const rows = (
+    await sql<{ key_id: string; kind: string; deployment_id: string | null; mcp_server_id: string | null; tool: string | null; model_requested: string; requests: number; errors: number; blocked: number; held: number; spend: number; tokens: number; last_seen: number; origins: string | null }>`
+      SELECT key_id, kind, NULLIF(deployment_id, '') AS deployment_id, NULLIF(mcp_server_id, '') AS mcp_server_id, NULLIF(tool, '') AS tool, model_requested,
+        SUM(requests - rejected) AS requests, SUM(errors) AS errors, SUM(denied) AS blocked, SUM(held) AS held,
+        SUM(cost_nanousd) AS spend, SUM(tokens) AS tokens, MAX(last_ts) AS last_seen,
+        group_concat(DISTINCT CASE WHEN on_behalf_of != '' THEN json_extract(on_behalf_of, '$[0]') END) AS origins
+      FROM traffic_hourly WHERE bucket >= ${from}
+      GROUP BY key_id, kind, deployment_id, mcp_server_id, tool, model_requested
+      HAVING SUM(requests - rejected) > 0`.execute(ctx.db.read)
+  ).rows;
 
   // Spend made on each agent's behalf, by the agent that started the chain.
-  const spentForRows = await ctx.db.read
-    .selectFrom('flights')
-    .select([sql<string>`json_extract(on_behalf_of, '$[0]')`.as('origin'), sql<number>`coalesce(sum(cost_nanousd), 0)`.as('spend')])
-    .where('ts', '>', since)
-    .where('on_behalf_of', 'is not', null)
-    .groupBy(sql`json_extract(on_behalf_of, '$[0]')`)
-    .execute();
+  const spentForRows = (
+    await sql<{ origin: string; spend: number }>`
+      SELECT json_extract(on_behalf_of, '$[0]') AS origin, SUM(cost_nanousd) AS spend
+      FROM traffic_hourly WHERE bucket >= ${from} AND on_behalf_of != ''
+      GROUP BY origin`.execute(ctx.db.read)
+  ).rows;
   const spentFor = new Map(spentForRows.map((r) => [String(r.origin), Number(r.spend)]));
   const paths: PathRow[] = [];
   const agentUse = new Map<string, { requests: number; spend: number }>();
@@ -198,7 +193,7 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
     zones: zoneNames(policy.targetZones({ kind: 'tool', name: `${m.slug}__*`, mcpServerId: m.id, operation: 'unknown' })),
     tools: m.tools.map((t) => ({ name: t.name, operation: classifyOperation(t) })),
   }));
-  const hits = await ctx.db.read.selectFrom('flights').select(['rule_id']).select((eb) => eb.fn.countAll<number>().as('n')).where('ts', '>', since).where('rule_id', 'is not', null).groupBy('rule_id').execute();
+  const hits = (await sql<{ rule_id: string; n: number }>`SELECT rule_id, SUM(requests) AS n FROM traffic_hourly WHERE bucket >= ${Math.floor(since / 3_600_000) * 3_600_000} AND rule_id != '' GROUP BY rule_id`.execute(ctx.db.read)).rows;
   const hitBy = new Map(hits.map((h) => [h.rule_id!, Number(h.n)]));
   const gates = policy.rules.map((r) => ({ id: r.id, name: r.name, effect: r.effect, covers: describeScope(r, ctx, policy), enabled: r.enabled, hits: hitBy.get(r.id) ?? 0 }));
   const zones = [...policy.zones.values()].map((z) => ({ id: z.id, name: z.name, members: z.stations.size }));

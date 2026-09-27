@@ -35,7 +35,7 @@ The gateway adds only this bookkeeping on top of the provider's latency; `contro
 | Stored | Not stored |
 |---|---|
 | Who called what, when, the outcome, tokens, cost and latency (*flights*) | Prompts, model responses, tool arguments or results, request or response bodies |
-| Hourly and daily rollups of requests, tokens, spend and latency | Agents' keys (only a hash) |
+| Hourly and daily rollups of requests, tokens, spend and latency, and hourly traffic per path (agent, destination, tool) that the map counts from | Agents' keys (only a hash) |
 | Providers, models, keys (hashed), zones, gates, alert rules and channels | Provider, tool-server and channel credentials in the clear — they are encrypted |
 | Approval requests with a short, allow-listed preview of what is being approved | |
 
@@ -49,7 +49,7 @@ Everything lives in SQLite in the data directory (`controltower.db`, write-ahead
 |---|---|
 | Flights (one row per request) | 30 days — `CT_RETENTION_DAYS`, `0` keeps them forever |
 | Flight event trails | 7 days — `CT_EVENT_RETENTION_DAYS` |
-| Hourly rollups, observed traffic, the alert inbox, decided approvals | 90 days |
+| Hourly rollups and traffic per path, observed traffic, the alert inbox, decided approvals | 90 days |
 | Connections agents have used (agent → model or tool, with first and last use) | 90 days after last use; one coming back later counts as new |
 | Daily rollups (spend and usage history) | Forever |
 

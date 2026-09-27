@@ -541,3 +541,49 @@ migrations.push({
 ALTER TABLE grants ADD COLUMN chain TEXT;
 `,
 });
+
+// Traffic by the hour, per agent, destination, tool, whom it was for and the gate that decided it: the map, the
+// data-flow export and the lists of routes and methods count from this instead of every call of the last day.
+migrations.push({
+  version: 15,
+  name: 'traffic_hourly',
+  sqlite: `
+CREATE TABLE traffic_hourly (
+  bucket          INTEGER NOT NULL,
+  key_id          TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  deployment_id   TEXT NOT NULL DEFAULT '',
+  mcp_server_id   TEXT NOT NULL DEFAULT '',
+  tool            TEXT NOT NULL DEFAULT '',
+  model_requested TEXT NOT NULL DEFAULT '',
+  on_behalf_of    TEXT NOT NULL DEFAULT '',
+  rule_id         TEXT NOT NULL DEFAULT '',
+  requests        INTEGER NOT NULL DEFAULT 0,
+  errors          INTEGER NOT NULL DEFAULT 0,
+  denied          INTEGER NOT NULL DEFAULT 0,
+  rejected        INTEGER NOT NULL DEFAULT 0,
+  ticketed        INTEGER NOT NULL DEFAULT 0,
+  held            INTEGER NOT NULL DEFAULT 0,
+  cost_nanousd    INTEGER NOT NULL DEFAULT 0,
+  tokens          INTEGER NOT NULL DEFAULT 0,
+  last_ts         INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, key_id, kind, deployment_id, mcp_server_id, tool, model_requested, on_behalf_of, rule_id)
+) WITHOUT ROWID;
+INSERT INTO traffic_hourly
+SELECT (ts / 3600000) * 3600000, key_id, kind, COALESCE(deployment_id, ''), COALESCE(mcp_server_id, ''), COALESCE(tool, ''), model_requested,
+  COALESCE(on_behalf_of, ''), COALESCE(rule_id, ''),
+  COUNT(*),
+  SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN status = 'denied' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN status = 'ticketed' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN approval_id IS NOT NULL THEN 1 ELSE 0 END),
+  COALESCE(SUM(cost_nanousd), 0),
+  COALESCE(SUM(COALESCE(in_tokens, 0) + COALESCE(out_tokens, 0)), 0),
+  MAX(ts)
+FROM flights WHERE status IS NOT NULL AND key_id IS NOT NULL
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9;
+-- Calls still in flight: the map adds these to what the summary holds.
+CREATE INDEX flights_open ON flights(ts) WHERE status IS NULL;
+`,
+});

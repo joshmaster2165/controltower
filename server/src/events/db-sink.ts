@@ -64,6 +64,22 @@ export function dayBucket(ts: number): string {
 
 type RollupTable = 'usage_hourly' | 'usage_daily';
 
+/** One hour of traffic on one path: what the map, the data-flow export and the route lists count from. */
+interface TrafficAcc {
+  requests: number;
+  errors: number;
+  denied: number;
+  rejected: number;
+  ticketed: number;
+  held: number;
+  cost_nanousd: number;
+  tokens: number;
+  last_ts: number;
+}
+/** Joins a traffic path's parts: a character no tool, model or agent name contains. */
+const TSEP = '\u0001';
+const TRAFFIC_DIMS = ['bucket', 'key_id', 'kind', 'deployment_id', 'mcp_server_id', 'tool', 'model_requested', 'on_behalf_of', 'rule_id'] as const;
+
 export class DbSink {
   private pending: FlightEvent[] = [];
   private timer: NodeJS.Timeout | null = null;
@@ -72,6 +88,9 @@ export class DbSink {
   private held = new Set<string>();
   private hourly = new Map<string, RollupAcc>();
   private daily = new Map<string, RollupAcc>();
+  private traffic = new Map<string, TrafficAcc>();
+  /** The gate that decided each call in flight. */
+  private ruleOf = new Map<string, string>();
   private stmts: {
     insertEvent: Database.Statement;
     insertFlight: Database.Statement;
@@ -81,6 +100,7 @@ export class DbSink {
     complete: Database.Statement;
     rollupGet: Record<RollupTable, Database.Statement>;
     rollupUpsert: Record<RollupTable, Database.Statement>;
+    trafficUpsert: Database.Statement;
   };
   private txn: Database.Transaction<(events: FlightEvent[]) => void>;
   public backpressure = false;
@@ -125,6 +145,13 @@ export class DbSink {
         usage_hourly: db.prepare(rollupUpsertSql('usage_hourly')),
         usage_daily: db.prepare(rollupUpsertSql('usage_daily')),
       },
+      trafficUpsert: db.prepare(`
+        INSERT INTO traffic_hourly (${TRAFFIC_DIMS.join(', ')}, requests, errors, denied, rejected, ticketed, held, cost_nanousd, tokens, last_ts)
+        VALUES (${TRAFFIC_DIMS.map((d) => `@${d}`).join(', ')}, @requests, @errors, @denied, @rejected, @ticketed, @held, @cost_nanousd, @tokens, @last_ts)
+        ON CONFLICT(${TRAFFIC_DIMS.join(', ')}) DO UPDATE SET
+          requests = requests + excluded.requests, errors = errors + excluded.errors, denied = denied + excluded.denied,
+          rejected = rejected + excluded.rejected, ticketed = ticketed + excluded.ticketed, held = held + excluded.held,
+          cost_nanousd = cost_nanousd + excluded.cost_nanousd, tokens = tokens + excluded.tokens, last_ts = MAX(last_ts, excluded.last_ts)`),
     };
     this.txn = db.transaction((events: FlightEvent[]) => this.apply(events));
   }
@@ -199,6 +226,7 @@ export class DbSink {
           break;
         case 'flight.decision':
           this.stmts.decision.run(e.decision, e.rule_id ?? null, e.flight_id);
+          if (e.rule_id) this.ruleOf.set(e.flight_id, e.rule_id);
           break;
         case 'flight.held':
           this.held.add(e.flight_id);
@@ -235,11 +263,19 @@ export class DbSink {
           this.seq.delete(e.flight_id);
           this.started.delete(e.flight_id);
           this.held.delete(e.flight_id);
+          this.ruleOf.delete(e.flight_id);
           break;
       }
     }
     this.flushRollups('usage_hourly', this.hourly);
     this.flushRollups('usage_daily', this.daily);
+    for (const [k, a] of this.traffic) {
+      const dims = k.split(TSEP);
+      const row: Record<string, string | number> = { ...a };
+      TRAFFIC_DIMS.forEach((d, i) => (row[d] = d === 'bucket' ? Number(dims[i]) : dims[i]!));
+      this.stmts.trafficUpsert.run(row);
+    }
+    this.traffic.clear();
   }
 
   private accumulate(e: FlightCompleted): void {
@@ -254,6 +290,21 @@ export class DbSink {
       [this.hourly, hourBucket(e.ts)],
       [this.daily, dayBucket(e.ts)],
     ];
+    // Traffic by the hour per path. A call whose start this process didn't see (it began before a restart) has no path to count.
+    if (s) {
+      const chain = s.on_behalf_of?.length ? JSON.stringify(s.on_behalf_of) : '';
+      const k = [Math.floor(s.ts / 3_600_000) * 3_600_000, keyId, kind, e.deployment_id ?? s.deployment_id ?? '', s.mcp_server_id ?? '', s.tool ?? '', s.model_requested, chain, this.ruleOf.get(e.flight_id) ?? ''].join(TSEP);
+      const t = this.traffic.get(k) ?? this.traffic.set(k, { requests: 0, errors: 0, denied: 0, rejected: 0, ticketed: 0, held: 0, cost_nanousd: 0, tokens: 0, last_ts: 0 }).get(k)!;
+      t.requests += 1;
+      if (e.status === 'error') t.errors += 1;
+      if (e.status === 'denied') t.denied += 1;
+      if (e.status === 'rejected') t.rejected += 1;
+      if (e.status === 'ticketed') t.ticketed += 1;
+      if (wasHeld) t.held += 1;
+      if (e.cost_nanousd != null) t.cost_nanousd += Math.round(e.cost_nanousd);
+      if (e.usage) t.tokens += e.usage.input + e.usage.output;
+      t.last_ts = Math.max(t.last_ts, s.ts);
+    }
     for (const [map, bucket] of targets) {
       const k = [bucket, keyId, depId, aliasId, kind].join(SEP);
       let acc = map.get(k);

@@ -11,6 +11,8 @@ import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
 import { BUILT_IN_KEYS, lastUseByKey } from './key-lifecycle.js';
 
+/** The start of the hour a time falls in: the hourly traffic summary's buckets. */
+export const hourStart = (ts: number): number => Math.floor(ts / 3_600_000) * 3_600_000;
 /** Width of the buckets the map's last minute is seeded from. */
 const RECENT_BUCKET_MS = 5000;
 
@@ -45,15 +47,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const routes = await recentRoutes(ctx);
     const a2aMethods = await recentMethods(ctx);
     // Connectivity: who actually talked to what (model, tool server, tool) in the last 24h.
+    // Counted from the hourly summary (the last 24 hours, to the hour), plus calls still in flight — not from every
+    // call of the day, so the map loads as fast with millions of calls a day as with a few.
     const edgeRows = await sql<{ key_id: string; target: string | null; tool: string | null; requests: number; errors: number; denied: number; cost: number; last_ts: number }>`
-      SELECT key_id, COALESCE(mcp_server_id, deployment_id) AS target, tool,
-        COUNT(*) AS requests,
-        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
-        SUM(CASE WHEN status IN ('denied', 'rejected', 'ticketed') THEN 1 ELSE 0 END) AS denied,
-        COALESCE(SUM(cost_nanousd), 0) AS cost,
-        MAX(ts) AS last_ts
-      FROM flights
-      WHERE ts >= ${since} AND COALESCE(mcp_server_id, deployment_id) IS NOT NULL
+      SELECT key_id, target, tool, SUM(requests) AS requests, SUM(errors) AS errors, SUM(denied) AS denied, SUM(cost) AS cost, MAX(last_ts) AS last_ts
+      FROM (
+        SELECT key_id, CASE WHEN mcp_server_id != '' THEN mcp_server_id ELSE deployment_id END AS target, NULLIF(tool, '') AS tool,
+          requests, errors, denied + rejected + ticketed AS denied, cost_nanousd AS cost, last_ts
+        FROM traffic_hourly WHERE bucket >= ${hourStart(since)}
+        UNION ALL
+        SELECT key_id, COALESCE(mcp_server_id, deployment_id), tool, 1, 0, 0, 0, ts FROM flights WHERE status IS NULL AND ts >= ${since}
+      )
+      WHERE target IS NOT NULL AND target != ''
       GROUP BY key_id, target, tool`.execute(ctx.db.read);
     // The last minute of calls per connection in 5-second buckets, so a map opened now shows what is active now.
     const recentRows = await sql<{ key_id: string; target: string; tool: string | null; b: number; n: number }>`
@@ -109,8 +114,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     // Agents calling agents: who called whom (the last agent in each call's chain → the key making the call), last 24h.
     const delegationLinks = async () => {
       const rows = await sql<{ on_behalf_of: string; key_id: string; n: number; last_ts: number }>`
-        SELECT on_behalf_of, key_id, COUNT(*) AS n, MAX(ts) AS last_ts
-        FROM flights WHERE ts >= ${since} AND on_behalf_of IS NOT NULL
+        SELECT on_behalf_of, key_id, SUM(requests) AS n, MAX(last_ts) AS last_ts
+        FROM traffic_hourly WHERE bucket >= ${hourStart(since)} AND on_behalf_of != ''
         GROUP BY on_behalf_of, key_id`.execute(ctx.db.read);
       const out = new Map<string, { from: string; origin: string; key_id: string; requests: number; last_ts: number }>();
       for (const row of rows.rows) {

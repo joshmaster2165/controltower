@@ -12,12 +12,12 @@ const SEVEN_DAYS = 7 * 24 * 3600_000;
 /** The A2A methods each agent has been called with lately: its rows on the map. */
 export async function recentMethods(ctx: AppContext, since = Date.now() - SEVEN_DAYS): Promise<Map<string, Array<{ name: string; op: string; requests: number }>>> {
   const rows = await ctx.db.read
-    .selectFrom('flights')
-    .select(['mcp_server_id', 'tool', sql<number>`count(*)`.as('n')])
+    .selectFrom('traffic_hourly')
+    .select(['mcp_server_id', 'tool', sql<number>`sum(requests)`.as('n')])
     .where('kind', '=', 'a2a.call')
-    .where('ts', '>=', since)
-    .where('mcp_server_id', 'is not', null)
-    .where('tool', 'is not', null)
+    .where('bucket', '>=', Math.floor(since / 3_600_000) * 3_600_000)
+    .where('mcp_server_id', '!=', '')
+    .where('tool', '!=', '')
     .groupBy(['mcp_server_id', 'tool'])
     .orderBy('n', 'desc')
     .execute();

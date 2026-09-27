@@ -352,12 +352,14 @@ test('Flight Recorder: replay the last hour on the map, then back to live', asyn
   await expect(bar).toBeHidden();
 });
 
-test('Airspace: hide idle agents, and one that calls comes back', async ({ page }) => {
+test('Airspace: hide idle agents and destinations, and one that is called comes back', async ({ page }) => {
   await signIn(page);
   const [dormant, waking] = await page.evaluate(async () => {
     const me = await (await fetch('/admin/api/me')).json();
     const make = async (name: string) =>
       (await (await fetch('/admin/api/keys', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ name }) })).json()).key as string;
+    // An API nobody has called yet.
+    await fetch('/admin/api/http/apis', { method: 'POST', headers: { 'x-ct-csrf': me.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Unused API', slug: 'unused-api', base_url: 'https://unused.example.com' }) });
     return [await make('dormant-agent'), await make('waking-agent')];
   });
   expect(dormant).toBeTruthy();
@@ -370,12 +372,20 @@ test('Airspace: hide idle agents, and one that calls comes back', async ({ page 
       return s ? [...s.stations.values()].filter((x: any) => x.kind === 'agent').map((x: any) => x.label as string) : [];
     });
   await expect.poll(agents).toEqual(expect.arrayContaining(['dormant-agent', 'waking-agent']));
+  const labels = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __ctScene?: any }).__ctScene;
+      return s ? [...s.stations.values()].map((x: any) => x.label as string) : [];
+    });
+  expect(await labels()).toContain('Unused API');
 
   // Used today: keys that have never made a call leave the map, and the chip counts them.
-  await page.getByLabel('Which agents to show').selectOption('today');
-  await expect(page.locator('.hidden-agents')).toContainText(/^\d+ hidden · Show all$/);
+  await page.getByLabel('Which agents and destinations to show').selectOption('today');
+  await expect(page.locator('.hidden-agents')).toContainText(/^\d+ idle · Show all$/);
   await expect.poll(agents).not.toContain('dormant-agent');
   expect(await agents()).not.toContain('waking-agent');
+  // …and so do destinations nobody has called in that window.
+  expect(await labels()).not.toContain('Unused API');
 
   // An idle agent that makes a call is drawn again on its own.
   await page.evaluate(async (key) => {
@@ -387,12 +397,15 @@ test('Airspace: hide idle agents, and one that calls comes back', async ({ page 
   }, waking);
   await expect.poll(agents, { timeout: 15_000 }).toContain('waking-agent');
   expect(await agents()).not.toContain('dormant-agent');
+  // The system it called is drawn with it.
+  await expect.poll(labels, { timeout: 15_000 }).toContain('Stripe');
 
   // The choice is remembered, and Show all brings everyone back.
   await page.reload();
-  await expect(page.getByLabel('Which agents to show')).toHaveValue('today');
+  await expect(page.getByLabel('Which agents and destinations to show')).toHaveValue('today');
   await page.locator('.hidden-agents').click();
-  await expect(page.getByLabel('Which agents to show')).toHaveValue('all');
+  await expect(page.getByLabel('Which agents and destinations to show')).toHaveValue('all');
   await expect(page.locator('.hidden-agents')).toBeHidden();
   await expect.poll(agents).toContain('dormant-agent');
+  expect(await labels()).toContain('Unused API');
 });

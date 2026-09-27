@@ -123,6 +123,15 @@ export class McpGateway {
     let session = typeof sidHeader === 'string' ? this.sessions.get(sidHeader) : undefined;
     if (session && session.keyId !== key.id) return reply.status(401).send(rpcError(null, -32001, 'Session belongs to a different key'));
 
+    // A tools/call that asks for progress (a progressToken), from a client that reads streams, is answered as a
+    // stream: the tool server's progress as it comes — and, while the call waits for approval, a note saying so — then the result.
+    const single = !batch ? msgs[0] : undefined;
+    const progressToken = single?.method === 'tools/call' && single.id !== undefined ? (single.params?._meta as Record<string, unknown> | undefined)?.progressToken : undefined;
+    if (single && (typeof progressToken === 'string' || typeof progressToken === 'number') && String(req.headers.accept ?? '').includes('text/event-stream')) {
+      if (session) session.lastSeen = Date.now();
+      return this.streamToolCall(single, key, only, req, reply, progressToken);
+    }
+
     const responses: unknown[] = [];
     for (const m of msgs) {
       if (!m || m.jsonrpc !== '2.0' || typeof m.method !== 'string') {
@@ -163,6 +172,31 @@ export class McpGateway {
     }
     if (responses.length === 0) return reply.status(202).send();
     return reply.send(batch ? responses : responses[0]);
+  }
+
+  /** One tools/call answered as a stream of progress notifications and then its result. */
+  private async streamToolCall(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest, reply: FastifyReply, token: string | number): Promise<unknown> {
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+    const send = (msg: unknown) => {
+      if (!res.destroyed) res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
+    };
+    // Progress must only go up: the note while held and the server's own progress share one counter.
+    let last = 0;
+    const progress: Progress = (p) => {
+      last = p.progress !== undefined && p.progress > last ? p.progress : last + 0.001;
+      send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: last, ...(p.total !== undefined ? { total: p.total } : {}), ...(p.message ? { message: p.message } : {}) } });
+    };
+    try {
+      send(rpcResult(m.id, await this.callTool(m, key, only, req, undefined, progress)));
+    } catch (err) {
+      if (err instanceof McpUpstreamError && err.rpc) send(rpcError(m.id, err.rpc.code, err.rpc.message, err.rpc.data));
+      else if (err instanceof RpcFailure) send(rpcError(m.id, err.code, err.message));
+      else send(rpcError(m.id, -32603, (err as Error).message));
+    }
+    res.end();
+    return reply;
   }
 
   private async dispatch(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest): Promise<unknown> {
@@ -210,7 +244,7 @@ export class McpGateway {
    * Those two are reads named `<server>__resources/read` and `<server>__prompts/get`, their
    * parameters the arguments, so gates, allow-lists and inspect gates apply to them as to tools.
    */
-  private async callTool(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest, method?: 'resources/read' | 'prompts/get'): Promise<unknown> {
+  private async callTool(m: RpcRequest, key: KeyRecord, only: McpServerRecord | null, req: FastifyRequest, method?: 'resources/read' | 'prompts/get', progress?: Progress): Promise<unknown> {
     const ctx = this.ctx;
     const params = m.params ?? {};
     const requested = method ?? String(params.name ?? '');
@@ -351,7 +385,11 @@ export class McpGateway {
         return blocked('denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, { rule_id: decision.ruleId });
       }
       if (decision.effect === 'hold') {
-        const outcome = await ctx.approvals.hold(f, decision);
+        // A client following progress hears why nothing is happening, every 5 s until a human answers.
+        const waiting = () => progress?.({ message: `Waiting for a human to approve this call in Control Tower${decision.summary ? `: ${decision.summary}` : ''}` });
+        waiting();
+        const beat = progress ? setInterval(waiting, 5000) : undefined;
+        const outcome = await ctx.approvals.hold(f, decision).finally(() => clearInterval(beat));
         if (outcome.kind === 'denied') {
           complete('denied', 403, { code: 'policy_denied', message: outcome.error.message });
           return blocked('denied', outcome.error.message, { rule_id: decision.ruleId });
@@ -381,9 +419,24 @@ export class McpGateway {
       const client = ctx.mcp.client(server);
       // A server that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
       const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id, f.originKeyId) : undefined;
+      // The server's progress goes on to the client — numbers only where an inspect gate reads what comes back.
+      const readsReplies = gates.some((g) => g.compiled.direction !== 'input');
+      const meta: Record<string, unknown> = { ...(token ? { [DELEGATION_META]: token } : {}), ...(progress ? { progressToken: f.id } : {}) };
       let result = method
         ? ((await client.call(method, { ...callArgs, ...(token ? { _meta: { [DELEGATION_META]: token } } : {}) }, f.abort.signal, token ? { [DELEGATION_HEADER]: token } : undefined)) as Record<string, unknown>)
-        : await client.callTool(toolName, callArgs, f.abort.signal, token ? { headers: { [DELEGATION_HEADER]: token }, meta: { [DELEGATION_META]: token } } : {});
+        : await client.callTool(toolName, callArgs, f.abort.signal, {
+            ...(token ? { headers: { [DELEGATION_HEADER]: token } } : {}),
+            ...(Object.keys(meta).length ? { meta } : {}),
+            ...(progress
+              ? {
+                  onNotification: (n: { method: string; params?: Record<string, unknown> }) => {
+                    if (n.method !== 'notifications/progress' || !n.params) return;
+                    const p = n.params as { progress?: number; total?: number; message?: string };
+                    progress({ ...(typeof p.progress === 'number' ? { progress: p.progress } : {}), ...(typeof p.total === 'number' ? { total: p.total } : {}), ...(!readsReplies && typeof p.message === 'string' ? { message: p.message } : {}) });
+                  },
+                }
+              : {}),
+          });
       if (f.t.ttfb == null) f.t.ttfb = Date.now();
       ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: 1, deployment_id: server.id, provider_id: server.id, upstream_model: toolName, outcome: 'ok', status: 200, ttfb_ms: f.t.ttfb - f.t.start });
       // ---- inspect the result: what the model is about to read ----
@@ -415,6 +468,8 @@ export class McpGateway {
     }
   }
 }
+
+type Progress = (p: { progress?: number; total?: number; message?: string }) => void;
 
 class RpcFailure extends Error {
   constructor(

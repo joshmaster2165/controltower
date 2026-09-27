@@ -188,7 +188,7 @@ export function mcpUpstream(token: string, port = 0): Promise<Upstream & { delet
  * The delegation token Control Tower attaches is read from the request's `_meta`, falling back to
  * the `x-ct-delegation` header, exactly as the docs tell a sub-agent to do.
  */
-export function subAgentUpstream(work: (question: string, token: string | undefined) => Promise<string>): Promise<Upstream> {
+export function subAgentUpstream(work: (question: string, token: string | undefined, report: (progress: number, total: number, message: string) => Promise<void>) => Promise<string>): Promise<Upstream> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const build = () => {
     const server = new McpServer({ name: 'research-agent', version: '1.0.0' });
@@ -196,7 +196,12 @@ export function subAgentUpstream(work: (question: string, token: string | undefi
       const meta = (extra._meta ?? {}) as Record<string, unknown>;
       const header = extra.requestInfo?.headers['x-ct-delegation'];
       const token = typeof meta['controltower/delegation'] === 'string' ? (meta['controltower/delegation'] as string) : typeof header === 'string' ? header : undefined;
-      return { content: [{ type: 'text', text: await work(question, token) }] };
+      // Progress, when the caller asked for it (a progressToken), the way MCP servers report it.
+      const progressToken = meta.progressToken as string | number | undefined;
+      const report = async (progress: number, total: number, message: string) => {
+        if (progressToken !== undefined) await extra.sendNotification({ method: 'notifications/progress', params: { progressToken, progress, total, message } });
+      };
+      return { content: [{ type: 'text', text: await work(question, token, report) }] };
     });
     return server;
   };

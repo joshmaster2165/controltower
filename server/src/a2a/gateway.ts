@@ -46,6 +46,16 @@ export function failedTask(result: unknown): { code: string; message: string } |
   return { code: `agent_task_${state}`, message: said ? said.slice(0, 300) : `the agent reported its task ${state}` };
 }
 
+/**
+ * A message can ask the agent for push notifications itself — configuration.taskPushNotificationConfig
+ * (1.0) or configuration.pushNotificationConfig (0.3) — instead of the separate setup call.
+ */
+export function embeddedPushConfig(params: Json): Json | undefined {
+  const conf = params.configuration as Record<string, unknown> | undefined;
+  const push = (conf?.taskPushNotificationConfig ?? conf?.pushNotificationConfig) as Json | undefined;
+  return push && typeof push === 'object' && typeof push.url === 'string' && push.url ? push : undefined;
+}
+
 export function stableArgs(params: Json): Json {
   const out: Json = { ...params };
   if (params.message && typeof params.message === 'object') {
@@ -178,6 +188,17 @@ export class A2aGateway {
     if (!admit.ok) return refuse(429, 'rejected', 'rate_limit_exceeded', 'Rate limit exceeded for this key.', { retry_after_ms: String(admit.retryAfterMs) });
 
     try {
+      // ---- a webhook asked for inside a message passes the same checks as the setup call ----
+      const push = info.name.includes('Message') ? embeddedPushConfig(params) : undefined;
+      if (push) {
+        const setup = namespaced(agent.slug, 'CreateTaskPushNotificationConfig');
+        const retry = 'Send the message without a push configuration, or set one up with CreateTaskPushNotificationConfig.';
+        if (!key.allowedMcp.some((g) => globMatch(g, setup))) return refuse(403, 'denied', 'tool_not_allowed', `This message asks ${agent.name} for push notifications, and this key may not set them up (${setup}). ${retry}`);
+        const d = await ctx.policy.evaluate({ flightId: f.id, key, target: { kind: 'tool', name: setup, mcpServerId: agent.id, operation: 'write' }, args: stableArgs(push), onBehalfOf, estInputTokens: 0, projectedNanousd: 0 });
+        if (d.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${d.reason ?? 'Blocked by Control Tower policy'}: this message asks ${agent.name} for push notifications, which a gate doesn't allow. ${retry}`, d.ruleId ? { rule_id: d.ruleId } : {});
+        if (d.effect === 'hold') return refuse(403, 'denied', 'approval_required', `Setting up push notifications from ${agent.name} needs a human's approval, which a message can't wait for. Set it up with CreateTaskPushNotificationConfig (it waits for approval), or send the message without a push configuration.`, d.ruleId ? { rule_id: d.ruleId } : {});
+      }
+
       // ---- policy, with the real message as arguments ----
       const target: PolicyTarget = { kind: 'tool', name: full, mcpServerId: agent.id, operation: info.op };
       let decision = await ctx.policy.evaluate({ flightId: f.id, key, target, args: stableArgs(params), onBehalfOf, estInputTokens: f.estInput, projectedNanousd: 0 });

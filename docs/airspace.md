@@ -37,17 +37,17 @@ With hundreds of agents the map starts at the **organization level**: one statio
 
 **Find** (or press <kbd>/</kbd>) searches teams, agents, single keys, models, tool servers and tools by name. Pick a result and the map opens the team it is folded into, centres it and traces its connections.
 
-### Hide idle agents
+### Hide idle agents and destinations
 
-Keys that were made for a test, or that nothing uses any more, still take a place on the map. **Agents** in the map controls picks which agents are drawn:
+Keys made for a test, servers nobody calls any more, an API that was tried once: they all take a place on the map. **Show** in the map controls picks what is drawn:
 
-- **All** — every agent (the default).
-- **Used today** — agents that made a call in the last 24 hours.
-- **Active (15 min)** — agents that made a call in the last 15 minutes.
+- **All** — every agent and every destination (the default).
+- **Used today** — agents that made a call, and destinations that were called, in the last 24 hours.
+- **Active (15 min)** — the same for the last 15 minutes.
 
-A call counts wherever it went: a model, a tool server, an HTTP API, another agent, or a system it only reported through `/v1/observe`. Hidden agents leave the layout, so the map closes up around what is really in use. The chip beside the menu counts them (*3 hidden · Show all*); click it to draw everyone again.
+Destinations are models, tool servers, A2A agents, HTTP APIs and systems seen only through `/v1/observe`. For an agent, a call counts wherever it went. Hidden stations leave the layout, so the map closes up around what is really in use. The chip beside the menu counts them (*12 idle · Show all*; hover it for agents and destinations separately); click it to draw everything again.
 
-The filter is live: an idle agent that makes a call is drawn again straight away, and one that goes quiet leaves within a minute. Your choice is remembered in this browser. It only changes what the map draws: gates still apply to every agent, and the flight, spend and blocked counters, Flights and the Ledger still count them all.
+The filter is live: an idle agent that makes a call, or an idle destination that gets one, is drawn again straight away, and one that goes quiet leaves within a minute. Your choice is remembered in this browser. It only changes what the map draws: gates still apply to everything, and the flight, spend and blocked counters, Flights and the Ledger still count it all. To retire keys that are no longer used, see [Agents that come and go](keys.md#agents-that-come-and-go).
 
 ## Matrix: every agent against every destination
 

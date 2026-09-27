@@ -353,27 +353,30 @@ export function AirspacePage() {
     }
   });
   const agentFilterRef = useRef(agentFilter);
-  const [hiddenAgents, setHiddenAgents] = useState(0);
+  // What the filter leaves off the map: idle agents and idle destinations.
+  const [hidden, setHidden] = useState({ agents: 0, dests: 0 });
+  const readHidden = () => {
+    const f = sceneRef.current?.getAgentFilter();
+    setHidden({ agents: f?.hidden ?? 0, dests: f?.hiddenDests ?? 0 });
+  };
   const chooseAgentFilter = (v: AgentFilter) => {
     agentFilterRef.current = v;
     setAgentFilterState(v);
     sceneRef.current?.setAgentFilter(v);
-    setHiddenAgents(sceneRef.current?.getAgentFilter().hidden ?? 0);
+    readHidden();
     try {
       localStorage.setItem('ct.airspace.agents', v);
     } catch {
       /* private mode */
     }
   };
-  // Agents that go quiet leave the map at most every 30 s; the count of hidden ones follows.
+  // Agents and destinations that go quiet leave the map at most every 30 s; the count of hidden ones follows.
   useEffect(() => {
     const t = setInterval(() => {
-      const scene = sceneRef.current;
-      if (!scene) return;
-      scene.recheckAgents();
-      setHiddenAgents(scene.getAgentFilter().hidden);
+      sceneRef.current?.recheckAgents();
+      readHidden();
     }, 30_000);
-    const quick = setTimeout(() => setHiddenAgents(sceneRef.current?.getAgentFilter().hidden ?? 0), 500);
+    const quick = setTimeout(readHidden, 500);
     return () => {
       clearInterval(t);
       clearTimeout(quick);
@@ -650,17 +653,22 @@ export function AirspacePage() {
               <span className="sep" />
             </>
           )}
-          <label className="agent-filter" title="Leave idle agents off the map, so it shows what is in use">
-            <span>Agents</span>
-            <select id="ct-agent-filter" value={agentFilter} onChange={(e) => chooseAgentFilter(e.target.value as AgentFilter)} aria-label="Which agents to show">
+          <label className="agent-filter" title="Leave idle agents and destinations off the map, so it shows what is in use">
+            <span>Show</span>
+            <select id="ct-agent-filter" value={agentFilter} onChange={(e) => chooseAgentFilter(e.target.value as AgentFilter)} aria-label="Which agents and destinations to show">
               <option value="all">All</option>
               <option value="today">Used today</option>
               <option value="recent">Active (15 min)</option>
             </select>
           </label>
-          {agentFilter !== 'all' && hiddenAgents > 0 && (
-            <button type="button" className="hidden-agents" onClick={() => chooseAgentFilter('all')} title="Show every agent again">
-              {hiddenAgents} hidden · Show all
+          {agentFilter !== 'all' && hidden.agents + hidden.dests > 0 && (
+            <button
+              type="button"
+              className="hidden-agents"
+              onClick={() => chooseAgentFilter('all')}
+              title={`Idle: ${hidden.agents} agent${hidden.agents === 1 ? '' : 's'} and ${hidden.dests} destination${hidden.dests === 1 ? '' : 's'} (models, tool servers, APIs). Show everything again.`}
+            >
+              {hidden.agents + hidden.dests} idle · Show all
             </button>
           )}
           <span className="sep" />

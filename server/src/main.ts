@@ -35,6 +35,7 @@ import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
 import { smtpFromEnv } from './alerts/email.js';
 import { startRetention } from './db/retention.js';
+import { OpenFlights, closeInterrupted } from './events/open-flights.js';
 import { startKeyRetirement } from './admin/key-lifecycle.js';
 import { describeProxy, outboundProxyFromEnv, useOutboundProxy } from './net/proxy.js';
 import { Metrics } from './metrics/metrics.js';
@@ -76,6 +77,9 @@ async function main(): Promise<void> {
   const mk = loadOrCreateMasterKey(config.dataDir, config.masterKeyEnv);
   const secrets = new SecretBox(mk);
   const db = openSqlite(config.dataDir);
+  // A crash leaves calls with no outcome and held calls no agent can come back to: close them out.
+  const interrupted = await closeInterrupted(db.write);
+  if (interrupted.flights || interrupted.approvals) console.warn(`[controltower] closed out what the last stop left open: ${interrupted.flights} unfinished call(s) marked stopped, ${interrupted.approvals} approval(s) expired`);
 
   await ensurePlaygroundKey(db.write);
   await ensureGuardrailKey(db.write);
@@ -87,6 +91,8 @@ async function main(): Promise<void> {
   const ring = new EventRing();
   bus.subscribe(dbSink.push);
   bus.subscribe(ring.push);
+  const openFlights = new OpenFlights();
+  bus.subscribe(openFlights.push);
   const live = new LiveFrames(bus);
   const paths = new PathsStore(db.raw);
   bus.subscribe(paths.push);
@@ -313,6 +319,9 @@ async function main(): Promise<void> {
     live.stop();
     const grace = new Promise<void>((r) => setTimeout(r, config.shutdownGraceMs));
     await Promise.race([app.close(), grace]);
+    // Calls the grace period cut off are recorded as stopped, not left running.
+    const cut = openFlights.closeAll(bus);
+    if (cut) app.log.info({ calls: cut }, 'shutdown: calls still in flight recorded as stopped');
     dbSink.flush();
     paths.stop();
     await budgets.stop();

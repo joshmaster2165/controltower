@@ -4,6 +4,11 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Hide idle destinations too:** **Show: Used today / Active (15 min)** on the Airspace (was **Agents**) now also leaves off models, tool servers, A2A agents, HTTP APIs and observed systems that nothing called in that window, so the map shows what is really in use on both sides. A destination that gets a call comes back on its own. See [Hide idle agents and destinations](airspace.md#hide-idle-agents-and-destinations).
+- **MCP progress reaches the client:** a tool call that asks for progress (a `progressToken`) is answered as a stream: the tool server's progress notifications as they come, then the result. While the call waits for approval, the client hears *Waiting for a human to approve this call in Control Tower* every 5 seconds. Where an inspect gate reads a tool's replies, progress carries numbers only.
+- **Stops and crashes leave nothing running:** a call still in flight when a graceful stop's grace period ends is recorded as stopped (`shutdown`), and after a crash Control Tower closes out, at start, the calls that were left without an outcome and the approvals of held calls no agent can come back to.
+- Fixed: an A2A message could ask the agent for push notifications itself (`configuration.taskPushNotificationConfig`) and so get past a gate on `<slug>__CreateTaskPushNotificationConfig`. A message carrying a push configuration now passes the same allow-list and gates as the setup call.
+
 ## 0.1.6 — 27 September 2026
 
 Approvals that keep up with busy agents, a map that shows only what is really in use, and agent chains tested end to end — with four agent frameworks (the OpenAI Agents SDK, LangGraph, the Claude Agent SDK and CrewAI), streaming, 16-minute chains, failures in the middle of a chain, eight agents deep and under load. That testing found three bugs, fixed here.
@@ -16,7 +21,7 @@ Approvals that keep up with busy agents, a map that shows only what is really in
 
 ### Agents that come and go
 
-- **Hide idle agents on the Airspace:** **Agents: All / Used today / Active (15 min)** in the map controls draws only the agents that have made a call in that window. A chip counts the hidden agents and brings them back with **Show all**; a hidden agent that makes a call reappears on its own. See [Hide idle agents](airspace.md#hide-idle-agents).
+- **Hide idle agents on the Airspace:** **Agents: All / Used today / Active (15 min)** in the map controls draws only the agents that have made a call in that window. A chip counts the hidden agents and brings them back with **Show all**; a hidden agent that makes a call reappears on its own. See [Hide idle agents](airspace.md#hide-idle-agents-and-destinations).
 - **Expiring keys leave the map:** keys can be created with an expiry for short-lived sub-agents, and an expired key is no longer drawn (its history stays in Flights and the Ledger).
 - **Retire idle keys:** **Retire keys unused for 7 / 30 / 90 days** expires keys that have done nothing for that long. The Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, with **Disable all** and **Delete all** for each list. See [Agents that come and go](keys.md#agents-that-come-and-go).
 

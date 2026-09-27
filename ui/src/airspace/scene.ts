@@ -410,6 +410,10 @@ export class AirspaceScene {
   /** The agents drawn under the current filter, to tell when that set changes. */
   private shownAgents = new Set<string>();
   private hiddenAgents = 0;
+  /** The same for destinations — models, tool servers, A2A agents, HTTP APIs, observed systems: when each was last called. */
+  private destUse = new Map<string, number>();
+  private shownDests = new Set<string>();
+  private hiddenDests = 0;
   private allKeysById = new Map<string, TopologyKey>();
   private hub: Pt = [0, 0];
   private hubR = 36;
@@ -1293,7 +1297,14 @@ export class AirspaceScene {
     const edgesIn = (t.edges ?? []).filter((e) => this.keyStation.has(e.key_id));
     const obsIn = (t.observed?.edges ?? []).filter((e) => this.keyStation.has(e.key_id));
     const reached = new Set([...edgesIn.map((e) => e.target_id), ...obsIn.map((e) => e.target_id)]);
-    const shows = (id: string, observed = false) => !scope || reached.has(id) || (!observed && !edgesIn.length);
+    // Idle destinations leave the map too, under the same filter: when each was last called decides.
+    for (const e of t.edges ?? []) this.touchDest(e.target_id, e.last_ts);
+    for (const e of t.observed?.edges ?? []) this.touchDest(e.target_id, e.last_seen);
+    const dests = [...t.deployments.map((d) => d.id), ...(t.mcp_servers ?? []).map((m) => m.id), ...(t.observed?.targets ?? []).map((o) => o.id)];
+    this.shownDests = this.visibleDests(dests);
+    this.hiddenDests = dests.length - this.shownDests.size;
+    const inView = (id: string, observed = false) => !scope || reached.has(id) || (!observed && !edgesIn.length);
+    const shows = (id: string, observed = false) => inView(id, observed) && this.shownDests.has(id);
     const provById = new Map(t.providers.map((p) => [p.id, p]));
     for (const d of t.deployments) {
       if (!shows(d.id)) continue;
@@ -1845,18 +1856,31 @@ export class AirspaceScene {
     if (this.topology) this.setTopology(this.topology);
   }
 
-  getAgentFilter(): { filter: AgentFilter; hidden: number } {
-    return { filter: this.agentFilter, hidden: this.hiddenAgents };
+  /** `hidden`: agents left off the map; `hiddenDests`: destinations left off it. */
+  getAgentFilter(): { filter: AgentFilter; hidden: number; hiddenDests: number } {
+    return { filter: this.agentFilter, hidden: this.hiddenAgents, hiddenDests: this.hiddenDests };
   }
 
-  /** Agents that went idle since the last check leave the map (called every 30 s); true when it changed. */
+  /** Agents and destinations that went idle since the last check leave the map (called every 30 s); true when it changed. */
   recheckAgents(): boolean {
     if (this.agentFilter === 'all' || !this.topology) return false;
-    const scoped = this.scope ? this.topology.keys.filter((k) => !!k.team && this.scope!.has(k.team)) : this.topology.keys;
+    const t = this.topology;
+    const scoped = this.scope ? t.keys.filter((k) => !!k.team && this.scope!.has(k.team)) : t.keys;
     const next = this.visibleAgents(scoped);
-    if (next.size === this.shownAgents.size && [...next].every((a) => this.shownAgents.has(a))) return false;
-    this.setTopology(this.topology);
+    const nextDests = this.visibleDests([...t.deployments.map((d) => d.id), ...(t.mcp_servers ?? []).map((m) => m.id), ...(t.observed?.targets ?? []).map((o) => o.id)]);
+    const same = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+    if (same(next, this.shownAgents) && same(nextDests, this.shownDests)) return false;
+    this.setTopology(t);
     return true;
+  }
+
+  private touchDest(id: string, ts: number): void {
+    if (ts > (this.destUse.get(id) ?? 0)) this.destUse.set(id, ts);
+  }
+
+  private visibleDests(ids: string[], now = Date.now()): Set<string> {
+    const window = AGENT_WINDOW[this.agentFilter];
+    return new Set(ids.filter((id) => window === Infinity || now - (this.destUse.get(id) ?? 0) <= window));
   }
 
   private touchAgent(keyId: string, ts: number): void {
@@ -1921,12 +1945,14 @@ export class AirspaceScene {
     };
     let woke = false;
     for (const [keyId, target, tool, n, errors, denied, cost] of t.paths) {
-      // A hidden idle agent that makes a call comes back onto the map.
+      // A hidden idle agent that makes a call — or a hidden destination that gets one — comes back onto the map.
       this.touchAgent(keyId, t.ts);
+      if (target) this.touchDest(target, t.ts);
       if (this.agentFilter !== 'all' && !this.keyStation.has(keyId)) {
         const k = this.allKeysById.get(keyId);
         if (k && !this.shownAgents.has(agentIdent(k))) woke = true;
       }
+      if (this.agentFilter !== 'all' && target && !this.shownDests.has(target) && this.destUse.has(target)) woke = true;
       if (!this.keyStation.has(keyId)) continue; // another part of the organization
       mine.flights += n;
       mine.errors += errors;

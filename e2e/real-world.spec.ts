@@ -623,6 +623,65 @@ test('MCP: a health check never cuts off a tool call in flight', async () => {
   await admin.call('DELETE', `/admin/api/mcp/servers/${reg.body.server.id}`);
 });
 
+test('MCP: progress reaches the client — the server’s own, and a note while the call waits for approval', async () => {
+  const slow = await subAgentUpstream(async (_q, _t, report) => {
+    for (let i = 1; i <= 3; i++) {
+      await report(i, 3, `step ${i} of 3`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return 'done';
+  });
+  upstreams.push(slow);
+  const reg = await admin.post('/admin/api/mcp/servers', { name: 'Progressive', slug: 'progressive', url: `${slow.url}/mcp` });
+  expect(reg.status).toBe(201);
+  const caller = await key('rw-progress-caller');
+  const c = await mcpClient(caller.key);
+  const call = async (onApproval?: () => Promise<void>) => {
+    const got: Array<{ progress: number; total?: number; message?: string }> = [];
+    let asked = false;
+    const r = await c.callTool({ name: 'progressive__ask', arguments: { question: 'go' } }, undefined, {
+      onprogress: (p) => {
+        got.push(p);
+        if (!asked && onApproval && /Waiting for a human/.test(p.message ?? '')) {
+          asked = true;
+          void onApproval();
+        }
+      },
+    });
+    return { text: textOf(r), got };
+  };
+
+  // The server's progress comes through as it happens, in order.
+  const plain = await call();
+  expect(plain.text).toBe('done');
+  expect(plain.got.map((p) => p.message)).toEqual(['step 1 of 3', 'step 2 of 3', 'step 3 of 3']);
+  expect(plain.got.map((p) => p.total)).toEqual([3, 3, 3]);
+
+  // Held for approval: the client hears why nothing is happening, then the work's progress once approved.
+  const gate = await admin.post('/admin/api/rules', { name: 'Progressive needs a yes', target_kind: 'tool', match: { keys: [caller.id], tools: ['progressive__ask'] }, effect: 'require_approval', config: { hold_ms: 20000, reason: 'A human checks each run' }, priority: 2 });
+  const approve = async () => {
+    const a = ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as Array<{ id: string; key_id: string }>).find((x) => x.key_id === caller.id)!;
+    await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'approve' });
+  };
+  const held = await call(approve);
+  expect(held.text).toBe('done');
+  expect(held.got[0]!.message).toBe('Waiting for a human to approve this call in Control Tower: A human checks each run');
+  expect(held.got.slice(-3).map((p) => p.message)).toEqual(['step 1 of 3', 'step 2 of 3', 'step 3 of 3']);
+  expect(held.got.every((p, i) => i === 0 || p.progress > held.got[i - 1]!.progress)).toBe(true);
+  await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
+
+  // Where an inspect gate reads what comes back, progress carries numbers only — its text can't slip past the gate.
+  const insp = await admin.post('/admin/api/rules', { name: 'Read what progressive returns', target_kind: 'tool', match: { keys: [caller.id], tools: ['progressive__ask'] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'flag', direction: 'output' }, priority: 2 });
+  expect(insp.status).toBe(201);
+  const inspected = await call();
+  expect(inspected.text).toBe('done');
+  expect(inspected.got).toHaveLength(3);
+  expect(inspected.got.every((p) => p.message === undefined && p.total === 3)).toBe(true);
+  await admin.call('DELETE', `/admin/api/rules/${insp.body.id}`);
+  await c.close();
+  await admin.call('DELETE', `/admin/api/mcp/servers/${reg.body.server.id}`);
+});
+
 test('A2A: a remote agent behind Control Tower — its card, messages, streams, gates and delegation', async () => {
   // The research agent is a remote A2A 1.0 agent. Its own key acts only on behalf of other agents.
   const research = await key('rw-a2a-research', { agent_id: 'rw-a2a-research', delegated_only: true });
@@ -786,6 +845,24 @@ test('A2A: a remote agent behind Control Tower — its card, messages, streams, 
   expect(topo.delegations).toEqual(expect.arrayContaining([expect.objectContaining({ from: 'rw-a2a-caller', key_id: research.id })]));
   const page = (await admin.get('/admin/api/a2a/agents')).body.agents.find((a: { slug: string }) => a.slug === 'researcher');
   expect(page.methods.map((m: { name: string }) => m.name)).toEqual(expect.arrayContaining(['SendMessage', 'GetTask']));
+});
+
+test('A2A: a webhook asked for inside a message passes the same gate as the setup call', async () => {
+  const caller = await key('rw-push-caller');
+  const rpc = (params: unknown) =>
+    fetch(`${CT}/a2a/researcher`, { method: 'POST', headers: { authorization: `Bearer ${caller.key}`, 'content-type': 'application/json', 'a2a-version': '1.0' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'SendMessage', params }) });
+  const message = (push?: boolean) => ({
+    message: { messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{ text: 'hello' }] },
+    ...(push ? { configuration: { taskPushNotificationConfig: { url: 'https://hooks.example.com/a2a', token: 't' } } } : {}),
+  });
+  const gate = await admin.post('/admin/api/rules', { name: 'No push webhooks', target_kind: 'tool', match: { keys: [caller.id], tools: ['researcher__CreateTaskPushNotificationConfig'] }, effect: 'deny', config: { reason: 'No push webhooks' }, priority: 2 });
+  expect(gate.status).toBe(201);
+  const refused = await rpc(message(true));
+  expect(refused.status).toBe(403);
+  expect(((await refused.json()) as any).error.message).toMatch(/asks Research agent for push notifications, which a gate doesn't allow/);
+  expect((await rpc(message(false))).status).toBe(200);
+  await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
+  expect((await rpc(message(true))).status).toBe(200);
 });
 
 test('A2A with the official SDK: an SDK agent behind Control Tower, driven by the SDK client', async () => {

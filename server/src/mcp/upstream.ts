@@ -118,10 +118,14 @@ export class McpUpstream {
     return tools;
   }
 
-  /** `extra` adds headers to this one request and `_meta` to its params (a delegation token, for one). */
-  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal, extra: { headers?: Record<string, string>; meta?: Record<string, unknown> } = {}): Promise<Record<string, unknown>> {
+  /**
+   * `extra` adds headers to this one request and `_meta` to its params (a delegation token, for one).
+   * With `onNotification`, notifications the server sends while it works on the call (progress, for one)
+   * are handed over as they arrive.
+   */
+  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal, extra: { headers?: Record<string, string>; meta?: Record<string, unknown>; onNotification?: (msg: { method: string; params?: Record<string, unknown> }) => void } = {}): Promise<Record<string, unknown>> {
     await this.initialize();
-    return (await this.call('tools/call', { name, arguments: args, ...(extra.meta ? { _meta: extra.meta } : {}) }, signal, extra.headers)) as Record<string, unknown>;
+    return (await this.call('tools/call', { name, arguments: args, ...(extra.meta ? { _meta: extra.meta } : {}) }, signal, extra.headers, extra.onNotification)) as Record<string, unknown>;
   }
 
   async ping(): Promise<void> {
@@ -130,15 +134,15 @@ export class McpUpstream {
   }
 
   /** Generic passthrough for resources/* and prompts/*. */
-  async call(method: string, params: unknown, signal?: AbortSignal, headers?: Record<string, string>): Promise<unknown> {
+  async call(method: string, params: unknown, signal?: AbortSignal, headers?: Record<string, string>, onNotification?: (msg: { method: string; params?: Record<string, unknown> }) => void): Promise<unknown> {
     try {
-      return await this.rpc(method, params, signal, headers);
+      return await this.rpc(method, params, signal, headers, onNotification);
     } catch (err) {
       // A 404 means the upstream forgot our session: re-initialize once.
       if (err instanceof McpUpstreamError && err.status === 404 && this.initialized) {
         this.reset();
         await this.initialize();
-        return this.rpc(method, params, signal, headers);
+        return this.rpc(method, params, signal, headers, onNotification);
       }
       throw err;
     }
@@ -158,7 +162,7 @@ export class McpUpstream {
     if (sid) this.sessionId = sid;
   }
 
-  private async rpc(method: string, params: unknown, signal?: AbortSignal, extraHeaders?: Record<string, string>): Promise<unknown> {
+  private async rpc(method: string, params: unknown, signal?: AbortSignal, extraHeaders?: Record<string, string>, onNotification?: (msg: { method: string; params?: Record<string, unknown> }) => void): Promise<unknown> {
     const id = nextId++;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('timeout')), this.timeoutMs);
@@ -186,11 +190,13 @@ export class McpUpstream {
           for (const f of parser.push(chunk as Uint8Array)) {
             if (!f.data) continue;
             try {
-              const j = JSON.parse(f.data) as typeof msg;
+              const j = JSON.parse(f.data) as typeof msg & { method?: string; params?: Record<string, unknown> };
               if (j && j.id === id && ('result' in j || 'error' in j)) {
                 msg = j;
                 break outer;
               }
+              // A notification about this request while the server works on it (progress, for one).
+              if (j && j.id === undefined && typeof j.method === 'string' && j.method.startsWith('notifications/')) onNotification?.({ method: j.method, ...(j.params ? { params: j.params } : {}) });
             } catch {
               /* ignore non-json frames */
             }

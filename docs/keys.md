@@ -80,7 +80,7 @@ Agents get onto the map only through keys — Control Tower never invents an age
 - **Retire idle keys.** **Retire keys unused for** 7, 30 or 90 days on the Keys page expires keys that have done nothing for that long — counting from when a key was made if it was never used. It runs every hour, and at once when you switch it on (the page lists what it retired). Setting a new expiry on a key brings it back. Control Tower's own keys and demo keys are never retired.
 - **Tidy up by hand.** The Keys page filters **Used today**, **Idle 7+ days**, **Never used** and **Expired**, and each list can be disabled or deleted in one go — `POST /admin/api/keys/bulk` with `{"action": "disable" | "delete", "ids": [...]}`.
 
-On the map itself, **Agents: Used today / Active (15 min)** hides idle agents without touching their keys ([Airspace](airspace.md#hide-idle-agents)).
+On the map itself, **Show: Used today / Active (15 min)** hides idle agents and destinations without touching their keys ([Airspace](airspace.md#hide-idle-agents-and-destinations)).
 
 ## Team and project budgets
 

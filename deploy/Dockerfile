@@ -18,9 +18,9 @@ COPY shared ./shared
 COPY server ./server
 COPY ui ./ui
 RUN pnpm --filter @controltower/ui build && pnpm --filter @controltower/server build
-# Plain node_modules with only the runtime native dependency (the server bundle externalises it).
+# Plain node_modules with only what the server bundle leaves out: SQLite's native module and the Postgres driver.
 RUN mkdir -p /out && cd /out && npm init -y >/dev/null \
- && npm install --no-audit --no-fund --omit=dev $(node -p "'better-sqlite3@' + require('/app/server/node_modules/better-sqlite3/package.json').version")
+ && npm install --no-audit --no-fund --omit=dev $(node -p "['better-sqlite3', 'pg'].map((m) => m + '@' + require('/app/server/node_modules/' + m + '/package.json').version).join(' ')")
 
 # ---------- runtime ----------
 FROM node:24-alpine

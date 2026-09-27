@@ -10,6 +10,7 @@ const out = path.join(root, 'dist-npm');
 const require = createRequire(path.join(root, 'server', 'package.json'));
 const rootPkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const sqliteVersion = require('better-sqlite3/package.json').version;
+const pgVersion = require('pg/package.json').version;
 
 for (const need of ['server/dist/server.mjs', 'ui/dist/index.html']) {
   if (!fs.existsSync(path.join(root, need))) throw new Error(`${need} is missing — run \`pnpm build\` first`);
@@ -37,7 +38,7 @@ fs.writeFileSync(
       bin: { 'controltower-ai': 'bin/controltower.mjs' },
       files: ['bin', 'dist', 'ui', 'LICENSE', 'THIRD_PARTY.md'],
       engines: { node: '>=24' },
-      dependencies: { 'better-sqlite3': `^${sqliteVersion}` },
+      dependencies: { 'better-sqlite3': `^${sqliteVersion}`, pg: `^${pgVersion}` },
     },
     null,
     2,
@@ -114,4 +115,4 @@ Docker, Render, Fly.io and docs: https://github.com/joshmaster2165/controltower
 `,
 );
 
-console.log(`dist-npm/ ready: controltower-ai@${rootPkg.version} (better-sqlite3 ^${sqliteVersion})`);
+console.log(`dist-npm/ ready: controltower-ai@${rootPkg.version} (better-sqlite3 ^${sqliteVersion}, pg ^${pgVersion})`);

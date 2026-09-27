@@ -1,21 +1,84 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { Kysely, SqliteDialect } from 'kysely';
+import pg from 'pg';
+import { Kysely, PostgresDialect, SqliteDialect } from 'kysely';
 import type { Database as Schema } from './schema.js';
-import { migrations } from './migrations.js';
+import { migrations, toPostgres } from './migrations.js';
+import { setDialect, type Dialect } from './sqlfn.js';
 
 export interface Db {
-  /** Kysely over the single write connection. */
+  /** SQLite (one instance, the default) or Postgres (CT_DATABASE_URL; several instances can share it). */
+  dialect: Dialect;
+  /** Kysely over the write connection (Postgres: the pool). */
   write: Kysely<Schema>;
-  /** Kysely over a read-only connection (WAL allows concurrent readers). */
+  /** Kysely over a read-only connection (WAL allows concurrent readers); Postgres: the same pool. */
   read: Kysely<Schema>;
-  /** Raw better-sqlite3 write handle for the hot-path batch sink. */
+  /** Raw better-sqlite3 write handle for the hot-path batch sink (SQLite only). */
   raw: Database.Database;
+  /** The connection pool (Postgres only): the batched event writer talks to it directly. */
+  pool?: pg.Pool;
   file: string;
-  close(): void;
+  close(): void | Promise<void>;
   checkpoint(mode?: 'PASSIVE' | 'TRUNCATE'): void;
   walBytes(): number;
+}
+
+/** Open the database Control Tower is configured for: Postgres when a URL is given, else SQLite in the data directory. */
+export async function openDatabase(o: { dataDir: string; databaseUrl?: string | undefined }): Promise<Db> {
+  return o.databaseUrl ? openPostgres(o.databaseUrl) : openSqlite(o.dataDir);
+}
+
+/**
+ * Postgres: every instance shares it. Migrations run under an advisory lock so instances starting together
+ * don't race. 64-bit integers and numerics come back as JavaScript numbers, as they do from SQLite.
+ */
+export async function openPostgres(url: string): Promise<Db> {
+  pg.types.setTypeParser(20, (v) => Number(v)); // int8 (BIGINT, COUNT)
+  pg.types.setTypeParser(1700, (v) => Number(v)); // numeric (SUM of BIGINT)
+  const pool = new pg.Pool({ connectionString: url, max: Number(process.env.CT_DB_POOL ?? 20), ...(/sslmode=require/.test(url) ? { ssl: { rejectUnauthorized: false } } : {}) });
+  pool.on('error', (err) => console.error('[db] idle connection error:', err.message));
+  await migratePostgres(pool);
+  setDialect('postgres');
+  const k = new Kysely<Schema>({ dialect: new PostgresDialect({ pool }) });
+  const shown = url.replace(/\/\/[^@/]*@/, '//***@');
+  return {
+    dialect: 'postgres',
+    pool,
+    write: k,
+    read: k,
+    get raw(): Database.Database {
+      throw new Error('no raw SQLite handle: this Control Tower uses Postgres');
+    },
+    file: shown,
+    close: () => pool.end(),
+    checkpoint() {},
+    walBytes: () => 0,
+  };
+}
+
+async function migratePostgres(pool: pg.Pool): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query('SELECT pg_advisory_lock(7461230)');
+    await c.query('CREATE TABLE IF NOT EXISTS schema_migrations (version BIGINT PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL)');
+    const applied = new Set((await c.query<{ version: string }>('SELECT version FROM schema_migrations')).rows.map((r) => Number(r.version)));
+    for (const m of migrations) {
+      if (applied.has(m.version)) continue;
+      await c.query('BEGIN');
+      try {
+        await c.query(m.postgres ?? toPostgres(m.sqlite));
+        await c.query('INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1, $2, $3)', [m.version, m.name, Date.now()]);
+        await c.query('COMMIT');
+      } catch (err) {
+        await c.query('ROLLBACK');
+        throw new Error(`migration ${m.version} (${m.name}) failed on Postgres: ${(err as Error).message}`);
+      }
+    }
+  } finally {
+    await c.query('SELECT pg_advisory_unlock(7461230)').catch(() => undefined);
+    c.release();
+  }
 }
 
 const PRAGMAS_WRITE = [
@@ -50,10 +113,12 @@ export function openSqlite(dataDir: string, opts: { file?: string; memory?: bool
     rawRead.pragma('cache_size = -32768');
   }
 
+  setDialect('sqlite');
   const write = new Kysely<Schema>({ dialect: new SqliteDialect({ database: raw }) });
   const read = new Kysely<Schema>({ dialect: new SqliteDialect({ database: rawRead }) });
 
   return {
+    dialect: 'sqlite',
     write,
     read,
     raw,

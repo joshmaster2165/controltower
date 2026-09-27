@@ -34,7 +34,8 @@ export type HoldOutcome =
   | { kind: 'ticketed'; error: GatewayError };
 
 export interface Approvals {
-  hold(flight: Flight, decision: PolicyDecision): Promise<HoldOutcome>;
+  /** `onHeld` runs once the approval card exists (and the call is waiting on it). */
+  hold(flight: Flight, decision: PolicyDecision, onHeld?: () => void): Promise<HoldOutcome>;
   redeem(token: string, keyId: string, scopeHash: string, sessionId: string | undefined): Promise<RedeemResult>;
   decide(approvalId: string, by: string, action: 'approve' | 'deny', opts?: { note?: string; window?: ApprovalWindow }): Promise<{ ok: boolean; status: string }>;
   readonly heldCount: number;
@@ -96,7 +97,7 @@ export class ApprovalService implements Approvals {
     return `${this.opts.publicUrl}/#/tower/${approvalId}`;
   }
 
-  async hold(flight: Flight, decision: PolicyDecision): Promise<HoldOutcome> {
+  async hold(flight: Flight, decision: PolicyDecision, onHeld?: () => void): Promise<HoldOutcome> {
     const d = decision as PolicyDecisionFull;
     const key = flight.key!;
     const now = Date.now();
@@ -164,6 +165,7 @@ export class ApprovalService implements Approvals {
     this.version.bump();
 
     this.bus.emit({ t: 'flight.held', flight_id: flight.id, ts: now, approval_id: approval.id, budget_ms: canHold ? budget : 0, summary: approval.summary });
+    onHeld?.();
 
     let status: 'approved' | 'denied' | 'expired' | 'timeout' | 'drained' = 'timeout';
     if (canHold) {
@@ -196,6 +198,8 @@ export class ApprovalService implements Approvals {
       this.bus.emit({ t: 'flight.resolved', flight_id: flight.id, ts: Date.now(), approval_id: approval.id, outcome: 'denied', by });
       return { kind: 'denied', error: E.policyDenied(`Denied by ${by ?? 'an approver'}${fresh?.note ? `: ${fresh.note}` : ''}.`, d.ruleId) };
     }
+    // The card went while the call waited (deleted with its data, say): nothing to issue a ticket against.
+    if (!fresh) status = 'expired';
     if (status === 'expired') {
       this.bus.emit({ t: 'flight.resolved', flight_id: flight.id, ts: Date.now(), approval_id: approval.id, outcome: 'expired', by });
       return { kind: 'ticketed', error: E.approvalRequired('CONTROL_TOWER_APPROVAL_EXPIRED: the approval request expired before a human answered. Retry the call to request approval again.', { ct: { v: 1, status: 'expired', request_id: approval.id } }) };

@@ -1,3 +1,4 @@
+import { greatest } from '../db/sqlfn.js';
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
 import type { Versioned } from '../util/versioned.js';
@@ -265,7 +266,7 @@ export class ObservedStore {
         await trx
           .insertInto('observed_targets')
           .values({ target: a.target, kind: c.kind, system: c.system ?? null, bypass: c.bypass ? 1 : 0, first_seen: a.last, last_seen: a.last })
-          .onConflict((oc) => oc.column('target').doUpdateSet((eb) => ({ last_seen: eb.fn('max', [eb.ref('observed_targets.last_seen'), eb.val(a.last)]) })))
+          .onConflict((oc) => oc.column('target').doUpdateSet(() => ({ last_seen: greatest('observed_targets.last_seen', a.last) })))
           .execute();
         const edge = await trx.selectFrom('observed_hourly').select(['key_id']).where('key_id', '=', keyId).where('target', '=', a.target).limit(1).executeTakeFirst();
         if (!edge) changed = true;
@@ -278,7 +279,7 @@ export class ObservedStore {
               errors: eb('observed_hourly.errors', '+', a.errors),
               writes: eb('observed_hourly.writes', '+', a.writes),
               dur_ms_sum: eb('observed_hourly.dur_ms_sum', '+', a.dur),
-              last_seen: eb.fn('max', [eb.ref('observed_hourly.last_seen'), eb.val(a.last)]),
+              last_seen: greatest('observed_hourly.last_seen', a.last),
             })),
           )
           .execute();

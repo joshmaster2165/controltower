@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
-import { openSqlite } from './db/index.js';
+import { openDatabase } from './db/index.js';
+import { PgSink } from './events/pg-sink.js';
+import type { EventSink } from './context.js';
 import { loadOrCreateMasterKey, SecretBox } from './crypto/secrets.js';
 import { Registry } from './registry.js';
 import { Adapters } from './providers/index.js';
@@ -13,7 +15,7 @@ import { FlightBus } from './events/bus.js';
 import { DbSink } from './events/db-sink.js';
 import { EventRing } from './events/ring.js';
 import { LiveFrames } from './admin/live.js';
-import { PathsStore } from './events/paths.js';
+import { PathsStore, postgresPaths } from './events/paths.js';
 import { ModelChecker, ensureGuardrailKey } from './guardrails/model-check.js';
 import { Delegations } from './policy/delegation.js';
 import { A2aRegistry } from './a2a/registry.js';
@@ -76,7 +78,8 @@ async function main(): Promise<void> {
   useOutboundProxy(proxy);
   const mk = loadOrCreateMasterKey(config.dataDir, config.masterKeyEnv);
   const secrets = new SecretBox(mk);
-  const db = openSqlite(config.dataDir);
+  const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl });
+  if (db.dialect === 'postgres') console.warn(`[controltower] data in Postgres (${db.file})`);
   // A crash leaves calls with no outcome and held calls no agent can come back to: close them out.
   const interrupted = await closeInterrupted(db.write);
   if (interrupted.flights || interrupted.approvals) console.warn(`[controltower] closed out what the last stop left open: ${interrupted.flights} unfinished call(s) marked stopped, ${interrupted.approvals} approval(s) expired`);
@@ -87,14 +90,14 @@ async function main(): Promise<void> {
   await registry.reload();
 
   const bus = new FlightBus();
-  const dbSink = new DbSink(db.raw);
+  const dbSink: EventSink = db.dialect === 'postgres' ? new PgSink(db.pool!) : new DbSink(db.raw);
   const ring = new EventRing();
   bus.subscribe(dbSink.push);
   bus.subscribe(ring.push);
   const openFlights = new OpenFlights();
   bus.subscribe(openFlights.push);
   const live = new LiveFrames(bus);
-  const paths = new PathsStore(db.raw);
+  const paths = new PathsStore(db.dialect === 'postgres' ? await postgresPaths(db.pool!) : db.raw);
   bus.subscribe(paths.push);
 
   const mcp = new McpRegistry(db.write, secrets);
@@ -322,13 +325,13 @@ async function main(): Promise<void> {
     // Calls the grace period cut off are recorded as stopped, not left running.
     const cut = openFlights.closeAll(bus);
     if (cut) app.log.info({ calls: cut }, 'shutdown: calls still in flight recorded as stopped');
-    dbSink.flush();
-    paths.stop();
+    await dbSink.flush();
+    await paths.stop();
     await budgets.stop();
     clearInterval(checkpoint);
     stopRetention();
     stopRetirement();
-    db.close();
+    await db.close();
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

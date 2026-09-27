@@ -1,3 +1,4 @@
+import { concatDistinct, jsonAt } from '../db/sqlfn.js';
 import type { FastifyInstance } from 'fastify';
 import { formatUsd } from '@controltower/shared';
 import { sql } from 'kysely';
@@ -87,7 +88,7 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
       SELECT key_id, kind, NULLIF(deployment_id, '') AS deployment_id, NULLIF(mcp_server_id, '') AS mcp_server_id, NULLIF(tool, '') AS tool, model_requested,
         SUM(requests - rejected) AS requests, SUM(errors) AS errors, SUM(denied) AS blocked, SUM(held) AS held,
         SUM(cost_nanousd) AS spend, SUM(tokens) AS tokens, MAX(last_ts) AS last_seen,
-        group_concat(DISTINCT CASE WHEN on_behalf_of != '' THEN json_extract(on_behalf_of, '$[0]') END) AS origins
+        ${concatDistinct(sql`CASE WHEN on_behalf_of != '' THEN ${jsonAt('on_behalf_of', 0)} END`)} AS origins
       FROM traffic_hourly WHERE bucket >= ${from}
       GROUP BY key_id, kind, deployment_id, mcp_server_id, tool, model_requested
       HAVING SUM(requests - rejected) > 0`.execute(ctx.db.read)
@@ -96,9 +97,9 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
   // Spend made on each agent's behalf, by the agent that started the chain.
   const spentForRows = (
     await sql<{ origin: string; spend: number }>`
-      SELECT json_extract(on_behalf_of, '$[0]') AS origin, SUM(cost_nanousd) AS spend
+      SELECT ${jsonAt('on_behalf_of', 0)} AS origin, SUM(cost_nanousd) AS spend
       FROM traffic_hourly WHERE bucket >= ${from} AND on_behalf_of != ''
-      GROUP BY origin`.execute(ctx.db.read)
+      GROUP BY 1`.execute(ctx.db.read)
   ).rows;
   const spentFor = new Map(spentForRows.map((r) => [String(r.origin), Number(r.spend)]));
   const paths: PathRow[] = [];

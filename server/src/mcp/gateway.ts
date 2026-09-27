@@ -386,10 +386,10 @@ export class McpGateway {
       }
       if (decision.effect === 'hold') {
         // A client following progress hears why nothing is happening, every 5 s until a human answers.
+        // The first note goes out once the approval card exists, so whoever reads it can find the card.
         const waiting = () => progress?.({ message: `Waiting for a human to approve this call in Control Tower${decision.summary ? `: ${decision.summary}` : ''}` });
-        waiting();
         const beat = progress ? setInterval(waiting, 5000) : undefined;
-        const outcome = await ctx.approvals.hold(f, decision).finally(() => clearInterval(beat));
+        const outcome = await ctx.approvals.hold(f, decision, waiting).finally(() => clearInterval(beat));
         if (outcome.kind === 'denied') {
           complete('denied', 403, { code: 'policy_denied', message: outcome.error.message });
           return blocked('denied', outcome.error.message, { rule_id: decision.ruleId });

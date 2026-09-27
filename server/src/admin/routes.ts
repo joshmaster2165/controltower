@@ -10,6 +10,7 @@ import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
 import { BUILT_IN_KEYS, lastUseByKey } from './key-lifecycle.js';
+import { asInt, jsonAt } from '../db/sqlfn.js';
 
 /** The start of the hour a time falls in: the hourly traffic summary's buckets. */
 export const hourStart = (ts: number): number => Math.floor(ts / 3_600_000) * 3_600_000;
@@ -384,7 +385,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       .selectFrom('flights')
       .selectAll()
       // Whether this call led to others (agents it called, their calls): a trace starts here.
-      .select(sql<number>`EXISTS (SELECT 1 FROM flights c WHERE c.parent_flight_id = flights.id)`.as('has_children'))
+      .select(asInt(sql`EXISTS (SELECT 1 FROM flights c WHERE c.parent_flight_id = flights.id)`).as('has_children'))
       .orderBy('ts', 'desc')
       .limit(limit);
     if (q.before) qb = qb.where('ts', '<', Number(q.before));
@@ -449,7 +450,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           .execute()
       : [];
     // The callee's own calls made for the caller: the chain ends with the caller.
-    const last = sql<string>`json_extract(on_behalf_of, '$[#-1]')`;
+    const last = jsonAt('on_behalf_of', -1);
     const behalf = await ctx.db.read
       .selectFrom('flights')
       .select([sql<number>`count(*)`.as('n'), sql<number>`coalesce(sum(cost_nanousd), 0)`.as('cost'), sql<number>`max(ts)`.as('last')])

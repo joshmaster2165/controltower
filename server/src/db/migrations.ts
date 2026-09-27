@@ -6,6 +6,16 @@ export interface Migration {
   version: number;
   name: string;
   sqlite: string;
+  /** The Postgres statements, when translating the SQLite ones (toPostgres) isn't enough. */
+  postgres?: string;
+}
+
+/** SQLite DDL as Postgres: 64-bit integers (timestamps are milliseconds), doubles, no WITHOUT ROWID. */
+export function toPostgres(sqlite: string): string {
+  return sqlite
+    .replace(/\bINTEGER\b/g, 'BIGINT')
+    .replace(/\bREAL\b/g, 'DOUBLE PRECISION')
+    .replace(/\)\s*WITHOUT ROWID/g, ')');
 }
 
 const rollupTable = (name: string) => `

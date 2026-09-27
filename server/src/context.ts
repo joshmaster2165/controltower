@@ -8,7 +8,6 @@ import type { PricingTable } from './pricing/index.js';
 import type { Limiter, SpendTracker } from './limits/limiter.js';
 import type { Budgets } from './limits/budgets.js';
 import type { FlightBus } from './events/bus.js';
-import type { DbSink } from './events/db-sink.js';
 import type { EventRing } from './events/ring.js';
 import type { LiveFrames } from './admin/live.js';
 import type { PathsStore } from './events/paths.js';
@@ -40,7 +39,7 @@ export interface AppContext {
   spend: SpendTracker;
   budgets: Budgets;
   bus: FlightBus;
-  dbSink: DbSink;
+  dbSink: EventSink;
   ring: EventRing;
   /** Summed live frames for the console's WebSocket. */
   live: LiveFrames;
@@ -72,4 +71,13 @@ export interface AppContext {
   log: FastifyBaseLogger;
   startedAt: number;
   shuttingDown: boolean;
+}
+
+/** Where flight events are written: SQLite's DbSink or Postgres's PgSink. */
+export interface EventSink {
+  push: (e: import('@controltower/shared').FlightEvent) => void;
+  flush(): void | Promise<void>;
+  readonly pendingCount: number;
+  backpressure: boolean;
+  flushedEvents: number;
 }

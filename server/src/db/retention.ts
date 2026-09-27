@@ -1,5 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import type { Database } from './schema.js';
+import { currentDialect } from './sqlfn.js';
 
 /**
  * Data retention. Per-request rows are deleted after a while; the hourly and
@@ -24,7 +25,9 @@ type Table = 'flights' | 'flight_events' | 'observed_hourly' | 'paths' | 'alerts
 async function deleteChunked(db: Kysely<Database>, table: Table, where: ReturnType<typeof sql>): Promise<number> {
   let total = 0;
   for (;;) {
-    const r = await sql`DELETE FROM ${sql.table(table)} WHERE rowid IN (SELECT rowid FROM ${sql.table(table)} WHERE ${where} LIMIT ${CHUNK})`.execute(db);
+    // SQLite's rowid, Postgres's ctid: the row's own address, so a chunk can be picked without a key.
+    const rid = sql.raw(currentDialect() === 'postgres' ? 'ctid' : 'rowid');
+    const r = await sql`DELETE FROM ${sql.table(table)} WHERE ${rid} IN (SELECT ${rid} FROM ${sql.table(table)} WHERE ${where} LIMIT ${CHUNK})`.execute(db);
     const n = Number(r.numAffectedRows ?? 0);
     total += n;
     if (n < CHUNK) return total;

@@ -89,7 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   };
   const notices: string[] = [];
   if (f.has('num_workers')) notices.push('--num_workers is not needed: Control Tower runs as one process (scale with more instances).');
-  if (env.DATABASE_URL && !env.CT_DATABASE_URL) notices.push('DATABASE_URL is not used: Control Tower keeps its data in SQLite under CT_DATA_DIR (/data in the container).');
+  if (env.DATABASE_URL && !env.CT_DATABASE_URL) notices.push('DATABASE_URL is not used: set CT_DATABASE_URL to keep Control Tower\'s data in Postgres (needed to run several instances); without it, data is in SQLite under CT_DATA_DIR (/data in the container).');
   if (env.STORE_MODEL_IN_DB) notices.push('STORE_MODEL_IN_DB is not needed: models added in the console are always stored.');
   const logEnv = env.LITELLM_LOG ? env.LITELLM_LOG.toLowerCase() : undefined;
   const debug = f.has('detailed_debug') || f.has('debug');

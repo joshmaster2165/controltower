@@ -618,3 +618,20 @@ CREATE TABLE a2a_push_relays (
 CREATE INDEX a2a_push_relays_agent ON a2a_push_relays(a2a_agent_id, key_id);
 `,
 });
+
+// Several instances can share one database: each records the calls it serves, and says it is alive. A call left
+// without an outcome by an instance that stopped is closed out by the others.
+migrations.push({
+  version: 17,
+  name: 'instances',
+  sqlite: `
+CREATE TABLE instances (
+  id          TEXT PRIMARY KEY,
+  host        TEXT,
+  version     TEXT,
+  started_at  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL
+);
+ALTER TABLE flights ADD COLUMN instance_id TEXT;
+`,
+});

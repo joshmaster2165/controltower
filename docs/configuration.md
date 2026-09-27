@@ -13,6 +13,7 @@ controltower [options]            (docker: pass the same options after the image
   --port, -p <n>        listen port (default 4000)
   --host <addr>         listen address (default 0.0.0.0)
   --detailed_debug      verbose logs (also --debug)
+  --copy-to-postgres <url>  copy this install's SQLite data into an empty Postgres database, then exit
   --version             print the version
   --help                this list
 ```
@@ -22,7 +23,7 @@ controltower --config config.yaml --port 4000                 # from source: pnp
 docker run -p 4000:4000 -e OPENAI_API_KEY ghcr.io/joshmaster2165/controltower --model openai/gpt-4.1-mini   # agents ask for openai/gpt-4.1-mini
 ```
 
-`--num_workers` is accepted and ignored: Control Tower is one process; run more instances to scale.
+`--num_workers` is accepted and ignored: Control Tower is one process; to scale, run [several instances](scaling.md) on a shared Postgres and Redis.
 
 ## Admin key
 
@@ -40,7 +41,11 @@ Rotating the variable rotates all three at the next start. Use a long random val
 |---|---|---|
 | `CT_PORT` | `4000` | Listen port; falls back to `PORT` (set by most platforms). `--port` wins |
 | `CT_HOST` | `0.0.0.0` | Listen address |
-| `CT_DATA_DIR` | `./data` (`/data` in the image) | Database and master key |
+| `CT_DATA_DIR` | `./data` (`/data` in the image) | Database (SQLite) and master key |
+| `CT_DATABASE_URL` | — | Postgres instead of SQLite (`postgres://…`): needed to [run several instances](scaling.md) |
+| `CT_REDIS_URL` | — | Redis, to keep several instances on one Postgres database in step (rate limits, caches, live console) |
+| `CT_INSTANCE_ID` | generated | This instance's name when several share a database |
+| `CT_DB_POOL` | `20` | Postgres connections per instance |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting stored credentials. If unset, generated into `CT_DATA_DIR/master.key` — back it up |
 | `CT_ADMIN_KEY` | — | [Admin key](#admin-key) |
 | `UI_USERNAME`, `UI_PASSWORD` | `admin`, the admin key | Console sign-in created from the admin key |
@@ -67,4 +72,4 @@ Rotating the variable rotates all three at the next start. Use a long random val
 
 Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`…) are read only by `--config`, `--model` and **Import config**; providers added in the console store their own credentials.
 
-Variables other gateways use that don't apply here are reported at startup rather than silently ignored — for example `DATABASE_URL` (Control Tower uses SQLite in `CT_DATA_DIR`) and `STORE_MODEL_IN_DB` (models added in the console are always stored).
+Variables other gateways use that don't apply here are reported at startup rather than silently ignored — for example `DATABASE_URL` (Control Tower uses SQLite in `CT_DATA_DIR`, or Postgres from `CT_DATABASE_URL`) and `STORE_MODEL_IN_DB` (models added in the console are always stored).

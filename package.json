@@ -36,6 +36,7 @@
     "@types/mailparser": "^3.4.6",
     "@types/node": "^26.6.2",
     "@types/smtp-server": "^3.5.13",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",
     "express": "^5.2.1",
     "gifenc": "^1.0.3",
@@ -48,6 +49,7 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1",
+    "ws": "8.21.3",
     "zod": "^4.6.5"
   }
 }

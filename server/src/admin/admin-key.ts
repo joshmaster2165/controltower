@@ -59,7 +59,8 @@ export async function applyAdminKey(ctx: AppContext): Promise<void> {
   const marker = await w.selectFrom('settings').select('value').where('key', '=', ENV_ADMIN).executeTakeFirst();
   if (!admins.length) {
     await w.transaction().execute(async (trx) => {
-      await trx.insertInto('admins').values({ id: ulid(), email: username, password_hash: await hashPassword(password), created_at: now }).execute();
+      // Instances starting together each try this: the first one's account stands.
+      await trx.insertInto('admins').values({ id: ulid(), email: username, password_hash: await hashPassword(password), created_at: now }).onConflict((oc) => oc.column('email').doNothing()).execute();
       for (const [k, v] of [['setup_complete', '1'], [ENV_ADMIN, username]] as const) {
         await trx.insertInto('settings').values({ key: k, value: v, updated_at: now }).onConflict((oc) => oc.column('key').doUpdateSet({ value: v, updated_at: now })).execute();
       }

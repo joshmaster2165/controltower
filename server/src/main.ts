@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/index.js';
+import { copySqliteToPostgres } from './db/copy.js';
 import { PgSink } from './events/pg-sink.js';
 import type { EventSink } from './context.js';
 import { loadOrCreateMasterKey, SecretBox } from './crypto/secrets.js';
@@ -37,7 +38,10 @@ import { AutoModels } from './models/auto.js';
 import { AlertService } from './alerts/alerts.js';
 import { smtpFromEnv } from './alerts/email.js';
 import { startRetention } from './db/retention.js';
-import { OpenFlights, closeInterrupted } from './events/open-flights.js';
+import { OpenFlights, startInstance } from './events/open-flights.js';
+import { Cluster } from './cluster/cluster.js';
+import { RedisLimiter } from './limits/redis-limiter.js';
+import { checkMasterKey } from './db/master-key-check.js';
 import { startKeyRetirement } from './admin/key-lifecycle.js';
 import { describeProxy, outboundProxyFromEnv, useOutboundProxy } from './net/proxy.js';
 import { Metrics } from './metrics/metrics.js';
@@ -55,6 +59,8 @@ Usage: controltower [options]            (docker: pass the same options after th
                         makes the policy match the file
   --port <n>            listen port (default 4000; also CT_PORT or PORT)
   --host <addr>         listen address (default 0.0.0.0)
+  --copy-to-postgres <url>  copy this install's SQLite data (CT_DATA_DIR) into an empty Postgres
+                        database, to run several instances on it; then exit
   --detailed_debug      verbose logs (also --debug)
   --version             print the version
 
@@ -71,6 +77,15 @@ async function main(): Promise<void> {
     process.stdout.write(`${config.version}\n`);
     process.exit(0);
   }
+  if (argv.includes('--copy-to-postgres')) {
+    const url = argv[argv.indexOf('--copy-to-postgres') + 1] ?? config.databaseUrl;
+    if (!url || url.startsWith('--')) throw new Error('--copy-to-postgres needs the Postgres URL: --copy-to-postgres postgres://…');
+    process.stdout.write(`Copying ${config.dataDir}/controltower.db into Postgres…\n`);
+    const counts = await copySqliteToPostgres(config.dataDir, url, (l) => process.stdout.write(`${l}\n`));
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    process.stdout.write(`Done: ${total.toLocaleString()} rows in ${Object.keys(counts).length} tables. Start every instance with CT_DATABASE_URL set to it and this install's CT_MASTER_KEY.\n`);
+    process.exit(0);
+  }
   const here = path.dirname(fileURLToPath(import.meta.url));
   const uiDir = config.uiDir ?? [path.resolve(here, '../../ui/dist'), path.resolve(here, '../ui')].find((p) => fs.existsSync(path.join(p, 'index.html')));
 
@@ -80,9 +95,21 @@ async function main(): Promise<void> {
   const secrets = new SecretBox(mk);
   const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl });
   if (db.dialect === 'postgres') console.warn(`[controltower] data in Postgres (${db.file})`);
-  // A crash leaves calls with no outcome and held calls no agent can come back to: close them out.
-  const interrupted = await closeInterrupted(db.write);
-  if (interrupted.flights || interrupted.approvals) console.warn(`[controltower] closed out what the last stop left open: ${interrupted.flights} unfinished call(s) marked stopped, ${interrupted.approvals} approval(s) expired`);
+  await checkMasterKey(db, mk.id);
+  // Several instances share a Postgres database and stay in step over Redis; SQLite is one instance's own.
+  if (config.redisUrl && db.dialect !== 'postgres') console.warn('[controltower] CT_REDIS_URL is ignored: several instances need a shared Postgres database (CT_DATABASE_URL); this one keeps its data in SQLite.');
+  if (db.dialect === 'postgres' && !config.redisUrl) console.warn('[controltower] no CT_REDIS_URL: run one instance on this database, or set it so several share rate limits, caches and the live console.');
+  const cluster = new Cluster(db.dialect === 'postgres' ? config.redisUrl : undefined, config.instanceId);
+  await cluster.start();
+  // This instance says it is alive; what stopped instances left open (a crash: calls with no outcome, held calls
+  // no agent can come back to) is closed out now and every minute.
+  const instance = startInstance(
+    db.write,
+    { id: cluster.id, host: cluster.host, version: config.version },
+    (r) => console.warn(`[controltower] closed out what a stopped instance left open: ${r.flights} unfinished call(s) marked stopped, ${r.approvals} approval(s) expired`),
+    (err) => console.error('[controltower] instance heartbeat:', (err as Error).message),
+  );
+  await instance.sweep();
 
   await ensurePlaygroundKey(db.write);
   await ensureGuardrailKey(db.write);
@@ -90,7 +117,7 @@ async function main(): Promise<void> {
   await registry.reload();
 
   const bus = new FlightBus();
-  const dbSink: EventSink = db.dialect === 'postgres' ? new PgSink(db.pool!) : new DbSink(db.raw);
+  const dbSink: EventSink = db.dialect === 'postgres' ? new PgSink(db.pool!, cluster.id) : new DbSink(db.raw, cluster.id);
   const ring = new EventRing();
   bus.subscribe(dbSink.push);
   bus.subscribe(ring.push);
@@ -143,7 +170,8 @@ async function main(): Promise<void> {
   const spend = new SpendTracker();
   const budgets = new Budgets(db.write, spend);
   await budgets.reload();
-  budgets.startPersisting();
+  // With a shared database, spend is exchanged more often so every instance meters the same budget.
+  budgets.startPersisting(db.dialect === 'postgres' ? 3_000 : 10_000);
 
   const startedAt = Date.now();
   const metrics = new Metrics({
@@ -185,7 +213,7 @@ async function main(): Promise<void> {
     adapters,
     autoModels,
     pricing,
-    limiter: new MemoryLimiter(),
+    limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
     spend,
     budgets,
     bus,
@@ -306,6 +334,18 @@ async function main(): Promise<void> {
     (retired, days) => app.log.info({ retired: retired.map((k) => k.name), days }, 'keys retired after going unused'),
     (err) => app.log.warn({ err }, 'key retirement pass failed'),
   );
+  // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
+  // and a card decided on one instance releases the call held on another.
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts });
+  cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
+  if (cluster.shared) {
+    live.onLocal = (m) => cluster.publish('live', m);
+    cluster.on('live', (m) => live.receive(m));
+    approvals.onDecided = (id, status) => cluster.publish('approval', { id, status });
+    cluster.on('approval', (p: { id: string; status: 'approved' | 'denied' }) => approvals.decidedElsewhere(p.id, p.status));
+    console.warn(`[controltower] instance ${cluster.id}: sharing Postgres and Redis with other instances`);
+  }
+
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
@@ -331,6 +371,8 @@ async function main(): Promise<void> {
     clearInterval(checkpoint);
     stopRetention();
     stopRetirement();
+    await instance.stop();
+    await cluster.stop();
     await db.close();
     process.exit(0);
   };

@@ -23,6 +23,10 @@ export interface Config {
   /** Bearer token Prometheus uses to scrape /metrics (admins may also scrape with their session). */
   metricsToken: string | undefined;
   masterKeyEnv: string | undefined;
+  /** Redis, to keep several instances sharing a Postgres database in step (rate limits, caches, live feed). */
+  redisUrl: string | undefined;
+  /** This instance's name in the cluster (default: host, process and a random suffix). */
+  instanceId: string | undefined;
   shutdownGraceMs: number;
   maxHeld: number;
   holdBudgetMs: number;
@@ -113,6 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
       (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : undefined),
     metricsToken: env.CT_METRICS_TOKEN || undefined,
     masterKeyEnv: env.CT_MASTER_KEY || undefined,
+    redisUrl: env.CT_REDIS_URL || undefined,
+    instanceId: env.CT_INSTANCE_ID || undefined,
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),
     maxHeld: int(env.CT_MAX_HELD, 500),
     holdBudgetMs: int(env.CT_HOLD_BUDGET_MS, 20_000),

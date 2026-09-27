@@ -347,7 +347,7 @@ export class McpGateway {
         complete('rejected', 403, { code: e.code, message: e.message });
         return blocked('denied', e.message, { reason: e.code });
       }
-      const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
+      const admit = await ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
       if (!admit.ok) {
         started();
         complete('rejected', 429, { code: 'rate_limit_exceeded', message: 'rate limited' });
@@ -375,7 +375,7 @@ export class McpGateway {
         }
       }
       ctx.bus.emit({ t: 'flight.decision', flight_id: f.id, ts: Date.now(), decision: decision.effect === 'hold' ? 'hold' : decision.effect, rule_id: decision.ruleId, zone_from: decision.zoneFrom, zone_to: decision.zoneTo, reason: decision.reason, arg_hash: decision.argHash });
-      const overGate = gateLimitRefusal(ctx, decision, key);
+      const overGate = await gateLimitRefusal(ctx, decision, key);
       if (overGate) {
         complete('rejected', 429, { code: overGate.code, message: overGate.message });
         return blocked('rate_limited', overGate.message, { rule_id: decision.ruleId });

@@ -277,6 +277,27 @@ export class Registry {
     return this.keysByHash.get(hashApiKey(plaintext));
   }
 
+  private missing = new Map<string, number>();
+  /**
+   * A key this instance doesn't know may have just been made through another instance sharing the database:
+   * look it up, and reload if it is there. Keys that aren't are remembered for 5 s, so a wrong key costs one query.
+   */
+  async findStored(plaintext: string): Promise<KeyRecord | undefined> {
+    if (plaintext.length < 16 || plaintext.length > 512) return undefined;
+    const hash = hashApiKey(plaintext);
+    const known = this.keysByHash.get(hash);
+    if (known) return known;
+    if ((this.missing.get(hash) ?? 0) > Date.now()) return undefined;
+    const row = await this.db.selectFrom('api_keys').select('id').where('key_hash', '=', hash).executeTakeFirst();
+    if (!row) {
+      if (this.missing.size > 10_000) this.missing.clear();
+      this.missing.set(hash, Date.now() + 5_000);
+      return undefined;
+    }
+    await this.reload();
+    return this.keysByHash.get(hash);
+  }
+
   keyMayUseModel(key: KeyRecord, model: string): boolean {
     return key.allowedModels.some((p) => globMatch(p, model));
   }

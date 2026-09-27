@@ -157,6 +157,8 @@ export interface FlightsTable {
   error_code: string | null;
   error_message: string | null;
   completed_at: number | null;
+  /** The instance that served the call. */
+  instance_id: string | null;
 }
 
 export interface FlightEventsTable {
@@ -285,6 +287,15 @@ export interface A2aPushRelaysTable {
   deliveries: Generated<number>;
   last_used_at: number | null;
   created_at: number;
+}
+
+/** A running Control Tower instance, and when it last said it was alive. */
+export interface InstancesTable {
+  id: string;
+  host: string | null;
+  version: string | null;
+  started_at: number;
+  last_seen: number;
 }
 
 /** Traffic by the hour per agent, destination, tool, chain and gate (text columns use '' for none). */
@@ -473,6 +484,7 @@ export interface Database {
   tickets: TicketsTable;
   grants: GrantsTable;
   traffic_hourly: TrafficHourlyTable;
+  instances: InstancesTable;
   a2a_push_relays: A2aPushRelaysTable;
   mcp_servers: McpServersTable;
   http_apis: HttpApisTable;

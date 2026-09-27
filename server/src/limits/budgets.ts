@@ -5,11 +5,15 @@ import { SpendTracker, nextReset, periodStart, type BudgetScope } from './limite
 import { NANO_PER_USD } from '@controltower/shared';
 
 /**
- * Loads budget rows into the in-memory SpendTracker and persists settled
- * spend back every few seconds so a restart does not reset the meter.
+ * Loads budget rows into the in-memory SpendTracker and writes settled spend back every few seconds, so a
+ * restart does not reset the meter. What is written is what this instance spent since it last wrote (added
+ * to the stored total), and what comes back is the total — so several instances sharing a database meter
+ * one budget together. A period that rolls over is reset once, by whichever instance gets there first.
  */
 export class Budgets {
   private timer: NodeJS.Timeout | undefined;
+  /** Per scope: the stored total and period this instance last saw. Spend above it is not written yet. */
+  private synced = new Map<string, { spent: number; resetsAt: number | undefined }>();
 
   constructor(
     private readonly db: Kysely<Database>,
@@ -23,15 +27,18 @@ export class Budgets {
       const scope = `${r.scope_type}:${r.scope_id}`;
       seen.add(scope);
       const existing = this.tracker.get(scope);
+      // Spend this instance hasn't written yet stays on top of the stored total.
+      const unwritten = existing ? Math.max(0, existing.spent - (this.synced.get(scope)?.spent ?? existing.spent)) : 0;
       const b: BudgetScope = {
         limitNanousd: r.limit_nanousd,
         hard: r.hard === 1,
-        spent: Math.max(existing?.spent ?? 0, r.spent_nanousd),
+        spent: r.spent_nanousd + unwritten,
         reserved: existing?.reserved ?? 0,
         period: r.period as BudgetScope['period'],
         resetsAt: r.resets_at ?? undefined,
       };
       this.tracker.set(scope, b);
+      this.synced.set(scope, { spent: r.spent_nanousd, resetsAt: r.resets_at ?? undefined });
     }
     // Drop scopes deleted in the DB.
     for (const s of this.snapshot().map((x) => x.scope)) if (!seen.has(s)) this.tracker.delete(s);
@@ -57,6 +64,7 @@ export class Budgets {
         .onConflict((oc) => oc.columns(['scope_type', 'scope_id']).doUpdateSet(values))
         .execute();
       this.tracker.delete(`${scopeType}:${scopeId}`); // the meter restarts from the recorded spend
+      this.synced.delete(`${scopeType}:${scopeId}`);
     }
     await this.reload();
   }
@@ -76,6 +84,7 @@ export class Budgets {
   async remove(scopeType: string, scopeId: string): Promise<void> {
     await this.db.deleteFrom('budgets').where('scope_type', '=', scopeType).where('scope_id', '=', scopeId).execute();
     this.tracker.delete(`${scopeType}:${scopeId}`);
+    this.synced.delete(`${scopeType}:${scopeId}`);
   }
 
   snapshot(): Array<{ scope: string; limit_nanousd: number; spent_nanousd: number; reserved_nanousd: number; hard: boolean; period: string; resets_at: number | undefined }> {
@@ -94,12 +103,27 @@ export class Budgets {
   async persist(): Promise<void> {
     for (const s of this.snapshot()) {
       const [scopeType, ...rest] = s.scope.split(':');
-      await this.db
-        .updateTable('budgets')
-        .set({ spent_nanousd: s.spent_nanousd, resets_at: s.resets_at ?? null })
-        .where('scope_type', '=', scopeType!)
-        .where('scope_id', '=', rest.join(':'))
-        .execute();
+      const scopeId = rest.join(':');
+      const b = this.tracker.get(s.scope);
+      if (!b) continue;
+      const where = <Q extends { where: (...a: any[]) => Q }>(q: Q): Q => q.where('scope_type', '=', scopeType!).where('scope_id', '=', scopeId);
+      let prev = this.synced.get(s.scope) ?? { spent: b.spent, resetsAt: b.resetsAt };
+      // This instance saw the period roll over: reset the stored total, unless another instance already has.
+      if (b.resetsAt !== prev.resetsAt) {
+        await where(this.db.updateTable('budgets').set({ spent_nanousd: 0, resets_at: b.resetsAt ?? null }))
+          .where((eb) => (prev.resetsAt == null ? eb('resets_at', 'is', null) : eb('resets_at', '=', prev.resetsAt)))
+          .execute();
+        prev = { spent: 0, resetsAt: b.resetsAt };
+      }
+      const delta = Math.round(b.spent - prev.spent);
+      if (delta) await where(this.db.updateTable('budgets').set((eb) => ({ spent_nanousd: eb('spent_nanousd', '+', delta) }))).execute();
+      const row = await where(this.db.selectFrom('budgets').select(['spent_nanousd', 'resets_at'])).executeTakeFirst();
+      if (!row) continue;
+      // Spend settled while this ran stays unwritten, on top of the new total.
+      const extra = b.spent - prev.spent - delta;
+      if ((row.resets_at ?? undefined) !== b.resetsAt && row.resets_at != null && (b.resetsAt == null || row.resets_at > b.resetsAt)) b.resetsAt = row.resets_at;
+      b.spent = row.spent_nanousd + extra;
+      this.synced.set(s.scope, { spent: row.spent_nanousd, resetsAt: b.resetsAt });
     }
   }
 

@@ -109,7 +109,7 @@ export class HttpGateway {
     if (!url) return refuse(400, 'denied', 'path_not_allowed', 'That path leaves the registered API (dot segments and encoded dots are refused).');
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${slug} (${route}).`);
     if (loopsBack(f.chain, api.agentId)) return refuse(403, 'rejected', 'delegation_loop', E.delegationLoop(api.agentId!).message);
-    const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
+    const admit = await ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
     if (!admit.ok) {
       reply.header('retry-after', String(Math.ceil(admit.retryAfterMs / 1000)));
       return refuse(429, 'rejected', 'rate_limit_exceeded', 'Rate limit exceeded for this key.', { retry_after_ms: admit.retryAfterMs });
@@ -134,7 +134,7 @@ export class HttpGateway {
       }
       ctx.bus.emit({ t: 'flight.decision', flight_id: f.id, ts: Date.now(), decision: decision.effect === 'hold' ? 'hold' : decision.effect, rule_id: decision.ruleId, zone_from: decision.zoneFrom, zone_to: decision.zoneTo, reason: decision.reason, arg_hash: decision.argHash });
       if (decision.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, { rule_id: decision.ruleId });
-      const overGate = gateLimitRefusal(ctx, decision, key);
+      const overGate = await gateLimitRefusal(ctx, decision, key);
       if (overGate) return refuse(overGate.status, 'rejected', overGate.code, overGate.message, decision.ruleId ? { rule_id: decision.ruleId } : {});
       if (decision.effect === 'hold') {
         const outcome = await ctx.approvals.hold(f, decision);

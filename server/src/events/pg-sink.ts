@@ -15,7 +15,7 @@ const PENDING_MAX = 2000;
 const BACKLOG_CAP = 100_000;
 const CHUNK = 1000;
 
-const INSERT_COLS = ['id', 'ts', 'key_id', 'key_name', 'agent_id', 'team', 'project', 'kind', 'dialect', 'model_requested', 'alias_id', 'deployment_id', 'provider_id', 'provider_kind', 'mcp_server_id', 'tool', 'stream', 'on_behalf_of', 'parent_flight_id'] as const;
+const INSERT_COLS = ['id', 'ts', 'key_id', 'key_name', 'agent_id', 'team', 'project', 'kind', 'dialect', 'model_requested', 'alias_id', 'deployment_id', 'provider_id', 'provider_kind', 'mcp_server_id', 'tool', 'stream', 'on_behalf_of', 'parent_flight_id', 'instance_id'] as const;
 /** Columns later events fill in, with their Postgres types (VALUES lists need them spelled out). */
 const LATER: Record<string, 'text' | 'bigint'> = {
   decision: 'text', rule_id: 'text', approval_id: 'text', deployment_id: 'text', provider_id: 'text', status: 'text', http_status: 'bigint',
@@ -38,6 +38,7 @@ export class PgSink {
 
   constructor(
     private readonly pool: pg.Pool,
+    private readonly instanceId: string | null = null,
     private readonly onError: (err: unknown) => void = (e) => console.error('[pg-sink]', e),
   ) {}
 
@@ -108,6 +109,7 @@ export class PgSink {
             kind: e.kind, dialect: e.dialect, model_requested: e.model_requested, alias_id: e.alias_id ?? null, deployment_id: e.deployment_id ?? null,
             provider_id: e.provider_id ?? null, provider_kind: e.provider_kind ?? null, mcp_server_id: e.mcp_server_id ?? null, tool: e.tool ?? null,
             stream: e.stream ? 1 : 0, on_behalf_of: e.on_behalf_of?.length ? JSON.stringify(e.on_behalf_of) : null, parent_flight_id: e.parent_flight_id ?? null,
+            instance_id: this.instanceId,
           });
           later.delete(e.flight_id);
           break;

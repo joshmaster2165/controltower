@@ -40,6 +40,7 @@ export async function ensurePlaygroundKey(db: Kysely<Database>): Promise<void> {
       created_at: Date.now(),
       last_used_at: null,
     })
+    .onConflict((oc) => oc.column('id').doNothing()) // instances starting together
     .execute();
 }
 

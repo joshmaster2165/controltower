@@ -262,6 +262,14 @@ export class ApprovalService implements Approvals {
     });
   }
 
+  /** Told when a card is decided here: the other instances are told too, so a call held there continues at once. */
+  onDecided: ((approvalId: string, status: 'approved' | 'denied') => void) | undefined;
+
+  /** A card was decided on another instance: continue the calls held on it here. */
+  decidedElsewhere(approvalId: string, status: 'approved' | 'denied'): void {
+    this.wake(approvalId, status);
+  }
+
   private wake(approvalId: string, status: 'approved' | 'denied' | 'expired' | 'drained'): void {
     const set = this.waiters.get(approvalId);
     if (!set) return;
@@ -316,6 +324,7 @@ export class ApprovalService implements Approvals {
       await this.db.updateTable('approvals').set({ grant_id: grantId }).where('id', '=', approvalId).execute();
     }
     this.wake(approvalId, status);
+    this.onDecided?.(approvalId, status);
     this.version.bump();
     this.getLog().info({ approvalId, by, action }, 'approval decided');
     return { ok: true, status };

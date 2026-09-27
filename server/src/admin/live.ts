@@ -45,6 +45,14 @@ export class LiveFrames {
     this.timers.push(tick, detail);
   }
 
+  /** Frames this instance produces go here too — to the other instances, when several share the work. */
+  onLocal: ((m: WsServerMessage) => void) | undefined;
+
+  /** A frame from another instance: its consoles' traffic, shown on this instance's consoles too. */
+  receive(m: WsServerMessage): void {
+    this.deliver(m);
+  }
+
   subscribe(fn: (m: WsServerMessage) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -148,6 +156,11 @@ export class LiveFrames {
   }
 
   private emit(m: WsServerMessage): void {
+    this.onLocal?.(m);
+    this.deliver(m);
+  }
+
+  private deliver(m: WsServerMessage): void {
     const now = Date.now();
     this.history.push({ at: now, m });
     this.prune(now);

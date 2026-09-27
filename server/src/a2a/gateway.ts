@@ -191,7 +191,7 @@ export class A2aGateway {
     if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
     if (!key.allowedMcp.some((g) => globMatch(g, full))) return refuse(403, 'denied', 'tool_not_allowed', `This key may not call ${agent.name} (${info.name}).`);
     if (loopsBack(f.chain, agent.agentId)) return refuse(403, 'rejected', 'delegation_loop', E.delegationLoop(agent.agentId!).message);
-    const admit = ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
+    const admit = await ctx.limiter.admit(`key:${key.id}`, 1, key.limits);
     if (!admit.ok) return refuse(429, 'rejected', 'rate_limit_exceeded', 'Rate limit exceeded for this key.', { retry_after_ms: String(admit.retryAfterMs) });
 
     try {
@@ -223,7 +223,7 @@ export class A2aGateway {
       }
       ctx.bus.emit({ t: 'flight.decision', flight_id: f.id, ts: Date.now(), decision: decision.effect === 'hold' ? 'hold' : decision.effect, rule_id: decision.ruleId, zone_from: decision.zoneFrom, zone_to: decision.zoneTo, reason: decision.reason, arg_hash: decision.argHash });
       if (decision.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, decision.ruleId ? { rule_id: decision.ruleId } : {});
-      const overGate = gateLimitRefusal(ctx, decision, key);
+      const overGate = await gateLimitRefusal(ctx, decision, key);
       if (overGate) return refuse(overGate.status, 'rejected', overGate.code, overGate.message, decision.ruleId ? { rule_id: decision.ruleId } : {});
       if (decision.effect === 'hold') {
         const outcome = await ctx.approvals.hold(f, decision);

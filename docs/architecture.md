@@ -43,7 +43,7 @@ Credentials are encrypted with AES-256-GCM under the master key (`/data/master.k
 
 ## Data and retention
 
-Everything lives in SQLite in the data directory (`controltower.db`, write-ahead logged). Events are written in batches every 50 ms, so recording never blocks a request. A retention job runs hourly:
+Everything lives in SQLite in the data directory (`controltower.db`, write-ahead logged) — or in Postgres with `CT_DATABASE_URL`, which several instances can share ([Running several instances](scaling.md)). Events are written in batches every 50 ms, so recording never blocks a request. A retention job runs hourly:
 
 | Data | Kept |
 |---|---|
@@ -61,7 +61,7 @@ Live traffic reaches the console over a WebSocket as a summary a second — tota
 
 ## Scale and limits
 
-- **One instance.** SQLite, in-memory rate limits and budget counters, and approval holds all live in one process. Run it as a single instance with a persistent volume; multi-instance deployment (Postgres and a shared limiter) is on the roadmap.
+- **One instance, or several.** With SQLite, rate limits, budget counters and approval holds live in one process: run it as a single instance with a persistent volume. With Postgres and Redis, several instances share the data, rate limits, budgets, approvals and the live console ([Running several instances](scaling.md)).
 - **Holds** are bounded: at most 500 requests wait at once (`CT_MAX_HELD`), five per key; beyond that a request gets a ticket immediately.
 - **Shutdown** is graceful: on `SIGTERM` the server stops accepting requests, turns held requests into tickets, lets streams finish for up to 15 s and flushes everything to disk.
 

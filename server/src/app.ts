@@ -1,3 +1,4 @@
+import { extractApiKey } from './gateway/key.js';
 import fs from 'node:fs';
 import { keyLifecycleRoutes } from './admin/key-lifecycle.js';
 import path from 'node:path';
@@ -53,6 +54,11 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   // Large console API answers (the map's topology, flight lists, exports) are gzipped when the
   // browser accepts it. Only /admin/api: gateway traffic is passed through exactly as it came.
   const gzipAsync = promisify(gzip);
+  // A key this instance doesn't know yet may have just been made through another one: look it up before any route checks it.
+  app.addHook('onRequest', async (req) => {
+    const presented = extractApiKey(req);
+    if (presented && !full.registry.authenticate(presented)) await full.registry.findStored(presented);
+  });
   app.addHook('onSend', async (req, reply, payload) => {
     if (typeof payload !== 'string' || payload.length < 16 * 1024 || !req.url.startsWith('/admin/api/')) return payload;
     if (reply.getHeader('content-encoding') || !/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) return payload;

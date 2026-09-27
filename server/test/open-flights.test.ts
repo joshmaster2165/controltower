@@ -34,6 +34,6 @@ describe('calls a stop cuts off', () => {
     expect(row('SELECT status, error_code FROM flights WHERE id = ?', 'cut')).toEqual({ status: 'shutdown', error_code: 'interrupted' });
     expect(row('SELECT status FROM flights WHERE id = ?', 'done')).toEqual({ status: 'ok' });
     expect(row('SELECT status FROM approvals WHERE id = ?', 'apr_crashed')).toEqual({ status: 'expired' });
-    expect(row('SELECT status, waiters FROM approvals WHERE id = ?', 'apr_ticketed')).toEqual({ status: 'pending', waiters: 0 });
+    expect(row('SELECT status FROM approvals WHERE id = ?', 'apr_ticketed')).toEqual({ status: 'pending' });
   });
 });

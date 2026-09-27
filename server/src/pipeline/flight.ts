@@ -235,10 +235,10 @@ export class FlightRunner {
       // ---- admission ----
       if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);
       const maxParallel = key.limits.maxParallel ?? 0;
-      const release = ctx.limiter.acquireSlot(`key:${key.id}`, maxParallel);
+      const release = await ctx.limiter.acquireSlot(`key:${key.id}`, maxParallel);
       if (!release) throw E.tooManyParallel(maxParallel);
       f.releaseSlot = release;
-      const admit = ctx.limiter.admit(`key:${key.id}`, f.estInput, key.limits);
+      const admit = await ctx.limiter.admit(`key:${key.id}`, f.estInput, key.limits);
       if (!admit.ok) {
         reply.header('retry-after', String(Math.ceil(admit.retryAfterMs / 1000)));
         throw E.rateLimited(admit.which ?? 'rpm', admit.retryAfterMs);
@@ -346,7 +346,7 @@ export class FlightRunner {
         }
       }
       // An allow-with-limits gate: within its rate, and its cap on the reply's length.
-      const overGate = gateLimitRefusal(ctx, decision, key, f.estInput);
+      const overGate = await gateLimitRefusal(ctx, decision, key, f.estInput);
       if (overGate) {
         f.status = 'rejected';
         throw overGate;

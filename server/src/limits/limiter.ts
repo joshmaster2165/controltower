@@ -16,11 +16,12 @@ export interface Limits {
   tpm?: number;
 }
 
+/** In memory (one instance) or in Redis (several): callers await either. */
 export interface Limiter {
-  admit(scope: string, estTokens: number, limits: Limits, now?: number): Admit;
+  admit(scope: string, estTokens: number, limits: Limits, now?: number): Admit | Promise<Admit>;
   /** Charge (actual − estimated) tokens after completion; may be negative. */
   reconcile(scope: string, deltaTokens: number, limits: Limits, now?: number): void;
-  acquireSlot(scope: string, max: number): (() => void) | null;
+  acquireSlot(scope: string, max: number): (() => void) | null | Promise<(() => void) | null>;
 }
 
 interface Gcra {

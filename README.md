@@ -24,7 +24,7 @@
 - **Hear about it.** Alerts on any gate (*blocked*, *held*, *masked*, *approval misused* …), provider outages and recoveries, failing or slow requests, budgets nearly or fully used, and a daily summary — every time or only when it repeats (e.g. 5× in 10 min). They land in the console inbox and can go to Slack or a signed webhook; a cooldown rolls bursts into one summary. Prometheus metrics at `/metrics`.
 - **Count it.** Per-key, per-team, per-model spend and tokens with budgets and rate limits — the accounting you'd expect from an LLM gateway, with the map on top.
 
-> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also by email and Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway (tools, resources and prompts), an HTTP gateway for plain REST APIs, an A2A gateway for remote agents, agent-to-agent delegation with on-behalf-of gates, and demo mode. Not yet: an egress proxy for traffic that skips the gateway, Postgres/Redis for multiple instances, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
+> Status: **v0.1 preview.** Working today: the OpenAI-compatible and Anthropic-native gateway (OpenAI, Azure, Anthropic, Google Gemini, Google Vertex AI, AWS Bedrock, Groq, Together, Mistral, DeepSeek, xAI, OpenRouter, Ollama, vLLM, any OpenAI-compatible URL) with chat, embeddings and OpenAI's Responses API, API keys with limits and budgets, cost accounting from a vendored price table, the live Airspace (including traffic that bypasses the gateway), zones and gates drawn on the map, human approvals with hold → ticket → grant (also by email and Slack), inspect gates, alerts, simulating a gate on past traffic, the Ledger, data-flow export, policy as YAML, `/metrics`, setup from a config file (`--config`), the MCP tool gateway (tools, resources and prompts), an HTTP gateway for plain REST APIs, an A2A gateway for remote agents, agent-to-agent delegation with on-behalf-of gates, and demo mode. Several instances can share Postgres and Redis. Not yet: an egress proxy for traffic that skips the gateway, and users/SSO. See the roadmap and [docs/threat-model.md](docs/threat-model.md).
 
 ## Quickstart
 
@@ -238,6 +238,8 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_POLICY` | — | [Policy file](docs/policy-as-code.md) (zones and gates) applied at every start (also `--policy`); `CT_POLICY_MODE=replace` makes the policy match it |
 | `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `master_key` in the config file works too. |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
+| `CT_DATABASE_URL` | — | Postgres instead of SQLite — with `CT_REDIS_URL`, several instances can share it ([docs](docs/scaling.md)) |
+| `CT_REDIS_URL` | — | Redis, keeping several instances in step |
 | `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting provider credentials at rest. Back up `/data/master.key` if you let it generate one. |
 | `CT_DEMO` | `0` | Seed stand-in Anthropic/OpenAI/Gemini providers and demo tool servers, and run a synthetic agent fleet |
 | `CT_AUTO_MODELS` | `1` | Add a deployment the first time a request names a model a connected provider serves; `0` requires every model to be added under Models |
@@ -257,7 +259,7 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.2 — understand it** (shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓, Flight Recorder replay ✓.
 - **v0.1.5 — agents calling agents** (shipped): delegation tokens, on-behalf-of gates, call chains and traces, the A2A gateway, MCP resources and prompts as flights, spend rolled up to the origin agent.
 - **v0.1.6 — approvals that keep up, agents that come and go** (shipped): approve the next N calls, approvals that say whom a chained call is for, hide idle agents, expiring and retired keys, allow-with-limits gates, model-checked prompt injection; chains tested with four agent frameworks.
-- **v0.3 — trust it**: egress proxy sidecar, Playwright fixture for browser agents, Postgres + Redis multi-instance, audit export; enterprise: users/RBAC/SSO.
+- **v0.3 — trust it**: Postgres + Redis multi-instance ✓, egress proxy sidecar, Playwright fixture for browser agents, audit export; enterprise: users/RBAC/SSO.
 
 ## License
 

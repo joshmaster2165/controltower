@@ -6,7 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import express from 'express';
-import { AgentEvent, DefaultRequestHandler, InMemoryTaskStore, type AgentExecutor } from '@a2a-js/sdk/server';
+import { AgentEvent, DefaultRequestHandler, DefaultExecutionEventBusManager, InMemoryTaskStore, InMemoryPushNotificationStore, DefaultPushNotificationSender, type AgentExecutor } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { Role, TaskState } from '@a2a-js/sdk';
 
@@ -361,6 +361,40 @@ export async function a2aSdkAgent(token: string): Promise<{ url: string; receive
   });
   app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler: handler, userBuilder: UserBuilder.noAuthentication }));
   return { url, received, close: () => new Promise((r) => server.close(() => r())) };
+}
+
+/**
+ * A push-capable A2A agent (official SDK): works a moment, then completes with "done: <the message>". It sends
+ * push notifications to whatever webhook it is given; `rpc` keeps the JSON-RPC bodies it received.
+ */
+export async function a2aPushAgent(token: string): Promise<{ url: string; rpc: string[]; close(): Promise<void> }> {
+  const rpc: string[] = [];
+  const app = express();
+  const server = http.createServer(app);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const card = { name: 'Push agent', description: 'Sends push notifications', version: '1.0.0', supportedInterfaces: [{ url: `${url}/rpc`, protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' }], provider: undefined, capabilities: { streaming: true, pushNotifications: true, extensions: [], extendedAgentCard: false }, securitySchemes: {}, securityRequirements: [], defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], skills: [], signatures: [] };
+  const textPart = (text: string) => ({ content: { $case: 'text' as const, value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' });
+  const executor: AgentExecutor = {
+    async execute(ctx, bus) {
+      const text = ctx.userMessage.parts.map((p) => (p.content?.$case === 'text' ? p.content.value : '')).join('');
+      bus.publish(AgentEvent.task({ id: ctx.taskId, contextId: ctx.contextId, artifacts: [], history: [ctx.userMessage], metadata: undefined, status: { state: TaskState.TASK_STATE_WORKING, message: undefined, timestamp: undefined } } as never));
+      await new Promise((r) => setTimeout(r, 200));
+      bus.publish(AgentEvent.statusUpdate({ taskId: ctx.taskId, contextId: ctx.contextId, status: { state: TaskState.TASK_STATE_COMPLETED, message: { messageId: crypto.randomUUID(), contextId: ctx.contextId, taskId: ctx.taskId, role: Role.ROLE_AGENT, parts: [textPart(`done: ${text}`)], metadata: undefined, extensions: [], referenceTaskIds: [] }, timestamp: undefined }, metadata: undefined } as never));
+      bus.finished();
+    },
+    async cancelTask() {},
+  };
+  const store = new InMemoryPushNotificationStore();
+  const handler = new DefaultRequestHandler(card as never, new InMemoryTaskStore(), executor, new DefaultExecutionEventBusManager(), store, new DefaultPushNotificationSender(store));
+  app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: handler }));
+  app.use('/rpc', express.json(), (req, res, next) => {
+    if (req.headers.authorization !== `Bearer ${token}`) return void res.status(401).json({ error: 'unauthorized' });
+    rpc.push(JSON.stringify(req.body));
+    next();
+  });
+  app.use('/rpc', jsonRpcHandler({ requestHandler: handler, userBuilder: UserBuilder.noAuthentication }));
+  return { url, rpc, close: () => new Promise((r) => server.close(() => r())) };
 }
 
 export function webhookReceiver(): Promise<Upstream> {

@@ -16,7 +16,7 @@ export default defineConfig({
   webServer: {
     command: `node server/dist/server.mjs`,
     url: `http://127.0.0.1:${PORT}/healthz`,
-    env: { CT_PORT: String(PORT), CT_DATA_DIR: dataDir, CT_DEMO: '0', CT_LOG_LEVEL: 'warn', CT_UI_DIR: path.resolve('ui/dist') },
+    env: { CT_PORT: String(PORT), CT_DATA_DIR: dataDir, CT_DEMO: '0', CT_LOG_LEVEL: 'warn', CT_UI_DIR: path.resolve('ui/dist'), CT_PUSH_ALLOW_PRIVATE: '1' },
     reuseExistingServer: false,
     timeout: 30_000,
   },

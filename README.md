@@ -247,6 +247,8 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_METRICS_TOKEN` | — | Bearer token for Prometheus to scrape `/metrics` |
 | `CT_PUBLIC_URL` | — | Public URL, used for links in alerts, signed approval links and the ingress probe. Detected on Render, Fly.io and Railway |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request may wait at a gate for a human before becoming a ticket |
+| `CT_A2A_PUSH_RELAY` | `on` | `off` lets A2A agents send push notifications straight to the caller's webhook instead of through Control Tower |
+| `CT_PUSH_ALLOW_PRIVATE` | — | `1` lets relayed push notifications go to private, loopback and link-local addresses |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |
 
 ## Roadmap

@@ -273,6 +273,20 @@ export interface GrantsTable {
   chain: string | null;
 }
 
+/** An A2A push webhook relayed through Control Tower: `target_enc` is the caller's { url, token?, authentication? }. */
+export interface A2aPushRelaysTable {
+  id: string;
+  a2a_agent_id: string;
+  key_id: string;
+  target_enc: string;
+  secret_hash: string;
+  flight_id: string | null;
+  on_behalf_of: string | null;
+  deliveries: Generated<number>;
+  last_used_at: number | null;
+  created_at: number;
+}
+
 /** Traffic by the hour per agent, destination, tool, chain and gate (text columns use '' for none). */
 export interface TrafficHourlyTable {
   bucket: number;
@@ -459,6 +473,7 @@ export interface Database {
   tickets: TicketsTable;
   grants: GrantsTable;
   traffic_hourly: TrafficHourlyTable;
+  a2a_push_relays: A2aPushRelaysTable;
   mcp_servers: McpServersTable;
   http_apis: HttpApisTable;
   alert_channels: AlertChannelsTable;

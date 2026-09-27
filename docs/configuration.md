@@ -52,6 +52,8 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_AUTO_MODELS` | `1` | Add a model the first time a connected provider is asked for it; `0` requires every model under **Models** |
 | `CT_MODE` | `on` | `off` stops enforcing gates (everything is allowed and still recorded) — a kill switch |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request waits at an approval gate before becoming a ticket |
+| `CT_A2A_PUSH_RELAY` | `on` | `off` lets A2A agents send push notifications straight to the caller's webhook instead of through Control Tower |
+| `CT_PUSH_ALLOW_PRIVATE` | — | `1` lets relayed push notifications go to private, loopback and link-local addresses |
 | `CT_MAX_HELD` | `500` | Most requests held at once; beyond it, requests get a ticket immediately |
 | `CT_SMTP_URL` | — | Default SMTP server for email alert channels: `smtp://user:password@host:587` or `smtps://…:465` |
 | `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |

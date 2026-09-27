@@ -10,7 +10,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SpanKind } from '@opentelemetry/api';
 import { ClientFactory, ClientFactoryOptions, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import { Role } from '@a2a-js/sdk';
-import { a2aSdkAgent, a2aUpstream, anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
+import { a2aPushAgent, a2aSdkAgent, a2aUpstream, anthropicUpstream, mcpUpstream, openAiUpstream, subAgentUpstream, webhookReceiver, type Upstream } from './support/upstreams';
 import { field } from './support/ui';
 import { smtpCapture } from './support/smtp';
 
@@ -863,6 +863,67 @@ test('A2A: a webhook asked for inside a message passes the same gate as the setu
   expect((await rpc(message(false))).status).toBe(200);
   await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);
   expect((await rpc(message(true))).status).toBe(200);
+});
+
+test('A2A push notifications come back through Control Tower: recorded, gated, inspected, delivered with the caller’s token', async () => {
+  const agent = await a2aPushAgent('push-agent-secret');
+  const hook = await webhookReceiver();
+  upstreams.push(hook);
+  const reg = await admin.post('/admin/api/a2a/agents', { name: 'Push agent', slug: 'pusher', url: agent.url, auth: { type: 'bearer', token: 'push-agent-secret' } });
+  expect(reg.body.check.ok).toBe(true);
+  const caller = await key('rw-push-receiver');
+  const fetchImpl: typeof fetch = (input, init) => {
+    const h = new Headers(init?.headers);
+    h.set('authorization', `Bearer ${caller.key}`);
+    return fetch(input, { ...init, headers: h });
+  };
+  const client = await new ClientFactory(ClientFactoryOptions.createFrom(ClientFactoryOptions.default, { transports: [new JsonRpcTransportFactory({ fetchImpl })], cardResolver: new DefaultAgentCardResolver({ fetchImpl }) })).createFromUrl(`${CT}/a2a/pusher/.well-known/agent-card.json`, '');
+  const webhook = `${hook.url}/notify`;
+  const send = (text: string) =>
+    client.sendMessage({ tenant: '', message: { messageId: crypto.randomUUID(), contextId: '', taskId: '', role: Role.ROLE_USER, parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: 'text/plain' }], metadata: undefined, extensions: [], referenceTaskIds: [] }, configuration: { acceptedOutputModes: [], taskPushNotificationConfig: { tenant: '', id: '', taskId: '', url: webhook, token: 'caller-token', authentication: undefined }, returnImmediately: true }, metadata: undefined } as never);
+  const deliveries = () => hook.calls.filter((c) => c.path === '/notify');
+
+  // The agent is given a Control Tower address and a token of its own — never the caller's webhook or token.
+  const first = (await send('hello')) as any;
+  await expect.poll(() => deliveries().some((d) => /done: hello/.test(d.body)), { timeout: 10_000 }).toBe(true);
+  expect(agent.rpc.join()).not.toContain(webhook);
+  expect(agent.rpc.join()).not.toContain('caller-token');
+  expect(agent.rpc.join()).toContain(`${CT}/a2a/pusher/push/rly_`);
+  // Each notification reaches the caller's webhook with the caller's token, and is recorded under the call that set it up.
+  expect(deliveries().every((d) => d.headers['x-a2a-notification-token'] === 'caller-token')).toBe(true);
+  const flights = await flightsFor(caller.id, (f) => f.some((x: any) => x.tool === 'PushNotification'));
+  const sent = flights.find((x: any) => x.tool === 'SendMessage');
+  const pushed = flights.filter((x: any) => x.tool === 'PushNotification');
+  expect(pushed.every((x: any) => x.status === 'ok' && x.parent_flight_id === sent.id)).toBe(true);
+
+  // Asked for the configuration, the agent's reply shows the caller its own webhook.
+  const taskId = String(first.task?.id ?? first.id ?? '');
+  const shown = (await client.listTaskPushNotificationConfig({ tenant: '', taskId, pageSize: 10, pageToken: '' } as never).catch((e: Error) => ({ error: e.message }))) as any;
+  expect(JSON.stringify(shown)).toContain(webhook);
+  expect(JSON.stringify(shown)).not.toContain('/push/rly_');
+
+  // An inspect gate reads what the caller is about to read: a secret in a notification is masked.
+  const mask = await admin.post('/admin/api/rules', { name: 'Mask secrets in pushes', target_kind: 'tool', match: { keys: [caller.id], tools: ['pusher__PushNotification'] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'mask', direction: 'output' }, priority: 2 });
+  const before = deliveries().length;
+  await send('key AKIAIOSFODNN7EXAMPLE');
+  await expect.poll(() => deliveries().slice(before).some((d) => /done: key/.test(d.body)), { timeout: 10_000 }).toBe(true);
+  const masked = deliveries().slice(before).map((d) => d.body).join();
+  expect(masked).not.toContain('AKIAIOSFODNN7EXAMPLE');
+  expect(masked).toContain('[SECRET:AWS_KEY]');
+  await admin.call('DELETE', `/admin/api/rules/${mask.body.id}`);
+
+  // A gate can stop the caller receiving them.
+  const stop = await admin.post('/admin/api/rules', { name: 'No pushes from the push agent', target_kind: 'tool', match: { keys: [caller.id], tools: ['pusher__PushNotification'] }, effect: 'deny', priority: 2 });
+  const held = deliveries().length;
+  await send('again');
+  await expect.poll(async () => (await flightsFor(caller.id)).filter((x: any) => x.tool === 'PushNotification' && x.status === 'denied').length, { timeout: 10_000 }).toBeGreaterThan(0);
+  expect(deliveries().length).toBe(held);
+  await admin.call('DELETE', `/admin/api/rules/${stop.body.id}`);
+
+  // The relay address answers only to the agent's token.
+  const relay = /\/a2a\/pusher\/push\/(rly_[A-Za-z0-9_-]+)/.exec(agent.rpc.join())![1];
+  expect((await fetch(`${CT}/a2a/pusher/push/${relay}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-a2a-notification-token': 'guess' }, body: '{}' })).status).toBe(401);
+  await agent.close();
 });
 
 test('A2A with the official SDK: an SDK agent behind Control Tower, driven by the SDK client', async () => {

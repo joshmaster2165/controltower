@@ -46,6 +46,9 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   // The hourly traffic summary is small (one row per path per hour) and has no rowid: one delete.
   const traffic = await sql`DELETE FROM traffic_hourly WHERE bucket < ${history}`.execute(db);
   if (Number(traffic.numAffectedRows ?? 0)) out.traffic_hourly = Number(traffic.numAffectedRows);
+  // A push relay no notification has used for 30 days is forgotten (its agent's later notifications get 404).
+  const relays = await sql`DELETE FROM a2a_push_relays WHERE COALESCE(last_used_at, created_at) < ${now - 30 * DAY}`.execute(db);
+  if (Number(relays.numAffectedRows ?? 0)) out.a2a_push_relays = Number(relays.numAffectedRows);
   await run('observed_hourly', sql`bucket < ${history}`);
   // A connection unused for 90 days counts as new again when it comes back.
   await run('paths', sql`last_seen < ${history}`);

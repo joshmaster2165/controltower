@@ -15,6 +15,7 @@ import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loop
 import { CARD_PATH, LEGACY_CARD_PATH, METHODS, publishedCard, skillsOf } from './card.js';
 import { authHeaders, type A2aAgentRecord } from './registry.js';
 import { readCapped } from '../util/body.js';
+import { PushRelay, pushConfigs } from './push.js';
 
 type Json = Record<string, unknown>;
 type Status = NonNullable<Flight['status']>;
@@ -87,9 +88,15 @@ export function stableArgs(params: Json): Json {
  * on with its own calls. Both A2A 1.0 and 0.3 method names are accepted.
  */
 export class A2aGateway {
-  constructor(private readonly ctx: AppContext) {}
+  private readonly push: PushRelay;
+
+  constructor(private readonly ctx: AppContext) {
+    this.push = new PushRelay(ctx);
+  }
 
   register(app: FastifyInstance): void {
+    // Push notifications agents send back, relayed to the caller's webhook.
+    this.push.register(app);
     app.get('/a2a', (req, reply) => this.list(req, reply));
     for (const p of [CARD_PATH, LEGACY_CARD_PATH]) app.get(`/a2a/:slug${p}`, (req, reply) => this.card(req, reply));
     app.post('/a2a/:slug', { bodyLimit: MAX_BODY }, (req, reply) => this.rpc(req, reply));
@@ -237,6 +244,13 @@ export class A2aGateway {
         if (r.value !== params.message) outParams = { ...params, message: r.value };
       }
 
+      // ---- push notifications come back through Control Tower: the agent gets a relay address, not the caller's webhook ----
+      if (this.push.enabled && pushConfigs(outParams).length) {
+        outParams = structuredClone(outParams);
+        const bad = await this.push.relayIn(outParams, agent, key.id, f.id, f.chain, this.base(req));
+        if (bad) return refuse(400, 'rejected', 'invalid_webhook', `Control Tower can't relay push notifications to this webhook: ${bad}.`);
+      }
+
       // ---- forward, with the agent's credentials and a delegation token for it ----
       const token = agent.agentId ? tokenFor(ctx, f.chain, key, agent.agentId, f.id, f.originKeyId) : undefined;
       // The caller's own token and approval ticket stay here; the agent gets a token of its own, if it is linked to a key.
@@ -340,6 +354,8 @@ export class A2aGateway {
       }
       // An extended card is published pointing at Control Tower too.
       if (info.card && parsed.result && typeof parsed.result === 'object') parsed = { ...parsed, result: publishedCard(parsed.result as Json, `${this.base(req)}/a2a/${agent.slug}`, agent.protocolVersion ?? '1.0') };
+      // A configuration the agent shows back shows the caller's own webhook, not the relay.
+      if (this.push.enabled && parsed.result !== undefined) parsed = { ...parsed, result: await this.push.restoreOut(parsed.result, agent, this.base(req)) };
       const err = parsed.error as { code?: number; message?: string } | undefined;
       const failed = err ? undefined : failedTask(parsed.result);
       complete(err || failed ? 'error' : res.statusCode < 400 ? 'ok' : 'error', res.statusCode, err ? { code: `a2a_${err.code ?? 'error'}`, message: String(err.message ?? '') } : failed, text.length);

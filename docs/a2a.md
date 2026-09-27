@@ -127,13 +127,23 @@ A call held for approval that times out answers `APPROVAL_REQUIRED` with a `tick
 
 An approval is bound to the message's content, not its `messageId`: SDKs make a new `messageId` for every send, so resending the same message with the ticket works, while a different message is refused.
 
+## Push notifications
+
+An agent that works on a task in the background can send the caller push notifications — task updates POSTed to a webhook the caller gives it. They come back through Control Tower:
+
+- When a caller sets up a webhook — with `CreateTaskPushNotificationConfig` (`tasks/pushNotificationConfig/set` in 0.3), or inside a message (`configuration.taskPushNotificationConfig`) — the agent is given a Control Tower address (`/a2a/<slug>/push/…`) and a token of its own. It never sees the caller's webhook or token.
+- Each notification the agent sends there is checked against that token, recorded as a call (`<slug>__PushNotification`, under the call that set it up, on the caller's key), put through gates and inspect gates like anything the caller reads, and delivered to the caller's webhook with the caller's own token (`X-A2A-Notification-Token`) or credentials (`Authorization`).
+- A gate on `<slug>__PushNotification` stops the caller receiving them; an inspect gate reading replies masks or blocks what they carry. Setting up a webhook is a call of its own (`<slug>__CreateTaskPushNotificationConfig`), gated wherever it's asked for — a message carrying a push configuration passes the same allow-list and gates.
+- When the agent shows a configuration back (get, list), the caller sees its own webhook.
+- Control Tower delivers only to public addresses: a webhook on a private, loopback or link-local address is refused when it is set up, and checked again on every delivery. Set `CT_PUSH_ALLOW_PRIVATE=1` when callers and Control Tower share a private network.
+- A relay no notification has used for 30 days is forgotten. `CT_A2A_PUSH_RELAY=off` lets agents send notifications straight to the caller's webhook instead.
+
 ## What is and isn't covered
 
 - **JSON-RPC only.** An agent that offers only gRPC or HTTP+JSON can't be registered; the error says what it offers.
 - **The endpoint must be on the card's server.** The agent's credentials go wherever its card says to send calls, so Control Tower only accepts an endpoint with the same origin (scheme, host and port) as the card. If an agent's card lives elsewhere, register the card as its endpoint's server serves it.
 - **Replies are capped at 10 MB**, and a stream that goes silent for longer than the agent's timeout is ended.
 - **A key sees only the agents it may call.** `GET /a2a` and the card both follow the key's `allowed_mcp`.
-- **Push notifications** go from the agent straight to the webhook the caller gave it, not through Control Tower. Setting up a webhook goes through it and can be gated — with the setup call, or inside a message (`configuration.taskPushNotificationConfig`), which passes the same allow-list and gates as the setup call.
 - **The agent's card signatures** are removed from the published card: it is no longer the card the agent signed.
 - The card is read again every 10 minutes, and on **Re-read card**. An agent whose card can't be read is marked down and keeps its last good card.
 - Each check also asks the agent's endpoint for a task that doesn't exist (`GetTask`, or `tasks/get` for 0.3), with the agent's credentials: any JSON-RPC answer means the agent is there. A card in front of an endpoint that doesn't answer is marked down (*its card is fine, but its endpoint answered HTTP 404 without JSON-RPC*). A call that finds the endpoint broken or unreachable checks it again at once (at most once a minute).

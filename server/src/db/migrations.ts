@@ -587,3 +587,24 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9;
 CREATE INDEX flights_open ON flights(ts) WHERE status IS NULL;
 `,
 });
+
+// A2A push notifications relayed through Control Tower: the caller's real webhook (encrypted) behind the address the agent is given.
+migrations.push({
+  version: 16,
+  name: 'a2a_push_relays',
+  sqlite: `
+CREATE TABLE a2a_push_relays (
+  id            TEXT PRIMARY KEY,
+  a2a_agent_id  TEXT NOT NULL,
+  key_id        TEXT NOT NULL,
+  target_enc    TEXT NOT NULL,
+  secret_hash   TEXT NOT NULL,
+  flight_id     TEXT,
+  on_behalf_of  TEXT,
+  deliveries    INTEGER NOT NULL DEFAULT 0,
+  last_used_at  INTEGER,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX a2a_push_relays_agent ON a2a_push_relays(a2a_agent_id, key_id);
+`,
+});

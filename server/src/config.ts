@@ -16,6 +16,10 @@ export interface Config {
   /** `off` disables policy enforcement entirely (kill switch). */
   mode: 'on' | 'off';
   publicUrl: string | undefined;
+  /** Relay A2A push notifications through Control Tower (on) or let agents send them straight to the caller's webhook (off). */
+  a2aPushRelay: boolean;
+  /** Let relayed push notifications go to private, loopback and link-local addresses (off: only public ones). */
+  pushAllowPrivate: boolean;
   /** Bearer token Prometheus uses to scrape /metrics (admins may also scrape with their session). */
   metricsToken: string | undefined;
   masterKeyEnv: string | undefined;
@@ -112,6 +116,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),
     maxHeld: int(env.CT_MAX_HELD, 500),
     holdBudgetMs: int(env.CT_HOLD_BUDGET_MS, 20_000),
+    a2aPushRelay: env.CT_A2A_PUSH_RELAY !== 'off',
+    pushAllowPrivate: env.CT_PUSH_ALLOW_PRIVATE === '1' || env.CT_PUSH_ALLOW_PRIVATE === 'true',
     logLevel: debug ? 'debug' : (env.CT_LOG_LEVEL ?? (logEnv && ['debug', 'info', 'warn', 'error'].includes(logEnv) ? logEnv : undefined) ?? (env.NODE_ENV === 'production' ? 'info' : 'debug')),
     sessionTtlMs: int(env.CT_SESSION_TTL_MS, 7 * 24 * 3600 * 1000),
     uiDir: env.CT_UI_DIR ? path.resolve(env.CT_UI_DIR) : undefined,

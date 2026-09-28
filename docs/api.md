@@ -48,7 +48,7 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | POST | `/v1/observe` | Report calls made outside the gateway |
 | POST | `/v1/traces` | OpenTelemetry traces (OTLP/HTTP JSON) |
 
-The OpenAI routes also answer without `/v1`. Requests held for approval can be retried with `x-ct-approval: <ticket>`.
+The OpenAI routes also answer without `/v1`. Requests held for approval can be retried with `x-ct-approval: <ticket>`. Requests may carry `x-ct-tags`, `x-ct-customer`, `x-ct-region` and `x-ct-cache` ([tags and customers](keys.md#tags-and-customers), [caching](providers-and-models.md#caching-answers)).
 
 ## Admin API
 
@@ -74,6 +74,8 @@ All paths are under `/admin/api`.
 | POST | `/providers/:id/test` | Test the connection |
 | GET | `/providers/:id/models` | Models the provider offers |
 | GET, POST | `/deployments` | List, add (`{provider_id, upstream_model, public_name?, pricing_override?, caps?}`) |
+| POST | `/deployments/check`, `/deployments/:id/check` | [Health-check](providers-and-models.md#health-checks) every model now, or one with a real one-token call |
+| DELETE | `/cache` | Forget every [cached answer](providers-and-models.md#caching-answers) |
 | PATCH, DELETE | `/deployments/:id` | Update (enable, rename, price, `caps`: region, tags, context, rpm, tpm, max_parallel, headers_timeout_ms, and for a deployment called by name `fallbacks`, `retry`, `cache`; `null` clears one), remove |
 | GET, POST | `/aliases` | List, add (`{name, strategy, targets: [{deployment_id, priority, weight}], config?}`); `config`: `{fallbacks: {context_window, content_policy, default}, retry: {rate_limited, timeout, server_error, max_attempts}, cache: {ttl_s}}` — see [retries and fallback models](providers-and-models.md#when-a-call-fails-retries-and-fallback-models) |
 | PUT, DELETE | `/aliases/:id` | Replace, remove |

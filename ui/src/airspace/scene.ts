@@ -84,6 +84,8 @@ export interface Station {
   teamOf?: string | undefined;
   /** A tool server or HTTP API that fronts an agent: that agent's id. */
   agentOf?: string | undefined;
+  /** Models and tool servers failing their health check: why ('down', or 'missing' when the provider no longer lists the model). */
+  down?: { state: 'down' | 'missing'; detail: string } | undefined;
 }
 
 export interface MatrixCell {
@@ -121,7 +123,7 @@ export interface MatrixData {
 
 /** Something on the map that needs a person; `ref` goes to reveal(). */
 export interface AttentionItem {
-  kind: 'holding' | 'blocked' | 'bypass' | 'errors' | 'ungated' | 'new' | 'spike';
+  kind: 'holding' | 'blocked' | 'bypass' | 'down' | 'errors' | 'ungated' | 'new' | 'spike';
   severity: 1 | 2 | 3;
   stationId: string;
   /** A second station the item is about (the destination of a new connection). */
@@ -1044,6 +1046,8 @@ export class AirspaceScene {
         items.push({ kind: 'bypass', severity: 3, stationId: s.id, ref: `station:${s.id}`, title: `${s.label} called directly, skipping the gateway`, detail: `${s.obs.count24h.toLocaleString()} call${s.obs.count24h === 1 ? '' : 's'} in 24 h, last ${ago(s.obs.lastSeen)} — no gates or budgets apply` });
     }
     for (const s of dests) {
+      // Not answering its health check, whether or not anyone is calling it.
+      if (s.down) items.push({ kind: 'down', severity: 3, stationId: s.id, ref: `station:${s.id}`, title: s.down.state === 'missing' ? `${s.label}: no longer offered by its provider` : `${s.label}: not answering`, detail: s.down.detail || 'Failing its health check' });
       // A handful of failures a minute on a busy model is normal; a real share of its calls failing is not.
       if (s.errors.length >= 3 && s.errors.length >= 0.05 * s.recent.length) items.push({ kind: 'errors', severity: 2, stationId: s.id, ref: `station:${s.id}`, title: `${s.label}: ${s.errors.length} failed calls in the last minute`, detail: `${s.recent.length ? Math.round((100 * s.errors.length) / s.recent.length) : 100}% of its calls` });
       // Destructive tools in use with no gate that could stop them.
@@ -1309,7 +1313,8 @@ export class AirspaceScene {
     for (const d of t.deployments) {
       if (!shows(d.id)) continue;
       const prov = provById.get(d.provider_id);
-      upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[providerLook(prov)] ?? 0x475569);
+      const ms = upsert(d.id, 'model', d.public_name ?? d.upstream_model, prov?.name ?? prov?.kind ?? 'model', PROVIDER_COLORS[providerLook(prov)] ?? 0x475569);
+      ms.down = d.health === 'down' || d.health === 'missing' ? { state: d.health, detail: d.health_detail ?? '' } : undefined;
     }
     for (const m of t.mcp_servers ?? []) {
       if (!shows(m.id)) continue;
@@ -1325,6 +1330,7 @@ export class AirspaceScene {
       );
       s.protocol = m.protocol ?? 'mcp';
       s.agentOf = m.agent_id;
+      s.down = m.enabled && m.health === 'down' ? { state: 'down', detail: `${m.protocol === 'a2a' ? 'The agent' : m.protocol === 'http' ? 'The API' : 'The server'} is not answering its health check` } : undefined;
       const prev = new Map(s.tools.map((r) => [r.name, r]));
       s.tools = m.tools.map((tool) => {
         const old = prev.get(tool.name);
@@ -2829,6 +2835,9 @@ export class AirspaceScene {
     if (s.held) {
       status = `${s.held} holding`;
       statusColor = '#b26b00';
+    } else if (s.down) {
+      status = s.down.state;
+      statusColor = '#b4233a';
     } else if (s.recent.length) {
       status = `${s.recent.length}/min`;
       statusColor = st === 'blocked' ? '#b4233a' : INK_DIM;
@@ -2883,10 +2892,10 @@ export class AirspaceScene {
       ctx.textAlign = 'right';
       ctx.fillText(status, right, titleY);
       ctx.textAlign = 'left';
-      if (st === 'active' || st === 'holding' || st === 'blocked') {
+      if (st === 'active' || st === 'holding' || st === 'blocked' || s.down) {
         ctx.beginPath();
         ctx.arc(right - ctx.measureText(status).width - 7, titleY - 4, 3, 0, Math.PI * 2);
-        ctx.fillStyle = st === 'holding' ? hex(STATUS_COLORS.held) : st === 'blocked' ? hex(STATUS_COLORS.denied) : hex(STATUS_COLORS.ok);
+        ctx.fillStyle = s.down && !s.held ? hex(STATUS_COLORS.denied) : st === 'holding' ? hex(STATUS_COLORS.held) : st === 'blocked' ? hex(STATUS_COLORS.denied) : hex(STATUS_COLORS.ok);
         ctx.fill();
       }
     }

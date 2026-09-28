@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 export interface RouteConfig {
   fallbacks?: { context_window?: string[]; content_policy?: string[]; default?: string[] };
   retry?: { rate_limited?: number; timeout?: number; server_error?: number; unreachable?: number; max_attempts?: number };
-  cache?: { ttl_s?: number };
+  cache?: { ttl_s?: number; shared?: boolean };
 }
 
 /** A deployment's own settings (kept in its caps). */
@@ -16,6 +16,7 @@ export interface DeploymentCaps extends RouteConfig {
   tpm?: number;
   max_parallel?: number;
   headers_timeout_ms?: number;
+  health_probe?: boolean;
 }
 
 const list = (s: string) =>
@@ -44,7 +45,7 @@ export function routingSummary(c: DeploymentCaps | RouteConfig | undefined): str
   const r = c.retry ?? {};
   const retries = [r.rate_limited ? `${r.rate_limited}× on 429` : '', r.timeout ? `${r.timeout}× on timeout` : '', r.server_error ? `${r.server_error}× on 5xx` : ''].filter(Boolean);
   if (retries.length) out.push(`retry ${retries.join(', ')}`);
-  if (c.cache?.ttl_s) out.push(`cached ${c.cache.ttl_s} s`);
+  if (c.cache?.ttl_s) out.push(`answers cached ${c.cache.ttl_s} s${c.cache.shared ? ', shared' : ''}`);
   return out;
 }
 
@@ -70,9 +71,11 @@ export function RoutingEditor({ kind, value, withRouting, onSave, onCancel }: { 
     r_5xx: d.retry?.server_error?.toString() ?? '',
     r_max: d.retry?.max_attempts?.toString() ?? '',
     cache: d.cache?.ttl_s?.toString() ?? '',
+    cacheShared: d.cache?.shared ?? false,
+    probe: d.health_probe ?? false,
   });
   const [err, setErr] = useState<string | null>(null);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const set = (k: Exclude<keyof typeof f, 'cacheShared' | 'probe'>) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -81,7 +84,7 @@ export function RoutingEditor({ kind, value, withRouting, onSave, onCancel }: { 
     if (Object.keys(fallbacks).length) routing.fallbacks = fallbacks;
     const retry = Object.fromEntries(Object.entries({ rate_limited: numOrNull(f.r_429), timeout: numOrNull(f.r_timeout), server_error: numOrNull(f.r_5xx), max_attempts: numOrNull(f.r_max) }).filter(([, v]) => v != null));
     if (Object.keys(retry).length) routing.retry = retry;
-    if (numOrNull(f.cache)) routing.cache = { ttl_s: Number(f.cache) };
+    if (numOrNull(f.cache)) routing.cache = { ttl_s: Number(f.cache), ...(f.cacheShared ? { shared: true } : {}) };
     let patch: Record<string, unknown>;
     if (kind === 'alias') patch = { config: routing };
     else {
@@ -93,6 +96,7 @@ export function RoutingEditor({ kind, value, withRouting, onSave, onCancel }: { 
         tpm: numOrNull(f.tpm),
         max_parallel: numOrNull(f.max_parallel),
         headers_timeout_ms: numOrNull(f.timeout_s) == null ? null : Math.round(Number(f.timeout_s) * 1000),
+        health_probe: f.probe ? true : null,
       };
       if (withRouting) Object.assign(caps, { fallbacks: routing.fallbacks ?? null, retry: routing.retry ?? null, cache: routing.cache ?? null });
       patch = { caps };
@@ -138,6 +142,10 @@ export function RoutingEditor({ kind, value, withRouting, onSave, onCancel }: { 
             Wait for an answer (s)
             <input className="input" type="number" min={0} value={f.timeout_s} onChange={set('timeout_s')} placeholder="60" />
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'end', paddingBottom: 8 }}>
+            <input type="checkbox" checked={f.probe} onChange={(e) => setF({ ...f, probe: e.target.checked })} />
+            Health-check with a real call
+          </label>
         </fieldset>
       )}
       {(kind === 'alias' || withRouting) && (
@@ -174,6 +182,10 @@ export function RoutingEditor({ kind, value, withRouting, onSave, onCancel }: { 
           <label>
             Cache answers (s)
             <input className="input" type="number" min={0} value={f.cache} onChange={set('cache')} placeholder="off" />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'end', paddingBottom: 8 }}>
+            <input type="checkbox" checked={f.cacheShared} disabled={!numOrNull(f.cache)} onChange={(e) => setF({ ...f, cacheShared: e.target.checked })} />
+            Agents share cached answers
           </label>
         </fieldset>
       )}

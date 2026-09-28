@@ -40,6 +40,8 @@ import { smtpFromEnv } from './alerts/email.js';
 import { startRetention } from './db/retention.js';
 import { OpenFlights, startInstance } from './events/open-flights.js';
 import { Cluster } from './cluster/cluster.js';
+import { ModelHealth } from './models/health.js';
+import { MemoryStore, RedisStore } from './cache/response-cache.js';
 import { RedisLimiter } from './limits/redis-limiter.js';
 import { checkMasterKey } from './db/master-key-check.js';
 import { startKeyRetirement } from './admin/key-lifecycle.js';
@@ -214,6 +216,7 @@ async function main(): Promise<void> {
     autoModels,
     pricing,
     limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
+    cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     spend,
     budgets,
     bus,
@@ -312,6 +315,30 @@ async function main(): Promise<void> {
   mcp.startHealthLoop();
   http.startHealthLoop();
   a2a.startHealthLoop();
+  // Models, checked in the background so one that stops answering shows before an agent's call fails on it.
+  // With several instances, whichever holds the lock checks; the others read the result from the database.
+  const modelHealth = new ModelHealth({
+    db: db.write,
+    registry,
+    adapters,
+    log: app.log,
+    onChange: (d, label, r) => {
+      alerts.probe({ kind: 'deployment', id: d.id }, label, r.health === 'ok', r.detail);
+      void registry.reload().catch(() => undefined);
+    },
+    isLeader: cluster.redis
+      ? async () => {
+          const redis = cluster.redis!;
+          const lockMs = Math.max(60_000, config.modelHealthIntervalMs * 2);
+          if ((await redis.set('ct:lead:model-health', cluster.id, 'PX', lockMs, 'NX')) === 'OK') return true;
+          if ((await redis.get('ct:lead:model-health')) !== cluster.id) return false;
+          await redis.pexpire('ct:lead:model-health', lockMs);
+          return true;
+        }
+      : undefined,
+  });
+  (ctx as AppContext).modelHealth = modelHealth;
+  modelHealth.start(config.modelHealthIntervalMs);
 
   const checkpoint = setInterval(() => {
     try {
@@ -355,6 +382,7 @@ async function main(): Promise<void> {
     full.approvals.drain();
     approvals.stop();
     alerts.stop();
+    modelHealth.stop();
     observed.stop();
     mcp.stop();
     http.stop();

@@ -96,6 +96,9 @@ export interface TopologyDeployment {
   cooling_until?: number;
   ewma_ttft_ms?: number;
   demo: boolean;
+  /** From the background health check: ok, down, or missing (the provider no longer lists it). */
+  health?: string;
+  health_detail?: string;
 }
 export interface TopologyAlias {
   id: string;

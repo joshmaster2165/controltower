@@ -34,6 +34,10 @@ export interface AppContext {
   adapters: Adapters;
   /** Adds deployments on first use for models a connected provider serves. */
   autoModels: AutoModels;
+  /** Cached answers, for models that opt in. */
+  cache?: import('./cache/response-cache.js').CacheStore;
+  /** Background health checks of models. */
+  modelHealth?: import('./models/health.js').ModelHealth;
   pricing: PricingTable;
   limiter: Limiter;
   spend: SpendTracker;

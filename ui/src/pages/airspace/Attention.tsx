@@ -5,6 +5,7 @@ const GROUPS: Array<{ kind: AttentionItem['kind']; label: string; hint: string }
   { kind: 'holding', label: 'Waiting for approval', hint: 'Held at a gate until someone decides' },
   { kind: 'blocked', label: 'Blocked now', hint: 'Calls denied by a gate in the last minute' },
   { kind: 'bypass', label: 'Outside the gateway', hint: 'Agents calling a provider directly: no gates or budgets apply' },
+  { kind: 'down', label: 'Down', hint: 'Models and tool servers failing their background health check' },
   { kind: 'errors', label: 'Failing', hint: 'Destinations with failed calls in the last minute' },
   { kind: 'ungated', label: 'Destructive tools with no gate', hint: 'Deletes, merges, payments and the like, in use, that nothing can stop or hold' },
   { kind: 'new', label: 'New connections', hint: 'An agent reached a model or tool it had not used before, in the last day' },

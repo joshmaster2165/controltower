@@ -259,9 +259,9 @@ export class OpenAICompatAdapter implements ProviderAdapter {
 
   async listModels(provider: ProviderRecord): Promise<Array<{ id: string; context?: number }>> {
     const r = await sendUpstream(provider.slug, { url: buildUrl(provider, 'models'), method: 'GET', headers: buildHeaders(provider) }, AbortSignal.timeout(15_000));
-    if (!r.ok) throw new Error(r.err.message);
+    if (!r.ok) throw Object.assign(new Error(r.err.message), { code: r.err.code });
     const text = await readBodyText(r.res.body);
-    if (r.res.status >= 300) throw new Error(normalizeHttpError(r.res.status, text, provider.slug).message);
+    if (r.res.status >= 300) throw Object.assign(new Error(normalizeHttpError(r.res.status, text, provider.slug).message), { status: r.res.status });
     const j = JSON.parse(text) as { data?: Array<{ id: string; context_length?: number }>; models?: Array<{ name: string }> };
     if (Array.isArray(j.data)) return j.data.map((m) => ({ id: m.id, ...(m.context_length ? { context: m.context_length } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
     if (Array.isArray(j.models)) return j.models.map((m) => ({ id: m.name })); // Ollama native

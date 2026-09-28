@@ -665,3 +665,13 @@ CREATE TABLE customers (
 );
 `,
 });
+
+migrations.push({
+  version: 20,
+  name: 'deployment_health',
+  sqlite: `
+ALTER TABLE deployments ADD COLUMN health TEXT;
+ALTER TABLE deployments ADD COLUMN health_detail TEXT;
+ALTER TABLE deployments ADD COLUMN health_checked_at INTEGER;
+`,
+});

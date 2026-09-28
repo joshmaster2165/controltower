@@ -25,6 +25,9 @@ interface Deployment {
   caps?: DeploymentCaps;
   /** Where it is served: its own region, or its provider's. */
   region?: string | null;
+  health?: string | null;
+  health_detail?: string | null;
+  health_checked_at?: number | null;
 }
 
 interface Alias {
@@ -48,6 +51,7 @@ export function ModelsPage() {
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ provider_id: '', upstream_model: '', public_name: '', input: '', output: '' });
   const [showAlias, setShowAlias] = useState(false);
@@ -106,6 +110,17 @@ export function ModelsPage() {
     await load();
     await refreshTopology();
   };
+  const [checking, setChecking] = useState<string | null>(null);
+  const checkNow = async (d: Deployment) => {
+    setChecking(d.id);
+    try {
+      await api.post(`/admin/api/deployments/${d.id}/check`, {});
+    } finally {
+      setChecking(null);
+      await load();
+      await refreshTopology();
+    }
+  };
   const removeDeployment = async (d: Deployment) => {
     if (!confirm(`Delete model "${d.public_name ?? d.upstream_model}"?`)) return;
     await api.del(`/admin/api/deployments/${d.id}`);
@@ -163,6 +178,14 @@ export function ModelsPage() {
       />
 
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+      {notice && (
+        <div className="notice-row">
+          <span>{notice}</span>
+          <button className="btn sm ghost" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {showImport && (
         <ImportConfig
@@ -343,6 +366,12 @@ export function ModelsPage() {
       <div className="section-title">
         <h2>Deployments</h2>
         <span className="count">{deployments.length}</span>
+        <span style={{ flex: 1 }} />
+        {[...aliases.map((a) => a.config), ...deployments.map((d) => d.caps)].some((c) => c?.cache?.ttl_s) && (
+          <button className="btn sm ghost" onClick={() => void api.del<{ cleared: number }>('/admin/api/cache').then((r) => setNotice(`Cleared ${r.cleared} cached answer${r.cleared === 1 ? '' : 's'}.`))}>
+            Clear cached answers
+          </button>
+        )}
       </div>
       <div className="card" style={{ padding: 0 }}>
         <table className="table">
@@ -378,14 +407,28 @@ export function ModelsPage() {
                 </td>
                 <td className={`num mono ${d.ewma_ttft_ms ? '' : 'muted'}`}>{d.ewma_ttft_ms ? `${Math.round(d.ewma_ttft_ms)} ms` : '—'}</td>
                 <td>
-                  <span className={`status ${d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'ticketed' : 'ok') : 'error'}`}>
-                    {d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'cooling' : 'enabled') : 'disabled'}
-                  </span>
+                  {d.enabled && (d.health === 'down' || d.health === 'missing') ? (
+                    <span className="status error" title={d.health_detail ?? ''} style={{ cursor: 'help' }}>
+                      {d.health === 'missing' ? 'not offered' : 'down'}
+                    </span>
+                  ) : (
+                    <span className={`status ${d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'ticketed' : 'ok') : 'error'}`}>
+                      {d.enabled ? (d.cooling_until && d.cooling_until > Date.now() ? 'cooling' : 'enabled') : 'disabled'}
+                    </span>
+                  )}
+                  {d.enabled && d.health_checked_at ? (
+                    <span className="sub" title={d.health_detail ?? ''}>
+                      checked {agoShort(d.health_checked_at)}
+                    </span>
+                  ) : null}
                 </td>
                 <td>
                   <div className="row-actions">
                     <button className="btn sm" onClick={() => setEditing(editing === d.id ? null : d.id)}>
                       Routing
+                    </button>
+                    <button className="btn sm" disabled={checking === d.id || !d.enabled} title="Check it now with a real one-token call" onClick={() => void checkNow(d)}>
+                      {checking === d.id ? 'Checking…' : 'Check'}
                     </button>
                     <button className="btn sm" onClick={() => void toggle(d)}>
                       {d.enabled ? 'Disable' : 'Enable'}
@@ -419,4 +462,9 @@ export function ModelsPage() {
 
     </div>
   );
+}
+
+function agoShort(ts: number): string {
+  const m = Math.round((Date.now() - ts) / 60_000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
 }

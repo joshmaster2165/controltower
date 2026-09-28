@@ -63,6 +63,10 @@ export interface DeploymentsTable {
   updated_at: number;
   /** 'config' when declared in a --config file (replaced on every boot). */
   source?: string | null;
+  /** From the background health check: ok, down, missing (the provider no longer lists it), or unknown. */
+  health?: string | null;
+  health_detail?: string | null;
+  health_checked_at?: number | null;
 }
 
 export interface AliasesTable {

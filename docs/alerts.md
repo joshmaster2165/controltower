@@ -15,7 +15,7 @@ Three ways:
 | Kind | Fires on |
 |---|---|
 | **Gate** | `blocked`, `held`, `approved`, `rejected`, `unanswered` (hold or approval expired), `allowed`, `scope_mismatch` (an approval redeemed with different arguments — a security event), `masked` / `flagged` (inspect gates) |
-| **Provider outage** | `outage`: repeated timeouts, network errors or 5xx for a model or MCP server within a window (rate limits and 4xx don't count) · `recovered`: the first success afterwards |
+| **Provider outage** | `outage`: repeated timeouts, network errors or 5xx for a model or MCP server within a window (rate limits and 4xx don't count), or a model failing its [background health check](providers-and-models.md#health-checks) — even while nobody is calling it · `recovered`: the first success afterwards |
 | **Failed requests** | Requests that still failed after fallbacks, optionally for chosen agents or models |
 | **Slow requests** | Requests slower than a threshold (default 30 s) |
 | **Budget** | A budget reaching a percentage (default 80%) and being used up — once per budget period |

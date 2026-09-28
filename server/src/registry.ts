@@ -74,6 +74,10 @@ export interface DeploymentRecord {
   cooldownStrikes: number;
   ewmaTtftMs: number | undefined;
   demo: boolean;
+  /** From the background health check. */
+  health: string | undefined;
+  healthDetail: string | undefined;
+  healthCheckedAt: number | undefined;
 }
 
 export interface AliasTarget {
@@ -228,6 +232,9 @@ export class Registry {
         cooldownStrikes: this.deployments.get(d.id)?.cooldownStrikes ?? 0,
         ewmaTtftMs: this.deployments.get(d.id)?.ewmaTtftMs ?? d.ewma_ttft_ms ?? undefined,
         demo: d.demo === 1,
+        health: d.health ?? undefined,
+        healthDetail: d.health_detail ?? undefined,
+        healthCheckedAt: d.health_checked_at ?? undefined,
       };
       deps.set(rec.id, rec);
       if (rec.publicName) depsByPublic.set(rec.publicName, rec);

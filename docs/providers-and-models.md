@@ -100,6 +100,27 @@ A key's **allowed regions** (region globs: `eu-*`, `swedencentral`) keep its cal
 
 Requests carry tags in an `x-ct-tags` header (comma-separated) or `"ct": {"tags": [...]}` in the body. When some of an alias's deployments are reserved for a request's tag, the request goes to them — a `batch` tag to the deployment kept for batch work, say. Tags also break spend down in the Ledger; see [Keys](keys.md#tags-and-customers).
 
+## Health checks
+
+Every five minutes (`CT_MODEL_HEALTH_INTERVAL_S`), each connected provider is asked for its models, so a model that stops answering shows before an agent's call fails on it:
+
+- A provider that doesn't answer — unreachable, refusing its credentials, or failing — marks its models **down**. One that simply has no model list isn't.
+- A model its provider no longer lists is **not offered** (OpenAI, Anthropic and OpenAI-compatible providers, whose lists name models exactly).
+- A deployment with `health_probe: true` in its settings gets a real one-token call instead — for providers that list models they won't serve (a spent quota, a model not enabled in a region). **Check** on the Models page does that for any model, now.
+
+A model that is down or not offered shows in red on the map and in its **Needs attention** list, and on the Models page. Calls still reach it when nothing else can serve them, but an alias tries its healthy deployments first. [Health alerts](alerts.md) fire on it (*outage*) and when it comes back (*recovered*). With several instances, one does the checking and the others read the result.
+
+## Caching answers
+
+**Cache answers** in a model's routing keeps its answers for that many seconds and serves an identical request from the cache: no call to the provider, and no cost. It is off unless you turn it on, per alias or model.
+
+- The cache is only consulted after the call has passed its gates and inspection, so a cached answer is never a way around a gate; answers are stored after inspection of what came back.
+- Answers are kept per agent (key). **Agents share cached answers** lets every agent calling the model use them.
+- Streamed answers are kept whole and sent again as a stream; embeddings are cached too. Answers larger than 8 MB aren't kept.
+- A request can say `x-ct-cache: no-cache` (don't use the cache, but keep the answer), `no-store` (don't keep it), `ttl=<seconds>` or `namespace=<name>` (keep separate caches, e.g. per evaluation run) — or the same in the body as `"ct": {"cache": {"no_cache": true}}`.
+- Responses carry `x-ct-cache: hit` or `miss`. Flights answered from the cache are marked *cached* and cost nothing.
+- The cache is in memory, or in Redis when [several instances](scaling.md) share one. **Clear cached answers** on the Models page (or `DELETE /admin/api/cache`) empties it.
+
 ## Import a config file
 
 **Models → Import config** takes a [`config.yaml`](config-file.md), shows what it becomes — providers, deployments, aliases from model groups and fallbacks, MCP servers — asks for any secret it can't resolve, and imports it once.

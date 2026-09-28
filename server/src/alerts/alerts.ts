@@ -449,6 +449,23 @@ export class AlertService {
     }
   }
 
+  /**
+   * A background health check's result, counted like a failed call: an outage when a model or server stops
+   * answering even while no agent is calling it, and a recovery when it answers again.
+   */
+  probe(subject: { kind: 'deployment' | 'mcp'; id: string }, dest: string, ok: boolean, reason?: string): void {
+    const h: Hit = { ts: this.now(), flightId: '', subject, trigger: ok ? 'recovered' : 'outage', agent: 'health check', dest, reason };
+    for (const r of this.rules) {
+      if (r.kind !== 'health' || !r.enabled || !this.inScope(r, subject.id)) continue;
+      const key = `${r.id}|${subject.id}`;
+      if (ok) {
+        if (!this.down.has(key)) continue;
+        this.down.delete(key);
+        if (r.triggers.includes('recovered')) this.fire(r, [h], false);
+      } else if (r.triggers.includes('outage') && this.count(r, subject.id, h)) this.down.add(key);
+    }
+  }
+
   private onCompleted(e: Extract<FlightEvent, { t: 'flight.completed' }>): void {
     const f = this.flights.get(e.flight_id);
     for (const r of this.rules) {

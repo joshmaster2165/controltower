@@ -10,7 +10,7 @@ import { fakeBedrock, fakeGemini, fakeServiceAccount, fakeVertex, type FakeServe
 function provider(kind: ProviderRecord['kind'], slug: string, creds: Record<string, string>, extra: Record<string, unknown> = {}, baseUrl?: string): ProviderRecord {
   return { id: `prov_${slug}`, kind, name: slug, slug, baseUrl, creds, extra, health: 'unknown', healthDetail: undefined, streamUsageSupported: undefined, demo: false };
 }
-const deployment: DeploymentRecord = { id: 'dep', providerId: 'p', upstreamModel: 'm', publicName: undefined, caps: {}, pricingOverride: undefined, weight: 100, enabled: true, coolingUntil: undefined, cooldownStrikes: 0, ewmaTtftMs: undefined, demo: false };
+const deployment: DeploymentRecord = { id: 'dep', providerId: 'p', upstreamModel: 'm', publicName: undefined, caps: {}, pricingOverride: undefined, weight: 100, enabled: true, coolingUntil: undefined, cooldownStrikes: 0, ewmaTtftMs: undefined, demo: false, health: undefined, healthDetail: undefined, healthCheckedAt: undefined };
 const ctx = (p: ProviderRecord): UpstreamCtx => ({ flightId: 'f1', provider: p, deployment, signal: new AbortController().signal });
 
 async function collect(r: AdapterResult): Promise<{ text: string; chunks: Array<Record<string, unknown>>; usage: UpstreamEvent | undefined; errors: UpstreamEvent[] }> {

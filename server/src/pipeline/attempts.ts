@@ -77,7 +77,9 @@ export class AttemptPlan {
     const route = f.route!;
     this.cfg = route.alias?.config ?? (route.candidates[0] ? capsOf(route.candidates[0]) : {});
     this.maxAttempts = Math.max(1, this.cfg.retry?.max_attempts ?? 3);
-    this.queue = this.fitting([...route.candidates]);
+    // Models failing their health check go last: still tried when nothing healthy is left.
+    const sick = (d: DeploymentRecord) => (d.health === 'down' || d.health === 'missing' ? 1 : 0);
+    this.queue = this.fitting([...route.candidates].map((d, i) => ({ d, i })).sort((a, b) => sick(a.d) - sick(b.d) || a.i - b.i).map((x) => x.d));
   }
 
   /** The context window a deployment is known to have, if any. */

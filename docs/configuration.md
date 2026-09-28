@@ -60,6 +60,7 @@ Rotating the variable rotates all three at the next start. Use a long random val
 | `CT_A2A_PUSH_RELAY` | `on` | `off` lets A2A agents send push notifications straight to the caller's webhook instead of through Control Tower |
 | `CT_PUSH_ALLOW_PRIVATE` | — | `1` lets relayed push notifications go to private, loopback and link-local addresses |
 | `CT_MAX_HELD` | `500` | Most requests held at once; beyond it, requests get a ticket immediately |
+| `CT_MODEL_HEALTH_INTERVAL_S` | `300` | How often models are [health-checked](providers-and-models.md#health-checks) in the background; `0` turns it off |
 | `CT_SMTP_URL` | — | Default SMTP server for email alert channels: `smtp://user:password@host:587` or `smtps://…:465` |
 | `CT_SMTP_FROM` | the SMTP user | *From* address for those emails, e.g. `Control Tower <tower@example.com>` |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Send Control Tower's own outbound calls — to providers, MCP servers, HTTP APIs and alert channels — through a proxy. See [Install](install.md#behind-a-corporate-proxy) |

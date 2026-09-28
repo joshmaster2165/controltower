@@ -28,6 +28,8 @@ export interface Config {
   /** This instance's name in the cluster (default: host, process and a random suffix). */
   instanceId: string | undefined;
   shutdownGraceMs: number;
+  /** How often models are health-checked in the background (0: never). */
+  modelHealthIntervalMs: number;
   maxHeld: number;
   holdBudgetMs: number;
   logLevel: string;
@@ -121,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     instanceId: env.CT_INSTANCE_ID || undefined,
     shutdownGraceMs: int(env.CT_SHUTDOWN_GRACE_MS, 15_000),
     maxHeld: int(env.CT_MAX_HELD, 500),
+    modelHealthIntervalMs: int(env.CT_MODEL_HEALTH_INTERVAL_S, 300) * 1000,
     holdBudgetMs: int(env.CT_HOLD_BUDGET_MS, 20_000),
     a2aPushRelay: env.CT_A2A_PUSH_RELAY !== 'off',
     pushAllowPrivate: env.CT_PUSH_ALLOW_PRIVATE === '1' || env.CT_PUSH_ALLOW_PRIVATE === 'true',

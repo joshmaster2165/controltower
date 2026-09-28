@@ -18,7 +18,8 @@ import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
 import { headerToken, flagIgnoredToken, resolveDelegation } from '../policy/delegation.js';
-import { requestMeta, routeCandidates } from './routing.js';
+import { capsOf, requestMeta, routeCandidates } from './routing.js';
+import { cacheControl, cacheKey } from '../cache/response-cache.js';
 import { AttemptPlan } from './attempts.js';
 import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, requestTools, responsesRequestToChat } from '../translate/responses-chat.js';
 
@@ -101,6 +102,8 @@ export interface Flight {
   cacheHit: boolean;
   /** Where the call is being tried: holds a deployment's concurrency slot until it ends. */
   plan: AttemptPlan | undefined;
+  /** Store the answer under this key (the model caches answers, and the request didn't say no-store). */
+  cacheStore: { key: string; ttlS: number } | undefined;
 }
 
 export interface GateSpec {
@@ -176,6 +179,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     units: undefined,
     cacheHit: false,
     plan: undefined,
+    cacheStore: undefined,
   };
 }
 
@@ -268,6 +272,9 @@ export class FlightRunner {
 
       // ---- inspect (what the agent sends) ----
       await this.inspectInput(f, g, ['messages', 'system', 'instructions', 'input', 'prompt']);
+
+      // ---- cache (opt-in per model; consulted only after the gates, so it is never a way around them) ----
+      if (await this.fromCache(f, req, reply, g)) return;
 
       // ---- dispatch + egress ----
       await this.dispatch(f, reply, g);
@@ -437,6 +444,42 @@ export class FlightRunner {
       throw overGate;
     }
     return { key, target, onBehalfOf, decision, args: spec.args(f) };
+  }
+
+  /** A cached answer for this request, sent — true when it was (the call is then done: no provider, no cost). */
+  private async fromCache(f: Flight, req: FastifyRequest, reply: FastifyReply, g: Gated): Promise<boolean> {
+    const ctx = this.ctx;
+    const head = f.route?.candidates[0];
+    const cfg = f.route?.alias?.config.cache ?? (head ? capsOf(head).cache : undefined);
+    if (!cfg?.ttl_s || !ctx.cache) return false;
+    const cc = cacheControl(req.headers['x-ct-cache'], f.body);
+    const key = cacheKey({ model: f.modelRequested, dialect: f.dialect, stream: f.stream, body: f.body, scope: cfg.shared ? '' : g.key.id, namespace: cc.namespace });
+    if (!cc.noStore) f.cacheStore = { key, ttlS: cc.ttlS ?? cfg.ttl_s };
+    if (cc.noCache) return false;
+    const hit = await ctx.cache.get(key);
+    if (!hit) {
+      reply.header('x-ct-cache', 'miss');
+      return false;
+    }
+    f.cacheHit = true;
+    f.cacheStore = undefined;
+    f.status = 'ok';
+    f.httpStatus = hit.status;
+    f.usage = hit.usage;
+    f.usageSource = hit.usage ? 'provider' : 'unknown';
+    f.cost = 0;
+    f.costConfidence = 'exact';
+    f.t.ttfb = f.t.ttft = Date.now();
+    const body = Buffer.from(hit.body, 'base64');
+    f.bytesWritten = body.byteLength;
+    if (hit.stream) {
+      reply.hijack();
+      reply.raw.writeHead(hit.status, { 'content-type': hit.contentType, 'cache-control': 'no-cache, no-transform', 'x-ct-flight-id': f.id, 'x-ct-cache': 'hit' });
+      reply.raw.end(body);
+    } else {
+      await reply.status(hit.status).header('content-type', hit.contentType).header('x-ct-cache', 'hit').send(body);
+    }
+    return true;
   }
 
   /** Inspect gates on this path look at what the agent sends: the named fields of the body. */
@@ -649,6 +692,9 @@ export class FlightRunner {
         }
         reply.header('content-type', ctype).status(result.status);
         f.bytesWritten = bodyOut.byteLength;
+        if (f.cacheStore && result.status < 300 && ctx.cache) {
+          void ctx.cache.set(f.cacheStore.key, { status: result.status, contentType: ctype, body: Buffer.from(bodyOut).toString('base64'), stream: false, usage: f.usage, deploymentId: dep.id, storedAt: Date.now() }, f.cacheStore.ttlS);
+        }
         await reply.send(Buffer.from(bodyOut));
         return;
       }
@@ -667,6 +713,7 @@ export class FlightRunner {
     contentType: string,
   ): Promise<void> {
     const res = reply.raw;
+    const cacheState = reply.getHeader('x-ct-cache');
     reply.hijack();
     res.writeHead(status, {
       'content-type': contentType,
@@ -674,6 +721,7 @@ export class FlightRunner {
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
       'x-ct-flight-id': f.id,
+      ...(typeof cacheState === 'string' ? { 'x-ct-cache': cacheState } : {}),
     });
     f.httpStatus = status;
     if (f.t.ttfb == null) f.t.ttfb = Date.now();
@@ -727,9 +775,17 @@ export class FlightRunner {
     };
     const inspecting = f.inspectOut.length > 0;
 
+    // A model that caches answers keeps the stream as the client got it, to send again whole.
+    const kept: Buffer[] | undefined = f.cacheStore ? [] : undefined;
+    let keptBytes = 0;
     const write = async (chunk: Uint8Array | string): Promise<void> => {
       if (res.writableEnded || res.destroyed) return;
       f.bytesWritten += typeof chunk === 'string' ? chunk.length : chunk.byteLength;
+      if (kept && keptBytes < 8 * 1024 * 1024) {
+        const b = typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk);
+        kept.push(b);
+        keptBytes += b.byteLength;
+      }
       if (!res.write(chunk)) {
         await Promise.race([once(res, 'drain'), once(res, 'close')]);
       }
@@ -797,6 +853,9 @@ export class FlightRunner {
       if (!res.writableEnded) res.end();
     }
     if (f.status === 'client_aborted' && f.usageSource !== 'provider') f.usageSource = 'estimated_partial';
+    if (kept && f.status === 'ok' && keptBytes < 8 * 1024 * 1024 && this.ctx.cache && f.cacheStore) {
+      void this.ctx.cache.set(f.cacheStore.key, { status, contentType, body: Buffer.concat(kept).toString('base64'), stream: true, usage: f.usage, deploymentId: f.deployment?.id, storedAt: Date.now() }, f.cacheStore.ttlS);
+    }
     if (inspecting && seen.length) {
       const r = await inspect(this.ctx, f.key, f.inspectOut, 'output', seen.join(''), { streamed: true });
       emitInspectOutcomes(this.ctx.bus, f.id, r.outcomes, 'in the response', true);
@@ -805,6 +864,7 @@ export class FlightRunner {
 
   private account(f: Flight): void {
     const ctx = this.ctx;
+    if (f.cacheHit) return; // answered from the cache: nothing spent
     if (f.usage && f.route) {
       f.cost = computeCost(f.usage, f.route.price.entry);
       f.costConfidence = f.cost == null ? 'unknown' : f.usageSource === 'provider' ? 'exact' : 'estimated';

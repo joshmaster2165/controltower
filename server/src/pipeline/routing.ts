@@ -21,8 +21,8 @@ export interface RouteConfig {
   };
   /** Tries on the same deployment before moving on, by what went wrong, and a cap on attempts in all. */
   retry?: { rate_limited?: number; timeout?: number; server_error?: number; unreachable?: number; max_attempts?: number };
-  /** Answers kept and served again for identical requests (opt-in). */
-  cache?: { ttl_s?: number };
+  /** Answers kept and served again for identical requests (opt-in): for how long, and whether agents share them. */
+  cache?: { ttl_s?: number; shared?: boolean };
 }
 
 /** A deployment's own routing settings, kept in its caps. */
@@ -37,6 +37,10 @@ export interface DeploymentCaps extends RouteConfig {
   tpm?: number;
   max_parallel?: number;
   headers_timeout_ms?: number;
+  /** Health-check it with a real one-token call, not just the provider's model list. */
+  health_probe?: boolean;
+  /** 'embedding' for an embeddings model (its health probe embeds instead of chatting). */
+  mode?: string;
 }
 
 export function capsOf(d: DeploymentRecord): DeploymentCaps {

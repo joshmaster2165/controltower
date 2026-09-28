@@ -176,6 +176,9 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
         cooling_until: d.coolingUntil,
         ewma_ttft_ms: d.ewmaTtftMs,
         demo: d.demo,
+        health: d.health ?? null,
+        health_detail: d.healthDetail ?? null,
+        health_checked_at: d.healthCheckedAt ?? null,
       };
     }),
   }));
@@ -235,6 +238,20 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     await ctx.db.write.updateTable('deployments').set(patch).where('id', '=', id).execute();
     await ctx.registry.reload();
     return { ok: true };
+  });
+
+  // Forget every cached answer.
+  app.delete('/admin/api/cache', { preHandler: guard }, async () => ({ cleared: (await ctx.cache?.clear()) ?? 0 }));
+
+  // Check every model now, the way the background check does.
+  app.post('/admin/api/deployments/check', { preHandler: guard }, async () => ({ checked: (await ctx.modelHealth?.checkAll()) ?? 0 }));
+
+  // Check a model now, with a real one-token call.
+  app.post('/admin/api/deployments/:id/check', { preHandler: guard }, async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const r = await ctx.modelHealth?.checkOne(id);
+    if (!r) return reply.status(404).send({ error: { code: 'not_found', message: 'deployment not found' } });
+    return r;
   });
 
   app.delete('/admin/api/deployments/:id', { preHandler: guard }, async (req, reply) => {
@@ -326,6 +343,7 @@ function routeConfig(v: unknown): { json: string | null } | { error: string } {
     if (!count(c.retry?.[k])) return { error: `config.retry.${k} must be a whole number from 0 to 20` };
   }
   if (c.cache?.ttl_s !== undefined && !(typeof c.cache.ttl_s === 'number' && c.cache.ttl_s >= 0 && c.cache.ttl_s <= 30 * 24 * 3600)) return { error: 'config.cache.ttl_s must be seconds (up to 30 days)' };
+  if (c.cache?.shared !== undefined && typeof c.cache.shared !== 'boolean') return { error: 'config.cache.shared must be true or false' };
   return { json: JSON.stringify(c) };
 }
 

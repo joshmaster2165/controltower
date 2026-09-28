@@ -165,6 +165,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         cooling_until: d.coolingUntil,
         ewma_ttft_ms: d.ewmaTtftMs,
         demo: d.demo,
+        ...(d.health ? { health: d.health, health_detail: d.healthDetail } : {}),
       })),
       aliases: [...r.aliases.values()].map((a) => ({ id: a.id, name: a.name, strategy: a.strategy, targets: a.targets })),
       mcp_servers: [

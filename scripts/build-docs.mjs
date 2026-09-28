@@ -44,7 +44,7 @@ const SIDEBAR = [
     ],
   },
   { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['agent-to-agent', 'Agents calling agents'], ['policy-as-code', 'Policy as code'], ['threat-model', 'What is enforced']] },
-  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['scaling', 'Running several instances'], ['troubleshooting', 'Troubleshooting']] },
+  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['exports', 'Exporting flights'], ['scaling', 'Running several instances'], ['troubleshooting', 'Troubleshooting']] },
   { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file']] },
 ];
 

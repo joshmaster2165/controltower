@@ -14,6 +14,7 @@ import { HttpApisPage } from './pages/HttpApis';
 import { A2aAgentsPage } from './pages/A2aAgents';
 import { WelcomePage } from './pages/Welcome';
 import { LedgerPage } from './pages/Ledger';
+import { ExportsPage } from './pages/Exports';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
 import { api } from './api';
@@ -34,6 +35,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'report', label: 'Inventory', icon: 'list', hint: 'Every agent, path and gate — printable' },
       { id: 'ledger', label: 'Ledger', icon: 'chart', hint: 'Spend, tokens and latency' },
       { id: 'flights', label: 'Flights', icon: 'activity', hint: 'Every request through the gateway' },
+      { id: 'exports', label: 'Exports', icon: 'upload', hint: 'Flights sent to your tracing, logs, SIEM or archive' },
     ],
   },
   {
@@ -228,6 +230,7 @@ export function App() {
         {route === 'welcome' && <WelcomePage />}
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
+        {route === 'exports' && <ExportsPage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
       </main>

@@ -35,7 +35,7 @@ export interface UpstreamResponse {
 
 export async function sendUpstream(
   provider: string,
-  req: { url: string; method: 'POST' | 'GET' | 'DELETE'; headers: Record<string, string>; body?: string | Uint8Array },
+  req: { url: string; method: 'POST' | 'GET' | 'DELETE' | 'PUT'; headers: Record<string, string>; body?: string | Uint8Array },
   signal: AbortSignal,
   opts: { headersTimeoutMs?: number | undefined; bodyTimeoutMs?: number | undefined } = {},
 ): Promise<{ ok: true; res: UpstreamResponse } | { ok: false; err: NormalizedError }> {

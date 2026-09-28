@@ -513,7 +513,26 @@ export interface Database {
   paths: PathsTable;
   a2a_agents: A2aAgentsTable;
   customers: CustomersTable;
+  export_destinations: ExportDestinationsTable;
   schema_migrations: SchemaMigrationsTable;
+}
+
+/** Where flight records are sent (OpenTelemetry, Datadog, Splunk, S3, webhooks). */
+export interface ExportDestinationsTable {
+  id: string;
+  name: string;
+  kind: string;
+  /** Encrypted JSON config, secrets included (AAD: export_destinations.config_enc.<id>). */
+  config_enc: string;
+  target_hint: string;
+  enabled: Bool;
+  last_status: string | null;
+  last_error: string | null;
+  last_sent_at: number | null;
+  sent_count: number;
+  dropped_count: number;
+  created_at: number;
+  updated_at: number;
 }
 
 /** End customers agents serve: named, blocked, budgeted (spend comes from flights). */

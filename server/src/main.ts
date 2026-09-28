@@ -42,6 +42,7 @@ import { OpenFlights, startInstance } from './events/open-flights.js';
 import { Cluster } from './cluster/cluster.js';
 import { ModelHealth } from './models/health.js';
 import { MemoryStore, RedisStore } from './cache/response-cache.js';
+import { Exporter } from './exports/exporter.js';
 import { RedisLimiter } from './limits/redis-limiter.js';
 import { checkMasterKey } from './db/master-key-check.js';
 import { startKeyRetirement } from './admin/key-lifecycle.js';
@@ -146,6 +147,12 @@ async function main(): Promise<void> {
     policyRevision: () => policy.version,
   });
 
+  // Flight records to customers' own monitoring (OpenTelemetry, Datadog, Splunk, S3, webhooks).
+  const exporter = new Exporter({ db: db.write, secrets, version: config.version, instance: cluster.shared ? cluster.id : undefined, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
+  await exporter.reload();
+  bus.subscribe(exporter.push);
+  exporter.start();
+
   const alertsVersion = new Versioned();
   const alerts = new AlertService(db.write, secrets, alertsVersion, {
     publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
@@ -217,6 +224,7 @@ async function main(): Promise<void> {
     pricing,
     limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
+    exporter,
     spend,
     budgets,
     bus,
@@ -363,7 +371,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);
@@ -383,6 +391,7 @@ async function main(): Promise<void> {
     approvals.stop();
     alerts.stop();
     modelHealth.stop();
+    await exporter.stop();
     observed.stop();
     mcp.stop();
     http.stop();

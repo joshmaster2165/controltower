@@ -675,3 +675,25 @@ ALTER TABLE deployments ADD COLUMN health_detail TEXT;
 ALTER TABLE deployments ADD COLUMN health_checked_at INTEGER;
 `,
 });
+
+migrations.push({
+  version: 21,
+  name: 'export_destinations',
+  sqlite: `
+CREATE TABLE export_destinations (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  config_enc     TEXT NOT NULL,
+  target_hint    TEXT NOT NULL DEFAULT '',
+  enabled        INTEGER NOT NULL DEFAULT 1,
+  last_status    TEXT,
+  last_error     TEXT,
+  last_sent_at   INTEGER,
+  sent_count     INTEGER NOT NULL DEFAULT 0,
+  dropped_count  INTEGER NOT NULL DEFAULT 0,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+`,
+});

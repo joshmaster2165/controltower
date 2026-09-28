@@ -51,6 +51,8 @@ export interface RequestMeta {
   tags: string[];
   customer: string | undefined;
   region: string | undefined;
+  /** The agent's own trace, from a W3C traceparent header. */
+  trace: { trace_id: string; parent_span_id: string } | undefined;
 }
 
 const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
@@ -81,7 +83,9 @@ export function requestMeta(req: FastifyRequest, body: Record<string, unknown>):
   const hc = req.headers['x-ct-customer'];
   const customer = str(hc, 128) ?? str(ct.customer, 128) ?? str(body.user, 128) ?? str(md?.user_id, 128);
   const region = str(req.headers['x-ct-region'], 64) ?? str(ct.region, 64);
-  return { tags: [...tags], customer, region };
+  const tp = /^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/.exec(String(req.headers.traceparent ?? '').trim().toLowerCase());
+  const trace = tp && !/^0+$/.test(tp[1]!) ? { trace_id: tp[1]!, parent_span_id: tp[2]! } : undefined;
+  return { tags: [...tags], customer, region, trace };
 }
 
 /** Where a deployment is served: its own region, else its provider's (Bedrock's credentials, or a region set on the provider). */

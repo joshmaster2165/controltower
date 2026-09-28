@@ -27,6 +27,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 - [**Policy as code**](policy-as-code.md) — zones and gates as YAML, with a preview before anything changes.
 - [**Alerts**](alerts.md) — console, Slack and webhooks; approving from Slack.
 - [**Monitoring**](monitoring.md) — Flights, the Ledger, the data-flow inventory, Prometheus metrics.
+- [**Exporting flights**](exports.md) — every call to your OpenTelemetry, Datadog, Splunk, S3 or webhooks, as metadata.
 - [**Running several instances**](scaling.md) — Postgres and Redis behind a load balancer.
 - [**What is enforced**](threat-model.md) — the boundary, stated honestly.
 

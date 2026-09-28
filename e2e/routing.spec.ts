@@ -62,17 +62,17 @@ test.afterAll(async () => {
 
 test('tags and customers are recorded, spend is broken down by both, and a customer can be blocked or budgeted', async () => {
   await dep(euId, 'ok-a', 'rt-ok');
-  const a = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-tags': 'search, beta', 'x-ct-customer': 'acme' } });
+  const a = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-tags': 'search, beta', 'x-ct-customer': 'rt-acme' } });
   expect(a.status).toBe(200);
   const fa = await flightById(a.flight);
   expect(JSON.parse(fa.tags)).toEqual(['search', 'beta']);
-  expect(fa.customer).toBe('acme');
+  expect(fa.customer).toBe('rt-acme');
 
   // The request's own user field names the customer; metadata.tags are taken out before the provider sees them.
-  const g = await chat('rt-agent', 'rt-ok', { body: { user: 'globex', metadata: { tags: ['nightly'], trace: 't-1' } } });
+  const g = await chat('rt-agent', 'rt-ok', { body: { user: 'rt-globex', metadata: { tags: ['nightly'], trace: 't-1' } } });
   expect(g.status).toBe(200);
   const fg = await flightById(g.flight);
-  expect(fg.customer).toBe('globex');
+  expect(fg.customer).toBe('rt-globex');
   expect(JSON.parse(fg.tags)).toEqual(['nightly']);
   expect(eu.bodies.at(-1).metadata).toEqual({ trace: 't-1' });
 
@@ -80,23 +80,23 @@ test('tags and customers are recorded, spend is broken down by both, and a custo
   expect(tags.find((t) => t.tag === 'search')).toMatchObject({ requests: 1 });
   expect(tags.find((t) => t.tag === 'search').cost_usd).toBeGreaterThan(0);
   const customers = (await admin.get('/admin/api/customers?window=24h')).body.customers as any[];
-  expect(customers.find((c) => c.id === 'acme')).toMatchObject({ requests: 1, blocked: false, agents: 1 });
+  expect(customers.find((c) => c.id === 'rt-acme')).toMatchObject({ requests: 1, blocked: false, agents: 1 });
 
-  expect((await admin.put('/admin/api/customers/acme', { blocked: true, name: 'Acme Corp' })).status).toBe(200);
-  const blocked = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'acme' } });
+  expect((await admin.put('/admin/api/customers/rt-acme', { blocked: true, name: 'Acme Corp' })).status).toBe(200);
+  const blocked = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'rt-acme' } });
   expect([blocked.status, blocked.code]).toEqual([403, 'customer_blocked']);
-  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'globex' } })).status).toBe(200);
-  await admin.put('/admin/api/customers/acme', { blocked: false });
+  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'rt-globex' } })).status).toBe(200);
+  await admin.put('/admin/api/customers/rt-acme', { blocked: false });
 
   // A budget for one customer: its calls stop at the limit, others carry on.
-  expect((await admin.put('/admin/api/budgets/customer/initech', { limit_usd: 0.00003, period: 'monthly', hard: true })).status).toBe(200);
-  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'initech' } })).status).toBe(200);
-  const over = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'initech' } });
+  expect((await admin.put('/admin/api/budgets/customer/rt-initech', { limit_usd: 0.00003, period: 'monthly', hard: true })).status).toBe(200);
+  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'rt-initech' } })).status).toBe(200);
+  const over = await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'rt-initech' } });
   expect([over.status, over.code]).toEqual([429, 'budget_exceeded']);
-  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'globex' } })).status).toBe(200);
+  expect((await chat('rt-agent', 'rt-ok', { headers: { 'x-ct-customer': 'rt-globex' } })).status).toBe(200);
   const listed = (await admin.get('/admin/api/customers?window=24h')).body.customers as any[];
-  expect(listed.find((c) => c.id === 'initech').budget).toMatchObject({ limit_usd: 0.00003, hard: true });
-  await admin.del('/admin/api/budgets/customer/initech');
+  expect(listed.find((c) => c.id === 'rt-initech').budget).toMatchObject({ limit_usd: 0.00003, hard: true });
+  await admin.del('/admin/api/budgets/customer/rt-initech');
 });
 
 test("a key's data stays in its regions", async () => {

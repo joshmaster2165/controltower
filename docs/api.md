@@ -123,6 +123,15 @@ All paths are under `/admin/api`.
 | GET | `/grants` | Grants issued by approvals |
 | POST | `/grants/:id/revoke` | Revoke one before it is used |
 
+### Exports
+
+| Method | Path | |
+|---|---|---|
+| GET, POST | `/exports` | List destinations with delivery counts; add one (`{name, kind: otlp \| datadog \| splunk \| s3 \| webhook, config}`) — see [Exporting flights](exports.md) |
+| PATCH, DELETE | `/exports/:id` | Rename, pause (`enabled`), change settings (secrets left out are kept); remove |
+| POST | `/exports/test` | Send an example record: `{id}` for a saved destination, or `{kind, config}` |
+| POST | `/exports/:id/flush` | Send what is waiting now |
+
 ### Alerts
 
 | Method | Path | |

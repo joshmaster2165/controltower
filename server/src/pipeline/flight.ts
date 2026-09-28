@@ -104,6 +104,8 @@ export interface Flight {
   plan: AttemptPlan | undefined;
   /** Store the answer under this key (the model caches answers, and the request didn't say no-store). */
   cacheStore: { key: string; ttlS: number } | undefined;
+  /** The agent's own trace (traceparent), for exported spans. */
+  trace: { trace_id: string; parent_span_id: string } | undefined;
 }
 
 export interface GateSpec {
@@ -180,6 +182,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     cacheHit: false,
     plan: undefined,
     cacheStore: undefined,
+    trace: undefined,
   };
 }
 
@@ -311,6 +314,7 @@ export class FlightRunner {
     const meta = requestMeta(req, f.body);
     f.tags = meta.tags;
     f.customer = meta.customer;
+    f.trace = meta.trace;
     if (f.customer && ctx.registry.customers.get(f.customer)?.blocked) throw E.customerBlocked(f.customer);
 
     // ---- admission ----
@@ -539,6 +543,7 @@ export class FlightRunner {
       ...(f.endpoint ? { endpoint: f.endpoint } : {}),
       ...(f.tags.length ? { tags: f.tags } : {}),
       ...(f.customer ? { customer: f.customer } : {}),
+      ...(f.trace ? { trace: f.trace } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,
     });

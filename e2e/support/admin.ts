@@ -9,7 +9,7 @@ export const admin = {
   cookie: '',
   csrf: '',
   async signIn(): Promise<void> {
-    await fetch(`${CT}/admin/api/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
+    await fetch(`${CT}/admin/api/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD, setup_code: 'E2E-SETUP-CODE' }) });
     const r = await fetch(`${CT}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
     expect(r.status).toBe(200);
     this.cookie = r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');

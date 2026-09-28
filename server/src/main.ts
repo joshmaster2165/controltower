@@ -29,7 +29,7 @@ import { BootConfigError, loadBootConfig } from './importers/boot.js';
 import { applyAdminKey } from './admin/admin-key.js';
 import { BootPolicyError, loadBootPolicy } from './policy/boot.js';
 import { startupBanner } from './banner.js';
-import { isSetupComplete } from './admin/auth.js';
+import { isSetupComplete, setupCode } from './admin/auth.js';
 import type { AppContext } from './context.js';
 import { ensurePlaygroundKey } from './admin/playground.js';
 import { McpRegistry } from './mcp/registry.js';
@@ -82,8 +82,9 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   if (argv.includes('--copy-to-postgres')) {
-    const url = argv[argv.indexOf('--copy-to-postgres') + 1] ?? config.databaseUrl;
-    if (!url || url.startsWith('--')) throw new Error('--copy-to-postgres needs the Postgres URL: --copy-to-postgres postgres://…');
+    const next = argv[argv.indexOf('--copy-to-postgres') + 1];
+    const url = next && !next.startsWith('-') ? next : config.databaseUrl;
+    if (!url) throw new Error('--copy-to-postgres needs the Postgres URL: --copy-to-postgres postgres://…');
     process.stdout.write(`Copying ${config.dataDir}/controltower.db into Postgres…\n`);
     const counts = await copySqliteToPostgres(config.dataDir, url, (l) => process.stdout.write(`${l}\n`));
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -324,6 +325,7 @@ async function main(): Promise<void> {
       demo: full.demo !== undefined,
       inContainer: fs.existsSync('/.dockerenv'),
       signIn: config.adminKey ? `${config.uiUsername} / ${config.uiPassword ? 'UI_PASSWORD' : 'the admin key'}` : undefined,
+      setupCode: setupCode(full),
     }),
   );
 

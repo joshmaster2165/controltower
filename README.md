@@ -33,7 +33,7 @@
 docker run -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/controltower
 ```
 
-Open <http://localhost:4000> and set your admin password. The **Get started** guide takes you from there: connect a provider, create a key for your agent (with copy-paste setup and a live "connected" check), and see it on the map — about five minutes, and no code changes for most agents. The terminal prints the same URLs when the server starts.
+Open the link the terminal prints (it carries a one-time setup code, so only someone who can read the server's log sets it up) and set your admin password. The **Get started** guide takes you from there: connect a provider, create a key for your agent (with copy-paste setup and a live "connected" check), and see it on the map — about five minutes, and no code changes for most agents. The terminal prints the same URLs when the server starts.
 
 Just exploring? `CT_DEMO=1` (or *Start the demo fleet* on the Get started page) fills the map with a synthetic fleet — six agents such as `support-triage` and `pr-reviewer`, calling Claude, GPT and Gemini models, Salesforce/GitHub tool servers and a Statuspage API — through the real pipeline. Demo providers are stand-ins: nothing leaves your machine, but models are priced like the real ones. *Stop demo and clear it* removes every demo row and its traffic, and leaves your own setup alone; demo mode refuses to start if your setup already uses one of its model or tool names, so demo traffic can never reach real providers.
 
@@ -174,7 +174,7 @@ Click a gate on the Airspace and choose **Add alert**, tick *Alert me* when crea
 
 ## Metrics
 
-`GET /metrics` serves Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with `Authorization: Bearer <token>` (a signed-in admin can also open it).
+`GET /metrics` serves Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with `Authorization: Bearer <token>` (anyone signed in to the console, and the admin key, can also open it).
 
 ```yaml
 scrape_configs:
@@ -229,7 +229,7 @@ Control Tower only enforces traffic that goes through it. A lane is drawn **soli
 
 ## Configuration
 
-Everything is configured in the browser. Environment variables exist for operators:
+Everything is configured in the browser. Environment variables exist for operators; the most used are below, and [docs/configuration.md](docs/configuration.md) lists every one:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -237,7 +237,10 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_CONFIG` | — | [Config file](docs/config-file.md) applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
 | `CT_RETENTION_DAYS` | `30` | Days to keep per-request flights (`0` = forever); daily spend history is always kept. `CT_EVENT_RETENTION_DAYS` (7) for event trails |
 | `CT_POLICY` | — | [Policy file](docs/policy-as-code.md) (zones and gates) applied at every start (also `--policy`); `CT_POLICY_MODE=replace` makes the policy match it |
-| `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`). `master_key` in the config file works too. |
+| `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`; `UI_PASSWORD` sets another). `master_key` in the config file works too. |
+| `CT_SETUP_TOKEN` | derived from the master key | The setup code the first-run page asks for; printed in the log at start |
+| `CT_LOGIN_RPM` | `10` | Console sign-in attempts a minute per email (twice that per address) |
+| `CT_SESSION_IDLE_MS`, `CT_SESSION_TTL_MS` | 12 hours, 7 days | A console session ends after this long unused, or this long in all |
 | `CT_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and the master key |
 | `CT_DATABASE_URL` | — | Postgres instead of SQLite — with `CT_REDIS_URL`, several instances can share it ([docs](docs/scaling.md)) |
 | `CT_REDIS_URL` | — | Redis, keeping several instances in step |
@@ -253,6 +256,8 @@ Everything is configured in the browser. Environment variables exist for operato
 | `CT_A2A_PUSH_RELAY` | `on` | `off` lets A2A agents send push notifications straight to the caller's webhook instead of through Control Tower |
 | `CT_PUSH_ALLOW_PRIVATE` | — | `1` lets relayed push notifications go to private, loopback and link-local addresses |
 | `CT_MAX_HELD` | `500` | Max concurrently held requests per process |
+| `CT_MODEL_HEALTH_INTERVAL_S` | `300` | How often models are health-checked in the background; `0` turns it off |
+| `CT_HOST`, `CT_LOG_LEVEL` | `0.0.0.0`, `info` | Listen address; `debug`, `info`, `warn` or `error` logs |
 
 ## Roadmap
 
@@ -260,7 +265,9 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.2 — understand it** (shipped): simulate gates on past traffic ✓, Ledger ✓, allow-with-limits gates ✓, Slack approvals ✓, observed traffic via `/v1/observe` and OTLP ✓, Gemini/Bedrock/Vertex adapters ✓, Prometheus ✓, inspect gates ✓, alerts ✓, policy as YAML ✓, email approvals ✓, Flight Recorder replay ✓.
 - **v0.1.5 — agents calling agents** (shipped): delegation tokens, on-behalf-of gates, call chains and traces, the A2A gateway, MCP resources and prompts as flights, spend rolled up to the origin agent.
 - **v0.1.6 — approvals that keep up, agents that come and go** (shipped): approve the next N calls, approvals that say whom a chained call is for, hide idle agents, expiring and retired keys, allow-with-limits gates, model-checked prompt injection; chains tested with four agent frameworks.
-- **v0.3 — trust it**: Postgres + Redis multi-instance ✓, egress proxy sidecar, Playwright fixture for browser agents, audit export; enterprise: users/RBAC/SSO.
+- **v0.1.7 — run it for a team** (shipped): Postgres and Redis for several instances, people with admin, approver and viewer roles, guardrail services, exporting flights, pass-through image, audio and provider APIs, retries and fallback models, regions and tags, health checks, response caching, and security hardening.
+- **Next**: signed images and a Helm chart; audit log export and single sign-on; MCP 2026-07-28 (approvals as protocol-level multi round-trip requests).
+- **v0.3 — trust it**: Postgres + Redis multi-instance ✓, people and roles ✓, egress proxy sidecar, Playwright fixture for browser agents, audit export, SSO.
 
 ## License
 

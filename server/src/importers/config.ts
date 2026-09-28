@@ -214,7 +214,11 @@ function normalizeKeys(doc: Obj): void {
 }
 
 
-export function planConfigImport(yamlText: string, env: Record<string, string | undefined>, existing: ExistingNames): ImportPlan {
+/**
+ * `trusted` is the server's own --config file. A config pasted into the admin API isn't: its os.environ/ references
+ * can't read the server's own secrets (its master key, database and Redis URLs, passwords) into a provider's settings.
+ */
+export function planConfigImport(yamlText: string, env: Record<string, string | undefined>, existing: ExistingNames, opts: { trusted?: boolean } = {}): ImportPlan {
   let doc: unknown;
   try {
     doc = parse(yamlText, { maxAliasCount: 100 });
@@ -232,6 +236,9 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
   if (isObj(doc.environment_variables)) for (const [k, v] of Object.entries(doc.environment_variables)) if (str(v) !== undefined && !String(v).startsWith('os.environ/')) fileEnv[k] = String(v);
   const lookupEnv = (name: string): string | undefined => {
     if (/^CT_/i.test(name)) return undefined;
+    // The file's own environment_variables are its own values, not the server's.
+    if (!opts.trusted && fileEnv[name] !== undefined) return fileEnv[name];
+    if (!opts.trusted && (/^(LITELLM_|UI_)/i.test(name) || /^(DATABASE_URL|REDIS_URL|PG[A-Z_]*|PATH|HOME|HOSTNAME|NODE_[A-Z_]+|npm_.*)$/i.test(name) || /(MASTER|PASSWORD|PASSWD|SESSION_SECRET|PRIVATE_KEY)/i.test(name))) return undefined;
     return fileEnv[name] ?? env[name] ?? undefined;
   };
 

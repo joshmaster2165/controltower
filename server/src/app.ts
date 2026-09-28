@@ -46,7 +46,8 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     trustProxy: true,
     // Fastify defaults to a 30 s keep-alive; long LLM streams need more.
     keepAliveTimeout: 75_000,
-    requestTimeout: 0,
+    // Time to receive a whole request (headers and body): long enough for a large upload, not forever.
+    requestTimeout: 300_000,
   });
   (ctx as AppContext).log = app.log;
   const full = ctx as AppContext;
@@ -72,6 +73,29 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     return gzipAsync(payload, { level: 6 });
   });
 
+  // Security headers. The console (and every answer) can't be framed or sniffed; its pages get a strict CSP;
+  // HSTS over HTTPS. Proxied HTTP APIs (/http/…) keep their own headers.
+  const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.url.startsWith('/http/')) return payload;
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'same-origin');
+    if (req.protocol === 'https' || (full.config.publicUrl ?? '').startsWith('https://')) reply.header('strict-transport-security', 'max-age=31536000');
+    if (String(reply.getHeader('content-type') ?? '').includes('text/html')) reply.header('content-security-policy', CSP);
+    return payload;
+  });
+
+  // Errors nobody meant to send: details go to the log, not to whoever asked.
+  app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
+    const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    if (status >= 500) {
+      req.log.error({ err }, 'request failed');
+      return reply.status(status).send({ error: { code: 'internal_error', message: `Control Tower hit an error handling this request (logged as ${req.id}).` } });
+    }
+    return reply.status(status).send({ error: { code: err.code ?? 'bad_request', message: err.message } });
+  });
+
   app.get('/healthz', async () => ({ ok: true }));
 
   // Prometheus scrape endpoint. Metrics name agents and show spend, so it is
@@ -81,7 +105,9 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     const auth = req.headers.authorization ?? '';
     const presented = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
     const tokenOk = !!token && presented.length === token.length && timingSafeEqual(Buffer.from(presented), Buffer.from(token));
-    if (!tokenOk && !hasAdminKey(full, req) && !(await loadSession(full, req))) {
+    // A session still on a one-time password can't read anything yet.
+    const signedIn = (await loadSession(full, req))?.mustChangePassword === false;
+    if (!tokenOk && !hasAdminKey(full, req) && !signedIn) {
       return reply
         .status(401)
         .header('www-authenticate', 'Bearer')
@@ -89,15 +115,11 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     }
     return reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8').header('cache-control', 'no-store').send(full.metrics.render());
   });
-  app.get('/readyz', async (_req, reply) => {
+  app.get('/readyz', async (req, reply) => {
     const ready = !full.shuttingDown && !full.dbSink.backpressure;
-    return reply.status(ready ? 200 : 503).send({
-      ok: ready,
-      shutting_down: full.shuttingDown,
-      pending_events: full.dbSink.pendingCount,
-      wal_bytes: full.db.walBytes(),
-      providers: { total: full.registry.providers.size },
-    });
+    // Load balancers need the status; the details are for the admin key.
+    const details = hasAdminKey(full, req) ? { pending_events: full.dbSink.pendingCount, wal_bytes: full.db.walBytes(), providers: { total: full.registry.providers.size } } : {};
+    return reply.status(ready ? 200 : 503).send({ ok: ready, shutting_down: full.shuttingDown, ...details });
   });
 
   await app.register(async (g) => gatewayRoutes(g, full));

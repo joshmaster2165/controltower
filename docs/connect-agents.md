@@ -144,7 +144,7 @@ curl http://localhost:4000/v1/chat/completions \
   -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "hello"}]}'
 ```
 
-Every response carries `x-ct-flight-id`: search for it under **Flights** to see what happened to the request.
+Every model response carries `x-ct-flight-id`: search for it under **Flights** to see what happened to the request.
 
 ## When a request is refused
 
@@ -162,3 +162,5 @@ Errors use the envelope of the API the client speaks (OpenAI or Anthropic), with
 | 429 | `provider_rate_limited` | The provider rate-limited the call, after any fallbacks |
 | 400 | `provider_bad_request` | The provider rejected the request as invalid (not retried elsewhere) |
 | 502 / 504 | `provider_error`, `provider_auth_error`, `provider_timeout`, … | The provider failed, after any fallbacks |
+
+Every code, for model calls, MCP, HTTP APIs and A2A, is in [Troubleshooting](troubleshooting.md#the-agent-gets-an-error).

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { ulid } from 'ulid';
 import { sql } from 'kysely';
 import type { AppContext } from '../context.js';
-import { requireAdmin, isSetupComplete } from './auth.js';
+import { requireAdmin, isSetupComplete, hasAdminKey, loadSession } from './auth.js';
 import { generateApiKey } from '../crypto/apikeys.js';
 import { classifyOperation } from '../mcp/gateway.js';
 import { recentRoutes } from './http.js';
@@ -25,8 +25,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   const guard = requireAdmin(ctx);
 
   // ---- status (unauthenticated, no secrets) ----
-  app.get('/admin/api/status', async () => {
+  app.get('/admin/api/status', async (req) => {
     const provs = [...ctx.registry.providers.values()];
+    // Before signing in: only whether to show setup or sign-in. Signed in (or the admin key): the rest.
+    if (!hasAdminKey(ctx, req) && (await loadSession(ctx, req))?.mustChangePassword !== false) return { setup_complete: await isSetupComplete(ctx) };
     return {
       version: ctx.config.version,
       setup_complete: await isSetupComplete(ctx),

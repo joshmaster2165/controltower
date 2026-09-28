@@ -42,13 +42,13 @@ docker run -d -p 4000:4000 \
   ghcr.io/joshmaster2165/controltower:latest
 ```
 
-Each says so in its log: *instance a1b2…: sharing Postgres and Redis with other instances*. An instance with a different master key refuses to start rather than fail later on every secret.
+Each says so in its log: *instance a1b2…: sharing Postgres and Redis with other instances*. An instance with a different master key refuses to start rather than fail later on every secret. Until the first admin exists, every instance prints the same [setup code](configuration.md#first-run-setup), so the setup page works through the load balancer.
 
 ## What the instances share
 
 - **Everything stored:** keys, providers, models, gates, zones, approvals, flights, the Ledger, budgets, alerts, views.
 - **Changes, at once:** a key, gate or server added, changed or removed through one instance is live on all of them straight away — a key made through one works through another on its next request.
-- **Rate limits,** exactly: a key's 10 requests a minute are 10 across all instances, and its concurrency limit too. If Redis can't be reached, each instance limits on its own until it can.
+- **Rate limits,** exactly: a key's 10 requests a minute are 10 across all instances, and its concurrency limit too — as are console sign-in attempts. If Redis can't be reached, each instance limits on its own until it can.
 - **Budgets:** spend through every instance counts against the one budget. Instances exchange spend every 3 seconds, so a hard budget can be overshot by what is spent in those seconds.
 - **Approvals:** a call held by one instance is released the moment a person decides on any instance.
 - **The console:** a console connected to any instance sees every instance's live traffic, approvals and alerts, and the map draws all of it.
@@ -62,7 +62,7 @@ Each says so in its log: *instance a1b2…: sharing Postgres and Redis with othe
 ## When an instance stops
 
 - **Gracefully** (a deploy, a scale-down): it stops taking new calls, gives calls in flight `CT_SHUTDOWN_GRACE_MS` to finish, hands calls held for approval a ticket to retry with, and records anything still unfinished as stopped.
-- **Crashing:** the others notice within 90 seconds that it has stopped saying it is alive, and close out what it left: its unfinished calls are marked stopped, and approvals nobody can come back to are expired.
+- **Crashing:** the others notice within 90 seconds (`CT_INSTANCE_TIMEOUT_MS`) that it has stopped saying it is alive, and close out what it left: its unfinished calls are marked stopped, and approvals nobody can come back to are expired.
 
 ## Postgres with one instance
 

@@ -18,7 +18,7 @@ Three ways:
 | **Provider outage** | `outage`: repeated timeouts, network errors or 5xx for a model or MCP server within a window (rate limits and 4xx don't count), or a model failing its [background health check](providers-and-models.md#health-checks) — even while nobody is calling it · `recovered`: the first success afterwards |
 | **Failed requests** | Requests that still failed after fallbacks, optionally for chosen agents or models |
 | **Slow requests** | Requests slower than a threshold (default 30 s) |
-| **Budget** | A budget reaching a percentage (default 80%) and being used up — once per budget period |
+| **Budget** | A key, team or project budget reaching a percentage (default 80%) and being used up — once per budget period. Customer budgets don't raise alerts |
 | **Daily summary** | Requests, tokens, spend, blocked / held / masked counts, errors, top spenders and the slowest and most-failing models, at a chosen hour (UTC); skipped on quiet days |
 
 **How often** (gate alerts): **Every time**, or **When it repeats** — *N times within M minutes*. Failed requests, slow requests and outages set the same *N within M minutes* under **Failures needed** or **Slow requests needed**. After firing, a rule stays quiet for the time set in **After an alert, stay quiet for** and then sends one digest of what happened in the meantime — so a burst of 400 blocked calls is one message, not 400.
@@ -79,8 +79,42 @@ A `held` alert about one request links straight to its approval card, with a **R
 
 `console_url` points at the page to act on: the request's card in the **Tower** for a single held request, the Tower queue for several, and otherwise the page for that kind of alert.
 
-With a signing secret, each delivery carries `x-ct-signature: t=<unix seconds>,v1=<hex>`, where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Deliveries are retried twice on network errors, 408, 429 and 5xx.
+Each delivery carries `x-ct-event: alert`. With a signing secret, it also carries `x-ct-signature: t=<unix seconds>,v1=<hex>`, where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Deliveries are retried twice on network errors, 408, 429 and 5xx.
 
 ## From the config file
 
 `general_settings.alerting: ["slack"]` with `SLACK_WEBHOOK_URL` in the environment creates a Slack channel, and `alert_types` become rules: `llm_exceptions` → failed requests, `llm_too_slow` / `llm_requests_hanging` → slow requests, `budget_alerts` → budgets, `cooldown_deployment` / `outage_alerts` → provider outages, `daily_reports` / `spend_reports` → daily summary. See [Config file](config-file.md#general_settings).
+
+## API
+
+`POST /admin/api/alert-rules` creates a rule; `PATCH /admin/api/alert-rules/:id` changes the fields it is sent.
+
+```json
+{
+  "name": "Contact deletes",
+  "kind": "gate",
+  "rule_id": "rule_…",
+  "triggers": ["held", "scope_mismatch"],
+  "threshold": 1,
+  "window_s": 300,
+  "cooldown_s": 300,
+  "channels": ["ach_…"],
+  "params": {}
+}
+```
+
+| Field | |
+|---|---|
+| `kind` | `gate`, `health` (provider outage), `errors` (failed requests), `latency` (slow requests), `budget` or `digest` (daily summary). Default `gate` |
+| `triggers` | At least one of the kind's: `gate` — `blocked`, `held`, `approved`, `rejected`, `unanswered`, `allowed`, `scope_mismatch`, `masked`, `flagged`; `health` — `outage`, `recovered`; `errors` — `failed`; `latency` — `slow`; `budget` — `budget_warning`, `budget_exceeded`; `digest` — `daily` |
+| `rule_id` | For `gate`: the gate to watch. Leave it out for every gate |
+| `threshold`, `window_s` | Fire at `threshold` events within `window_s` seconds (defaults 1 and 300) |
+| `cooldown_s` | Quiet time after firing, then one digest (default 300) |
+| `channels` | Alert channel ids; the console inbox always gets it |
+| `params.targets` | For `health`, `errors`, `latency` and `budget`: only these deployments, MCP servers or keys (by id), or `team:<name>` / `project:<name>`. Empty is all |
+| `params.slow_ms` | For `latency`: what counts as slow (default 30000) |
+| `params.warn_pct` | For `budget`: the warning percentage (default 80) |
+| `params.hour` | For `digest`: the hour to send it, UTC (default 8) |
+| `enabled` | `false` pauses the rule |
+
+`POST /admin/api/alert-channels` adds a channel: `{kind: "slack" | "webhook", name?, url, secret?}` (`secret` for webhooks), or `{kind: "email", name?, to: [...], smtp?: {host, port, secure, user, pass, from}}`.

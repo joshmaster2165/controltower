@@ -70,7 +70,6 @@ export const useStore = create<State>((set, get) => ({
   counters: { flights: 0, ok: 0, errors: 0, denied: 0, cost_nanousd: 0, tokens: 0 },
 
   async boot() {
-    const status = await api.get<Status>('/admin/api/status');
     let me: Me | null = null;
     try {
       me = await api.get<Me>('/admin/api/me');
@@ -78,6 +77,8 @@ export const useStore = create<State>((set, get) => ({
     } catch {
       me = null;
     }
+    // Signed in, the status carries the version, demo and mode; before, only whether setup is done.
+    const status = await api.get<Status>('/admin/api/status');
     set({ status, me, booted: true });
     if (me?.email) await Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
@@ -85,6 +86,7 @@ export const useStore = create<State>((set, get) => ({
   setMe(me) {
     setCsrf(me?.csrf ?? null);
     set({ me });
+    void api.get<Status>('/admin/api/status').then((status) => set({ status }));
     if (me?.email) void Promise.all([get().refreshTopology(), get().refreshPolicy(), get().refreshApprovals(), get().refreshAlerts()]);
   },
 

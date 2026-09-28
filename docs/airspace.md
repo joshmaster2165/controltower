@@ -165,8 +165,28 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 
 - **Approve** within the hold time and the request simply continues; the agent never knows it waited.
 - **Deny** and the agent gets a `403` with the reason.
-- **Nobody answers** in time: the agent gets `403 approval_required` with a **ticket**. Once someone approves, the agent retries the same call with `x-ct-approval: <ticket>` and it goes through **once**. A retry with different arguments is refused and raised as a security event (`scope_mismatch`).
+- **Nobody answers** in time: the agent gets `403 approval_required` with a **ticket**. Once someone approves, the agent retries the same call with `x-ct-approval: <ticket>` and it goes through **once**. A retry with different arguments is refused (`403 policy_denied`, *scope mismatch*) and raised as a security event (`scope_mismatch`).
 - Held alerts by [email](alerts.md#approving-by-email), in Slack or to a webhook link straight to the card. Approving is always an authenticated action in the console — a link click never approves anything.
+
+### Retrying with a ticket
+
+The `approval_required` error tells the agent what to do, in its message and in fields a program can read. On a model call they are under `ct`:
+
+```json
+{"error": {"code": "approval_required", "message": "CONTROL_TOWER_APPROVAL_REQUIRED …",
+  "ct": {"v": 1, "status": "pending", "ticket": "ct_tkt_…", "retry_after_ms": 15000,
+         "request_id": "apr_…", "expires_at": "2026-09-28T17:14:03.000Z", "console_url": "https://tower.example.com/#/tower/apr_…"}}}
+```
+
+HTTP APIs put the same fields in their error body and the ticket in an `x-ct-approval-ticket` header; MCP puts them in the tool result's JSON. `status` is `expired` (with no ticket) when the request expired before anyone answered: retry the call to ask again.
+
+- **Retry** the exact call with `x-ct-approval: <ticket>`. MCP clients can send it as `params._meta.ct_approval`, A2A clients as `params.metadata.ct_approval`.
+- **Still undecided:** the retry gets `approval_required` again, `status: pending`, with `retry_after_ms`.
+- **Denied:** `403 policy_denied`, *Denied by an approver*.
+- A ticket works only with the key that asked for it, and expires with the approval request.
+- On a model call, `x-ct-session` (or the request's `user` or `metadata.user_id`) names the agent's session: a duplicate retry within 5 seconds with the same ticket and session goes through on the same approval instead of asking for a new one.
+
+**What an approval covers.** A tool, HTTP or A2A call is approved with its arguments. A model call is approved for its model, `max_tokens`, `stream`, tools and **a digest of its prompt**: `messages`, `system`, `instructions`, `input` and `prompt`; for Gemini's own API `contents` and `systemInstruction`; for Bedrock's `messages`, `system`, `prompt` and `inputText`; for images, audio, moderation, rerank and completions, the fields inspect gates read. So a ticket approved for one prompt can't be redeemed with another: that retry is a scope mismatch.
 
 ### Approve the next N calls
 
@@ -176,7 +196,7 @@ When an agent will make the same kind of call again and again — a batch of ref
 - **Any arguments**, or **Only these** — the same arguments as the card (tool, HTTP and A2A calls). On a model gate the choice is not offered: a window covers requests to that model whatever their prompt.
 - The card spells out what you are agreeing to before you click: *Approve this call, and let billing-agent make 5 more calls to payments__POST /v1/charges through this gate in the next 30 minutes — with any arguments.*
 
-A window covers **one agent, one gate and one target** (the model, tool or HTTP route on the card) — and, for a call an agent makes [on another agent's behalf](agent-to-agent.md), only calls made for that same chain. Calls it covers go straight through and are recorded as approved by the person who opened the window. **Approved ahead** on the Tower page lists open windows with the calls and time left; **End now** closes one at once. Editing the gate closes its windows too, so a changed rule is never approved in advance.
+A window covers **one agent, one gate and one target** (the model, tool or HTTP route on the card) — and, for a call an agent makes [on another agent's behalf](agent-to-agent.md), only calls made for that same chain. Calls it covers go straight through and are recorded as approved by the person who opened the window. **Approved ahead** on the Tower page lists open windows with the calls and time left; **End now** (admins) closes one at once. Editing the gate closes its windows too, so a changed rule is never approved in advance.
 
 In the API: `POST /admin/api/approvals/<id>/decide` with `{ "action": "approve", "window": { "uses": 5, "ttl_ms": 1800000, "any_args": true } }`; `GET /admin/api/approval-windows` lists open windows and `POST /admin/api/grants/<id>/revoke` ends one.
 

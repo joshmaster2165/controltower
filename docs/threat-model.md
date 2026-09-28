@@ -20,10 +20,25 @@ A rule existing on an edge never makes it solid. A lane is solid only when a gat
 ## Approval semantics
 
 - **At-most-once redemption.** A grant is single-use for writes by default. "A human said yes to exactly this action once" is the guarantee. Exactly-once *side effects* are not achievable — a tool call can succeed while the response is lost — and we do not claim them.
-- **Scope binding.** Grants bind to the agent key, the target, the rule revision and a hash of the salient arguments. Redeeming with different arguments is a `scope_mismatch`, logged as a security event and shown red on the edge.
+- **Scope binding.** Grants bind to the agent key, the target, the rule revision and a hash of the salient arguments. For a model call the arguments include a digest of the prompt (messages, system prompt, instructions, input), so a ticket approved for a harmless prompt can't be redeemed with a different one. Redeeming with different arguments is a `scope_mismatch` (`403 policy_denied`), logged as a security event and shown red on the edge. A gate with `bind_fields` binds only the fields it names.
 - **The card shows wire arguments, never the model's summary.** A model can describe a benign action and perform a different one; the approval UI renders what will actually be sent.
 - **GET never approves.** Link unfurlers in Slack and mail clients fetch URLs; approval is always an authenticated POST from the console.
 - **Tickets leak into transcripts.** The ticket is delivered in an error message the model reads, so it lands in conversation history. Tickets are bound to the key that requested them and expire with the approval request.
+
+## Attacks on Control Tower itself
+
+| Threat | What stops it |
+|---|---|
+| Someone reaches a new install before you and creates its admin | First-run setup needs the setup code printed in the server's log (or `CT_SETUP_TOKEN`), is limited to 10 tries a minute per address, and succeeds only once. With `CT_ADMIN_KEY` there is no setup page at all. |
+| Guessing a console password | `CT_LOGIN_RPM` attempts a minute per email (10 by default) and twice that per address, shared across instances with Redis. Passwords are scrypt hashes; the verifier runs whether or not the email exists. |
+| A stolen session | Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS. The database stores only their hashes, so a copy of it holds no usable session. Sessions end after 12 hours unused or 7 days in all, when a role or password changes, and when the admin key that signed them in changes. |
+| Cross-site requests from another page (CSRF) | Every change needs the `x-ct-csrf` token as well as the cookie. The console's WebSocket refuses a browser from another origin (close code `4403`), so another site can't read live traffic with your cookie. |
+| Clickjacking and injected script | `X-Frame-Options: DENY` and `frame-ancestors 'none'`; console pages carry a Content Security Policy that runs only the console's own scripts; `nosniff`; HSTS over HTTPS. |
+| Learning about a server without signing in | `/admin/api/status` answers only whether setup is done, `/readyz` only whether the instance is ready. Unexpected errors answer with a request id, not a stack trace. |
+| A2A push notifications aimed at internal services (SSRF) | Webhooks must resolve to public addresses, in IPv4 and every IPv6 form that can carry a private one, checked when set up, before each delivery and on the address actually connected to. `CT_PUSH_ALLOW_PRIVATE=1` turns this off. |
+| One agent seeing another's state on a stateful MCP server | Control Tower keeps a separate upstream session per server and agent. |
+| An admin session reading the server's own secrets through a config import | Imports through the console or admin API don't resolve `os.environ/` references to the server's own settings, database and Redis URLs, or names that look like passwords and keys. Only the `--config` file the server starts with can. |
+| A compromised process rewriting its own code | In the container image, the app's files belong to root and are read-only to the `node` user it runs as; only `/data` is writable. |
 
 ## Failure posture
 

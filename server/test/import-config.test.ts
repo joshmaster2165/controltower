@@ -90,6 +90,7 @@ general_settings: {master_key: os.environ/ADMIN_MASTER_KEY, alerting: ["slack"],
 `,
       { OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a', ADMIN_MASTER_KEY: 'sk-master', SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/T/B/x' },
       none(),
+      { trusted: true },
     );
     expect(plan.providers.map((p) => p.catalogId).sort()).toEqual(['anthropic', 'openai']);
     expect(plan.deployments).toEqual([]);
@@ -140,9 +141,18 @@ mcp_servers:
     expect(short.providers[0]!.baseUrl).toBe('https://proxy.example.com/v1');
   });
 
-  it('never resolves Control Tower variables and rejects non-configs', () => {
+  it('never resolves Control Tower variables, nor server secrets from an admin import, and rejects non-configs', () => {
     const plan = planConfigImport('model_list:\n  - model_name: x\n    params: {model: openai/x, api_key: os.environ/CT_MASTER_KEY}\n', { CT_MASTER_KEY: 'master' }, none());
     expect(plan.providers[0]!.values).toEqual({});
+    const env = { LITELLM_MASTER_KEY: 'm', DATABASE_URL: 'postgres://x', REDIS_URL: 'redis://x', DB_PASSWORD: 'p', OPENAI_API_KEY: 'sk-ok' };
+    const refs = (name: string) => `model_list:\n  - model_name: x\n    params: {model: openai/x, api_key: os.environ/${name}}\n`;
+    for (const name of ['LITELLM_MASTER_KEY', 'DATABASE_URL', 'REDIS_URL', 'DB_PASSWORD']) {
+      expect(planConfigImport(refs(name), env, none()).providers[0]!.values, name).toEqual({});
+      expect(planConfigImport(refs(name), env, none(), { trusted: true }).providers[0]!.values, name).not.toEqual({});
+    }
+    expect(planConfigImport(refs('OPENAI_API_KEY'), env, none()).providers[0]!.values).toEqual({ api_key: 'sk-ok' });
+    // The file's own environment_variables are its values, not the server's.
+    expect(planConfigImport(`${refs('DB_PASSWORD')}environment_variables: {DB_PASSWORD: from-file}\n`, env, none()).providers[0]!.values).toEqual({ api_key: 'from-file' });
     expect(() => planConfigImport('just: text', {}, none())).toThrow('No model_list');
     expect(() => planConfigImport('model_list: [\n', {}, none())).toThrow('Not valid YAML');
   });

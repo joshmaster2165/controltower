@@ -2,7 +2,11 @@
 
 ## Flights
 
-Every request through the gateway — model calls, MCP tool calls and HTTP API calls — with its agent, target, outcome, tokens, cost and latency. Filter by errors, blocked, awaiting approval or rejected, or search by agent, model, tool, error or flight id. Every gateway response carries `x-ct-flight-id`, so an agent's log line leads straight to its flight.
+Every request through the gateway — model calls, MCP tool calls and HTTP API calls — with its agent, target, outcome, tokens, cost and latency. Filter by errors, blocked, awaiting approval or rejected, or search by agent, model, tool, error or flight id. Model, HTTP API and A2A responses carry `x-ct-flight-id` (an MCP refusal carries `flight_id` in its text), so an agent's log line leads straight to its flight.
+
+- **~** after the tokens: the provider didn't report usage, so it is estimated.
+- **cached** under the cost: answered from Control Tower's [response cache](providers-and-models.md#caching-answers), with no call to the provider.
+- **trace** by the flight id: the call is part of a chain of agents calling agents; it shows every call in the chain ([Agents calling agents](agent-to-agent.md#step-4-see-it)).
 
 ![Flights](images/flights-demo.png)
 
@@ -16,6 +20,8 @@ Spend, requests, tokens and errors over time, per agent and per model or tool se
 
 The **Budgets** card shows every agent, team and project budget against its spend, and is where team and project budgets are added — see [Keys, budgets and limits](keys.md#team-and-project-budgets).
 
+**Customers** lists the end customers calls were made for, with their requests, agents, spend and budget; a customer can be named, blocked or given a budget there. **Spend by tag** breaks spend down by the tags calls carried. See [Tags and customers](keys.md#tags-and-customers).
+
 ## Data-flow inventory
 
 **Inventory** lists every agent, model and tool server, and every agent → model / tool path seen in the last 24 hours, 7 days or 30 days — with requests, errors, blocked, held and spend, and, for each path, what Control Tower does about it today: the access decision and the gate behind it, the inspect gates that scan it, and whether the agent's key even allows it. Paths seen outside the gateway are listed separately as *seen, not enforced*.
@@ -26,7 +32,7 @@ Print it (or save as PDF) for a security review, or download it as Markdown for 
 
 ## Prometheus metrics
 
-`GET /metrics` serves the Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with that bearer token (a signed-in admin or the admin key can also open it).
+`GET /metrics` serves the Prometheus text format. It names agents and shows spend, so it is never anonymous: set `CT_METRICS_TOKEN` and scrape with that bearer token. Anyone signed in to the console (viewers included) and the admin key can also open it.
 
 ```yaml
 scrape_configs:
@@ -44,14 +50,17 @@ scrape_configs:
 | `controltower_delegated_spend_usd_total{origin,agent}` | Spend made on behalf of another agent |
 | `controltower_upstream_failures_total{model,code}`, `controltower_fallbacks_total{model}` | Provider health |
 | `controltower_gate_decisions_total{gate,decision}`, `controltower_approvals_total{outcome}` | Enforcement |
-| `controltower_request_duration_seconds`, `controltower_time_to_first_token_seconds`, `controltower_gateway_overhead_seconds` | Latency histograms |
-| requests in flight, held requests, event backlog, `controltower_deployment_state`, `controltower_mcp_server_up`, budget limit / spent / remaining, build info, uptime | Gauges |
+| `controltower_request_duration_seconds{kind,model,provider}`, `controltower_time_to_first_token_seconds{model,provider}` (streams), `controltower_gateway_overhead_seconds` | Latency histograms |
+| `controltower_requests_in_flight`, `controltower_held_requests`, `controltower_event_backlog` | Gauges: calls under way, calls waiting for approval, flight events not yet written |
+| `controltower_deployment_state{model,provider}` (1 = cooling down after failures), `controltower_mcp_server_up{server}` (MCP servers and HTTP APIs) | Gauges: health |
+| `controltower_budget_limit_usd{scope}`, `controltower_budget_spent_usd{scope}`, `controltower_budget_remaining_usd{scope}` | Gauges: each budget in its current period (`scope` is `key:<key name>`, `team:<name>`, `project:<name>` or `customer:<id>`) |
+| `controltower_build_info{version}`, `controltower_uptime_seconds` | Gauges: the build, and seconds since start |
 
 Labels are bounded: a model name the gateway doesn't know is reported as `other`, so clients can't create series at will.
 
 ## Health checks
 
-`/healthz` and `/health/liveliness` for liveness, `/readyz` and `/health/readiness` for readiness, and `/health` (admin or agent key) to check every connected provider. See [Install](install.md#any-container-platform).
+`/healthz` and `/health/liveliness` for liveness, `/readyz` and `/health/readiness` for readiness, and `/health` (admin or agent key) to check every connected provider. `/readyz` answers `{ok, shutting_down}`; with the admin key it adds the event backlog, the database's write-ahead log size and the provider count. See [Install](install.md#any-container-platform).
 
 ## Load testing
 

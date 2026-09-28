@@ -66,3 +66,16 @@ For `mask`, return one text for each text you were sent, in the same order.
 - `PATCH /admin/api/guardrail-services/:id` changes one; secrets left out are kept.
 - `DELETE /admin/api/guardrail-services/:id` removes one. This is refused while a gate still uses it.
 - `POST /admin/api/guardrail-services/test` tries a service: `{id or kind + config, text, direction}`.
+
+What `config` holds for each kind:
+
+| `kind` | `config` |
+|---|---|
+| `presidio` | `analyzer_url` (required), `language` (`en`), `entities`, `score_threshold` |
+| `lakera` | `api_key` (required), `project_id`, `url` (default `https://api.lakera.ai/v2/guard`) |
+| `bedrock` | `guardrail_id`, `access_key_id`, `secret_access_key` (required), `guardrail_version` (`DRAFT`), `region` (`us-east-1`), `session_token`, `endpoint` |
+| `azure` | `endpoint`, `api_key` (required), `severity_threshold` (4), `prompt_shields` |
+| `openai_moderation` | `provider` (a connected OpenAI provider's slug) or `api_key`; `model` (`omni-moderation-latest`); with `api_key`, `url` (the API base, default `https://api.openai.com/v1`) |
+| `webhook` | `url` (required), `secret`, `headers` |
+
+`api_key`, `secret_access_key`, `session_token`, `secret` and `headers` are secrets: stored encrypted and never returned.

@@ -34,6 +34,8 @@ export interface Config {
   holdBudgetMs: number;
   logLevel: string;
   sessionTtlMs: number;
+  /** A console session unused this long ends (CT_SESSION_IDLE_MS). */
+  sessionIdleMs: number;
   /** Serve the built UI from this directory (relative to cwd or absolute). */
   uiDir: string | undefined;
   /** A config.yaml loaded at boot (`--config`); the file is the source of truth for what it declares. */
@@ -52,6 +54,10 @@ export interface Config {
    * or general_settings.master_key in the --config file (LITELLM_MASTER_KEY is accepted too).
    */
   adminKey: string | undefined;
+  /** The code first-run setup asks for (default: derived from the master key and printed at start). */
+  setupToken: string | undefined;
+  /** Sign-in attempts a minute, per account (twice as many per address). */
+  loginRpm: number;
   /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
   uiUsername: string;
   uiPassword: string | undefined;
@@ -129,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     pushAllowPrivate: env.CT_PUSH_ALLOW_PRIVATE === '1' || env.CT_PUSH_ALLOW_PRIVATE === 'true',
     logLevel: debug ? 'debug' : (env.CT_LOG_LEVEL ?? (logEnv && ['debug', 'info', 'warn', 'error'].includes(logEnv) ? logEnv : undefined) ?? (env.NODE_ENV === 'production' ? 'info' : 'debug')),
     sessionTtlMs: int(env.CT_SESSION_TTL_MS, 7 * 24 * 3600 * 1000),
+    sessionIdleMs: int(env.CT_SESSION_IDLE_MS, 12 * 3600_000),
     uiDir: env.CT_UI_DIR ? path.resolve(env.CT_UI_DIR) : undefined,
     configFile: configFile ? path.resolve(configFile) : undefined,
     quickModel: val('model', 'm'),
@@ -136,6 +143,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     policyMode: env.CT_POLICY_MODE === 'replace' ? 'replace' : 'merge',
     retention: { flightsDays: Math.max(0, int(env.CT_RETENTION_DAYS, 30)), eventsDays: Math.max(0, int(env.CT_EVENT_RETENTION_DAYS, 7)) },
     adminKey: env.CT_ADMIN_KEY || env.LITELLM_MASTER_KEY || undefined,
+    setupToken: env.CT_SETUP_TOKEN || undefined,
+    loginRpm: int(env.CT_LOGIN_RPM, 10),
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,
     notices,

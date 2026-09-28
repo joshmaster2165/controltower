@@ -23,7 +23,7 @@ api.get(f"{base}/api/v1/components")
 - The agent sends only **its own Control Tower key** (`x-ct-key`, or `Authorization: Bearer ct_sk_…`). Control Tower removes it, adds the API's stored credentials and forwards the request, so the agent never holds the API's secret.
 - Every call is a flight named by route — `statuspage › POST /api/v1/incidents`, with record ids folded (`GET /v2/users/:id`) — and every route is a row under the API on the map.
 - **Gates** work as for MCP tools: match an API, a route glob (`statuspage__DELETE *`) or an operation: `GET`/`HEAD` are *read*, `POST`/`PUT`/`PATCH` *write*, `DELETE` *destructive*. Approvals, inspect gates on request and response bodies, rate limits, alerts and the inventory all apply.
-- A held call answers `403` with `x-ct-status: approval_required` and a ticket; retry the same request with `x-ct-approval: <ticket>` once a human approves.
+- A held call answers `403` with `x-ct-status: approval_required` and a ticket, in the body and in the `x-ct-approval-ticket` header; retry the same request with `x-ct-approval: <ticket>` once a human approves. A retry before anyone decides answers `403 approval_pending` with `retry-after`. See [Retrying with a ticket](airspace.md#retrying-with-a-ticket).
 - Only paths under the registered base URL can be reached: dot segments and encoded dots are refused before anything is sent. Bodies up to 10 MB each way; streaming responses are buffered.
 
 ## Observed traffic: see what doesn't go through the gateway

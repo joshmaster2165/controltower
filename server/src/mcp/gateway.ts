@@ -222,7 +222,7 @@ export class McpGateway {
         // A key that may read none of this server's resources or prompts doesn't see them listed.
         const what = m.method.startsWith('resources') ? 'resources/read' : 'prompts/get';
         if (!key.allowedMcp.some((g) => globMatch(g, namespaced(only.slug, what)))) return empty;
-        return this.ctx.mcp.client(only).call(m.method, m.params ?? {});
+        return this.ctx.mcp.client(only, key.agentId ?? key.id).call(m.method, m.params ?? {});
       }
       case 'resources/read':
       case 'prompts/get': {
@@ -416,7 +416,7 @@ export class McpGateway {
 
       // ---- dispatch ----
       f.t.upstreamSent = Date.now();
-      const client = ctx.mcp.client(server);
+      const client = ctx.mcp.client(server, key.agentId ?? key.id);
       // A server that fronts an agent is told whom the call is for: that agent passes the token on with its own calls.
       const token = server.agentId ? tokenFor(ctx, f.chain, key, server.agentId, f.id, f.originKeyId) : undefined;
       // The server's progress goes on to the client — numbers only where an inspect gate reads what comes back.

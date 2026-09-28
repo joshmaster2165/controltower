@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { once } from 'node:events';
 import { capMaxTokens, gateLimitRefusal } from '../policy/limits.js';
 import { inspect } from '../guardrails/inspect.js';
@@ -214,6 +215,13 @@ function collectText(v: unknown, out: string[], key?: string): void {
   else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v as Record<string, unknown>)) collectText(x, out, k);
 }
 
+/** A digest of what a request asks — its prompt, not its settings — so an approval can be bound to it. */
+export function contentDigest(body: Record<string, unknown>, fields: string[]): string {
+  const h = crypto.createHash('sha256');
+  for (const f of fields) if (body[f] !== undefined) h.update(`${f}\u0000${JSON.stringify(body[f])}\u0000`);
+  return h.digest('hex').slice(0, 32);
+}
+
 function toolNames(body: Record<string, unknown>): string[] {
   if (!Array.isArray(body.tools)) return [];
   return (body.tools as Array<{ function?: { name?: string }; name?: string }>).map((t) => t.function?.name ?? t.name ?? '').filter(Boolean);
@@ -269,7 +277,8 @@ export class FlightRunner {
 
       const g = await this.gate(f, req, reply, {
         keyOverride: runOpts.keyOverride,
-        args: () => ({ model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body) }),
+        // The prompt's digest binds an approval to what was approved: a ticket can't carry a different prompt.
+        args: () => ({ model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body), content: contentDigest(body, ['messages', 'system', 'instructions', 'input', 'prompt']) }),
       });
       capMaxTokens(body, g.decision);
 

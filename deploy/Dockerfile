@@ -26,19 +26,20 @@ RUN mkdir -p /out && cd /out && npm init -y >/dev/null \
 FROM node:24-alpine
 RUN apk add --no-cache tini su-exec
 WORKDIR /app
-# --chown at copy time: a separate `RUN chown -R` would duplicate every file into a new layer.
-COPY --from=build --chown=node:node /app/server/dist ./dist
-COPY --from=build --chown=node:node /out/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/ui/dist ./ui
-COPY --from=build --chown=node:node /app/server/package.json ./package.json
-COPY --chown=node:node LICENSE ./LICENSE
+# The app's files belong to root and are read-only to the `node` user it runs as: a compromised process can't
+# rewrite its own code. Only /data is writable.
+COPY --from=build /app/server/dist ./dist
+COPY --from=build /out/node_modules ./node_modules
+COPY --from=build /app/ui/dist ./ui
+COPY --from=build /app/server/package.json ./package.json
+COPY LICENSE ./LICENSE
 COPY --chmod=755 deploy/entrypoint.sh /usr/local/bin/ct-entrypoint
 ENV NODE_ENV=production \
     CT_IN_CONTAINER=1 \
     CT_HOST=0.0.0.0 \
     CT_DATA_DIR=/data \
     CT_UI_DIR=/app/ui
-RUN mkdir -p /data && chown node:node /data /app
+RUN mkdir -p /data && chown node:node /data
 # No USER line: the entrypoint fixes /data ownership as root, then runs Control Tower as `node`.
 VOLUME ["/data"]
 EXPOSE 4000

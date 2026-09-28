@@ -37,6 +37,7 @@ async function signIn(page: Page) {
   const setup = page.getByRole('heading', { name: /Set up your tower/ });
   const login = page.getByRole('heading', { name: /^Sign in$/ });
   await expect(setup.or(login)).toBeVisible();
+  if (await setup.isVisible()) await field(page, /^Setup code/).fill('E2E-SETUP-CODE');
   await field(page, /^Email/).fill(EMAIL);
   await field(page, /^Password/).fill(PASSWORD);
   if (await setup.isVisible()) await page.getByRole('button', { name: /Create admin/ }).click();

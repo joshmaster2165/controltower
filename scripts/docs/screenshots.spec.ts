@@ -22,6 +22,7 @@ test('fresh install: first run, a provider, a key, the first request', async ({ 
     // First run: create the admin account.
     await page.goto(ct.url);
     await expect(page.getByRole('heading', { name: /Set up your tower/ })).toBeVisible();
+    await field(page, /^Setup code/).fill('DOCS-SETUP-CODE');
     await field(page, /^Email/).fill('you@example.com');
     await field(page, /^Password/).fill('a-long-admin-password');
     await shot(page, 'setup-admin');

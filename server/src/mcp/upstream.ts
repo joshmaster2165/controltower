@@ -135,6 +135,8 @@ export class McpUpstream {
 
   /** Generic passthrough for resources/* and prompts/*. */
   async call(method: string, params: unknown, signal?: AbortSignal, headers?: Record<string, string>, onNotification?: (msg: { method: string; params?: Record<string, unknown> }) => void): Promise<unknown> {
+    // Each agent has its own session, so this may be the session's first request.
+    await this.initialize();
     try {
       return await this.rpc(method, params, signal, headers, onNotification);
     } catch (err) {

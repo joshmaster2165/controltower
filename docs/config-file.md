@@ -87,18 +87,18 @@ Each entry becomes a provider (one per distinct endpoint and credential) and a d
 | `model_name` | The name agents ask for |
 | `params.model` | `<provider>/<model>` — the provider and the upstream model |
 | `params.api_key`, `api_base`, `api_version` | Provider credentials and endpoint. `os.environ/NAME` reads the environment; the usual provider variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `AWS_*` …) are used when a key is left out |
-| `params.aws_access_key_id`, `aws_secret_access_key`, `aws_region_name`, `aws_bedrock_runtime_endpoint` | AWS Bedrock credentials |
+| `params.aws_access_key_id`, `aws_secret_access_key`, `aws_session_token`, `aws_region_name`, `aws_bedrock_runtime_endpoint` | AWS Bedrock credentials (the session token is optional, for temporary credentials) |
 | `params.vertex_project`, `vertex_location`, `vertex_credentials` | Google Vertex AI |
-| `params.credential` | A named entry in `credential_list` (shared `api_key` / `api_base` values) |
+| `params.credential` | A named entry in `credential_list` (shared `api_key` / `api_base` values): `credential_list: [{credential_name: shared-openai, credential_values: {api_key: os.environ/OPENAI_API_KEY}}]` |
 | `params.order` | Priority within a model group (lower first) |
 | `params.weight`, `rpm`, `tpm` | Weight within a model group; `rpm` and `tpm` are also the deployment's [own limits](providers-and-models.md#a-deployments-own-settings) |
 | `params.max_parallel_requests` | The deployment's limit on calls at a time |
 | `params.region_name` (or `aws_region_name`, `vertex_location`) | The deployment's region, for [keys that must keep their data in a region](providers-and-models.md#keeping-data-in-a-region) |
 | `params.tags` | [Reserved for tags](providers-and-models.md#routing-by-tag) (`default` serves untagged requests too) |
 | `params.timeout`, `stream_timeout` | Seconds to wait for the provider's first byte |
-| `model_info.max_input_tokens` | The model's context window, when the price table doesn't know it |
+| `model_info.max_input_tokens` (or `max_tokens`) | The model's context window, when the price table doesn't know it |
 | `model_info.input_cost_per_token`, `output_cost_per_token` | A price override, in dollars per token |
-| `model_info.mode: embedding` | An embeddings model |
+| `model_info.mode: embedding` | An embeddings model. `chat` (the default) and `completion` are chat models; other modes are skipped |
 
 Several entries with the same `model_name` become an **alias** that routes across them:
 
@@ -107,9 +107,11 @@ Several entries with the same `model_name` become an **alias** that routes acros
   - `simple-shuffle` (the default) → **weighted**: each request goes to one of the entries with the lowest `order` (or no `order`), picked at random in proportion to `weight`. Entries with a higher `order` are tried only if it fails.
   - `latency-based-routing` → fastest first.
   - `cost-based-routing` → cheapest first, by the price of a typical call (input price × 3 plus output price, per million tokens); entries without a known price go last.
-  - Anything else is treated as weighted, with a warning.
+  - `least-busy`, `usage-based-routing` and `usage-based-routing-v2` are treated as weighted. Any other name is treated as weighted too, with a warning.
 
 `settings.fallbacks` adds other models from the file as fallbacks: whatever the routing strategy, they are tried only after all of the model's own entries.
+
+`router_settings.model_group_alias: {gpt-4: gpt-4o}` adds another name for a model in the file: agents asking for `gpt-4` get `gpt-4o`'s entries. An alias naming a model that isn't in the file, or a name already taken, is skipped with a warning.
 
 These become the model's [routing](providers-and-models.md#when-a-call-fails-retries-and-fallback-models), in `router_settings` or `settings`:
 
@@ -127,7 +129,9 @@ A fallback may name a model in the file or one Control Tower already has.
 
 **Wildcards**: `model_name: "openai/*"` with `model: "openai/*"` connects the provider and adds each model the first time it is requested. `model_name: "*"` does that for every provider whose key is set in the environment.
 
-**Secrets**: values in the file are used as given; `os.environ/NAME` is read from the server's environment. Control Tower's own `CT_*` variables are never read from a config file, so a file can't expose the server's secrets.
+**Secrets**: values in the file are used as given; `os.environ/NAME` is read from the server's environment, or from the file's own top-level `environment_variables: {NAME: value}`. Control Tower's own `CT_*` variables are never read from a config file.
+
+A file pasted into **Import config** or sent to the admin API (and a model sent to `POST /model/new`) is trusted less than the `--config` file the server starts with: its `os.environ/` references can't read the server's own settings and secrets: `CT_*` and the other variables the server reads for itself, `UI_*`, `DATABASE_URL`, `REDIS_URL`, `PG*`, process variables such as `PATH`, `HOME` and `NODE_*`, and any name containing `MASTER`, `PASSWORD`, `PASSWD`, `SESSION_SECRET` or `PRIVATE_KEY`. So an admin session can't copy the server's database password or master key into a provider's settings and send it elsewhere. A `--config` file (or `CT_CONFIG`) is part of the deployment and may read them.
 
 ## `mcp_servers`
 
@@ -143,7 +147,7 @@ mcp_servers:
     static_headers: { X-Team: support, X-Api-Key: os.environ/CRM_MCP_KEY }
 ```
 
-`static_headers` are sent on their own or together with `api_key` or `basic` auth. Next to `bearer_token` they are ignored (the startup log warns): only the token is sent.
+`authentication_token` is another name for `auth_value`. `static_headers` are sent on their own or together with `api_key` or `basic` auth. Next to `bearer_token` they are ignored (the startup log warns): only the token is sent.
 
 Each entry becomes an [MCP server](mcp.md) whose tools agents reach at `/mcp` as `files__<tool>`. Servers with only a `command` (stdio) are skipped with a warning.
 

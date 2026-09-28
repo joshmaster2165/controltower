@@ -49,15 +49,54 @@ export function pushConfigs(params: Json): Json[] {
 
 // ---------------------------------------------------------------- only public addresses
 
-const V4_PRIVATE: Array<[string, number]> = [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]];
+const V4_PRIVATE: Array<[string, number]> = [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4],
+];
 const v4int = (ip: string) => ip.split('.').reduce((n, o) => (n << 8) + Number(o), 0) >>> 0;
-/** Loopback, private, link-local, carrier-grade NAT, multicast and reserved addresses — and IPv6's equivalents. */
+const v4private = (ip: string) => V4_PRIVATE.some(([base, bits]) => (v4int(ip) >>> (32 - bits)) === (v4int(base) >>> (32 - bits)));
+
+/** An IPv6 address as 16 bytes, whatever way it is written (`::ffff:7f00:1`, `::ffff:127.0.0.1`, `64:ff9b::a9fe:a9fe`). */
+function v6bytes(ip: string): number[] | undefined {
+  let s = ip.toLowerCase().replace(/%.*$/, '');
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (dotted) {
+    if (!net.isIPv4(dotted[1]!)) return undefined;
+    const n = v4int(dotted[1]!);
+    s = `${s.slice(0, -dotted[1]!.length)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return undefined;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return undefined;
+  return groups.flatMap((g) => [parseInt(g, 16) >> 8, parseInt(g, 16) & 0xff]);
+}
+const v4of = (b: number[], at: number) => b.slice(at, at + 4).join('.');
+
+/**
+ * Loopback, private, link-local, carrier-grade NAT, multicast, documentation and reserved addresses — and every
+ * way IPv6 can carry one: IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96), NAT64 (64:ff9b::/96), 6to4
+ * (2002::/16) — plus IPv6's own: unique-local, link- and site-local, multicast, Teredo, documentation.
+ */
 export function isPrivateAddress(ip: string): boolean {
-  if (net.isIPv4(ip)) return V4_PRIVATE.some(([base, bits]) => (v4int(ip) >>> (32 - bits)) === (v4int(base) >>> (32 - bits)));
-  const v6 = ip.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-  if (mapped) return isPrivateAddress(mapped[1]!);
-  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith('ff');
+  if (net.isIPv4(ip)) return v4private(ip);
+  const b = v6bytes(ip);
+  if (!b) return true; // not an address we can read: refuse it
+  const zero = (from: number, to: number) => b.slice(from, to).every((x) => x === 0);
+  if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4private(v4of(b, 12)); // IPv4-mapped
+  if (zero(0, 12)) return true; // ::, ::1 and IPv4-compatible — deprecated, never a public destination
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) return b[4] === 0 && b[5] === 0 && zero(6, 12) ? v4private(v4of(b, 12)) : true; // NAT64
+  if (b[0] === 0x20 && b[1] === 0x02) return v4private(v4of(b, 2)); // 6to4
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x00) return true; // Teredo
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true; // documentation
+  if (b[0] === 0x01 && b[1] === 0x00 && zero(2, 8)) return true; // discard-only
+  if ((b[0]! & 0xfe) === 0xfc) return true; // unique local fc00::/7
+  if (b[0] === 0xfe && (b[1]! & 0xc0) >= 0x80) return true; // link-local fe80::/10, site-local fec0::/10
+  if (b[0] === 0xff) return true; // multicast
+  return false;
 }
 
 /** A connection pool that refuses to connect to private addresses — checked on the address it actually connects to. */
@@ -226,6 +265,12 @@ export class PushRelay {
     if (t.authentication?.scheme && t.authentication.credentials) headers.authorization = `${t.authentication.scheme} ${t.authentication.credentials}`;
     else if (t.token) headers['x-a2a-notification-token'] = t.token;
     f.t.upstreamSent = Date.now();
+    // Checked again at delivery: a literal address never goes through the pool's lookup.
+    const refused = await checkWebhook(t.url, ctx.config.pushAllowPrivate);
+    if (refused) {
+      complete('denied', 403, { code: 'push_target_refused', message: refused });
+      return reply.status(403).send({ error: refused });
+    }
     try {
       const res = await request(t.url, { method: 'POST', headers, body: out, dispatcher: this.agent, headersTimeout: 10_000, bodyTimeout: 10_000, signal: AbortSignal.timeout(15_000) });
       await readCapped(res.body, 64 * 1024).catch(() => undefined);

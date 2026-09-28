@@ -4,6 +4,26 @@ import type { WsClientMessage, WsServerMessage } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { loadSession } from './auth.js';
 
+/** A browser always sends Origin on a WebSocket; one from another site is refused (the cookie alone isn't proof). */
+function sameOrigin(ctx: AppContext, origin: string | undefined, host: string | undefined): boolean {
+  if (!origin) return true; // not a browser: the session cookie still has to be valid
+  let o: URL;
+  try {
+    o = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (host && o.host.toLowerCase() === host.toLowerCase()) return true;
+  if (ctx.config.publicUrl) {
+    try {
+      return o.host.toLowerCase() === new URL(ctx.config.publicUrl).host.toLowerCase();
+    } catch {
+      /* fall through */
+    }
+  }
+  return false;
+}
+
 const MAX_BUFFERED = 1024 * 1024;
 /** Topology notices are coalesced to one per frame. */
 const FRAME_MS = 100;
@@ -17,6 +37,10 @@ const FRAME_MS = 100;
  */
 export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   app.get('/admin/ws', { websocket: true }, async (socket: WebSocket, req) => {
+    if (!sameOrigin(ctx, req.headers.origin, req.headers['x-forwarded-host']?.toString().split(',')[0]?.trim() || req.headers.host)) {
+      socket.close(4403, 'origin not allowed');
+      return;
+    }
     const session = await loadSession(ctx, req);
     if (!session || session.mustChangePassword) {
       socket.close(4401, 'unauthenticated');

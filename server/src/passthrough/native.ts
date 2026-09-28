@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Usage } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { E } from '../gateway/errors.js';
-import { newFlight, type FlightRunner } from '../pipeline/flight.js';
+import { contentDigest, newFlight, type FlightRunner } from '../pipeline/flight.js';
 import type { ModelResolution, ProviderRecord } from '../registry.js';
 import { computeCost } from '../pricing/index.js';
 import { endpoint as vertexEndpoint, vertexAccessToken } from '../providers/vertex.js';
@@ -67,7 +67,7 @@ async function gemini(ctx: AppContext, runner: FlightRunner, req: FastifyRequest
     f.stream = method === 'streamGenerateContent';
     f.estInput = Math.max(1, Math.round(textChars([f.body.contents, f.body.systemInstruction, f.body.requests, f.body.content, f.body.instances]) / 4));
     const g = await runner.gate(f, req, reply, {
-      args: () => ({ model: f.modelRequested, endpoint: f.endpoint }),
+      args: () => ({ model: f.modelRequested, endpoint: f.endpoint, content: contentDigest(f.body, ['contents', 'systemInstruction', 'content', 'requests']) }),
       servedBy: (p) => p.kind === 'gemini' || p.kind === 'vertex',
     });
     await runner.inspectInput(f, g, ['contents', 'systemInstruction', 'content', 'requests']);
@@ -161,7 +161,7 @@ async function bedrock(ctx: AppContext, runner: FlightRunner, req: FastifyReques
     f.stream = op.endsWith('stream');
     f.estInput = Math.max(1, Math.round(textChars([f.body.messages, f.body.system, f.body.prompt, f.body.inputText]) / 4));
     const g = await runner.gate(f, req, reply, {
-      args: () => ({ model: f.modelRequested, endpoint: f.endpoint }),
+      args: () => ({ model: f.modelRequested, endpoint: f.endpoint, content: contentDigest(f.body, ['messages', 'system', 'prompt', 'inputText']) }),
       servedBy: (p) => p.kind === 'bedrock',
       resolve: () => resolveBedrock(ctx, f.modelRequested),
     });

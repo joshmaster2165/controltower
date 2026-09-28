@@ -49,10 +49,16 @@ function parseJson<T>(s: string | null | undefined, fallback: T): T {
  * Tool lists are cached so `tools/list` on the gateway never fans out to
  * upstreams on the hot path.
  */
+/** Upstream MCP sessions kept at once, and how long an unused one stays open. */
+const MAX_SESSIONS = 2000;
+const SESSION_IDLE_MS = 30 * 60_000;
+
 export class McpRegistry {
   servers = new Map<string, McpServerRecord>();
   bySlug = new Map<string, McpServerRecord>();
-  private clients = new Map<string, McpUpstream>();
+  /** Upstream sessions: one per server and agent, so a stateful server never shows one agent another's state. */
+  private clients = new Map<string, { c: McpUpstream; serverId: string; url: string; used: number }>();
+  private sweeper: NodeJS.Timeout | undefined;
   private timer: NodeJS.Timeout | undefined;
   version = 0;
   private listeners = new Set<() => void>();
@@ -100,10 +106,14 @@ export class McpRegistry {
       servers.set(rec.id, rec);
       bySlug.set(rec.slug, rec);
       // Drop stale clients whose config changed.
-      const c = this.clients.get(rec.id);
-      if (c && (c.url !== rec.url)) this.clients.delete(rec.id);
     }
-    for (const id of this.clients.keys()) if (!servers.has(id)) this.clients.delete(id);
+    for (const [k, v] of this.clients) {
+      const s = servers.get(v.serverId);
+      if (!s || s.url !== v.url) {
+        v.c.reset();
+        this.clients.delete(k);
+      }
+    }
     this.servers = servers;
     this.bySlug = bySlug;
     this.version++;
@@ -116,13 +126,32 @@ export class McpRegistry {
     }
   }
 
-  client(server: McpServerRecord): McpUpstream {
-    let c = this.clients.get(server.id);
-    if (!c) {
-      c = new McpUpstream(server.slug, server.url, server.auth, server.timeoutMs);
-      this.clients.set(server.id, c);
+  /** The upstream session for this agent on this server (opened on first use, closed after 30 idle minutes). */
+  client(server: McpServerRecord, agent = '_'): McpUpstream {
+    const k = `${server.id}|${agent}`;
+    let e = this.clients.get(k);
+    if (!e) {
+      e = { c: new McpUpstream(server.slug, server.url, server.auth, server.timeoutMs), serverId: server.id, url: server.url, used: Date.now() };
+      this.clients.set(k, e);
+      if (this.clients.size > MAX_SESSIONS) this.evict(this.clients.size - MAX_SESSIONS);
     }
-    return c;
+    e.used = Date.now();
+    if (!this.sweeper) {
+      this.sweeper = setInterval(() => this.evict(0, Date.now() - SESSION_IDLE_MS), 5 * 60_000);
+      this.sweeper.unref?.();
+    }
+    return e.c;
+  }
+
+  /** Close sessions idle since `before`, and then the least recently used `extra` more. */
+  private evict(extra: number, before = 0): void {
+    const byAge = [...this.clients].sort((a, b) => a[1].used - b[1].used);
+    for (const [k, v] of byAge) {
+      if (v.used >= before && extra <= 0) break;
+      if (v.used >= before) extra--;
+      v.c.reset();
+      this.clients.delete(k);
+    }
   }
 
   /**
@@ -168,5 +197,6 @@ export class McpRegistry {
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.sweeper) clearInterval(this.sweeper);
   }
 }

@@ -54,7 +54,7 @@ export async function loadBootConfig(ctx: AppContext): Promise<void> {
 
   let plan;
   try {
-    plan = dropUnresolved(planConfigImport(stringify(doc), process.env, existing));
+    plan = dropUnresolved(planConfigImport(stringify(doc), process.env, existing, { trusted: true }));
   } catch (err) {
     if (err instanceof ImportError) throw new BootConfigError(`${configFile ?? '--model'}: ${err.message}`);
     throw err;

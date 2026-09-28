@@ -1,6 +1,6 @@
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
-import { hashPassword } from '../crypto/secrets.js';
+import { hashPassword, verifyPassword } from '../crypto/secrets.js';
 import { hashApiKey } from '../crypto/apikeys.js';
 
 /**
@@ -67,6 +67,12 @@ export async function applyAdminKey(ctx: AppContext): Promise<void> {
     });
     ctx.log.info({ username }, 'console sign-in created from the admin key');
   } else if (marker && admins.some((a) => a.email === marker.value)) {
-    await w.updateTable('admins').set({ password_hash: await hashPassword(password) }).where('email', '=', marker.value).execute();
+    const cur = await w.selectFrom('admins').select(['id', 'password_hash']).where('email', '=', marker.value).executeTakeFirst();
+    // Only when the key (or UI_PASSWORD) changed: then the sessions signed in with the old one end too.
+    if (cur && !(await verifyPassword(password, cur.password_hash))) {
+      await w.updateTable('admins').set({ password_hash: await hashPassword(password) }).where('id', '=', cur.id).execute();
+      await w.deleteFrom('sessions').where('admin_id', '=', cur.id).execute();
+      ctx.log.info({ username: marker.value }, 'admin key changed: its console sessions were ended');
+    }
   }
 }

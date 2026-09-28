@@ -46,9 +46,10 @@ export async function compatRoutes(app: FastifyInstance, ctx: AppContext): Promi
     ctx.shuttingDown ? reply.status(503).send({ status: 'shutting_down' }) : reply.type('application/json').send(JSON.stringify("I'm alive!"));
   app.get('/health/liveliness', alive);
   app.get('/health/liveness', alive);
-  app.get('/health/readiness', async (_req, reply) => {
+  app.get('/health/readiness', async (req, reply) => {
     const ready = !ctx.shuttingDown && !ctx.dbSink.backpressure;
-    return reply.status(ready ? 200 : 503).send({ status: ready ? 'healthy' : 'unhealthy', db: 'connected', version: ctx.config.version });
+    // The version is for whoever runs the server, as on /readyz.
+    return reply.status(ready ? 200 : 503).send({ status: ready ? 'healthy' : 'unhealthy', db: 'connected', ...(hasAdminKey(ctx, req) ? { version: ctx.config.version } : {}) });
   });
   // Checks every provider that serves a model and reports each model as healthy or not.
   app.get('/health', async (req, reply) => {

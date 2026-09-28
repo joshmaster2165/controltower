@@ -14,6 +14,8 @@ Control Tower connects, lists the tools and classifies each one: **read** (from 
 
 Servers are health-checked, and their tool lists are refreshed so new tools appear on the map. The transport is Streamable HTTP. For a stdio-only server, run it behind a small bridge such as [`supergateway`](https://github.com/supercorp-ai/supergateway) and register the bridge's URL — Control Tower does not start local commands.
 
+Each agent gets its own session with each upstream server, so a stateful server never shows one agent what another left in its session (a login, an open document, a cursor). Keys that share an [agent ID](keys.md#many-copies-of-one-agent) share a session. An unused session is closed after 30 minutes, and at most 2,000 are kept open, the least recently used closing first.
+
 ## Connect clients
 
 Agents connect to **one** address with their own key:
@@ -37,7 +39,7 @@ A tool an agent can't see is one it can't call and doesn't need approval for —
 Everything in [the Airspace](airspace.md) applies: drag from an agent to a server or a single tool row to block it, require approval or inspect it. On a tool call:
 
 - **Blocked** — the agent gets a tool result with `isError: true` and the reason, so the model can explain it instead of retrying blindly.
-- **Held** — the call waits for a human; the card shows the tool's actual arguments. Unanswered, the result carries a ticket to retry with once approved.
+- **Held** — the call waits for a human; the card shows the tool's actual arguments. Unanswered, the result's JSON carries `ct_status: "pending"` and a `ticket`. Once someone approves, repeat the same call with the ticket in `params._meta.ct_approval` (or the `x-ct-approval` HTTP header); it goes through once. A retry before anyone decides gets `pending` again, with `retry_after_ms`. See [Retrying with a ticket](airspace.md#retrying-with-a-ticket).
 - **Inspected** — arguments and results are scanned. Scanning tool **results** is where indirect prompt injection and data leaks are caught before the model reads them: mask an email address in a CRM record, block instructions hidden in a web page.
 
 ## Resources and prompts

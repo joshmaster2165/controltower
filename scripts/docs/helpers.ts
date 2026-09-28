@@ -13,7 +13,7 @@ export async function startServer(port: number, env: Record<string, string>): Pr
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-docs-'));
   const p: ChildProcess = spawn('node', ['server/dist/server.mjs', '--port', String(port)], {
     cwd: REPO,
-    env: { ...process.env, CT_DATA_DIR: data, CT_UI_DIR: path.join(REPO, 'ui/dist'), CT_LOG_LEVEL: 'warn', CT_DEMO: '0', ...env },
+    env: { ...process.env, CT_DATA_DIR: data, CT_UI_DIR: path.join(REPO, 'ui/dist'), CT_LOG_LEVEL: 'warn', CT_DEMO: '0', CT_SETUP_TOKEN: 'DOCS-SETUP-CODE', ...env },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   const url = `http://localhost:${port}`;

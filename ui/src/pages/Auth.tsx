@@ -37,6 +37,8 @@ function AuthLayout({ children }: { children: ReactNode }) {
 
 export function SetupPage() {
   const setMe = useStore((s) => s.setMe);
+  // The link printed at start carries the code: ?setup=XXXX-XXXX-XXXX.
+  const [code, setCode] = useState(() => new URLSearchParams(location.search).get('setup') ?? '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +49,9 @@ export function SetupPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ ok: boolean; email: string; csrf: string }>('/admin/api/setup', { email, password });
-      setMe({ setup_complete: true, email: r.email, csrf: r.csrf } satisfies Me);
+      const r = await api.post<{ ok: boolean; email: string; csrf: string }>('/admin/api/setup', { email, password, setup_code: code });
+      if (location.search) history.replaceState(null, '', location.pathname + location.hash);
+      setMe({ setup_complete: true, email: r.email, csrf: r.csrf, role: 'admin' } satisfies Me);
       // A brand-new install starts on the setup guide, not an empty map.
       useStore.getState().setRoute('welcome');
       await useStore.getState().boot();
@@ -64,6 +67,11 @@ export function SetupPage() {
       <form className="auth" onSubmit={submit}>
         <h1>Set up your tower</h1>
         <p>Create the admin account. Everything else — providers, models, keys, tool servers, gates — happens here in the browser.</p>
+        <div className="field">
+          <label>Setup code</label>
+          <input className="input mono" value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" required autoComplete="off" />
+          <span className="hint">Printed in the server's log when it starts (with Docker: <code>docker logs &lt;container&gt;</code>), so only someone who runs this server can set it up.</span>
+        </div>
         <div className="field">
           <label>Email</label>
           <input className="input" type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />

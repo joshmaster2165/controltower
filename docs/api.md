@@ -13,7 +13,7 @@ Control Tower serves three APIs on one port:
 | Agents (gateway) | The agent's key, `ct_sk_…` | `Authorization: Bearer`, `x-api-key` or `api-key`; `x-ct-key` for HTTP APIs |
 | Scripts (admin API) | The [admin key](configuration.md#admin-key) | `Authorization: Bearer <admin key>` |
 | The console (admin API) | A session cookie from `POST /admin/api/login` | cookie plus `x-ct-csrf: <token from /admin/api/me>` on writes |
-| Prometheus | `CT_METRICS_TOKEN` | `Authorization: Bearer` |
+| Prometheus | `CT_METRICS_TOKEN` (or any console session, or the admin key) | `Authorization: Bearer` |
 
 ```bash
 export CT=http://localhost:4000
@@ -21,7 +21,7 @@ export ADMIN="Authorization: Bearer $CT_ADMIN_KEY"
 curl -s $CT/admin/api/keys -H "$ADMIN"
 ```
 
-Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway uses the envelope of the API the client speaks). Every gateway response carries `x-ct-flight-id`.
+Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway uses the envelope of the API the client speaks). An unexpected failure is `500 internal_error`, with a message that gives the request id to look up in the server's log. Model, HTTP API and A2A responses carry `x-ct-flight-id`; MCP responses, `/v1/models` and `/v1/messages/count_tokens` don't. Every code is listed in [Troubleshooting](troubleshooting.md#the-agent-gets-an-error).
 
 ## Gateway
 
@@ -39,7 +39,7 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | POST | `/v1/messages` | Anthropic Messages API (Claude Code, Anthropic SDKs) |
 | POST | `/v1/messages/count_tokens` | Token counting — exact from Anthropic, estimated elsewhere |
 | POST | `/openai/deployments/:model/chat/completions`, `…/embeddings` | Azure OpenAI style |
-| POST, GET, DELETE | `/mcp`, `/mcp/:slug` | MCP (Streamable HTTP): every server, or one |
+| POST, DELETE | `/mcp`, `/mcp/:slug` | MCP (Streamable HTTP): every server, or one. `GET` answers `405`: Control Tower doesn't open server-initiated streams |
 | any | `/http/:slug/*` | A [registered HTTP API](http-apis.md) |
 | GET | `/a2a` | The [A2A agents](a2a.md) this key may reach |
 | GET | `/a2a/:slug/.well-known/agent-card.json` | An A2A agent's card, pointing at Control Tower |
@@ -48,7 +48,9 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | POST | `/v1/observe` | Report calls made outside the gateway |
 | POST | `/v1/traces` | OpenTelemetry traces (OTLP/HTTP JSON) |
 
-The OpenAI routes also answer without `/v1`. Requests held for approval can be retried with `x-ct-approval: <ticket>`. Requests may carry `x-ct-tags`, `x-ct-customer`, `x-ct-region` and `x-ct-cache` ([tags and customers](keys.md#tags-and-customers), [caching](providers-and-models.md#caching-answers)).
+The OpenAI routes also answer without `/v1`. Requests may carry `x-ct-tags`, `x-ct-customer`, `x-ct-region` and `x-ct-cache` ([tags and customers](keys.md#tags-and-customers), [caching](providers-and-models.md#caching-answers)), a W3C `traceparent` (Control Tower's [spans](exports.md#spans-in-your-agents-traces) join the agent's trace), `x-ct-delegation` ([agents calling agents](agent-to-agent.md)) and `x-ct-session`.
+
+Requests held for approval are retried with `x-ct-approval: <ticket>` (MCP also takes `params._meta.ct_approval`, A2A `params.metadata.ct_approval`); the HTTP gateway also returns the ticket in an `x-ct-approval-ticket` header. On model calls, `x-ct-session` (or the request's `user` or `metadata.user_id`) names the agent's session: a duplicate retry within 5 seconds with the same ticket and session goes through on the same approval instead of asking for a new one. See [Approvals](airspace.md#approvals-the-tower).
 
 ## Admin API
 
@@ -58,9 +60,9 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 
 | Method | Path | |
 |---|---|---|
-| GET | `/status` | Version, whether setup is complete |
-| POST | `/setup` | First run: create the admin (`{email, password}`) |
-| POST | `/login` | Start a console session (`{email, password}`) |
+| GET | `/status` | `{setup_complete}` without a session; signed in (or with the admin key), also the version and more |
+| POST | `/setup` | First run: create the admin (`{email, password, setup_code}`). `403 setup_code` without the [setup code](configuration.md#first-run-setup) from the server's log, `409 already_setup` once done; 10 attempts a minute per address |
+| POST | `/login` | Start a console session (`{email, password}`); `CT_LOGIN_RPM` attempts a minute per email, twice that per address (`429 rate_limited`) |
 | POST | `/logout` | End it |
 | GET | `/me` | The signed-in person, their `role` and the CSRF token |
 | POST | `/me/password` | Change your own password (`{current, password}`) |
@@ -79,8 +81,8 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | GET, POST | `/deployments` | List, add (`{provider_id, upstream_model, public_name?, pricing_override?, caps?}`) |
 | POST | `/deployments/check`, `/deployments/:id/check` | [Health-check](providers-and-models.md#health-checks) every model now, or one with a real one-token call |
 | DELETE | `/cache` | Forget every [cached answer](providers-and-models.md#caching-answers) |
-| PATCH, DELETE | `/deployments/:id` | Update (enable, rename, price, `caps`: region, tags, context, rpm, tpm, max_parallel, headers_timeout_ms, and for a deployment called by name `fallbacks`, `retry`, `cache`; `null` clears one), remove |
-| GET, POST | `/aliases` | List, add (`{name, strategy, targets: [{deployment_id, priority, weight}], config?}`); `config`: `{fallbacks: {context_window, content_policy, default}, retry: {rate_limited, timeout, server_error, max_attempts}, cache: {ttl_s}}` — see [retries and fallback models](providers-and-models.md#when-a-call-fails-retries-and-fallback-models) |
+| PATCH, DELETE | `/deployments/:id` | Update (enable, rename, price, `caps`: region, tags, context, rpm, tpm, max_parallel, headers_timeout_ms, `health_probe` (health-check with a real one-token call), `mode` (`embedding` for an embeddings model), and for a deployment called by name `fallbacks`, `retry`, `cache`; `null` clears one), remove |
+| GET, POST | `/aliases` | List, add (`{name, strategy, targets: [{deployment_id, priority, weight}], config?}`); `config`: `{fallbacks: {context_window, content_policy, default}, retry: {rate_limited, timeout, server_error, unreachable, max_attempts}, cache: {ttl_s, shared}}` — see [retries and fallback models](providers-and-models.md#when-a-call-fails-retries-and-fallback-models) |
 | PUT, DELETE | `/aliases/:id` | Replace, remove |
 | GET | `/pricing` | The price table |
 
@@ -90,6 +92,8 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 |---|---|---|
 | GET, POST | `/keys` | List, create — see [fields](keys.md#more-controls-api). The secret is returned once |
 | PATCH, DELETE | `/keys/:id` | Update limits, budget, expiry, enable / disable; delete |
+| POST | `/keys/bulk` | Disable or delete many keys: `{action: "disable" \| "delete", ids: [...]}` (up to 5,000; Control Tower's own keys are skipped) |
+| GET, PUT | `/keys/retire-policy` | [Retire keys unused for](keys.md#agents-that-come-and-go) N days: `{idle_days: 0 \| 7 \| 30 \| 90}` (`0` is never); a PUT retires what is already idle and lists it |
 | GET | `/budgets` | Every budget with spend, and the known teams and projects |
 | PUT, DELETE | `/budgets/:type/:id` | Set or remove a `key`, `team`, `project` or `customer` budget (`{limit_usd, period, hard}`) |
 | GET | `/customers?window=24h\|7d\|30d` | End customers with their requests, agents, spend and budget ([tags and customers](keys.md#tags-and-customers)) |
@@ -124,7 +128,8 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | GET | `/approvals`, `/approvals/:id` | Approval requests (`?status=pending`) |
 | POST | `/approvals/:id/decide` | `{action: "approve" \| "deny", note?}` |
 | GET | `/grants` | Grants issued by approvals |
-| POST | `/grants/:id/revoke` | Revoke one before it is used |
+| GET | `/approval-windows` | Open [approval windows](airspace.md#approve-the-next-n-calls), with calls and time left |
+| POST | `/grants/:id/revoke` | Revoke a grant before it is used, or end a window (admins only) |
 
 ### Exports
 
@@ -147,7 +152,7 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 
 | Method | Path | |
 |---|---|---|
-| GET, POST | `/alert-rules` | List, create |
+| GET, POST | `/alert-rules` | List, create — see [the body](alerts.md#api) |
 | PATCH, DELETE | `/alert-rules/:id` | Update, remove |
 | GET, POST | `/alert-channels` | List, create (`slack`, `webhook`, `email`) |
 | PATCH, DELETE | `/alert-channels/:id` | Update, remove |
@@ -166,10 +171,11 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | GET | `/ledger/summary` | Spend, requests and tokens by key and model (`?window=1h\|24h\|7d\|30d`) |
 | GET | `/topology` | Everything on the map: keys, models, servers, views, connections per agent and team (gzipped when accepted) |
 | GET, PUT | `/airspace/layout` | The saved arrangement of the map |
+| GET | `/airspace/agent-link?from=&to=&since=` | The calls behind an arc between two agents: `from` and `to` are comma-separated key ids, `since` epoch ms (default: 7 days). The caller's calls to the servers that front the callee, what each led to, and what the callee did on the caller's behalf |
 | GET, POST | `/airspace/views` | [Views](airspace.md#views-one-part-of-the-organization-at-a-time): `{name, teams, color?}` |
 | PATCH, DELETE | `/airspace/views/:id` | Change or remove a view |
 | GET | `/export/dataflow` | The data-flow inventory (`?format=md\|csv`, `hours`) |
-| GET (WebSocket) | `/admin/ws` | Live traffic for the console: a `tick` each second (totals, calls per path, gate hits) and `events` for held, denied and failed flights |
+| GET (WebSocket) | `/admin/ws` | Live traffic for the console: a `tick` each second (totals, calls per path, gate hits) and `events` for held, denied and failed flights. Needs a session; a browser from another origin is refused (close code `4403`) |
 
 ### Setup helpers
 
@@ -190,6 +196,7 @@ With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `
 | Method | Path | |
 |---|---|---|
 | GET | `/healthz`, `/health/liveliness`, `/health/liveness` | Liveness |
-| GET | `/readyz`, `/health/readiness` | Readiness |
+| GET | `/readyz`, `/health/readiness` | Readiness. `/readyz` answers `{ok, shutting_down}`, and with the admin key also the event backlog, database and provider counts |
 | GET | `/health` | Every connected provider checked (admin or agent key) |
-| GET | `/metrics` | Prometheus — see [Monitoring](monitoring.md#prometheus-metrics) |
+| GET | `/metrics` | Prometheus: `CT_METRICS_TOKEN`, any console session or the admin key — see [Monitoring](monitoring.md#prometheus-metrics) |
+| GET | `/ui` | Redirects to the console |

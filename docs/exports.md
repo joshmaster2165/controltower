@@ -58,3 +58,15 @@ A blocked call carries the gate's `decision` (`deny`, with its `rule_id` and rea
 - **Several instances:** with [several instances](scaling.md), each sends the calls it served.
 
 Destinations can also be managed through the API: `GET`/`POST /admin/api/exports`, `PATCH`/`DELETE /admin/api/exports/:id`, `POST /admin/api/exports/test`, and `POST /admin/api/exports/:id/flush` to send what is waiting now.
+
+`POST /admin/api/exports` takes `{name, kind, config}`. What `config` holds for each kind:
+
+| `kind` | `config` |
+|---|---|
+| `otlp` | `endpoint` (required, e.g. `http://otel-collector:4318`), `signal` (`traces` or `logs`, default `traces`), `headers` |
+| `datadog` | `api_key` (required), `site` (`datadoghq.com`), `service` (`controltower`), `ddtags`, `endpoint` (to send through a proxy) |
+| `splunk` | `url` (required: the HEC base URL), `token` (required), `index`, `sourcetype` (`controltower:flight`) |
+| `s3` | `bucket`, `access_key_id`, `secret_access_key` (required), `region` (`us-east-1`), `prefix` (`controltower/`), `session_token`, `endpoint` (S3-compatible stores) |
+| `webhook` | `url` (required), `secret`, `headers` |
+
+`api_key`, `token`, `secret_access_key`, `session_token`, `secret` and `headers` are secrets: stored encrypted and never returned.

@@ -71,7 +71,7 @@ The called agent's calls are in **Flights** with whom they were made for:
 
 In the API: `GET /admin/api/flights?for=<agent id>` and `GET /admin/api/flights?trace=<flight id>`; each flight has `parent_flight_id` (the call that led to it) and `has_children`. See [API reference](api.md#traffic-spend-and-the-map).
 
-On the **Airspace** a purple arc beside the agents runs from the calling agent to the called one — thicker with more calls, bright while live. The calls themselves still go through the tower (to the agent's server on the right); the arc says who is acting for whom.
+On the **Airspace** a purple arc beside the agents runs from the calling agent to the called one — thicker with more calls, bright while live. The calls themselves still go through the tower (to the agent's server on the right); the arc says who is acting for whom. **Click the arc** for the calls behind it: the latest calls (up to 50, over the last week) from one agent to the other's server, what each led to, and how many calls the called agent made on the caller's behalf, each with a **trace** link into Flights (`GET /admin/api/airspace/agent-link`).
 
 ![support-bot calling research-agent on the Airspace](images/a2a-map.png)
 

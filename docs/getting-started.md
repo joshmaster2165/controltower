@@ -8,12 +8,13 @@ From an empty machine to your own agent on the map in about five minutes. You ne
 docker run -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/controltower
 ```
 
-The terminal prints where to open the console, the two environment variables agents need, and the file to back up:
+The terminal prints where to open the console, a one-time setup code, the two environment variables agents need, and the file to back up:
 
 ```text
-  Control Tower 0.1.6 is running
+  Control Tower 0.1.7 is running
 
-     Open        http://localhost:4000  → create your admin account  (or the host port you published)
+     Open        http://localhost:4000/?setup=K7QM-4XTP-9HRD  → create your admin account  (or the host port you published)
+     Setup code  K7QM-4XTP-9HRD   (the setup page asks for it: only someone who can read this log sets up this server)
      Models      OPENAI_BASE_URL=http://localhost:4000/v1       (OpenAI SDKs)
                  ANTHROPIC_BASE_URL=http://localhost:4000      (Claude Code, Anthropic SDKs)
      Tools       http://localhost:4000/mcp    ·    REST APIs: http://localhost:4000/http/<name>
@@ -25,11 +26,11 @@ Everything lives in the `controltower-data` volume: a SQLite database and `maste
 
 ## 2. Create the admin account
 
-Open <http://localhost:4000>. On a new install you choose the admin email and password (10+ characters).
+Open the **Open** link from the log. On a new install you choose the admin email and password (10+ characters). The setup page also asks for the **setup code**; the link fills it in. The code proves you can read the server's log, so whoever happens to reach a new install first can't claim it. Started in the background? `docker logs <container>` shows it again. Only one setup ever succeeds; after that, the page is a sign-in.
 
 ![The first-run screen: set up your tower](images/setup-admin.png)
 
-> Setting up without a browser (CI, a platform deploy)? Set `CT_ADMIN_KEY` and the account is created for you: sign in as `admin` with that key. See [Configuration](configuration.md#admin-key).
+> Setting up without a browser (CI, a platform deploy)? Set `CT_ADMIN_KEY` and the account is created for you, with no setup page and no code: sign in as `admin` with that key. See [Configuration](configuration.md#admin-key). To script the setup page instead, choose the code yourself with `CT_SETUP_TOKEN`.
 
 ## 3. Follow *Get started*
 

@@ -84,6 +84,7 @@ test('a viewer sees everything and changes nothing', async () => {
   const k = await viewer.call('POST', '/admin/api/keys', { name: 'sneaky' });
   expect([k.status, k.body.error.code]).toEqual([403, 'forbidden']);
   expect((await viewer.call('DELETE', `/admin/api/providers/${providerId}`)).status).toBe(403);
+  expect(((await admin.get('/admin/api/providers')).body.providers as any[]).some((p) => p.id === providerId)).toBe(true); // refused means nothing happened
   expect((await viewer.call('PUT', '/admin/api/airspace/layout', { positions: {} })).status).toBe(403);
   expect((await viewer.call('GET', '/admin/api/users')).status).toBe(403);
 });

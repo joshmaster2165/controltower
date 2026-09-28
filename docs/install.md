@@ -15,7 +15,8 @@ docker run -d --name controltower \
 - **Architectures:** `linux/amd64` and `linux/arm64`.
 - **Data:** keep `/data` on a named volume (or a platform disk). Without one, Docker gives each new container an empty anonymous volume, so an upgrade starts from scratch. On platforms that ignore the image's `VOLUME`, the server warns at startup that `/data` is not on a volume.
 - **Port:** 4000, or `PORT` / `CT_PORT` / `--port`.
-- The container runs as a non-root user. If a platform mounts `/data` owned by root, the entrypoint fixes the ownership before dropping privileges.
+- **First run:** the log prints a **setup code** and an **Open** link that carries it (`docker logs controltower`). The setup page asks for the code, so only someone who can read the log creates the first admin. Set `CT_ADMIN_KEY` to skip the setup page, or `CT_SETUP_TOKEN` to choose the code — see [Configuration](configuration.md#first-run-setup).
+- The container runs as the non-root user `node`. The app's own files belong to root and are read-only to it: only `/data` is writable. If a platform mounts `/data` owned by root, the entrypoint fixes the ownership before dropping privileges.
 
 Flags go after the image name:
 
@@ -62,7 +63,7 @@ Railway runs the published image directly; the only extra step is a volume, so t
 2. Right-click the service → **Attach Volume**, mount path **`/data`**. Railway mounts volumes as root; the image fixes the ownership at startup and still runs as a non-root user.
 3. **Settings → Networking → Generate Domain.** Railway sets `PORT` and the image listens on it.
 4. Optional: **Settings → Deploy → Healthcheck Path** `/healthz`.
-5. Open the domain and create the admin account — or set `CT_ADMIN_KEY` under **Variables** first to skip that step and sign in as `admin`.
+5. Open the domain and create the admin account, with the setup code from the deploy logs — or set `CT_ADMIN_KEY` under **Variables** first to skip that step and sign in as `admin`.
 
 Links in alerts and approval messages use the Railway domain automatically (`RAILWAY_PUBLIC_DOMAIN`); set `CT_PUBLIC_URL` if you add a custom domain. To run from a [config file](config-file.md), build a small image `FROM ghcr.io/joshmaster2165/controltower` that copies in your `config.yaml`, set `CT_CONFIG` to its path, and put the provider keys in **Variables**.
 
@@ -75,7 +76,7 @@ Health checks:
 | Path | Use |
 |---|---|
 | `/healthz`, `/health/liveliness`, `/health/liveness` | Liveness: the process is up |
-| `/readyz`, `/health/readiness` | Readiness: accepting traffic (503 while shutting down) |
+| `/readyz`, `/health/readiness` | Readiness: accepting traffic (503 while shutting down). `/readyz` answers `{ok, shutting_down}`; with the admin key it adds the event backlog and database details |
 | `/health` | Checks every connected provider; needs the admin key or an agent key |
 
 On `SIGTERM` the server stops accepting requests, turns every request waiting for approval into a ticket the agent can retry, lets streams finish (up to 15 s), then flushes and exits.

@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { FlightKind } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { E } from '../gateway/errors.js';
-import { newFlight, type Flight, type FlightRunner } from '../pipeline/flight.js';
+import { contentDigest, newFlight, type Flight, type FlightRunner } from '../pipeline/flight.js';
 import type { AttemptPlan } from '../pipeline/attempts.js';
 import type { DeploymentRecord, ProviderRecord } from '../registry.js';
 import { normalizeHttpError, type NormalizedError } from '../providers/adapter.js';
@@ -92,7 +92,7 @@ export async function runApi(runner: FlightRunner, ctx: AppContext, req: Fastify
     f.estInput = Math.max(1, Math.round(spec.inspect.reduce((n, k) => n + textLength(body[k]), 0) / 4));
 
     const g = await runner.gate(f, req, reply, {
-      args: () => ({ model: f.modelRequested, endpoint: spec.endpoint, ...pick(body, ['size', 'n', 'quality', 'voice', 'response_format', 'top_n']) }),
+      args: () => ({ model: f.modelRequested, endpoint: spec.endpoint, ...pick(body, ['size', 'n', 'quality', 'voice', 'response_format', 'top_n']), content: contentDigest(body, spec.inspect) }),
       servedBy: (p) => OPENAI_WIRE.has(p.kind),
       project: (price) => projectApi(spec, body, price.entry, f.estInput),
     });

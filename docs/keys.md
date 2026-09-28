@@ -111,7 +111,7 @@ Agents can say what a call is for and whom it serves, and Control Tower accounts
 
 Tags given as `metadata.tags` are taken out of the request before it reaches the provider (providers want string metadata); the `ct` object never reaches a provider.
 
-In **Ledger → Customers** a customer can be **blocked** — its calls are refused with `403 customer_blocked` — or given a **monthly budget**, which works like any other budget: a hard budget refuses its calls with `429 budget_exceeded` once spent, and other customers carry on. Customers can be named for the list. Through the API: `PUT /admin/api/customers/:id` (`{name, blocked, note}`) and `PUT /admin/api/budgets/customer/:id`.
+In **Ledger → Customers** a customer can be **blocked** — its calls are refused with `403 customer_blocked` — or given a **monthly budget**, which works like any other budget: a hard budget refuses its calls with `429 budget_exceeded` once spent, and other customers carry on. Customer budgets don't raise [budget alerts](alerts.md); those cover key, team and project budgets. Customers can be named for the list. Through the API: `PUT /admin/api/customers/:id` (`{name, blocked, note}`) and `PUT /admin/api/budgets/customer/:id`.
 
 ## Disable, rotate, delete
 

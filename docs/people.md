@@ -5,7 +5,7 @@ Everyone who signs in to the console has a role:
 | Role | Can |
 |---|---|
 | **Admin** | Change anything: providers, models, keys, gates, zones, alerts, exports, guardrails, and people |
-| **Approver** | See everything, and approve or deny held calls in the Tower (and from Slack or email links) |
+| **Approver** | See everything, and approve or deny held calls in the Tower (and from Slack or email links). Ending an [approval window](airspace.md#approve-the-next-n-calls) early is for admins |
 | **Viewer** | See everything: the map, Flights, the Ledger, the Tower, every setting. Change nothing |
 
 The person who sets up Control Tower is its first admin. The server enforces roles: an approver or viewer who tries to change something gets `403 forbidden`. Their console says what they can do, and hides the buttons for what they can't. Both can still change their own password.

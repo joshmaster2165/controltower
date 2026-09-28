@@ -105,6 +105,8 @@ jobs:
           ready() { for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$1/readyz" >/dev/null 2>&1 && return 0; sleep 1; done; docker logs "$2"; return 1; }
           docker run -d --name ct-sqlite -p 4101:4000 -e CT_ADMIN_KEY=smoke-admin-key-0123456789 ct-smoke
           ready 4101 ct-sqlite
+          # The app's own files are read-only to the user it runs as.
+          if docker exec -u node ct-sqlite sh -c 'touch /app/dist/x || touch /app/x' 2>/dev/null; then echo "/app is writable by node"; exit 1; fi
           docker network create smoke
           docker run -d --name pg --network smoke -e POSTGRES_PASSWORD=smoke postgres:17-alpine
           docker run -d --name redis --network smoke redis:7-alpine

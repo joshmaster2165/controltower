@@ -232,6 +232,8 @@ export function AirspacePage() {
         // Arrangement is shared (server); camera is per viewer (localStorage).
         scene.onLayoutChange((positions) => {
           setCustomLayout(Object.keys(positions).length > 0);
+          // The arrangement is shared: only admins change it for everyone; others arrange their own view for now.
+          if (useStore.getState().me?.role && useStore.getState().me?.role !== 'admin') return;
           setSaveState('saving');
           if (saveTimer.current) clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => {

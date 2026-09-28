@@ -8,13 +8,36 @@ import { extractApiKey } from '../gateway/key.js';
 export const SESSION_COOKIE = 'ct_session';
 const CSRF_HEADER = 'x-ct-csrf';
 
+/** Console roles: admins change anything; approvers see everything and decide approvals; viewers see everything. */
+export const ROLES = ['admin', 'approver', 'viewer'] as const;
+export type Role = (typeof ROLES)[number];
+
 export interface AdminSession {
   id: string;
   adminId: string;
   email: string;
   csrf: string;
   expiresAt: number;
+  role: Role;
+  mustChangePassword?: boolean;
 }
+
+/** Changes each role may make besides reading (by route pattern). Admins may make any. */
+const ROLE_MAY: Record<Exclude<Role, 'admin'>, Set<string>> = {
+  approver: new Set(['POST /admin/api/approvals/:id/decide', 'POST /admin/api/me/password']),
+  viewer: new Set(['POST /admin/api/me/password']),
+};
+/** Reads only admins may make: the list of people and their roles. */
+const ADMIN_ONLY_READS = new Set(['GET /admin/api/users']);
+
+export function roleMay(role: Role, method: string, route: string): boolean {
+  if (role === 'admin') return true;
+  const k = `${method} ${route}`;
+  if (method === 'GET' || method === 'HEAD') return !ADMIN_ONLY_READS.has(k);
+  return ROLE_MAY[role].has(k);
+}
+
+const asRole = (r: string | null | undefined): Role => ((ROLES as readonly string[]).includes(r ?? '') ? (r as Role) : 'admin');
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -27,9 +50,9 @@ export async function isSetupComplete(ctx: AppContext): Promise<boolean> {
   return row?.value === '1';
 }
 
-async function createSession(ctx: AppContext, adminId: string, email: string): Promise<AdminSession> {
+async function createSession(ctx: AppContext, adminId: string, email: string, role: Role = 'admin'): Promise<AdminSession> {
   const now = Date.now();
-  const s: AdminSession = { id: randomToken(32), adminId, email, csrf: randomToken(16), expiresAt: now + ctx.config.sessionTtlMs };
+  const s: AdminSession = { id: randomToken(32), adminId, email, csrf: randomToken(16), expiresAt: now + ctx.config.sessionTtlMs, role };
   await ctx.db.write
     .insertInto('sessions')
     .values({ id: s.id, admin_id: adminId, csrf: s.csrf, created_at: now, expires_at: s.expiresAt, last_seen_at: now })
@@ -53,11 +76,11 @@ export async function loadSession(ctx: AppContext, req: FastifyRequest): Promise
   const row = await ctx.db.read
     .selectFrom('sessions')
     .innerJoin('admins', 'admins.id', 'sessions.admin_id')
-    .select(['sessions.id', 'sessions.admin_id', 'sessions.csrf', 'sessions.expires_at', 'admins.email'])
+    .select(['sessions.id', 'sessions.admin_id', 'sessions.csrf', 'sessions.expires_at', 'admins.email', 'admins.role', 'admins.must_change_password'])
     .where('sessions.id', '=', id)
     .executeTakeFirst();
   if (!row || row.expires_at < Date.now()) return undefined;
-  return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at };
+  return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at, role: asRole(row.role), mustChangePassword: row.must_change_password === 1 };
 }
 
 /** True when the request carries the admin key. */
@@ -78,7 +101,7 @@ export function hasAdminKey(ctx: AppContext, req: FastifyRequest): boolean {
 export function requireAdmin(ctx: AppContext) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (hasAdminKey(ctx, req)) {
-      req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER };
+      req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER, role: 'admin' };
       return;
     }
     const s = await loadSession(ctx, req);
@@ -92,6 +115,15 @@ export function requireAdmin(ctx: AppContext) {
         reply.status(403).send({ error: { code: 'csrf', message: `Missing or invalid ${CSRF_HEADER} header.` } });
         return;
       }
+    }
+    // A one-time password (an admin made or reset it) only lets its owner choose a new one.
+    if (s.mustChangePassword && (req.routeOptions.url ?? '') !== '/admin/api/me/password') {
+      reply.status(403).send({ error: { code: 'password_change_required', message: 'Choose your own password first.' } });
+      return;
+    }
+    if (!roleMay(s.role, req.method, req.routeOptions.url ?? req.url)) {
+      reply.status(403).send({ error: { code: 'forbidden', message: s.role === 'approver' ? 'Approvers can see everything and decide approvals, but not change settings. Ask an admin.' : `Your role (${s.role}) can see everything but not change it. Ask an admin.` } });
+      return;
     }
     req.admin = s;
   };
@@ -136,9 +168,9 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
       await new Promise((r) => setTimeout(r, 250));
       return reply.status(401).send({ error: { code: 'bad_credentials', message: 'Incorrect email or password.' } });
     }
-    const s = await createSession(ctx, admin.id, admin.email);
+    const s = await createSession(ctx, admin.id, admin.email, asRole(admin.role));
     setCookie(ctx, reply, s);
-    return reply.send({ ok: true, email: admin.email, csrf: s.csrf });
+    return reply.send({ ok: true, email: admin.email, csrf: s.csrf, role: s.role, must_change_password: admin.must_change_password === 1 });
   });
 
   app.post('/admin/api/logout', async (req, reply) => {
@@ -152,6 +184,20 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const setup = await isSetupComplete(ctx);
     const s = await loadSession(ctx, req);
     if (!s) return reply.status(401).send({ setup_complete: setup, error: { code: 'unauthenticated', message: 'Sign in required.' } });
-    return reply.send({ setup_complete: setup, email: s.email, csrf: s.csrf });
+    return reply.send({ setup_complete: setup, email: s.email, csrf: s.csrf, role: s.role, must_change_password: !!s.mustChangePassword });
+  });
+
+  // Everyone may change their own password; their other sessions end.
+  app.post('/admin/api/me/password', { preHandler: requireAdmin(ctx) }, async (req, reply) => {
+    const me = req.admin!;
+    if (me.adminId === 'admin-key') return reply.status(400).send({ error: { code: 'invalid', message: 'The admin key has no password to change.' } });
+    const b = (req.body ?? {}) as { current?: string; password?: string };
+    const row = await ctx.db.read.selectFrom('admins').select('password_hash').where('id', '=', me.adminId).executeTakeFirst();
+    if (!row || !(await verifyPassword(b.current ?? '', row.password_hash))) return reply.status(403).send({ error: { code: 'bad_credentials', message: 'The current password is not right.' } });
+    if ((b.password ?? '').length < 10) return reply.status(400).send({ error: { code: 'weak_password', message: 'Password must be at least 10 characters.' } });
+    await ctx.db.write.updateTable('admins').set({ password_hash: await hashPassword(b.password!), must_change_password: 0 }).where('id', '=', me.adminId).execute();
+    await ctx.db.write.deleteFrom('sessions').where('admin_id', '=', me.adminId).where('id', '!=', me.id).execute();
+    ctx.log.info({ email: me.email }, 'password changed');
+    return { ok: true };
   });
 }

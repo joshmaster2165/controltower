@@ -16,6 +16,7 @@ import { WelcomePage } from './pages/Welcome';
 import { LedgerPage } from './pages/Ledger';
 import { ExportsPage } from './pages/Exports';
 import { GuardrailsPage } from './pages/Guardrails';
+import { UsersPage, ChangePassword } from './pages/Users';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
 import { api } from './api';
@@ -49,6 +50,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
+      { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
     ],
   },
   {
@@ -83,6 +85,7 @@ export function App() {
   const setMe = useStore((s) => s.setMe);
   const pending = useStore((s) => s.approvals.length);
   const unreadAlerts = useStore((s) => s.unreadAlerts);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
   useEffect(() => {
@@ -98,6 +101,8 @@ export function App() {
   if (!booted) return <div className="center" style={{ color: 'var(--text-dim)' }}>Loading…</div>;
   if (!status?.setup_complete) return <SetupPage />;
   if (!me?.email) return <LoginPage />;
+  if (me.must_change_password) return <ChangePassword forced onDone={() => void useStore.getState().boot()} />;
+  const role = me.role ?? 'admin';
 
   const logout = async () => {
     await api.post('/admin/api/logout');
@@ -128,7 +133,7 @@ export function App() {
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-label">{g.group}</div>
-              {g.items.map((n) => {
+              {g.items.filter((n) => n.id !== 'users' || role === 'admin').map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
                 const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
@@ -207,8 +212,13 @@ export function App() {
             </span>
             <span className="nav-label user-meta">
               <span className="user-email">{me.email}</span>
-              <span className="user-version">v{status.version}</span>
+              <span className="user-version">
+                {role} · v{status.version}
+              </span>
             </span>
+            <button className="icon-btn" onClick={() => setPasswordOpen((o) => !o)} title="Change your password" aria-label="Change your password">
+              <Icon name="key" size={16} />
+            </button>
             <button className="icon-btn" onClick={() => void logout()} title="Sign out" aria-label="Sign out">
               <Icon name="logout" size={16} />
             </button>
@@ -220,6 +230,14 @@ export function App() {
         </div>
       </aside>
       <main className={route === 'airspace' ? 'main full' : 'main'}>
+        {passwordOpen && (
+          <div className="page" style={{ paddingBottom: 0 }}>
+            <ChangePassword onDone={() => setPasswordOpen(false)} />
+          </div>
+        )}
+        {role !== 'admin' && route !== 'airspace' && (
+          <div className="role-banner">{role === 'approver' ? 'You can see everything and decide approvals in the Tower. Changing settings needs an admin.' : 'You can see everything here. Changing anything needs an admin.'}</div>
+        )}
         {route === 'airspace' && <AirspacePage />}
         {route === 'tower' && <TowerPage />}
         {route === 'flights' && <FlightsPage />}
@@ -234,6 +252,7 @@ export function App() {
         {route === 'ledger' && <LedgerPage />}
         {route === 'exports' && <ExportsPage />}
         {route === 'guardrails' && <GuardrailsPage />}
+        {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
       </main>

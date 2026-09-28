@@ -109,7 +109,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  const rules = (await admin.get('/admin/api/rules')).body;
+  const rules = (await admin.get('/admin/api/policy')).body;
   for (const r of Array.isArray(rules) ? rules : (rules.rules ?? [])) if (String(r.name).startsWith('gs:')) await admin.del(`/admin/api/rules/${r.id}`);
   for (const id of Object.values(svc)) await admin.del(`/admin/api/guardrail-services/${id}`);
   const provs = (await admin.get('/admin/api/providers')).body.providers as any[];

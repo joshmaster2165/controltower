@@ -717,3 +717,12 @@ CREATE TABLE guardrail_services (
 );
 `,
 });
+
+migrations.push({
+  version: 23,
+  name: 'console_roles',
+  sqlite: `
+ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';
+ALTER TABLE admins ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+`,
+});

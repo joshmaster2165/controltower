@@ -18,7 +18,7 @@ const FRAME_MS = 100;
 export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   app.get('/admin/ws', { websocket: true }, async (socket: WebSocket, req) => {
     const session = await loadSession(ctx, req);
-    if (!session) {
+    if (!session || session.mustChangePassword) {
       socket.close(4401, 'unauthenticated');
       return;
     }

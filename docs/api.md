@@ -52,7 +52,7 @@ The OpenAI routes also answer without `/v1`. Requests held for approval can be r
 
 ## Admin API
 
-All paths are under `/admin/api`.
+All paths are under `/admin/api`. Approvers and viewers may read any of them (except `/users`); only admins change anything, except that approvers decide approvals and everyone may change their own password.
 
 ### Session
 
@@ -62,7 +62,10 @@ All paths are under `/admin/api`.
 | POST | `/setup` | First run: create the admin (`{email, password}`) |
 | POST | `/login` | Start a console session (`{email, password}`) |
 | POST | `/logout` | End it |
-| GET | `/me` | The signed-in admin and the CSRF token |
+| GET | `/me` | The signed-in person, their `role` and the CSRF token |
+| POST | `/me/password` | Change your own password (`{current, password}`) |
+| GET, POST | `/users` | People who sign in, and their roles (admins only); add one — see [People and roles](people.md) |
+| PATCH, DELETE | `/users/:id` | Change a role, reset a password (a new one-time password), remove |
 
 ### Providers, models, aliases
 

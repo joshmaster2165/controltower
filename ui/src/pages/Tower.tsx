@@ -124,7 +124,8 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
           )}
         </div>
       )}
-      {pending && (
+      {pending && useStore.getState().me?.role === 'viewer' && <div className="hint">Waiting for an approver or admin to decide.</div>}
+      {pending && useStore.getState().me?.role !== 'viewer' && (
         <div className="actions">
           {more ? (
             <>

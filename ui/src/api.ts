@@ -65,6 +65,10 @@ export interface Me {
   setup_complete: boolean;
   email?: string;
   csrf?: string;
+  /** admin (everything), approver (sees everything, decides approvals), viewer (sees everything). */
+  role?: 'admin' | 'approver' | 'viewer';
+  /** Signed in with a one-time password: they choose their own before anything else. */
+  must_change_password?: boolean;
 }
 
 export interface TopologyKey {

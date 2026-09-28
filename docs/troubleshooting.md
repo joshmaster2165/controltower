@@ -39,6 +39,10 @@ location / {
 
 **"CT_MASTER_KEY differs from /data/master.key. Refusing to start".** Both are set and they disagree; stored credentials are encrypted with one of them. Keep the one your data was written with and remove the other.
 
+**A console password is lost.** An admin resets it under **People** (a new one-time password). If the only admin lost theirs, reset it with the admin key: see [People and roles](people.md#if-the-only-admin-loses-their-password).
+
+**`403 forbidden` in the console.** Your role is approver or viewer: ask an admin to change it under **People**.
+
 **The master key is lost.** Stored provider, tool-server and channel credentials can't be decrypted. Start with a new key and enter those credentials again — keys, gates, zones and history are not encrypted and are kept.
 
 **The container can't write `/data`.** The image fixes the ownership of a root-owned volume at startup. If your platform runs containers with a fixed non-root user and read-only ownership, make the volume writable by uid 1000 (`node`).

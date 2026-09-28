@@ -18,6 +18,10 @@ export interface AdminsTable {
   email: string;
   password_hash: string;
   created_at: number;
+  /** admin (everything), approver (sees everything, decides approvals), viewer (sees everything). */
+  role?: string;
+  /** Set when an admin made (or reset) the password: the person is asked to choose their own. */
+  must_change_password?: Bool;
 }
 
 export interface SessionsTable {

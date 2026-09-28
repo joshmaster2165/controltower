@@ -93,8 +93,8 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ ok: boolean; email: string; csrf: string }>('/admin/api/login', { email, password });
-      setMe({ setup_complete: true, email: r.email, csrf: r.csrf });
+      const r = await api.post<{ ok: boolean; email: string; csrf: string; role?: Me['role']; must_change_password?: boolean }>('/admin/api/login', { email, password });
+      setMe({ setup_complete: true, email: r.email, csrf: r.csrf, role: r.role ?? 'admin', must_change_password: !!r.must_change_password });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {

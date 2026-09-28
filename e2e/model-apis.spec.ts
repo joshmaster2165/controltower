@@ -72,6 +72,9 @@ test('images: generations billed per image, and token-priced models by their tok
   const ft = await flightOf(t.response);
   expect(ft.cost_nanousd).toBe(nano(40 * 5e-6 + 4160 * 40e-6));
   expect(ft).toMatchObject({ in_tokens: 40, out_tokens: 4160, usage_source: 'provider' });
+  // With a quality and size set, still billed by the tokens it reported, not a per-image price.
+  const q = await client.images.generate({ model: 'mapi/gpt-image-1', prompt: 'a tower', size: '1024x1024', quality: 'low' }).withResponse();
+  expect((await flightOf(q.response)).cost_nanousd).toBe(nano(40 * 5e-6 + 4160 * 40e-6));
 });
 
 test('images: an edit upload is passed on as it came, with the model renamed', async () => {

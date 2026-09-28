@@ -319,16 +319,22 @@ function bill(ctx: AppContext, f: Flight, spec: ApiSpec, res: Record<string, unk
     const made = Array.isArray(res?.data) ? (res!.data as unknown[]).length : typeof body.n === 'number' ? body.n : Number(body.n ?? 1) || 1;
     units.images = made;
     units.pixels = pixels(body.size);
-    for (const k of imagePriceKeys(dep.upstreamModel, typeof body.size === 'string' ? body.size : undefined, typeof body.quality === 'string' ? body.quality : undefined)) {
-      const p = price(k);
-      if (p.entry && (p.entry.per_image != null || p.entry.per_pixel != null || p.entry.image_output != null)) {
-        entry = p.entry;
-        break;
-      }
-    }
     if (u && typeof u.input_tokens === 'number') {
       const d = u.input_tokens_details ?? {};
       tokens = { textIn: d.text_tokens ?? (d.image_tokens == null ? u.input_tokens : u.input_tokens - d.image_tokens), imageIn: d.image_tokens ?? 0, imageOut: u.output_tokens ?? 0 };
+    }
+    // Tokens reported are billed at the model's token prices (gpt-image-1); otherwise per image, priced by
+    // quality and size (dall-e-3's `hd/1024-x-1792/…` entries).
+    const tokenPriced = !!tokens && (entry?.image_output != null || (entry?.output ?? 0) > 0);
+    if (!tokenPriced) {
+      tokens = undefined;
+      for (const k of imagePriceKeys(dep.upstreamModel, typeof body.size === 'string' ? body.size : undefined, typeof body.quality === 'string' ? body.quality : undefined)) {
+        const p = price(k);
+        if (p.entry && (p.entry.per_image != null || p.entry.per_pixel != null)) {
+          entry = p.entry;
+          break;
+        }
+      }
     }
     exact = Array.isArray(res?.data);
   } else if (spec.endpoint === 'audio/speech') {

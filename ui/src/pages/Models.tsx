@@ -170,7 +170,7 @@ export function ModelsPage() {
             <button className="btn" onClick={() => setShowAlias(true)}>
               <Icon name="plus" size={15} /> Alias
             </button>
-            <button className="btn primary" onClick={() => setShowAdd(true)}>
+            <button className="btn primary" onClick={() => (setShowAdd(true), void load())}>
               <Icon name="plus" size={15} /> Model
             </button>
           </>

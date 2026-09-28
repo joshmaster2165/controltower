@@ -697,3 +697,23 @@ CREATE TABLE export_destinations (
 );
 `,
 });
+
+migrations.push({
+  version: 22,
+  name: 'guardrail_services',
+  sqlite: `
+CREATE TABLE guardrail_services (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  config_enc       TEXT NOT NULL,
+  target_hint      TEXT NOT NULL DEFAULT '',
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  last_status      TEXT,
+  last_error       TEXT,
+  last_checked_at  INTEGER,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);
+`,
+});

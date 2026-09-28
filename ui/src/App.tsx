@@ -15,6 +15,7 @@ import { A2aAgentsPage } from './pages/A2aAgents';
 import { WelcomePage } from './pages/Welcome';
 import { LedgerPage } from './pages/Ledger';
 import { ExportsPage } from './pages/Exports';
+import { GuardrailsPage } from './pages/Guardrails';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
 import { api } from './api';
@@ -47,6 +48,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
+      { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
     ],
   },
   {
@@ -231,6 +233,7 @@ export function App() {
         {route === 'playground' && <PlaygroundPage />}
         {route === 'ledger' && <LedgerPage />}
         {route === 'exports' && <ExportsPage />}
+        {route === 'guardrails' && <GuardrailsPage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
       </main>

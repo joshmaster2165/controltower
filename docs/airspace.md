@@ -141,6 +141,8 @@ Secrets and personal data are caught reliably in the formats listed. The injecti
     direction: output
 ```
 
+**Guardrail services** — Presidio, Lakera Guard, Bedrock Guardrails, Azure AI Content Safety, OpenAI moderation, or a URL of your own — can be asked by an inspect gate too; see [Guardrail services](guardrails.md).
+
 Even with a model, detection is a second line: the stronger control against injection is what the agent can do once instructions reach it — keep tools it doesn't need out of reach, and hold writes and deletes for approval.
 
 ### Simulate before you enforce

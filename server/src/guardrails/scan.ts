@@ -24,6 +24,10 @@ export interface InspectConfig {
   reason?: string;
   /** Also ask a model whether the content is a prompt injection (see model-check.ts). */
   model_check?: ModelCheckConfig;
+  /** Guardrail services to ask too (ids; see services.ts). */
+  services?: string[];
+  /** When a service can't be reached: let the content through, flagged (default), or block it. */
+  services_on_error?: 'allow' | 'block';
 }
 
 export type Findings = Record<string, number>;
@@ -92,6 +96,11 @@ export function scanText(text: string, detectors: Detector[], mask: boolean, fin
   return out;
 }
 
+/** Strings inspection never reads: protocol fields and binary (images, audio as base64). */
+export function skipLeaf(key: string | undefined, s: string): boolean {
+  return (!!key && SKIP_KEYS.has(key)) || looksBinary(s);
+}
+
 function looksBinary(s: string): boolean {
   return s.startsWith('data:') || (s.length > 2000 && /^[A-Za-z0-9+/=\s]+$/.test(s.slice(0, 2000)));
 }
@@ -133,6 +142,7 @@ export function scanValue(value: unknown, detectors: Detector[], mask: boolean, 
 }
 
 const MODEL_LABELS: Record<string, string> = { injection_model: 'prompt injection (model check)', model_check_failed: 'no verdict from the check model' };
+const SERVICE_LABELS: Record<string, string> = { presidio: 'Presidio', lakera: 'Lakera', bedrock: 'Bedrock Guardrails', azure: 'Azure Content Safety', openai: 'OpenAI moderation', webhook: 'guardrail service', unavailable: 'unavailable' };
 
 /** The text in a value, for a model to read: every string, skipping protocol fields; capped like scanning. */
 export function textOfValue(value: unknown): string {
@@ -154,7 +164,8 @@ export function describeFindings(f: Findings): string {
   const parts = Object.entries(f)
     .sort((a, b) => b[1] - a[1])
     .map(([id, n]) => {
-      const label = DETECTOR_BY_ID.get(id)?.label ?? MODEL_LABELS[id] ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : id);
+      const svc = /^(presidio|lakera|bedrock|azure|openai|webhook):(.+)$/.exec(id);
+      const label = DETECTOR_BY_ID.get(id)?.label ?? MODEL_LABELS[id] ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : svc ? `${svc[2]!.replace(/_/g, ' ').toLowerCase()} (${SERVICE_LABELS[svc[1]!]})` : id);
       return n > 1 ? `${n} × ${label}` : label;
     });
   return parts.join(', ');

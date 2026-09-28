@@ -65,7 +65,7 @@ gates:
 | `match.args` | Argument conditions: `{path, op: eq \| neq \| glob \| in \| gt \| lt \| exists, value}` |
 | `effect` | `allow`, `deny`, `require_approval`, `allow_with_limits`, `inspect` |
 | `config.limits` | For `allow_with_limits`: `rpm`, `tpm` (per agent on the gate's path) and `max_tokens` (a cap on a model's reply); at least one |
-| `config` | `reason`, `hold_ms`, `bind_fields` (approvals); `detectors`, `keywords`, `patterns`, `action`, `direction` (inspect) |
+| `config` | `reason`, `hold_ms`, `bind_fields` (approvals); `detectors`, `keywords`, `patterns`, `model_check`, `services`, `services_on_error`, `action`, `direction` (inspect — see [guardrail services](guardrails.md)) |
 | `priority` | Lower runs first (default 100) |
 | `enabled` | `false` keeps the gate but switches it off |
 

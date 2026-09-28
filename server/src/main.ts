@@ -43,6 +43,7 @@ import { Cluster } from './cluster/cluster.js';
 import { ModelHealth } from './models/health.js';
 import { MemoryStore, RedisStore } from './cache/response-cache.js';
 import { Exporter } from './exports/exporter.js';
+import { GuardrailServices } from './guardrails/service-registry.js';
 import { RedisLimiter } from './limits/redis-limiter.js';
 import { checkMasterKey } from './db/master-key-check.js';
 import { startKeyRetirement } from './admin/key-lifecycle.js';
@@ -153,6 +154,11 @@ async function main(): Promise<void> {
   bus.subscribe(exporter.push);
   exporter.start();
 
+  const guardrails = new GuardrailServices(db.write, secrets);
+  await guardrails.reload();
+  const guardrailSaver = setInterval(() => void guardrails.save(), 15_000);
+  guardrailSaver.unref?.();
+
   const alertsVersion = new Versioned();
   const alerts = new AlertService(db.write, secrets, alertsVersion, {
     publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
@@ -225,6 +231,7 @@ async function main(): Promise<void> {
     limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
+    guardrails,
     spend,
     budgets,
     bus,
@@ -371,7 +378,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);
@@ -392,6 +399,8 @@ async function main(): Promise<void> {
     alerts.stop();
     modelHealth.stop();
     await exporter.stop();
+    clearInterval(guardrailSaver);
+    await guardrails.save();
     observed.stop();
     mcp.stop();
     http.stop();

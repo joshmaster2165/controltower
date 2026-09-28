@@ -24,6 +24,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 ## Control
 
 - [**The Airspace**](airspace.md) — reading the map, gates (block, require approval, inspect), simulation, approvals in the Tower, zones.
+- [**Guardrail services**](guardrails.md) — Presidio, Lakera, Bedrock Guardrails, Azure AI Content Safety, OpenAI moderation or your own URL, asked by inspect gates.
 - [**Policy as code**](policy-as-code.md) — zones and gates as YAML, with a preview before anything changes.
 - [**Alerts**](alerts.md) — console, Slack and webhooks; approving from Slack.
 - [**Monitoring**](monitoring.md) — Flights, the Ledger, the data-flow inventory, Prometheus metrics.

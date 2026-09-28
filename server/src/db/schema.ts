@@ -514,7 +514,24 @@ export interface Database {
   a2a_agents: A2aAgentsTable;
   customers: CustomersTable;
   export_destinations: ExportDestinationsTable;
+  guardrail_services: GuardrailServicesTable;
   schema_migrations: SchemaMigrationsTable;
+}
+
+/** Guardrail services outside Control Tower that inspect gates can ask (Presidio, Lakera, Bedrock, Azure, …). */
+export interface GuardrailServicesTable {
+  id: string;
+  name: string;
+  kind: string;
+  /** Encrypted JSON config, secrets included (AAD: guardrail_services.config_enc.<id>). */
+  config_enc: string;
+  target_hint: string;
+  enabled: Bool;
+  last_status: string | null;
+  last_error: string | null;
+  last_checked_at: number | null;
+  created_at: number;
+  updated_at: number;
 }
 
 /** Where flight records are sent (OpenTelemetry, Datadog, Splunk, S3, webhooks). */

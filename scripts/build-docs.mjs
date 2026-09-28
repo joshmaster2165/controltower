@@ -43,7 +43,7 @@ const SIDEBAR = [
       ['a2a', 'A2A agents'],
     ],
   },
-  { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['agent-to-agent', 'Agents calling agents'], ['policy-as-code', 'Policy as code'], ['threat-model', 'What is enforced']] },
+  { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['agent-to-agent', 'Agents calling agents'], ['policy-as-code', 'Policy as code'], ['guardrails', 'Guardrail services'], ['threat-model', 'What is enforced']] },
   { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['exports', 'Exporting flights'], ['scaling', 'Running several instances'], ['troubleshooting', 'Troubleshooting']] },
   { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file']] },
 ];

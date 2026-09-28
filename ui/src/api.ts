@@ -308,6 +308,9 @@ export interface InspectConfig {
   direction?: 'input' | 'output' | 'both' | undefined;
   /** Also ask a model (one Control Tower serves) whether the content is a prompt injection. */
   model_check?: { model: string; on_error?: 'allow' | 'block' | undefined } | undefined;
+  /** Guardrail services to ask too (ids), and what to do when one can't be reached. */
+  services?: string[] | undefined;
+  services_on_error?: 'allow' | 'block' | undefined;
 }
 
 export interface DetectorInfo {

@@ -16,7 +16,9 @@ export function inspectConfigError(c: InspectConfig): string | null {
     if (!c.model_check || typeof c.model_check.model !== 'string' || !c.model_check.model.trim()) return 'model_check needs the model to ask (a model name Control Tower serves)';
     if (c.model_check.on_error && !['allow', 'block'].includes(c.model_check.on_error)) return 'model_check.on_error must be allow | block';
   }
-  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length || c.model_check?.model)) return 'an inspect gate needs at least one detector, keyword, pattern or a model check';
+  if (c.services !== undefined && (!Array.isArray(c.services) || !c.services.every((x) => typeof x === 'string' && x))) return 'services must be a list of guardrail service ids';
+  if (c.services_on_error && !['allow', 'block'].includes(c.services_on_error)) return 'services_on_error must be allow | block';
+  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length || c.model_check?.model || c.services?.length)) return 'an inspect gate needs at least one detector, keyword, pattern, a model check or a guardrail service';
   return null;
 }
 

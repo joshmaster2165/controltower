@@ -11,7 +11,7 @@ export function GatePopover({ x, y, rule, desc, stats, alerts, channels, onClose
   const [sim, setSim] = useState<SimResult | null>(null);
   const [simBusy, setSimBusy] = useState(false);
   const [simErr, setSimErr] = useState<string | null>(null);
-  const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both', model_check: rule.config.model_check } : DEFAULT_INSPECT);
+  const [inspect, setInspect] = useState<InspectConfig>(rule.effect === 'inspect' ? { detectors: rule.config.detectors, keywords: rule.config.keywords, patterns: rule.config.patterns, action: rule.config.action ?? 'flag', direction: rule.config.direction ?? 'both', model_check: rule.config.model_check, services: rule.config.services, services_on_error: rule.config.services_on_error } : DEFAULT_INSPECT);
   const [effect, setEffect] = useState<Rule['effect']>(rule.effect);
   const [reason, setReason] = useState(rule.config.reason ?? '');
   const [hold, setHold] = useState(String(Math.round((rule.config.hold_ms ?? 20000) / 1000)));
@@ -227,6 +227,25 @@ export function useDetectors(): DetectorInfo[] {
 
 export const DEFAULT_INSPECT: InspectConfig = { detectors: ['secrets'], action: 'block', direction: 'input' };
 
+interface ServiceInfo {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+}
+let serviceCache: ServiceInfo[] | null = null;
+/** Guardrail services configured (Presidio, Lakera, Bedrock, Azure, OpenAI moderation, URLs). */
+export function useGuardrailServices(): ServiceInfo[] {
+  const [s, setS] = useState<ServiceInfo[]>(serviceCache ?? []);
+  useEffect(() => {
+    void api.get<{ services: ServiceInfo[] }>('/admin/api/guardrail-services').then((r) => {
+      serviceCache = r.services;
+      setS(r.services);
+    });
+  }, []);
+  return s;
+}
+
 export function inspectSummary(c: InspectConfig): string {
   const ids = c.detectors ?? [];
   const what = [
@@ -234,6 +253,7 @@ export function inspectSummary(c: InspectConfig): string {
     ids.includes('injection') || c.model_check ? `prompt injection${c.model_check ? ` (asking ${c.model_check.model})` : ''}` : '',
     ids.some((d) => d !== 'secrets' && d !== 'injection') || ids.includes('pii') ? 'personal data' : '',
     c.keywords?.length ? 'keywords' : '',
+    c.services?.length ? `what ${c.services.length === 1 ? 'a guardrail service' : `${c.services.length} guardrail services`} flag${c.services.length === 1 ? 's' : ''}` : '',
   ].filter(Boolean);
   const verb = c.action === 'mask' ? 'mask' : c.action === 'block' ? 'block' : 'flag';
   const where = c.direction === 'input' ? 'in what agents send' : c.direction === 'output' ? 'in what comes back' : 'both ways';
@@ -242,6 +262,9 @@ export function inspectSummary(c: InspectConfig): string {
 
 export function InspectFields({ value, onChange }: { value: InspectConfig; onChange: (v: InspectConfig) => void }) {
   const detectors = useDetectors();
+  const services = useGuardrailServices().filter((s) => s.enabled || value.services?.includes(s.id));
+  const chosen = value.services ?? [];
+  const toggleService = (id: string) => onChange({ ...value, services: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id] });
   const ids = value.detectors ?? [];
   const pii = detectors.filter((d) => d.category === 'pii');
   const has = (id: string) => ids.includes(id);
@@ -300,6 +323,30 @@ export function InspectFields({ value, onChange }: { value: InspectConfig; onCha
             </button>
           ))}
         </div>
+      </div>
+      <div className="field">
+        <label>Guardrail services (optional)</label>
+        {services.length ? (
+          <>
+            <div className="chips">
+              {services.map((s) => (
+                <button key={s.id} type="button" className={`chip ${chosen.includes(s.id) ? 'on' : ''}`} onClick={() => toggleService(s.id)} title={s.kind}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+            {chosen.length > 0 && (
+              <select className="input" style={{ marginTop: 6 }} value={value.services_on_error ?? 'allow'} onChange={(e) => onChange({ ...value, services_on_error: e.target.value as 'allow' | 'block' })} aria-label="If a service can't be reached">
+                <option value="allow">A service can't be reached: let it through, flagged</option>
+                <option value="block">A service can't be reached: block</option>
+              </select>
+            )}
+          </>
+        ) : (
+          <div className="dim">
+            None set up. Add Presidio, Lakera, Bedrock Guardrails, Azure AI Content Safety or your own under <a href="#/guardrails">Guardrails</a>.
+          </div>
+        )}
       </div>
       <div className="field">
         <label>Keywords (optional, comma-separated)</label>
@@ -411,7 +458,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
     if (reason.trim()) config.reason = reason.trim();
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
     if (effect === 'inspect') {
-      if (!(inspect.detectors?.length || inspect.keywords?.length || inspect.model_check?.model)) return { error: 'Pick at least one thing to look for.' };
+      if (!(inspect.detectors?.length || inspect.keywords?.length || inspect.model_check?.model || inspect.services?.length)) return { error: 'Pick at least one thing to look for.' };
       Object.assign(config, inspect);
     }
     if (effect === 'allow_with_limits') {

@@ -132,6 +132,14 @@ All paths are under `/admin/api`.
 | POST | `/exports/test` | Send an example record: `{id}` for a saved destination, or `{kind, config}` |
 | POST | `/exports/:id/flush` | Send what is waiting now |
 
+### Guardrail services
+
+| Method | Path | |
+|---|---|---|
+| GET, POST | `/guardrail-services` | List (with the gates using each), add (`{name, kind, config}`) — see [Guardrail services](guardrails.md#api) |
+| PATCH, DELETE | `/guardrail-services/:id` | Change (secrets left out are kept), turn off, remove (refused while a gate uses it) |
+| POST | `/guardrail-services/test` | Try a service on a text |
+
 ### Alerts
 
 | Method | Path | |

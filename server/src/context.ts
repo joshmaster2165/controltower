@@ -34,6 +34,8 @@ export interface AppContext {
   adapters: Adapters;
   /** Adds deployments on first use for models a connected provider serves. */
   autoModels: AutoModels;
+  /** Guardrail services inspect gates can ask. */
+  guardrails?: import('./guardrails/service-registry.js').GuardrailServices;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
   /** Cached answers, for models that opt in. */

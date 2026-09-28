@@ -740,6 +740,7 @@ footer .sp { flex: 1; }
         <li><b>Tools an agent may not use are never listed</b> to it, so there is nothing to talk its way around.</li>
         <li><b>Simulate on real traffic</b>: see what a draft gate would have blocked, held or saved in the last 24 hours.</li>
         <li><b>Inspection</b> scans prompts and tool arguments for PII, secrets and prompt injection, then flags, redacts or blocks.</li>
+        <li><b>Your own guardrails too</b>: Presidio, Lakera Guard, Bedrock Guardrails, Azure AI Content Safety, OpenAI moderation, or a URL of your own.</li>
       </ul>
     </div>
 
@@ -889,6 +890,8 @@ footer .sp { flex: 1; }
         <li><b>Cost per agent, team, model and tool</b>, priced from a maintained model price table.</li>
         <li><b>Budgets and rate limits per key</b> that stop a runaway loop before it runs up the bill.</li>
         <li><b>Alerts on gates, errors, latency, health and budgets</b>, to Slack or signed webhooks, with digests instead of floods.</li>
+        <li><b>Spend by customer and by tag</b>, with budgets and blocking per customer.</li>
+        <li><b>Every call exported</b> to OpenTelemetry (inside your agents' own traces), Datadog, Splunk or S3 — metadata only, never prompts.</li>
         <li><b>Prometheus <code>/metrics</code></b> for the dashboards you already run.</li>
       </ul>
     </div>
@@ -940,6 +943,31 @@ ct_approvals_pending 1</pre>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ MORE -->
+<section class="frame pad honest" id="more">
+  <span class="eyebrow reveal">More in the gateway</span>
+  <h3 class="reveal">Every model API, routed where it may go.</h3>
+  <p class="reveal">Chat is only part of what agents send. The rest goes through the same keys, gates, budgets and map.</p>
+  <div class="two">
+    <div class="hcard reveal">
+      <h4>Images, audio and providers' own SDKs</h4>
+      <p>Image generation and edits, speech, transcription, moderation, rerank and completions — billed per image, second or search — and agents built on Google's Gen AI SDK or the AWS SDKs reach Gemini and Bedrock through Control Tower too.</p>
+    </div>
+    <div class="hcard reveal">
+      <h4>Routing that keeps data where it belongs</h4>
+      <p>Keys held to regions, deployments reserved for tags, retries and fallback models when a prompt is too long or a provider refuses, per-deployment limits, health checks, and opt-in caching — all behind the same gates.</p>
+    </div>
+    <div class="hcard reveal">
+      <h4>Runs as one instance, or several</h4>
+      <p>SQLite in one container to start; Postgres and Redis behind a load balancer when you need more, with rate limits, budgets and approvals shared across instances.</p>
+    </div>
+    <div class="hcard reveal">
+      <h4>People with the right access</h4>
+      <p>Admins change anything, approvers decide held calls, viewers see everything — enforced by the server, with one-time passwords for new people.</p>
     </div>
   </div>
 </section>

@@ -91,7 +91,12 @@ Each entry becomes a provider (one per distinct endpoint and credential) and a d
 | `params.vertex_project`, `vertex_location`, `vertex_credentials` | Google Vertex AI |
 | `params.credential` | A named entry in `credential_list` (shared `api_key` / `api_base` values) |
 | `params.order` | Priority within a model group (lower first) |
-| `params.weight`, `rpm`, `tpm` | Weight within a model group |
+| `params.weight`, `rpm`, `tpm` | Weight within a model group; `rpm` and `tpm` are also the deployment's [own limits](providers-and-models.md#a-deployments-own-settings) |
+| `params.max_parallel_requests` | The deployment's limit on calls at a time |
+| `params.region_name` (or `aws_region_name`, `vertex_location`) | The deployment's region, for [keys that must keep their data in a region](providers-and-models.md#keeping-data-in-a-region) |
+| `params.tags` | [Reserved for tags](providers-and-models.md#routing-by-tag) (`default` serves untagged requests too) |
+| `params.timeout`, `stream_timeout` | Seconds to wait for the provider's first byte |
+| `model_info.max_input_tokens` | The model's context window, when the price table doesn't know it |
 | `model_info.input_cost_per_token`, `output_cost_per_token` | A price override, in dollars per token |
 | `model_info.mode: embedding` | An embeddings model |
 
@@ -105,6 +110,18 @@ Several entries with the same `model_name` become an **alias** that routes acros
   - Anything else is treated as weighted, with a warning.
 
 `settings.fallbacks` adds other models from the file as fallbacks: whatever the routing strategy, they are tried only after all of the model's own entries.
+
+These become the model's [routing](providers-and-models.md#when-a-call-fails-retries-and-fallback-models), in `router_settings` or `settings`:
+
+| Field | Becomes |
+|---|---|
+| `context_window_fallbacks: [{gpt-4o-mini: [gpt-4.1]}]` | *Prompt too long → try* |
+| `content_policy_fallbacks: [{gpt-4o: [claude-sonnet]}]` | *Content refused → try* |
+| `default_fallbacks: [gpt-4.1]`, or `fallbacks: [{"*": [...]}]` | *Anything else → try*, for every model |
+| `num_retries: 2` | Retries on the same deployment for rate limits, timeouts and server errors |
+| `retry_policy: {RateLimitErrorRetries: 3, TimeoutErrorRetries: 1, InternalServerErrorRetries: 2}` | Retries for each |
+
+A fallback may name a model in the file or one Control Tower already has.
 
 **Providers**: `openai`, `azure`, `azure_ai`, `anthropic`, `gemini`, `vertex_ai`, `bedrock`, `groq`, `mistral`, `together_ai`, `fireworks_ai`, `deepseek`, `xai`, `openrouter`, `perplexity`, `cerebras`, `deepinfra`, `nvidia_nim`, `sambanova`, `ollama`, `ollama_chat`, `hosted_vllm`, `lm_studio`, and `openai/` with any `api_base` (any OpenAI-compatible server).
 
@@ -142,7 +159,7 @@ Settings Control Tower manages itself — database, authentication, UI access an
 
 ## Not supported
 
-`include` files, context-window and content-policy fallbacks, logging callbacks (Control Tower records every flight itself — use [metrics](monitoring.md) or [alert webhooks](alerts.md)), and guardrails in the config (use [inspect gates](airspace.md#put-a-gate-on-a-path)).
+`include` files, logging callbacks (Control Tower records every flight itself — use [metrics](monitoring.md) or [alert webhooks](alerts.md)), and guardrails in the config (use [inspect gates](airspace.md#put-a-gate-on-a-path)).
 
 ## `--model` quick start
 

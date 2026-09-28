@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { ulid } from 'ulid';
+import { regionOf } from '../pipeline/routing.js';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import { PROVIDER_CATALOG, catalogEntry } from '../providers/catalog.js';
@@ -165,6 +166,8 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
         upstream_model: d.upstreamModel,
         public_name: d.publicName,
         caps: d.caps,
+        /** Where it is served: its own region, or its provider's. */
+        region: regionOf(ctx, d) ?? null,
         pricing_override: d.pricingOverride,
         price: price?.entry ?? null,
         price_source: price?.source ?? 'none',
@@ -183,6 +186,8 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (!p) return reply.status(400).send({ error: { code: 'invalid', message: 'provider_id is required' } });
     const upstream = (b.upstream_model ?? '').trim();
     if (!upstream) return reply.status(400).send({ error: { code: 'invalid', message: 'upstream_model is required' } });
+    const badCaps = b.caps ? capsProblem(b.caps) : undefined;
+    if (badCaps) return reply.status(400).send({ error: { code: 'invalid', message: badCaps } });
     let publicName = b.public_name === undefined ? upstream : b.public_name?.trim() || null;
     if (publicName && (ctx.registry.deploymentsByPublicName.has(publicName) || ctx.registry.aliasesByName.has(publicName))) {
       return reply.status(409).send({ error: { code: 'conflict', message: `"${publicName}" is already used by another model or alias.` } });
@@ -220,7 +225,12 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (b.public_name !== undefined) patch.public_name = b.public_name?.trim() || null;
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (b.pricing_override !== undefined) patch.pricing_override = b.pricing_override ? JSON.stringify(b.pricing_override) : null;
-    if (b.caps) patch.caps = JSON.stringify({ ...d.caps, ...b.caps });
+    if (b.caps) {
+      const bad = capsProblem(b.caps);
+      if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
+      // A null clears a setting.
+      patch.caps = JSON.stringify(Object.fromEntries(Object.entries({ ...d.caps, ...b.caps }).filter(([, v]) => v !== null)));
+    }
     if (typeof b.weight === 'number') patch.weight = b.weight;
     await ctx.db.write.updateTable('deployments').set(patch).where('id', '=', id).execute();
     await ctx.registry.reload();
@@ -237,12 +247,14 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
 
   // ---- aliases ----
   app.get('/admin/api/aliases', { preHandler: guard }, async () => ({
-    aliases: [...ctx.registry.aliases.values()].map((a) => ({ id: a.id, name: a.name, strategy: a.strategy, fallback_on: a.fallbackOn, targets: a.targets, demo: a.demo })),
+    aliases: [...ctx.registry.aliases.values()].map((a) => ({ id: a.id, name: a.name, strategy: a.strategy, fallback_on: a.fallbackOn, targets: a.targets, demo: a.demo, config: a.config })),
   }));
 
   app.post('/admin/api/aliases', { preHandler: guard }, async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; strategy?: string; targets?: Array<{ deployment_id: string; priority?: number; weight?: number }> };
+    const b = (req.body ?? {}) as { name?: string; strategy?: string; targets?: Array<{ deployment_id: string; priority?: number; weight?: number }>; config?: unknown };
     const name = (b.name ?? '').trim();
+    const cfg = routeConfig(b.config);
+    if ('error' in cfg) return reply.status(400).send({ error: { code: 'invalid', message: cfg.error } });
     if (!name) return reply.status(400).send({ error: { code: 'invalid', message: 'name is required' } });
     if (ctx.registry.aliasesByName.has(name) || ctx.registry.deploymentsByPublicName.has(name)) {
       return reply.status(409).send({ error: { code: 'conflict', message: `"${name}" is already used by another model or alias.` } });
@@ -251,7 +263,7 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (!STRATEGIES.includes(strategy)) return reply.status(400).send({ error: { code: 'invalid', message: `strategy must be one of ${STRATEGIES.join(', ')}` } });
     const id = ulid();
     await ctx.db.write.transaction().execute(async (trx) => {
-      await trx.insertInto('aliases').values({ id, name, strategy, fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, created_at: Date.now() }).execute();
+      await trx.insertInto('aliases').values({ id, name, strategy, fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, created_at: Date.now(), config: cfg.json }).execute();
       for (const [i, t] of (b.targets ?? []).entries()) {
         if (!ctx.registry.deployments.has(t.deployment_id)) continue;
         await trx.insertInto('alias_targets').values({ alias_id: id, deployment_id: t.deployment_id, priority: t.priority ?? (strategy === 'priority' ? i : 0), weight: t.weight ?? 100 }).execute();
@@ -264,12 +276,15 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
   app.put('/admin/api/aliases/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     if (!ctx.registry.aliases.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'alias not found' } });
-    const b = (req.body ?? {}) as { name?: string; strategy?: string; targets?: Array<{ deployment_id: string; priority?: number; weight?: number }> };
+    const b = (req.body ?? {}) as { name?: string; strategy?: string; targets?: Array<{ deployment_id: string; priority?: number; weight?: number }>; config?: unknown };
+    const cfg = b.config === undefined ? undefined : routeConfig(b.config);
+    if (cfg && 'error' in cfg) return reply.status(400).send({ error: { code: 'invalid', message: cfg.error } });
     const strategy = typeof b.strategy === 'string' && STRATEGIES.includes(b.strategy) ? b.strategy : ctx.registry.aliases.get(id)!.strategy;
     await ctx.db.write.transaction().execute(async (trx) => {
       const patch: Record<string, unknown> = {};
       if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
       if (typeof b.strategy === 'string' && STRATEGIES.includes(b.strategy)) patch.strategy = b.strategy;
+      if (cfg) patch.config = cfg.json;
       if (Object.keys(patch).length) await trx.updateTable('aliases').set(patch).where('id', '=', id).execute();
       if (b.targets) {
         await trx.deleteFrom('alias_targets').where('alias_id', '=', id).execute();
@@ -293,4 +308,35 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
 
   // ---- pricing ----
   app.get('/admin/api/pricing', { preHandler: guard }, async () => ({ entries: ctx.pricing.entries() }));
+}
+
+const models = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.trim());
+const count = (v: unknown): boolean => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 20);
+
+/** An alias's routing config, checked: fallback model lists, retry counts, a cache TTL. */
+function routeConfig(v: unknown): { json: string | null } | { error: string } {
+  if (v === undefined || v === null) return { json: null };
+  if (typeof v !== 'object' || Array.isArray(v)) return { error: 'config must be an object' };
+  const c = v as import('../pipeline/routing.js').RouteConfig;
+  for (const k of ['context_window', 'content_policy', 'default'] as const) {
+    const l = c.fallbacks?.[k];
+    if (l !== undefined && !models(l)) return { error: `config.fallbacks.${k} must be a list of model names` };
+  }
+  for (const k of ['rate_limited', 'timeout', 'server_error', 'unreachable', 'max_attempts'] as const) {
+    if (!count(c.retry?.[k])) return { error: `config.retry.${k} must be a whole number from 0 to 20` };
+  }
+  if (c.cache?.ttl_s !== undefined && !(typeof c.cache.ttl_s === 'number' && c.cache.ttl_s >= 0 && c.cache.ttl_s <= 30 * 24 * 3600)) return { error: 'config.cache.ttl_s must be seconds (up to 30 days)' };
+  return { json: JSON.stringify(c) };
+}
+
+/** What's wrong with a deployment's routing settings, if anything. */
+function capsProblem(caps: Record<string, unknown>): string | undefined {
+  for (const k of ['context', 'rpm', 'tpm', 'max_parallel', 'headers_timeout_ms']) {
+    const v = caps[k];
+    if (v !== undefined && v !== null && !(typeof v === 'number' && v >= 0)) return `caps.${k} must be a non-negative number`;
+  }
+  if (caps.region !== undefined && caps.region !== null && typeof caps.region !== 'string') return 'caps.region must be a string';
+  if (caps.tags !== undefined && caps.tags !== null && !models(caps.tags)) return 'caps.tags must be a list of tags';
+  const rc = routeConfig({ fallbacks: caps.fallbacks, retry: caps.retry, cache: caps.cache });
+  return 'error' in rc ? rc.error : undefined;
 }

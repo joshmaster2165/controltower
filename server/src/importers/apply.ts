@@ -91,7 +91,7 @@ export async function applyImportPlan(ctx: AppContext, p: ImportPlan, opts: { so
           provider_id: provIds.get(d.providerRef)!,
           upstream_model: d.upstreamModel,
           public_name: d.publicName,
-          caps: JSON.stringify(d.pricing?.mode === 'embedding' ? { mode: 'embedding' } : {}),
+          caps: JSON.stringify({ ...(d.pricing?.mode === 'embedding' ? { mode: 'embedding' } : {}), ...d.caps }),
           pricing_override: d.pricing ? JSON.stringify(d.pricing) : null,
           weight: d.weight,
           enabled: 1,
@@ -111,7 +111,7 @@ export async function applyImportPlan(ctx: AppContext, p: ImportPlan, opts: { so
     }
     for (const a of p.aliases) {
       const id = cfg ? stable('alias', a.name) : ulid();
-      await trx.insertInto('aliases').values({ id, name: a.name, strategy: a.strategy, fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, source: opts.source, created_at: now }).execute();
+      await trx.insertInto('aliases').values({ id, name: a.name, strategy: a.strategy, fallback_on: JSON.stringify(['429', '5xx', 'timeout', 'provider_auth']), demo: 0, source: opts.source, created_at: now, config: a.config ? JSON.stringify(a.config) : null }).execute();
       const seen = new Set<string>();
       for (const t of a.targets) {
         const dep = depIds.get(t.deploymentRef);

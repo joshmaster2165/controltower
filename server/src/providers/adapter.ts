@@ -76,6 +76,11 @@ export interface ProviderAdapter {
   healthCheck?(provider: ProviderRecord): Promise<{ ok: boolean; latencyMs: number; detail?: string }>;
 }
 
+/** How providers say a prompt is longer than the model's context window. */
+const CONTEXT_WINDOW = /context_length_exceeded|maximum context length|context window|prompt is too long|input is too long|too many (input )?tokens|exceeds? (the )?(model'?s? )?(maximum )?(context|token limit|input length)|reduce the length of the (messages|prompt)/i;
+/** How providers say they refused the content. */
+const CONTENT_POLICY = /content[_ ]policy|content management policy|content_filter|responsible ?ai|safety (system|filter)|flagged as (potentially )?(harmful|unsafe)/i;
+
 export function normalizeHttpError(status: number, bodyText: string, provider: string): NormalizedError {
   const msg = extractMessage(bodyText) || `${provider} returned HTTP ${status}`;
   if (status === 401 || status === 403) {
@@ -88,6 +93,9 @@ export function normalizeHttpError(status: number, bodyText: string, provider: s
     return { code: 'provider_model_not_found', message: msg, httpStatus: 502, upstreamStatus: status, fallback: true, cooldown: false };
   }
   if (status === 400 || status === 413 || status === 422) {
+    // Two refusals another model may not give: a prompt too long for this one, and content it won't handle.
+    if (CONTEXT_WINDOW.test(bodyText)) return { code: 'provider_context_window_exceeded', message: msg, httpStatus: 400, upstreamStatus: status, fallback: false, cooldown: false };
+    if (CONTENT_POLICY.test(bodyText)) return { code: 'provider_content_policy', message: msg, httpStatus: 400, upstreamStatus: status, fallback: false, cooldown: false };
     return { code: 'provider_bad_request', message: msg, httpStatus: 400, upstreamStatus: status, fallback: false, cooldown: false };
   }
   if (status >= 500) {

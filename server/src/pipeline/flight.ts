@@ -18,6 +18,8 @@ import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { AnthropicToOaStream, anthropicResponseToOa, oaRequestToAnthropic } from '../translate/openai-anthropic.js';
 import { OaToAnthropicStream, anRequestToOa, oaResponseToAnthropic } from '../translate/anthropic-openai.js';
 import { headerToken, flagIgnoredToken, resolveDelegation } from '../policy/delegation.js';
+import { requestMeta, routeCandidates } from './routing.js';
+import { AttemptPlan } from './attempts.js';
 import { ChatToResponsesStream, ResponsesTranslationError, chatResponseToResponses, requestTools, responsesRequestToChat } from '../translate/responses-chat.js';
 
 /** Extract the JSON payload of a raw SSE frame; null for comments, [DONE] and non-JSON. */
@@ -97,6 +99,8 @@ export interface Flight {
   units: Units | undefined;
   /** Answered from the response cache. */
   cacheHit: boolean;
+  /** Where the call is being tried: holds a deployment's concurrency slot until it ends. */
+  plan: AttemptPlan | undefined;
 }
 
 export interface GateSpec {
@@ -114,13 +118,14 @@ export interface GateSpec {
 
 /** What gate() established: who is calling, where to, for whom, and policy's decision. */
 export interface Gated {
+  /** What policy saw of the request: fallback models are checked with it too. */
+  args: Record<string, unknown>;
   key: KeyRecord;
   target: PolicyTarget;
   onBehalfOf: string[];
   decision: PolicyDecision;
 }
 
-const MAX_ATTEMPTS = 3;
 const KEEPALIVE_MS = 15_000;
 
 export interface RunOptions {
@@ -170,6 +175,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     customer: undefined,
     units: undefined,
     cacheHit: false,
+    plan: undefined,
   };
 }
 
@@ -264,7 +270,7 @@ export class FlightRunner {
       await this.inspectInput(f, g, ['messages', 'system', 'instructions', 'input', 'prompt']);
 
       // ---- dispatch + egress ----
-      await this.dispatch(f, reply);
+      await this.dispatch(f, reply, g);
 
       // ---- account ----
       this.account(f);
@@ -294,6 +300,11 @@ export class FlightRunner {
     f.parentFlightId = deleg.parentFlightId;
     f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
     const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
+    // Tags, the customer served, and the region asked for.
+    const meta = requestMeta(req, f.body);
+    f.tags = meta.tags;
+    f.customer = meta.customer;
+    if (f.customer && ctx.registry.customers.get(f.customer)?.blocked) throw E.customerBlocked(f.customer);
 
     // ---- admission ----
     if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);
@@ -320,6 +331,8 @@ export class FlightRunner {
       if (served.length === 0) throw E.endpointNotSupported(f.modelRequested, f.endpoint ?? f.kind, ctx.registry.providers.get(res.candidates[0]!.providerId)?.name);
       res = { ...res, candidates: served };
     }
+    // Only where the key's data may go, and to deployments reserved for the request's tags.
+    res = { ...res, candidates: routeCandidates(ctx, key, f.modelRequested, meta, res.candidates) };
     if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.alias, res.candidates) };
     const head = res.candidates[0]!;
     const headProv = ctx.registry.providers.get(head.providerId);
@@ -334,6 +347,7 @@ export class FlightRunner {
       ...new Set(
         [key, ...(origin ? [origin] : [])].flatMap((k) => [`key:${k.id}`, k.team ? `team:${k.team}` : '', k.project ? `project:${k.project}` : '']).filter(Boolean),
       ),
+      ...(f.customer ? [`customer:${f.customer}`] : []),
     ];
     const over = ctx.spend.reserve(budgetScopes, projected);
     if (over) throw E.budgetExceeded(over.scope);
@@ -422,7 +436,7 @@ export class FlightRunner {
       f.status = 'rejected';
       throw overGate;
     }
-    return { key, target, onBehalfOf, decision };
+    return { key, target, onBehalfOf, decision, args: spec.args(f) };
   }
 
   /** Inspect gates on this path look at what the agent sends: the named fields of the body. */
@@ -487,10 +501,28 @@ export class FlightRunner {
     });
   }
 
-  private async dispatch(f: Flight, reply: FastifyReply): Promise<void> {
+  /** The attempt plan for a call: retries, busy deployments, context windows, fallback models (policy-checked). */
+  newPlan(f: Flight, g: Gated, needTokens: number, servedBy?: (p: ProviderRecord) => boolean): AttemptPlan {
     const ctx = this.ctx;
-    let candidates = f.route!.candidates.slice(0, MAX_ATTEMPTS);
+    const plan = new AttemptPlan(ctx, f, g.key, {
+      needTokens,
+      servedBy,
+      allowFallback: async (model) => {
+        const target: PolicyTarget = { kind: 'model', name: model, operation: g.target.operation };
+        const d = await ctx.policy.evaluate({ flightId: f.id, key: g.key, target, args: g.args, onBehalfOf: g.onBehalfOf, estInputTokens: f.estInput, projectedNanousd: f.route?.projected ?? 0 });
+        return d.effect === 'allow';
+      },
+    });
+    f.plan = plan;
+    return plan;
+  }
+
+  private async dispatch(f: Flight, reply: FastifyReply, g: Gated): Promise<void> {
+    const ctx = this.ctx;
+    const maxOut = typeof f.body.max_tokens === 'number' ? f.body.max_tokens : typeof f.body.max_completion_tokens === 'number' ? f.body.max_completion_tokens : typeof f.body.max_output_tokens === 'number' ? f.body.max_output_tokens : 0;
+    const plan = this.newPlan(f, g, f.kind === 'embeddings' ? f.estInput : f.estInput + maxOut);
     let lastErr: NormalizedError | undefined;
+    let last: { dep: DeploymentRecord; err: NormalizedError } | undefined;
     // The Responses API goes as it came to providers that speak it, and through Chat Completions to the rest.
     let asChat: Record<string, unknown> | undefined;
     const responsesAsChat = () => {
@@ -503,10 +535,13 @@ export class FlightRunner {
       }
     };
 
-    for (const dep of candidates) {
-      const prov = ctx.registry.providers.get(dep.providerId);
-      const adapter = prov ? ctx.adapters.get(prov.kind) : undefined;
-      if (!prov || !adapter) continue;
+    for (let a = await plan.next(); a; a = await plan.next(last)) {
+      const { dep, prov } = a;
+      const adapter = ctx.adapters.get(prov.kind);
+      if (!adapter) {
+        last = { dep, err: { code: 'provider_misconfigured', message: `No adapter for ${prov.kind}`, httpStatus: 502, fallback: true, cooldown: false } };
+        continue;
+      }
       f.attempts++;
       f.deployment = dep;
       f.provider = prov;
@@ -539,7 +574,7 @@ export class FlightRunner {
 
       if (result.kind === 'error') {
         lastErr = result.err;
-        const more = f.attempts < candidates.length && result.err.fallback && f.bytesWritten === 0;
+        last = { dep, err: result.err };
         ctx.bus.emit({
           t: 'flight.upstream',
           flight_id: f.id,
@@ -548,16 +583,17 @@ export class FlightRunner {
           deployment_id: dep.id,
           provider_id: prov.id,
           upstream_model: dep.upstreamModel,
-          outcome: more ? 'fallback' : 'error',
+          outcome: 'error',
           status: result.err.upstreamStatus,
           error_code: result.err.code,
         });
         if (result.err.cooldown) ctx.registry.markCooldown(dep.id);
-        if (more) continue;
-        throw result.err;
+        continue;
       }
 
       ctx.registry.clearCooldown(dep.id);
+      // Priced as the deployment that answered: a fallback may be another model.
+      f.route!.price = ctx.pricing.resolve(prov.kind, dep.upstreamModel, dep.pricingOverride, prov.slug);
       ctx.bus.emit({
         t: 'flight.upstream',
         flight_id: f.id,
@@ -620,7 +656,7 @@ export class FlightRunner {
       await this.streamOut(f, reply, result.events, result.status, result.contentType);
       return;
     }
-    throw lastErr ?? E.modelNotFound(f.modelRequested);
+    throw lastErr ?? plan.refusal() ?? E.modelNotFound(f.modelRequested);
   }
 
   private async streamOut(
@@ -822,6 +858,7 @@ export class FlightRunner {
     const ctx = this.ctx;
     f.t.end = Date.now();
     f.releaseSlot?.();
+    f.plan?.done();
     if (f.route && f.route.budgetScopes.length) ctx.spend.settle(f.route.budgetScopes, f.route.projected, f.cost);
     if (!f.started) return;
     const err = f.error;

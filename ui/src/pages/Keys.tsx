@@ -53,7 +53,7 @@ export function KeysPage() {
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '', delegated_only: false });
+  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
   const load = async () => {
@@ -113,6 +113,7 @@ export function KeysPage() {
         team: form.team || undefined,
         project: form.project || undefined,
         allowed_models: form.allowed_models.split(',').map((s) => s.trim()).filter(Boolean),
+        regions: form.regions.split(',').map((s) => s.trim()).filter(Boolean),
         limits: form.rpm ? { rpm: Number(form.rpm) } : {},
         ...(expiresIn ? { expires_at: Date.now() + expiresIn } : {}),
       };
@@ -120,7 +121,7 @@ export function KeysPage() {
       const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
-      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', rpm: '', budget: '', delegated_only: false });
+      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
       setExpiresIn(0);
       await load();
       await refreshTopology();
@@ -200,6 +201,10 @@ export function KeysPage() {
           <div className="field">
             <label>Allowed models (comma-separated globs)</label>
             <input className="input" value={form.allowed_models} onChange={(e) => setForm({ ...form, allowed_models: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Keep its data in these regions (optional, comma-separated: eu-*, swedencentral)</label>
+            <input className="input" value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="anywhere" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="field">
@@ -333,7 +338,10 @@ export function KeysPage() {
                 <td className="mono muted">
                   {k.prefix}…{k.last4}
                 </td>
-                <td>{globList(k.allowed_models)}</td>
+                <td>
+                  {globList(k.allowed_models)}
+                  {k.regions?.length ? <span className="sub">only in {k.regions.join(', ')}</span> : null}
+                </td>
                 <td className={k.limits.rpm ? '' : 'muted'}>{k.limits.rpm ? `${k.limits.rpm}/min` : 'none'}</td>
                 <td className="muted">{ago(k.last_used_at)}</td>
                 <td>

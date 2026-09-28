@@ -277,6 +277,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           expires_at: k.expiresAt,
           demo: k.demo,
           delegated_only: k.delegatedOnly,
+          regions: k.regions,
           created_at: k.createdAt,
           last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,
           // Control Tower's own keys (admin, playground, guardrail): never retired or tidied in bulk.
@@ -297,6 +298,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       limits?: { rpm?: number; tpm?: number; maxParallel?: number };
       expires_at?: number | null;
       delegated_only?: boolean;
+      regions?: string[];
       budget?: { limit_usd: number; period: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null;
     };
     const name = (b.name ?? '').trim();
@@ -322,6 +324,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         enabled: 1,
         expires_at: b.expires_at ?? null,
         delegated_only: b.delegated_only ? 1 : 0,
+        regions: regionsJson(b.regions),
         created_by: req.admin?.email ?? null,
         demo: 0,
         created_at: now,
@@ -350,6 +353,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (b.limits && typeof b.limits === 'object') patch.limits = JSON.stringify(b.limits);
     if ('expires_at' in b) patch.expires_at = (b.expires_at as number | null) ?? null;
     if (typeof b.delegated_only === 'boolean') patch.delegated_only = b.delegated_only ? 1 : 0;
+    if (Array.isArray(b.regions) || b.regions === null) patch.regions = regionsJson(b.regions as string[] | null);
     const budget = b.budget as { limit_usd?: number; period?: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null | undefined;
     if (budget !== undefined && budget !== null && !(typeof budget.limit_usd === 'number' && budget.limit_usd > 0 && ['daily', 'weekly', 'monthly', 'total'].includes(budget.period ?? ''))) {
       return reply.status(400).send({ error: { code: 'invalid', message: 'budget needs limit_usd > 0 and period daily | weekly | monthly | total' } });
@@ -544,4 +548,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     await stopDemo(ctx);
     return { ok: true, active: false };
   });
+}
+
+/** A key's allowed regions as stored: region globs (eu-*, swedencentral), or null for anywhere. */
+function regionsJson(v: string[] | null | undefined): string | null {
+  const list = (v ?? []).filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim());
+  return list.length ? JSON.stringify(list) : null;
 }

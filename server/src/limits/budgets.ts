@@ -49,7 +49,7 @@ export class Budgets {
    * starts from what the scope has already spent in the current period, so a
    * monthly team budget set mid-month counts the month so far.
    */
-  async upsert(scopeType: 'key' | 'team' | 'project', scopeId: string, limitUsd: number, period: BudgetScope['period'], hard: boolean): Promise<void> {
+  async upsert(scopeType: 'key' | 'team' | 'project' | 'customer', scopeId: string, limitUsd: number, period: BudgetScope['period'], hard: boolean): Promise<void> {
     const limit = Math.round(limitUsd * NANO_PER_USD);
     const existing = await this.db.selectFrom('budgets').select(['period', 'resets_at']).where('scope_type', '=', scopeType).where('scope_id', '=', scopeId).executeTakeFirst();
     const fresh = !existing || existing.period !== period;
@@ -70,7 +70,7 @@ export class Budgets {
   }
 
   /** Recorded spend of a key, team or project since a time (retained flights only). */
-  async spentSince(scopeType: 'key' | 'team' | 'project', scopeId: string, since: number): Promise<number> {
+  async spentSince(scopeType: 'key' | 'team' | 'project' | 'customer', scopeId: string, since: number): Promise<number> {
     const column = scopeType === 'key' ? 'key_id' : scopeType;
     const row = await this.db
       .selectFrom('flights')

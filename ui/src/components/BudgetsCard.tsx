@@ -3,7 +3,7 @@ import { formatUsd } from '@controltower/shared';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
 
-type Scope = 'team' | 'project' | 'key';
+type Scope = 'team' | 'project' | 'key' | 'customer';
 type Period = 'daily' | 'weekly' | 'monthly' | 'total';
 
 interface Budget {
@@ -33,7 +33,7 @@ interface Form {
 }
 
 const HUE = '#1f5eff';
-const SCOPE_LABEL: Record<Scope, string> = { team: 'Team', project: 'Project', key: 'Agent' };
+const SCOPE_LABEL: Record<Scope, string> = { team: 'Team', project: 'Project', key: 'Agent', customer: 'Customer' };
 const EMPTY: Form = { scope: 'team', id: '', limit: '', period: 'monthly', hard: true, editing: false };
 
 export function Meter({ label, sub, spent, limit, hard, actions }: { label: string; sub?: string | undefined; spent: number; limit: number; hard: boolean; actions?: ReactNode }) {
@@ -181,7 +181,7 @@ export function BudgetsCard() {
           <Meter
             key={`${b.scope_type}:${b.scope_id}`}
             label={b.scope_type === 'key' ? b.name : `${SCOPE_LABEL[b.scope_type]} ${b.name}`}
-            sub={`${b.period === 'total' ? 'never resets' : b.period}${b.scope_type === 'key' ? '' : ` · ${b.keys} key${b.keys === 1 ? '' : 's'}`}`}
+            sub={`${b.period === 'total' ? 'never resets' : b.period}${b.scope_type === 'key' || b.scope_type === 'customer' ? '' : ` · ${b.keys} key${b.keys === 1 ? '' : 's'}`}`}
             spent={(b.spent_usd + b.reserved_usd) * 1e9}
             limit={b.limit_usd * 1e9}
             hard={b.hard}

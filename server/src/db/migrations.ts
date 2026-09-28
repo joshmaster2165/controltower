@@ -648,3 +648,20 @@ ALTER TABLE flights ADD COLUMN cache_hit INTEGER;
 CREATE INDEX idx_flights_customer_ts ON flights (customer, ts) WHERE customer IS NOT NULL;
 `,
 });
+
+migrations.push({
+  version: 19,
+  name: 'routing_regions_customers',
+  sqlite: `
+ALTER TABLE aliases ADD COLUMN config TEXT;
+ALTER TABLE api_keys ADD COLUMN regions TEXT;
+CREATE TABLE customers (
+  id          TEXT PRIMARY KEY,
+  name        TEXT,
+  blocked     INTEGER NOT NULL DEFAULT 0,
+  note        TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+`,
+});

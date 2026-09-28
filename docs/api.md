@@ -73,9 +73,9 @@ All paths are under `/admin/api`.
 | PATCH, DELETE | `/providers/:id` | Update, remove |
 | POST | `/providers/:id/test` | Test the connection |
 | GET | `/providers/:id/models` | Models the provider offers |
-| GET, POST | `/deployments` | List, add (`{provider_id, upstream_model, public_name?, pricing_override?}`) |
-| PATCH, DELETE | `/deployments/:id` | Update (enable, rename, price), remove |
-| GET, POST | `/aliases` | List, add (`{name, strategy, targets: [{deployment_id, priority, weight}]}`) |
+| GET, POST | `/deployments` | List, add (`{provider_id, upstream_model, public_name?, pricing_override?, caps?}`) |
+| PATCH, DELETE | `/deployments/:id` | Update (enable, rename, price, `caps`: region, tags, context, rpm, tpm, max_parallel, headers_timeout_ms, and for a deployment called by name `fallbacks`, `retry`, `cache`; `null` clears one), remove |
+| GET, POST | `/aliases` | List, add (`{name, strategy, targets: [{deployment_id, priority, weight}], config?}`); `config`: `{fallbacks: {context_window, content_policy, default}, retry: {rate_limited, timeout, server_error, max_attempts}, cache: {ttl_s}}` — see [retries and fallback models](providers-and-models.md#when-a-call-fails-retries-and-fallback-models) |
 | PUT, DELETE | `/aliases/:id` | Replace, remove |
 | GET | `/pricing` | The price table |
 
@@ -86,7 +86,10 @@ All paths are under `/admin/api`.
 | GET, POST | `/keys` | List, create — see [fields](keys.md#more-controls-api). The secret is returned once |
 | PATCH, DELETE | `/keys/:id` | Update limits, budget, expiry, enable / disable; delete |
 | GET | `/budgets` | Every budget with spend, and the known teams and projects |
-| PUT, DELETE | `/budgets/:type/:id` | Set or remove a `key`, `team` or `project` budget (`{limit_usd, period, hard}`) |
+| PUT, DELETE | `/budgets/:type/:id` | Set or remove a `key`, `team`, `project` or `customer` budget (`{limit_usd, period, hard}`) |
+| GET | `/customers?window=24h\|7d\|30d` | End customers with their requests, agents, spend and budget ([tags and customers](keys.md#tags-and-customers)) |
+| PUT, DELETE | `/customers/:id` | Name, block or unblock a customer (`{name?, blocked?, note?}`); forget it |
+| GET | `/ledger/tags?window=…` | Spend by the tags requests carried |
 
 ### Tool servers
 

@@ -62,9 +62,43 @@ Prices come from a bundled table of about 1,800 models, refreshed with releases.
 
 In the console, the order you click deployments in is the fallback order for **priority**; with the other strategies they all share the best priority. Through the API, give each target a `priority` (lower is tried first) and a `weight`.
 
-- A request **falls back** to the next deployment on rate limits (429), server errors (5xx), timeouts and provider authentication failures — never on a 400 or a policy decision — and only if nothing has been sent to the client yet, up to three attempts.
+- A request **falls back** to the next deployment on rate limits (429), server errors (5xx), timeouts and provider authentication failures — never on a policy decision or an ordinary 400 — and only if nothing has been sent to the client yet, up to three attempts (see *attempts in all* below).
 - A deployment that fails is **cooled down** (2 s, doubling to 30 s) and skipped while others are healthy; the next success resets it.
 - Aliases cross providers: an alias can fall back from OpenAI to Anthropic, and the request is translated.
+
+## When a call fails: retries and fallback models
+
+**Routing** on an alias (or on a deployment agents call by its own name) sets what happens when its deployments can't answer:
+
+| Setting | |
+|---|---|
+| **Prompt too long → try** | Models with a larger context window. Deployments whose window the prompt can't fit are skipped before the call is made (the window comes from the price table, or from the deployment's own setting); when a provider refuses a prompt as too long, only candidates with a larger window are tried next, then these models |
+| **Content refused → try** | Models to try when a provider refuses the content (a content filter or safety system). Other deployments of the same model are not tried: they would refuse it too |
+| **Anything else → try** | Models to try once every deployment has failed otherwise — rate limited, down, timed out |
+| **Retries on 429 / timeout / 5xx** | How many times to try the *same* deployment again, with a short backoff (250 ms, doubling up to 4 s), before moving on. Default 0 |
+| **Attempts in all** | A cap on tries, fallback models aside (default 3) |
+
+Fallback models are still subject to the key's allowed models and to your gates: a fallback that a gate would deny or hold is skipped. Each call is priced as the deployment that answered it. A request too long for every candidate, with no fallback, is refused before any call: `400 context_window_exceeded`.
+
+## A deployment's own settings
+
+**Routing** on a deployment also sets:
+
+| Setting | |
+|---|---|
+| **Region** | Where the provider serves it (`eu-west-1`, `swedencentral`). Without one, the provider's region applies (Bedrock's, or a `region` set on the provider) |
+| **Reserved for tags** | Requests carrying one of these tags are routed here, and requests without one aren't — unless one of the tags is `default` |
+| **Context window** | For models the price table doesn't know |
+| **Requests / minute, tokens / minute, at a time** | The deployment's own limits, across every agent. A call that would go over them goes to the next candidate instead; when none is left, it is refused with `429 deployment_busy` |
+| **Wait for an answer** | How long to wait for the provider's first byte (default 60 s) |
+
+### Keeping data in a region
+
+A key's **allowed regions** (region globs: `eu-*`, `swedencentral`) keep its calls on deployments in those regions; a model with no deployment there is refused with `403 region_not_available`, never served elsewhere. A request can also ask for a region with an `x-ct-region` header — within the key's regions, or it is refused with `403 region_not_allowed`.
+
+### Routing by tag
+
+Requests carry tags in an `x-ct-tags` header (comma-separated) or `"ct": {"tags": [...]}` in the body. When some of an alias's deployments are reserved for a request's tag, the request goes to them — a `batch` tag to the deployment kept for batch work, say. Tags also break spend down in the Ledger; see [Keys](keys.md#tags-and-customers).
 
 ## Import a config file
 

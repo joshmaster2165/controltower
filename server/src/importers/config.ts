@@ -74,6 +74,8 @@ export interface PlannedDeployment {
   weight: number;
   order: number;
   pricing: { input: number; output: number; mode: 'chat' | 'embedding' } | null;
+  /** Its own limits, region, tags, context window and timeout — and, when it is served under its own name, its routing. */
+  caps: import('../pipeline/routing.js').DeploymentCaps;
   /** Stable identity within the file. */
   sig: string;
 }
@@ -82,6 +84,8 @@ export interface PlannedAlias {
   name: string;
   strategy: 'priority' | 'weighted' | 'least-latency' | 'least-cost';
   targets: Array<{ deploymentRef: string; priority: number; weight: number; viaFallback?: string | undefined }>;
+  /** Fallback models for the context window, content refusals and otherwise; retries. */
+  config?: import('../pipeline/routing.js').RouteConfig;
 }
 
 export interface PlannedMcp {
@@ -425,6 +429,7 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
       weight: Math.max(1, Math.round(num(lp.weight) ?? num(lp.rpm) ?? num(lp.tpm) ?? 100)),
       order: num(lp.order) ?? 0,
       pricing: inCost !== undefined && outCost !== undefined ? { input: inCost * 1e6, output: outCost * 1e6, mode: mode === 'embedding' ? 'embedding' : 'chat' } : null,
+      caps: deploymentCaps(lp, info),
     });
   };
   models.forEach((m, i) => handle(m, i));
@@ -437,6 +442,7 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
   if (!STRATEGY[strategyName]) warnings.push(`routing_strategy "${strategyName}" has no equivalent — using weighted.`);
   const pickFallbacks = (key: string): unknown => (Array.isArray(rs[key]) && (rs[key] as unknown[]).length ? rs[key] : ls[key]);
   const fallbacks = new Map<string, string[]>();
+  let genericFallbacks: string[] | undefined;
   const fb = pickFallbacks('fallbacks');
   if (Array.isArray(fb)) {
     for (const entry of fb) {
@@ -446,17 +452,42 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
       }
       const [from, to] = Object.entries(entry)[0]!;
       if (from === '*') {
-        warnings.push('Generic "*" fallbacks are not imported — add fallbacks per model.');
+        if (Array.isArray(to)) genericFallbacks = to.map(String);
         continue;
       }
       if (Array.isArray(to)) fallbacks.set(from, to.map(String));
     }
   }
-  if (Array.isArray(pickFallbacks('default_fallbacks')) && (pickFallbacks('default_fallbacks') as unknown[]).length) warnings.push('default_fallbacks are not imported — add fallbacks per model.');
-  for (const k of ['context_window_fallbacks', 'content_policy_fallbacks']) {
+  // Fallbacks for a prompt too long for the model, for a content refusal, and for any model: routing config.
+  const special = (k: string): Map<string, string[]> => {
+    const m = new Map<string, string[]>();
     const v = pickFallbacks(k);
-    if (Array.isArray(v) && v.length) warnings.push(`${k} are not imported yet (only regular fallbacks are).`);
-  }
+    if (Array.isArray(v)) for (const e of v) if (isObj(e) && Object.keys(e).length === 1) {
+      const [from, to] = Object.entries(e)[0]!;
+      if (Array.isArray(to)) m.set(from, to.map(String));
+    }
+    return m;
+  };
+  const ctxFallbacks = special('context_window_fallbacks');
+  const policyFallbacks = special('content_policy_fallbacks');
+  const defaults = [...(Array.isArray(pickFallbacks('default_fallbacks')) ? (pickFallbacks('default_fallbacks') as unknown[]).map(String) : []), ...(genericFallbacks ?? [])];
+  const retries = num(rs.num_retries);
+  const rp = isObj(rs.retry_policy) ? rs.retry_policy : {};
+  const retry = {
+    ...(num(rp.RateLimitErrorRetries) ?? retries) !== undefined ? { rate_limited: num(rp.RateLimitErrorRetries) ?? retries } : {},
+    ...(num(rp.TimeoutErrorRetries) ?? retries) !== undefined ? { timeout: num(rp.TimeoutErrorRetries) ?? retries } : {},
+    ...(num(rp.InternalServerErrorRetries) ?? retries) !== undefined ? { server_error: num(rp.InternalServerErrorRetries) ?? retries } : {},
+  } as NonNullable<import('../pipeline/routing.js').RouteConfig['retry']>;
+  const routeFor = (g: string): import('../pipeline/routing.js').RouteConfig | undefined => {
+    // A fallback may be a model in this file or one Control Tower already has.
+    const known = (l: string[] | undefined) => (l ?? []).filter((x) => x !== g && (nameCount.has(x) || existing.modelNames.has(x)));
+    const fb = { context_window: known(ctxFallbacks.get(g)), content_policy: known(policyFallbacks.get(g)), default: known(defaults) };
+    const fallbacks = Object.fromEntries(Object.entries(fb).filter(([, l]) => l.length));
+    const cfg: import('../pipeline/routing.js').RouteConfig = {};
+    if (Object.keys(fallbacks).length) cfg.fallbacks = fallbacks;
+    if (Object.keys(retry).length) cfg.retry = retry;
+    return Object.keys(cfg).length ? cfg : undefined;
+  };
 
   const groups = [...nameCount.keys()];
   const byGroup = (g: string) => deployments.filter((d) => d.group === g);
@@ -477,6 +508,8 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
     });
     if (ds.length === 1 && !fbs.length) {
       ds[0]!.publicName = g;
+      // Served under its own name: its routing lives with it.
+      Object.assign(ds[0]!.caps, routeFor(g) ?? {});
       continue;
     }
     // Lower `order` is tried first; fallbacks come after every tier of the group itself.
@@ -487,7 +520,8 @@ export function planConfigImport(yamlText: string, env: Record<string, string | 
       for (const d of byGroup(f)) targets.push({ deploymentRef: d.ref, priority: next, weight: d.weight, viaFallback: f });
       next++;
     }
-    aliases.push({ name: g, strategy: orders.length > 1 && ds.length === orders.length ? 'priority' : strategy, targets });
+    const config = routeFor(g);
+    aliases.push({ name: g, strategy: orders.length > 1 && ds.length === orders.length ? 'priority' : strategy, targets, ...(config ? { config } : {}) });
   }
   // model_group_alias: extra names for an existing group.
   if (isObj(rs.model_group_alias)) {
@@ -562,4 +596,24 @@ export function publicPlan(p: ImportPlan): Record<string, unknown> {
     skipped: p.skipped,
     missing: p.providers.flatMap((x) => x.creds.filter((c) => c.from === 'missing' && c.required).map((c) => ({ provider_ref: x.ref, provider: x.name, field: c.field, label: c.label, env: c.env ?? null }))),
   };
+}
+
+/** A model's own settings: its rate and concurrency limits, region, routing tags, context window and timeout. */
+function deploymentCaps(lp: Record<string, unknown>, info: Record<string, unknown>): import('../pipeline/routing.js').DeploymentCaps {
+  const n = (v: unknown) => (typeof v === 'number' && v > 0 ? v : typeof v === 'string' && Number(v) > 0 ? Number(v) : undefined);
+  const caps: import('../pipeline/routing.js').DeploymentCaps = {};
+  const rpm = n(lp.rpm);
+  const tpm = n(lp.tpm);
+  const par = n(lp.max_parallel_requests);
+  if (rpm) caps.rpm = rpm;
+  if (tpm) caps.tpm = tpm;
+  if (par) caps.max_parallel = par;
+  const region = [lp.region_name, lp.aws_region_name, lp.vertex_location].find((v) => typeof v === 'string' && v && !String(v).startsWith('os.environ/'));
+  if (typeof region === 'string') caps.region = region;
+  if (Array.isArray(lp.tags) && lp.tags.length) caps.tags = lp.tags.map(String);
+  const timeout = n(lp.timeout) ?? n(lp.stream_timeout);
+  if (timeout) caps.headers_timeout_ms = Math.round(timeout * 1000);
+  const context = n(info.max_input_tokens) ?? n(info.max_tokens);
+  if (context) caps.context = context;
+  return caps;
 }

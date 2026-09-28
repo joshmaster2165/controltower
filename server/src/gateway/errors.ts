@@ -89,6 +89,36 @@ export const E = {
     message: `No connected provider serves the model "${model}". Connect the provider that offers it (Providers in the Control Tower console) and retry — models are added on first use — or pin one with "<provider>/${model}".`,
   }),
   badRequest: (msg: string): GatewayError => ({ status: 400, code: 'invalid_request', message: msg }),
+  regionNotAllowed: (region: string, allowed: string[]): GatewayError => ({
+    status: 403,
+    code: 'region_not_allowed',
+    message: `This key may only be served in ${allowed.join(', ')}; the request asked for ${region}.`,
+  }),
+  noDeploymentInRegion: (model: string, wanted: string[], have: string[]): GatewayError => ({
+    status: 403,
+    code: 'region_not_available',
+    message: `No deployment of "${model}" is in ${wanted.join(' or ')} (this key's data must stay there). Its deployments are in: ${[...new Set(have)].join(', ')}. Add a deployment in the region, or set its region on the model.`,
+  }),
+  noDeploymentForTags: (model: string, tags: string[], served: string[]): GatewayError => ({
+    status: 403,
+    code: 'no_deployment_for_tags',
+    message: `Every deployment of "${model}" is reserved for requests tagged ${served.join(', ')}${tags.length ? `; this one carries ${tags.join(', ')}` : ' and this request carries no tags'}. Send a matching x-ct-tags header, or tag a deployment "default".`,
+  }),
+  customerBlocked: (customer: string): GatewayError => ({
+    status: 403,
+    code: 'customer_blocked',
+    message: `Calls for customer "${customer}" are blocked in Control Tower.`,
+  }),
+  contextWindowExceeded: (model: string, need: number, largest: number): GatewayError => ({
+    status: 400,
+    code: 'context_window_exceeded',
+    message: `The request needs about ${need.toLocaleString('en-US')} tokens, more than "${model}" can take (${largest.toLocaleString('en-US')}). Shorten it, or give the model a context-window fallback.`,
+  }),
+  deploymentBusy: (model: string): GatewayError => ({
+    status: 429,
+    code: 'deployment_busy',
+    message: `Every deployment of "${model}" is at its rate or concurrency limit. Retry shortly.`,
+  }),
   endpointNotSupported: (model: string, endpoint: string, provider: string | undefined): GatewayError => ({
     status: 400,
     code: 'endpoint_not_supported',

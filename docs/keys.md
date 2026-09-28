@@ -40,7 +40,8 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
   "limits": { "rpm": 120, "tpm": 200000, "maxParallel": 4 },
   "budget": { "limit_usd": 50, "period": "monthly", "hard": true },
   "expires_at": 1798761600000,
-  "delegated_only": false
+  "delegated_only": false,
+  "regions": ["eu-*"]
 }
 ```
 
@@ -49,6 +50,7 @@ The console covers the common fields; the API has the rest. `POST /admin/api/key
 - **`budget`** — `daily`, `weekly`, `monthly` or `total`. A soft budget (`hard: false`) alerts instead of refusing. Spend other agents make [on this agent's behalf](agent-to-agent.md#spend-and-budgets) counts against it too. Budget alerts fire at a percentage and when exhausted; see [Alerts](alerts.md).
 - **`expires_at`** — epoch milliseconds; afterwards `401 key_expired`.
 - **`delegated_only`** — the API name for **Acts only on behalf of other agents**: `true` refuses the key's calls that carry no valid delegation token (`403 delegation_required`).
+- **`regions`** — region globs its calls may be served in; see [Keeping data in a region](providers-and-models.md#keeping-data-in-a-region). Omit (or `null`) for anywhere.
 
 ### Key management API
 
@@ -96,6 +98,20 @@ A key budget caps one agent. To cap a whole team or project — every key labell
 ![Budgets on the Ledger](images/budgets.png)
 
 API: `GET /admin/api/budgets`, `PUT /admin/api/budgets/<key|team|project>/<id>` with `{"limit_usd": 500, "period": "monthly", "hard": true}`, and `DELETE` on the same path.
+
+## Tags and customers
+
+Agents can say what a call is for and whom it serves, and Control Tower accounts for both:
+
+| Header | Body alternative | |
+|---|---|---|
+| `x-ct-tags: nightly-report, batch` | `"ct": {"tags": [...]}`, or `metadata.tags` | Up to 16 tags. **Ledger → Spend by tag** breaks spend down by them; deployments can be [reserved for a tag](providers-and-models.md#routing-by-tag) |
+| `x-ct-customer: acme` | `"ct": {"customer": "acme"}`, or the request's own `user` field | The end customer the agent is serving. **Ledger → Customers** lists spend per customer |
+| `x-ct-region: eu-west-1` | `"ct": {"region": "..."}` | Serve this call in a region (see [Keeping data in a region](providers-and-models.md#keeping-data-in-a-region)) |
+
+Tags given as `metadata.tags` are taken out of the request before it reaches the provider (providers want string metadata); the `ct` object never reaches a provider.
+
+In **Ledger → Customers** a customer can be **blocked** — its calls are refused with `403 customer_blocked` — or given a **monthly budget**, which works like any other budget: a hard budget refuses its calls with `429 budget_exceeded` once spent, and other customers carry on. Customers can be named for the list. Through the API: `PUT /admin/api/customers/:id` (`{name, blocked, note}`) and `PUT /admin/api/budgets/customer/:id`.
 
 ## Disable, rotate, delete
 

@@ -257,6 +257,8 @@ export interface KeyRow {
   enabled: boolean;
   expires_at?: number;
   demo: boolean;
+  /** Region globs its calls may be served in; empty = anywhere. */
+  regions?: string[];
   created_at: number;
   last_used_at?: number;
   /** Control Tower's own keys (admin, playground, guardrail). */

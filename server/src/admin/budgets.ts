@@ -3,7 +3,7 @@ import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import type { BudgetScope } from '../limits/limiter.js';
 
-const SCOPES = ['key', 'team', 'project'] as const;
+const SCOPES = ['key', 'team', 'project', 'customer'] as const;
 const PERIODS = ['daily', 'weekly', 'monthly', 'total'] as const;
 type ScopeType = (typeof SCOPES)[number];
 
@@ -22,11 +22,11 @@ export async function budgetRoutes(app: FastifyInstance, ctx: AppContext): Promi
       budgets: ctx.budgets.snapshot().map((b) => {
         const [type, ...rest] = b.scope.split(':');
         const id = rest.join(':');
-        const covers = type === 'key' ? 1 : keys.filter((k) => (type === 'team' ? k.team : k.project) === id).length;
+        const covers = type === 'key' ? 1 : type === 'customer' ? 0 : keys.filter((k) => (type === 'team' ? k.team : k.project) === id).length;
         return {
           scope_type: type,
           scope_id: id,
-          name: type === 'key' ? (ctx.registry.keysById.get(id)?.name ?? id) : id,
+          name: type === 'key' ? (ctx.registry.keysById.get(id)?.name ?? id) : type === 'customer' ? (ctx.registry.customers.get(id)?.name ?? id) : id,
           keys: covers,
           limit_usd: b.limit_nanousd / 1e9,
           spent_usd: b.spent_nanousd / 1e9,
@@ -44,7 +44,7 @@ export async function budgetRoutes(app: FastifyInstance, ctx: AppContext): Promi
   app.put('/admin/api/budgets/:type/:id', { preHandler: guard }, async (req, reply) => {
     const { type, id } = req.params as { type: string; id: string };
     const b = (req.body ?? {}) as { limit_usd?: unknown; period?: unknown; hard?: unknown };
-    if (!(SCOPES as readonly string[]).includes(type)) return bad(reply, 'scope must be key, team or project');
+    if (!(SCOPES as readonly string[]).includes(type)) return bad(reply, 'scope must be key, team, project or customer');
     const scopeId = decodeURIComponent(id).trim();
     if (!scopeId) return bad(reply, 'a team, project or key id is required');
     if (type === 'key' && !ctx.registry.keysById.has(scopeId)) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });

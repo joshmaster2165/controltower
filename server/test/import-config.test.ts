@@ -38,7 +38,12 @@ general_settings: {master_key: sk-1234, database_url: postgres://x}
     ]);
     expect(plan.deployments[2]!.pricing).toEqual({ input: 0.02, output: 0, mode: 'embedding' });
     // Different `order` tiers: a priority alias, Azure first.
-    expect(plan.aliases).toEqual([{ name: 'gpt-4o', strategy: 'priority', targets: [{ deploymentRef: 'd1', priority: 0, weight: 900 }, { deploymentRef: 'd2', priority: 1, weight: 300 }] }]);
+    // num_retries: tried again on the same deployment for rate limits, timeouts and server errors.
+    expect(plan.aliases).toEqual([
+      { name: 'gpt-4o', strategy: 'priority', targets: [{ deploymentRef: 'd1', priority: 0, weight: 900 }, { deploymentRef: 'd2', priority: 1, weight: 300 }], config: { retry: { rate_limited: 2, timeout: 2, server_error: 2 } } },
+    ]);
+    // rpm is the deployment's own limit too.
+    expect(plan.deployments.map((d) => d.caps.rpm)).toEqual([900, 300, undefined]);
     expect(plan.warnings.join('\n')).toContain('ignored (Control Tower has its own): database_url');
     // The master key is honoured when the file is loaded with --config.
     expect(plan.settings.masterKey).toBe('sk-1234');
@@ -124,7 +129,8 @@ mcp_servers:
     const w = plan.warnings.join('\n');
     expect(w).toContain('no provider prefix on "gpt-4o"');
     expect(w).toContain('fallback "missing-model" is not a model in this file');
-    expect(w).toContain('context_window_fallbacks are not imported');
+    // A prompt too long for "fast" goes to gpt-4o (a model Control Tower already has).
+    expect(plan.deployments.find((d) => d.group === 'fast')!.caps.fallbacks).toEqual({ context_window: ['gpt-4o'] });
   });
 
   it('accepts the long-form keys other gateways\' files use', () => {

@@ -74,6 +74,8 @@ export interface AliasesTable {
   created_at: number;
   /** 'config' when declared in a --config file (replaced on every boot). */
   source?: string | null;
+  /** JSON RouteConfig: fallback models, retries, caching. */
+  config?: string | null;
 }
 
 export interface AliasTargetsTable {
@@ -96,6 +98,8 @@ export interface ApiKeysTable {
   allowed_models: Json;
   allowed_mcp: Json;
   limits: Json;
+  /** JSON array of region globs this key's calls may be served in (data residency); null = anywhere. */
+  regions?: string | null;
   enabled: Bool;
   expires_at: number | null;
   created_by: string | null;
@@ -504,7 +508,18 @@ export interface Database {
   observed_hourly: ObservedHourlyTable;
   paths: PathsTable;
   a2a_agents: A2aAgentsTable;
+  customers: CustomersTable;
   schema_migrations: SchemaMigrationsTable;
+}
+
+/** End customers agents serve: named, blocked, budgeted (spend comes from flights). */
+export interface CustomersTable {
+  id: string;
+  name: string | null;
+  blocked: Bool;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 // Re-exported so call sites can use Generated/ColumnType if they need them later.

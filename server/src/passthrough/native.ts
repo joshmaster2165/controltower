@@ -71,12 +71,15 @@ async function gemini(ctx: AppContext, runner: FlightRunner, req: FastifyRequest
       servedBy: (p) => p.kind === 'gemini' || p.kind === 'vertex',
     });
     await runner.inspectInput(f, g, ['contents', 'systemInstruction', 'content', 'requests']);
+    const maxOut = Number((f.body.generationConfig as { maxOutputTokens?: number } | undefined)?.maxOutputTokens ?? 0) || 0;
     await forward(ctx, f, reply, {
+      plan: runner.newPlan(f, g, method === 'generateContent' || method === 'streamGenerateContent' ? f.estInput + maxOut : 0, (p) => p.kind === 'gemini' || p.kind === 'vertex'),
       inspectJson: method !== 'predict',
       headersTimeoutMs: 300_000,
       build: async (prov, dep) => {
         const suffix = `models/${encodeURIComponent(dep.upstreamModel)}:${method}${query ? `?${query}` : ''}`;
-        const body = JSON.stringify({ ...f.body });
+        const { ct: _ct, ...rest } = f.body;
+        const body = JSON.stringify(rest);
         if (prov.kind === 'vertex') {
           const ep = vertexEndpoint(prov);
           return { url: `${ep.base}/v1/projects/${ep.project}/locations/${ep.location}/publishers/google/${suffix}`, headers: { 'content-type': 'application/json', authorization: `Bearer ${await vertexAccessToken(prov, prov.slug)}` }, body };
@@ -163,14 +166,17 @@ async function bedrock(ctx: AppContext, runner: FlightRunner, req: FastifyReques
       resolve: () => resolveBedrock(ctx, f.modelRequested),
     });
     await runner.inspectInput(f, g, ['messages', 'system', 'prompt', 'inputText']);
+    const maxOut = Number((f.body.inferenceConfig as { maxTokens?: number } | undefined)?.maxTokens ?? f.body.max_tokens ?? 0) || 0;
     await forward(ctx, f, reply, {
+      plan: runner.newPlan(f, g, f.estInput + maxOut, (p) => p.kind === 'bedrock'),
       inspectJson: true,
       headersTimeoutMs: 300_000,
       exposeHeaders: /^x-amzn-(bedrock-|requestid)/i,
       build: async (prov, dep) => {
         if (!prov.creds.access_key_id || !prov.creds.secret_access_key) throw new Error('Bedrock provider needs access_key_id and secret_access_key');
         const url = `${runtimeBase(prov)}/model/${encodeURIComponent(dep.upstreamModel)}/${op}`;
-        const body = JSON.stringify(f.body);
+        const { ct: _ct, ...rest } = f.body;
+        const body = JSON.stringify(rest);
         return { url, headers: await signedHeaders(prov, 'bedrock', 'POST', url, body), body };
       },
       bill: (r) => billBedrock(f, r),

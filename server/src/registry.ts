@@ -35,6 +35,14 @@ export interface KeyRecord {
   lastUsedAt: number | undefined;
   /** Acts only on behalf of other agents: calls without a valid delegation token are refused. */
   delegatedOnly: boolean;
+  /** Region globs its calls may be served in (data residency); empty = anywhere. */
+  regions: string[];
+}
+
+export interface CustomerRecord {
+  id: string;
+  name: string | undefined;
+  blocked: boolean;
 }
 
 export interface ProviderRecord {
@@ -81,6 +89,8 @@ export interface AliasRecord {
   fallbackOn: string[];
   targets: AliasTarget[];
   demo: boolean;
+  /** Fallback models, retries, caching. */
+  config: import('./pipeline/routing.js').RouteConfig;
 }
 
 export interface ModelResolution {
@@ -118,6 +128,7 @@ export class Registry {
   deploymentsByPublicName = new Map<string, DeploymentRecord>();
   aliases = new Map<string, AliasRecord>();
   aliasesByName = new Map<string, AliasRecord>();
+  customers = new Map<string, CustomerRecord>();
   /** Bumped on every reload so caches keyed on topology can invalidate. */
   version = 0;
   private listeners = new Set<() => void>();
@@ -133,12 +144,13 @@ export class Registry {
   }
 
   async reload(): Promise<void> {
-    const [keys, providers, deployments, aliases, targets] = await Promise.all([
+    const [keys, providers, deployments, aliases, targets, customers] = await Promise.all([
       this.db.selectFrom('api_keys').selectAll().execute(),
       this.db.selectFrom('providers').selectAll().execute(),
       this.db.selectFrom('deployments').selectAll().execute(),
       this.db.selectFrom('aliases').selectAll().execute(),
       this.db.selectFrom('alias_targets').selectAll().execute(),
+      this.db.selectFrom('customers').select(['id', 'name', 'blocked']).execute(),
     ]);
 
     const keysByHash = new Map<string, KeyRecord>();
@@ -163,6 +175,7 @@ export class Registry {
         createdAt: k.created_at,
         lastUsedAt: k.last_used_at ?? undefined,
         delegatedOnly: k.delegated_only === 1,
+        regions: parseJson<string[]>(k.regions, []),
       };
       keysByHash.set(rec.hash, rec);
       keysById.set(rec.id, rec);
@@ -236,6 +249,7 @@ export class Registry {
         fallbackOn: parseJson<string[]>(a.fallback_on, []),
         targets: (targetsByAlias.get(a.id) ?? []).sort((x, y) => x.priority - y.priority),
         demo: a.demo === 1,
+        config: parseJson(a.config, {}),
       };
       als.set(rec.id, rec);
       alsByName.set(rec.name, rec);
@@ -257,6 +271,7 @@ export class Registry {
     this.deploymentsByPublicName = depsByPublic;
     this.aliases = als;
     this.aliasesByName = alsByName;
+    this.customers = new Map(customers.map((c) => [c.id, { id: c.id, name: c.name ?? undefined, blocked: c.blocked === 1 }]));
     this.version++;
     for (const l of this.listeners) {
       try {

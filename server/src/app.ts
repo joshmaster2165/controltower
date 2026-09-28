@@ -29,6 +29,7 @@ import { httpAdminRoutes } from './admin/http.js';
 import { managementApiRoutes } from './admin/management-api.js';
 import { budgetRoutes } from './admin/budgets.js';
 import { replayRoutes } from './admin/replay.js';
+import { customerRoutes } from './admin/customers.js';
 import { viewRoutes } from './admin/views.js';
 import { a2aAdminRoutes } from './admin/a2a.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
@@ -122,6 +123,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await managementApiRoutes(a, full);
     await budgetRoutes(a, full);
     await replayRoutes(a, full);
+    await customerRoutes(a, full);
     await viewRoutes(a, full);
     await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);

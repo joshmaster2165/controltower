@@ -4,6 +4,7 @@ import type { FlightKind } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { E } from '../gateway/errors.js';
 import { newFlight, type Flight, type FlightRunner } from '../pipeline/flight.js';
+import type { AttemptPlan } from '../pipeline/attempts.js';
 import type { DeploymentRecord, ProviderRecord } from '../registry.js';
 import { normalizeHttpError, type NormalizedError } from '../providers/adapter.js';
 import { readBodyText, sendUpstream } from '../providers/http.js';
@@ -48,7 +49,6 @@ export const OPENAI_APIS: ApiSpec[] = [
 /** Providers that speak OpenAI's wire format for these endpoints. */
 export const OPENAI_WIRE = new Set(['openai', 'azure-openai', 'openai-compatible']);
 
-const MAX_ATTEMPTS = 3;
 const MAX_JSON_BYTES = 64 * 1024 * 1024;
 
 function textLength(v: unknown): number {
@@ -99,7 +99,9 @@ export async function runApi(runner: FlightRunner, ctx: AppContext, req: Fastify
     await runner.inspectInput(f, g, spec.inspect);
     // Inspection may have masked a field: carry it into the upload too.
     if (parts && boundary) for (const k of spec.inspect) if (typeof body[k] === 'string') setField(parts, k, body[k] as string);
+    const maxTokens = typeof body.max_tokens === 'number' ? body.max_tokens : 0;
     await forward(ctx, f, reply, {
+      plan: runner.newPlan(f, g, spec.kind === 'completions' ? f.estInput + maxTokens : 0, (p) => OPENAI_WIRE.has(p.kind)),
       headersTimeoutMs: spec.headersTimeoutMs,
       inspectJson: spec.kind !== 'images',
       build: async (prov, dep) => {
@@ -169,6 +171,8 @@ export interface Received {
 }
 
 export interface ForwardOptions {
+  /** Which deployment to try next (retries, busy deployments, fallback models). */
+  plan: AttemptPlan;
   build: (prov: ProviderRecord, dep: DeploymentRecord) => Promise<Upstream>;
   bill: (r: Received) => void | Promise<void>;
   headersTimeoutMs?: number | undefined;
@@ -185,11 +189,10 @@ const MAX_RAW = 16 * 1024 * 1024;
  * the answer through — JSON whole (inspected), anything else as it arrives — and bill it.
  */
 export async function forward(ctx: AppContext, f: Flight, reply: FastifyReply, o: ForwardOptions): Promise<void> {
-  const candidates = f.route!.candidates.slice(0, MAX_ATTEMPTS);
   let lastErr: NormalizedError | undefined;
-  for (const dep of candidates) {
-    const prov = ctx.registry.providers.get(dep.providerId);
-    if (!prov) continue;
+  let last: { dep: DeploymentRecord; err: NormalizedError } | undefined;
+  for (let a = await o.plan.next(); a; a = await o.plan.next(last)) {
+    const { dep, prov } = a;
     f.attempts++;
     f.deployment = dep;
     f.provider = prov;
@@ -208,15 +211,15 @@ export async function forward(ctx: AppContext, f: Flight, reply: FastifyReply, o
     else if (r.res.status < 200 || r.res.status >= 300) err = normalizeHttpError(r.res.status, await readBodyText(r.res.body), prov.slug);
     if (err || !r.ok) {
       lastErr = err!;
-      const more = f.attempts < candidates.length && lastErr.fallback && f.bytesWritten === 0;
-      ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: f.attempts, deployment_id: dep.id, provider_id: prov.id, upstream_model: dep.upstreamModel, outcome: more ? 'fallback' : 'error', status: lastErr.upstreamStatus, error_code: lastErr.code });
+      last = { dep, err: lastErr };
+      ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: f.attempts, deployment_id: dep.id, provider_id: prov.id, upstream_model: dep.upstreamModel, outcome: 'error', status: lastErr.upstreamStatus, error_code: lastErr.code });
       if (lastErr.cooldown) ctx.registry.markCooldown(dep.id);
-      if (more) continue;
-      throw lastErr;
+      continue;
     }
     const res = r.res;
     f.t.ttfb = Date.now();
     ctx.registry.clearCooldown(dep.id);
+    f.route!.price = ctx.pricing.resolve(prov.kind, dep.upstreamModel, dep.pricingOverride, prov.slug);
     ctx.bus.emit({ t: 'flight.upstream', flight_id: f.id, ts: Date.now(), attempt: f.attempts, deployment_id: dep.id, provider_id: prov.id, upstream_model: dep.upstreamModel, outcome: 'ok', status: res.status, ttfb_ms: f.t.ttfb - f.t.start });
     f.httpStatus = res.status;
     const ctype = res.headers['content-type'] ?? 'application/octet-stream';
@@ -291,7 +294,7 @@ export async function forward(ctx: AppContext, f: Flight, reply: FastifyReply, o
     await o.bill({ json: undefined, lastUsageEvent, raw: kept.length ? Buffer.concat(kept) : undefined, headers: res.headers });
     return;
   }
-  throw lastErr ?? E.modelNotFound(f.modelRequested);
+  throw lastErr ?? o.plan.refusal() ?? E.modelNotFound(f.modelRequested);
 }
 
 /**

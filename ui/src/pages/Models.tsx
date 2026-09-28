@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ImportConfig } from './ImportConfig';
 import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
+import { Fragment } from 'react';
+import { RoutingEditor, routingSummary, type DeploymentCaps, type RouteConfig } from './models/RoutingEditor';
 
 const STRATEGY: Record<string, string> = { priority: 'in order', weighted: 'weighted', 'least-latency': 'fastest first', 'least-cost': 'cheapest first' };
 import { api, ApiError } from '../api';
@@ -20,6 +22,9 @@ interface Deployment {
   cooling_until?: number;
   ewma_ttft_ms?: number;
   demo: boolean;
+  caps?: DeploymentCaps;
+  /** Where it is served: its own region, or its provider's. */
+  region?: string | null;
 }
 
 interface Alias {
@@ -28,6 +33,7 @@ interface Alias {
   strategy: string;
   targets: Array<{ deploymentId: string; priority: number; weight: number }>;
   demo: boolean;
+  config?: RouteConfig;
 }
 
 interface Provider {
@@ -48,6 +54,16 @@ export function ModelsPage() {
   const [showImport, setShowImport] = useState(false);
   const [aliasForm, setAliasForm] = useState<{ name: string; strategy: string; targets: string[] }>({ name: '', strategy: 'priority', targets: [] });
   const refreshTopology = useStore((s) => s.refreshTopology);
+  const [editing, setEditing] = useState<string | null>(null);
+  const saveRouting = async (path: string, patch: Record<string, unknown>) => {
+    try {
+      await (path.includes('/aliases/') ? api.put(path, patch) : api.patch(path, patch));
+    } catch (err) {
+      throw new Error(err instanceof ApiError ? err.message : String(err));
+    }
+    setEditing(null);
+    await load();
+  };
 
   const load = async () => {
     const [d, a, p] = await Promise.all([
@@ -268,12 +284,20 @@ export function ModelsPage() {
           </thead>
           <tbody>
             {aliases.map((a) => (
-              <tr key={a.id}>
+              <Fragment key={a.id}>
+              <tr>
                 <td>
                   <span className="mono strong">{a.name}</span>
                   {a.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
                 </td>
-                <td className="muted">{STRATEGY[a.strategy] ?? a.strategy}</td>
+                <td className="muted">
+                  {STRATEGY[a.strategy] ?? a.strategy}
+                  {routingSummary(a.config).map((x) => (
+                    <span key={x} className="sub">
+                      {x}
+                    </span>
+                  ))}
+                </td>
                 <td>
                   <div className="route-chain">
                     {a.targets.map((t, i) => (
@@ -286,12 +310,23 @@ export function ModelsPage() {
                 </td>
                 <td>
                   <div className="row-actions">
+                    <button className="btn sm" onClick={() => setEditing(editing === a.id ? null : a.id)}>
+                      Routing
+                    </button>
                     <button className="btn sm danger" onClick={() => void removeAlias(a)}>
                       Delete
                     </button>
                   </div>
                 </td>
               </tr>
+              {editing === a.id && (
+                <tr>
+                  <td colSpan={4}>
+                    <RoutingEditor kind="alias" value={a.config} withRouting onSave={(p) => saveRouting(`/admin/api/aliases/${a.id}`, p)} onCancel={() => setEditing(null)} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {aliases.length === 0 && (
               <tr>
@@ -323,11 +358,18 @@ export function ModelsPage() {
           </thead>
           <tbody>
             {deployments.map((d) => (
-              <tr key={d.id}>
+              <Fragment key={d.id}>
+              <tr>
                 <td>
                   <span className="mono strong">{d.public_name ?? d.upstream_model}</span>
                   {d.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
                   <span className="sub mono">{d.public_name && d.public_name !== d.upstream_model ? d.upstream_model : d.public_name ? '' : 'only reachable through an alias'}</span>
+                  {(() => {
+                    const parts = routingSummary(d.caps);
+                    // A region inherited from the provider is shown too: it is where the data goes.
+                    if (d.region && !d.caps?.region) parts.unshift(d.region);
+                    return parts.length > 0 && <span className="sub">{parts.join(' · ')}</span>;
+                  })()}
                 </td>
                 <td>{d.provider_slug}</td>
                 <td className="num mono">
@@ -342,6 +384,9 @@ export function ModelsPage() {
                 </td>
                 <td>
                   <div className="row-actions">
+                    <button className="btn sm" onClick={() => setEditing(editing === d.id ? null : d.id)}>
+                      Routing
+                    </button>
                     <button className="btn sm" onClick={() => void toggle(d)}>
                       {d.enabled ? 'Disable' : 'Enable'}
                     </button>
@@ -351,6 +396,14 @@ export function ModelsPage() {
                   </div>
                 </td>
               </tr>
+              {editing === d.id && (
+                <tr>
+                  <td colSpan={6}>
+                    <RoutingEditor kind="deployment" value={d.caps} withRouting={!!d.public_name} onSave={(p) => saveRouting(`/admin/api/deployments/${d.id}`, p)} onCancel={() => setEditing(null)} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {deployments.length === 0 && (
               <tr>

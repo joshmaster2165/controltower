@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { BudgetsCard } from '../components/BudgetsCard';
+import { CustomersCard, TagsCard } from '../components/CustomersCard';
 
 /**
  * Ledger: what the gateway cost and how much it moved. Forms follow the job —
@@ -334,6 +335,11 @@ export function LedgerPage() {
               ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', marginTop: 14 }}>
+        <CustomersCard window={win} />
+        <TagsCard window={win} />
       </div>
     </div>
   );

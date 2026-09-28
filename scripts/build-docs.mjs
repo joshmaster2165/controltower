@@ -36,6 +36,7 @@ const SIDEBAR = [
     title: 'Gateway',
     items: [
       ['providers-and-models', 'Models & providers'],
+      ['model-apis', 'Images, audio & providers\' APIs'],
       ['keys', 'Keys, budgets & rate limits'],
       ['mcp', 'MCP gateway'],
       ['http-apis', 'HTTP APIs & observed traffic'],

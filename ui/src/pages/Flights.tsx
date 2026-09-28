@@ -25,6 +25,31 @@ const FILTERS: Array<{ id: string; label: string }> = [
 ];
 
 /** `crm__delete_contact` → crm › delete_contact */
+/** What a call that isn't billed on tokens made: "2 images", "19 characters", "42 s of audio", "1 search". */
+function unitsText(units: string | null | undefined): string | undefined {
+  if (!units) return undefined;
+  try {
+    const u = JSON.parse(units) as { images?: number; characters?: number; seconds?: number; queries?: number };
+    const parts: string[] = [];
+    if (u.images) parts.push(`${u.images} image${u.images === 1 ? '' : 's'}`);
+    if (u.characters) parts.push(`${u.characters} characters`);
+    if (u.seconds) parts.push(`${Math.round(u.seconds * 10) / 10} s of audio`);
+    if (u.queries) parts.push(`${u.queries} search${u.queries === 1 ? '' : 'es'}`);
+    return parts.join(', ') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function tagsOf(tags: string | null | undefined): string[] {
+  if (!tags) return [];
+  try {
+    return JSON.parse(tags) as string[];
+  } catch {
+    return [];
+  }
+}
+
 function Target({ name }: { name: string }) {
   const i = name.indexOf('__');
   if (i < 0) return <span className="mono">{name}</span>;
@@ -95,7 +120,7 @@ export function FlightsPage() {
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const hit = s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.error_code ?? ''} ${f.id} ${behalf(f.on_behalf_of)}`.toLowerCase().includes(s)) : rows;
+    const hit = s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.endpoint ?? ''} ${tagsOf(f.tags).join(' ')} ${f.customer ?? ''} ${f.error_code ?? ''} ${f.id} ${behalf(f.on_behalf_of)}`.toLowerCase().includes(s)) : rows;
     return trace ? treeOrder(hit) : hit.map((f) => ({ f, depth: 0 }));
   }, [rows, q, trace]);
 
@@ -199,6 +224,17 @@ export function FlightsPage() {
                   </td>
                   <td>
                     <Target name={f.model_requested} />
+                    {f.endpoint && <span className="sub mono">{f.endpoint}</span>}
+                    {f.customer && <span className="sub">for customer {f.customer}</span>}
+                    {tagsOf(f.tags).length > 0 && (
+                      <span className="sub">
+                        {tagsOf(f.tags).map((t) => (
+                          <span key={t} className="tag">
+                            {t}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span className={`status ${o.cls}`}>{o.label}</span>
@@ -218,8 +254,16 @@ export function FlightsPage() {
                         )}
                       </>
                     )}
+                    {unitsText(f.units) && <span className="sub">{unitsText(f.units)}</span>}
                   </td>
-                  <td className={`num mono ${f.cost_nanousd ? '' : 'muted'}`}>{usd(f.cost_nanousd)}</td>
+                  <td className={`num mono ${f.cost_nanousd ? '' : 'muted'}`}>
+                    {usd(f.cost_nanousd)}
+                    {f.cache_hit ? (
+                      <span className="sub" title="Answered from Control Tower's response cache: no call to the provider">
+                        cached
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="num mono">
                     {f.duration_ms == null ? <span className="muted">—</span> : ms(f.duration_ms)}
                     {f.ttft_ms != null && <span className="sub">first token {ms(f.ttft_ms)}</span>}

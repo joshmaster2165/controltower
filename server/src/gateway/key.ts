@@ -6,11 +6,11 @@ import type { KeyRecord } from '../registry.js';
  * The key a client presented, from the headers SDKs and tools send it in:
  * `Authorization: Bearer` (OpenAI SDKs, Claude Code's ANTHROPIC_AUTH_TOKEN),
  * `x-api-key` (Anthropic SDKs), `x-litellm-api-key` (clients set up for other gateways) and
- * `api-key` (Azure SDKs). A "Bearer " prefix is accepted on any of them.
+ * `api-key` (Azure SDKs) and `x-goog-api-key` (Google's Gen AI SDKs). A "Bearer " prefix is accepted on any of them.
  */
 export function extractApiKey(req: { headers: IncomingHttpHeaders }): string | undefined {
   const h = req.headers;
-  for (const v of [h.authorization, h['x-api-key'], h['x-litellm-api-key'], h['api-key']]) {
+  for (const v of [h.authorization, h['x-api-key'], h['x-litellm-api-key'], h['api-key'], h['x-goog-api-key']]) {
     if (typeof v !== 'string' || !v.trim() || /^basic\s/i.test(v)) continue;
     return v.trim().replace(/^bearer(\s+|$)/i, '').trim() || undefined;
   }

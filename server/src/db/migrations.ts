@@ -635,3 +635,16 @@ CREATE TABLE instances (
 ALTER TABLE flights ADD COLUMN instance_id TEXT;
 `,
 });
+
+migrations.push({
+  version: 18,
+  name: 'flight_endpoint_tags_customer',
+  sqlite: `
+ALTER TABLE flights ADD COLUMN endpoint TEXT;
+ALTER TABLE flights ADD COLUMN tags TEXT;
+ALTER TABLE flights ADD COLUMN customer TEXT;
+ALTER TABLE flights ADD COLUMN units TEXT;
+ALTER TABLE flights ADD COLUMN cache_hit INTEGER;
+CREATE INDEX idx_flights_customer_ts ON flights (customer, ts) WHERE customer IS NOT NULL;
+`,
+});

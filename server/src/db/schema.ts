@@ -159,6 +159,15 @@ export interface FlightsTable {
   completed_at: number | null;
   /** The instance that served the call. */
   instance_id: string | null;
+  /** Model calls other than chat: the endpoint called (images/generations, gemini:generateContent, …). */
+  endpoint: string | null;
+  /** JSON array of the tags the request carried. */
+  tags: string | null;
+  /** The end customer the agent was serving. */
+  customer: string | null;
+  /** JSON: what a non-token call was billed on ({images, characters, seconds, queries}). */
+  units: string | null;
+  cache_hit: Bool | null;
 }
 
 export interface FlightEventsTable {

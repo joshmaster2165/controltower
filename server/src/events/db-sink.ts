@@ -53,9 +53,11 @@ export class DbSink {
       ),
       insertFlight: db.prepare(`
         INSERT INTO flights (id, ts, key_id, key_name, agent_id, team, project, kind, dialect, model_requested,
-          alias_id, deployment_id, provider_id, provider_kind, mcp_server_id, tool, stream, on_behalf_of, parent_flight_id, instance_id)
+          alias_id, deployment_id, provider_id, provider_kind, mcp_server_id, tool, stream, on_behalf_of, parent_flight_id, instance_id,
+          endpoint, tags, customer)
         VALUES (@id, @ts, @key_id, @key_name, @agent_id, @team, @project, @kind, @dialect, @model_requested,
-          @alias_id, @deployment_id, @provider_id, @provider_kind, @mcp_server_id, @tool, @stream, @on_behalf_of, @parent_flight_id, @instance_id)
+          @alias_id, @deployment_id, @provider_id, @provider_kind, @mcp_server_id, @tool, @stream, @on_behalf_of, @parent_flight_id, @instance_id,
+          @endpoint, @tags, @customer)
         ON CONFLICT(id) DO UPDATE SET
           deployment_id = COALESCE(excluded.deployment_id, flights.deployment_id),
           provider_id = COALESCE(excluded.provider_id, flights.provider_id)`),
@@ -68,7 +70,8 @@ export class DbSink {
           in_tokens = @in_tokens, out_tokens = @out_tokens, cache_r = @cache_r, cache_w = @cache_w,
           reasoning_tokens = @reasoning_tokens, usage_source = @usage_source, cost_nanousd = @cost_nanousd,
           cost_confidence = @cost_confidence, ttfb_ms = @ttfb_ms, ttft_ms = @ttft_ms, duration_ms = @duration_ms,
-          overhead_ms = @overhead_ms, error_code = @error_code, error_message = @error_message, completed_at = @ts
+          overhead_ms = @overhead_ms, error_code = @error_code, error_message = @error_message, completed_at = @ts,
+          units = @units, cache_hit = @cache_hit
         WHERE id = @id`),
       rollupGet: {
         usage_hourly: db.prepare(
@@ -160,6 +163,9 @@ export class DbSink {
             on_behalf_of: e.on_behalf_of?.length ? JSON.stringify(e.on_behalf_of) : null,
             parent_flight_id: e.parent_flight_id ?? null,
             instance_id: this.instanceId,
+            endpoint: e.endpoint ?? null,
+            tags: e.tags?.length ? JSON.stringify(e.tags) : null,
+            customer: e.customer ?? null,
           });
           break;
         case 'flight.decision':
@@ -196,6 +202,8 @@ export class DbSink {
             overhead_ms: Math.round(e.gateway_overhead_ms),
             error_code: e.error?.code ?? null,
             error_message: e.error?.message?.slice(0, 500) ?? null,
+            units: e.units ? JSON.stringify(e.units) : null,
+            cache_hit: e.cache_hit ? 1 : null,
           });
           this.acc.completed(e);
           this.seq.delete(e.flight_id);

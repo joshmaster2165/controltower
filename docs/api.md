@@ -30,6 +30,11 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}` (the gateway use
 | POST | `/v1/chat/completions` | OpenAI Chat Completions, streaming or not — to any provider (translated where needed) |
 | POST | `/v1/responses` | OpenAI Responses API (Agents SDK, Codex) — to any provider (translated through Chat Completions where needed) |
 | POST | `/v1/embeddings` | Embeddings |
+| POST | `/v1/images/generations`, `/v1/images/edits`, `/v1/images/variations` | Images ([model APIs](model-apis.md)); edits and variations as multipart uploads |
+| POST | `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/audio/translations` | Speech and transcription; transcriptions as multipart uploads |
+| POST | `/v1/moderations`, `/v1/rerank` (`/v2/rerank`), `/v1/completions` | Moderation, rerank, legacy completions |
+| POST | `/gemini/{version}/models/{model}:{method}` | [Gemini's own API](model-apis.md#geminis-own-api) (key as `x-goog-api-key` or `?key=`) |
+| POST | `/bedrock/model/{modelId}/{operation}` | [Bedrock's runtime API](model-apis.md#bedrocks-runtime-api): `converse`, `converse-stream`, `invoke`, `invoke-with-response-stream` |
 | GET | `/v1/models`, `/v1/models/:id` | The models this key may use |
 | POST | `/v1/messages` | Anthropic Messages API (Claude Code, Anthropic SDKs) |
 | POST | `/v1/messages/count_tokens` | Token counting — exact from Anthropic, estimated elsewhere |

@@ -11,12 +11,14 @@ import { z } from 'zod';
  * 64-bit DB integers.
  */
 
-export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'responses', 'mcp.tool', 'http.request', 'a2a.call']);
+export const FlightKind = z.enum(['chat', 'embeddings', 'messages', 'responses', 'mcp.tool', 'http.request', 'a2a.call', 'images', 'audio', 'moderations', 'rerank', 'completions', 'native']);
+/** Model calls other than chat: images, audio, moderations, rerank, legacy completions, and providers' own APIs (Gemini, Bedrock). */
+export const isModelApiKind = (kind: string): boolean => ['images', 'audio', 'moderations', 'rerank', 'completions', 'native'].includes(kind);
 export type FlightKind = z.infer<typeof FlightKind>;
 /** Calls to a tool server rather than a model: MCP tools, HTTP API routes and A2A agents. */
 export const isToolKind = (kind: string): boolean => kind === 'mcp.tool' || kind === 'http.request' || kind === 'a2a.call';
 
-export const Dialect = z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'mcp', 'http', 'a2a']);
+export const Dialect = z.enum(['openai-chat', 'openai-responses', 'anthropic-messages', 'mcp', 'http', 'a2a', 'openai-api', 'gemini', 'bedrock']);
 export type Dialect = z.infer<typeof Dialect>;
 
 export const ProviderKind = z.enum([
@@ -87,6 +89,12 @@ export const FlightStarted = z.object({
   on_behalf_of: z.array(z.string()).optional(),
   /** The call that led to this one (it issued the delegation token this call presented). */
   parent_flight_id: z.string().optional(),
+  /** Model calls other than chat: the endpoint called, e.g. images/generations, or gemini:generateContent. */
+  endpoint: z.string().optional(),
+  /** Tags the request carried (x-ct-tags header or ct.tags), for spend by tag and tag routing. */
+  tags: z.array(z.string()).optional(),
+  /** Whom the agent was serving: the end customer (x-ct-customer header, or the request's user field). */
+  customer: z.string().optional(),
   est_input_tokens: z.number().int().nonnegative(),
   projected_nanousd: z.number().nonnegative(),
 });
@@ -146,6 +154,10 @@ export const FlightCompleted = z.object({
   ttft_ms: z.number().nonnegative().optional(),
   duration_ms: z.number().nonnegative(),
   gateway_overhead_ms: z.number().nonnegative(),
+  /** What a non-token call was billed on: images made, characters spoken, seconds of audio, searches. */
+  units: z.object({ images: z.number().optional(), characters: z.number().optional(), seconds: z.number().optional(), queries: z.number().optional() }).optional(),
+  /** Answered from Control Tower's response cache: no upstream call, no cost. */
+  cache_hit: z.boolean().optional(),
   error: z
     .object({
       code: z.string(),

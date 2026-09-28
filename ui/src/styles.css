@@ -960,3 +960,4 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .notice-row { background: var(--accent-soft); color: var(--text); justify-content: space-between; }
 .bulk-bar { border: 1px solid var(--border); background: var(--bg-elev); }
 .bulk-bar > span { flex: 1; min-width: 200px; color: var(--text); }
+.sub .tag + .tag { margin-left: 4px; }

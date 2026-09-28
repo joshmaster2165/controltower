@@ -14,6 +14,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 ## Set up
 
 - [**Providers and models**](providers-and-models.md) — connect OpenAI, Anthropic, Gemini, Bedrock, Vertex AI, Azure, Ollama…; models added on first use; aliases, load balancing and fallbacks.
+- [**Images, audio and providers' own APIs**](model-apis.md) — images, speech, transcription, moderation, rerank and completions; Gemini's and Bedrock's own SDKs through the gateway.
 - [**Keys, budgets and limits**](keys.md) — one key per agent, with allowed models and tools, rate limits and budgets.
 - [**MCP tool servers**](mcp.md) — register tool servers; per-key tool visibility.
 - [**HTTP APIs and observed traffic**](http-apis.md) — route REST APIs through the gateway, and map what doesn't go through it.
@@ -26,6 +27,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 - [**Policy as code**](policy-as-code.md) — zones and gates as YAML, with a preview before anything changes.
 - [**Alerts**](alerts.md) — console, Slack and webhooks; approving from Slack.
 - [**Monitoring**](monitoring.md) — Flights, the Ledger, the data-flow inventory, Prometheus metrics.
+- [**Running several instances**](scaling.md) — Postgres and Redis behind a load balancer.
 - [**What is enforced**](threat-model.md) — the boundary, stated honestly.
 
 ## Reference

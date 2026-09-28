@@ -89,6 +89,11 @@ export const E = {
     message: `No connected provider serves the model "${model}". Connect the provider that offers it (Providers in the Control Tower console) and retry — models are added on first use — or pin one with "<provider>/${model}".`,
   }),
   badRequest: (msg: string): GatewayError => ({ status: 400, code: 'invalid_request', message: msg }),
+  endpointNotSupported: (model: string, endpoint: string, provider: string | undefined): GatewayError => ({
+    status: 400,
+    code: 'endpoint_not_supported',
+    message: `The model "${model}" is served by ${provider ? `"${provider}"` : 'a provider'}, which has no ${endpoint} endpoint here. Use a model from a provider that does (for images, audio, moderations and completions: an OpenAI or OpenAI-compatible provider).`,
+  }),
   delegationRequired: (why: string): GatewayError => ({
     status: 403,
     code: 'delegation_required',

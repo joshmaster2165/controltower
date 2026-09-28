@@ -5,10 +5,10 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { FlightKind, FlightStatus, Usage, UsageSource, CostConfidence } from '@controltower/shared';
 import type { AppContext } from '../context.js';
-import type { AliasRecord, DeploymentRecord, KeyRecord, ProviderRecord } from '../registry.js';
+import type { AliasRecord, DeploymentRecord, KeyRecord, ModelResolution, ProviderRecord } from '../registry.js';
 import { byTier } from '../registry.js';
 import type { NormalizedError, WireDialect } from '../providers/adapter.js';
-import type { PriceRef } from '../pricing/index.js';
+import type { PriceRef, Units } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
 import { extractApiKey, keyProblem } from '../gateway/key.js';
@@ -87,6 +87,37 @@ export interface Flight {
   abort: AbortController;
   releaseSlot: (() => void) | undefined;
   clientGone: boolean;
+  /** Model calls other than chat: the endpoint called (images/generations, gemini:generateContent, …). */
+  endpoint: string | undefined;
+  /** Tags the request carried. */
+  tags: string[];
+  /** The end customer the agent was serving. */
+  customer: string | undefined;
+  /** What a non-token call was billed on. */
+  units: Units | undefined;
+  /** Answered from the response cache. */
+  cacheHit: boolean;
+}
+
+export interface GateSpec {
+  /** Bypass header auth with a known key (admin playground). */
+  keyOverride?: KeyRecord | undefined;
+  /** What policy sees of the request (never logged). */
+  args: (f: Flight) => Record<string, unknown>;
+  /** Only providers that serve this endpoint; a model served only elsewhere is refused. */
+  servedBy?: ((p: ProviderRecord) => boolean) | undefined;
+  /** Resolve the model some other way than by name (a provider's own model id). */
+  resolve?: (() => Promise<ModelResolution>) | undefined;
+  /** The call's projected cost when it isn't priced by tokens. */
+  project?: ((price: PriceRef) => number) | undefined;
+}
+
+/** What gate() established: who is calling, where to, for whom, and policy's decision. */
+export interface Gated {
+  key: KeyRecord;
+  target: PolicyTarget;
+  onBehalfOf: string[];
+  decision: PolicyDecision;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -134,6 +165,11 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     abort: new AbortController(),
     releaseSlot: undefined,
     clientGone: false,
+    endpoint: undefined,
+    tags: [],
+    customer: undefined,
+    units: undefined,
+    cacheHit: false,
   };
 }
 
@@ -218,155 +254,14 @@ export class FlightRunner {
       } else if (!Array.isArray(body.messages)) throw E.badRequest('Missing required field: messages (array).');
       f.estInput = estimateInputTokens(body);
 
-      // ---- auth ----
-      const presented = extractApiKey(req);
-      const key = runOpts.keyOverride ?? (presented ? ctx.registry.authenticate(presented) : undefined);
-      if (!key) throw E.unauthorized();
-      f.key = key;
-      const problem = keyProblem(key);
-      if (problem) throw problem === 'disabled' ? E.keyDisabled() : E.keyExpired();
-      // Whom this call is for, when an agent is acting for another (refused below if the key needs it).
-      const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
-      f.chain = deleg.chain ?? [];
-      f.parentFlightId = deleg.parentFlightId;
-      f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
-      const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
-
-      // ---- admission ----
-      if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);
-      const maxParallel = key.limits.maxParallel ?? 0;
-      const release = await ctx.limiter.acquireSlot(`key:${key.id}`, maxParallel);
-      if (!release) throw E.tooManyParallel(maxParallel);
-      f.releaseSlot = release;
-      const admit = await ctx.limiter.admit(`key:${key.id}`, f.estInput, key.limits);
-      if (!admit.ok) {
-        reply.header('retry-after', String(Math.ceil(admit.retryAfterMs / 1000)));
-        throw E.rateLimited(admit.which ?? 'rpm', admit.retryAfterMs);
-      }
-
-      // ---- resolve ----
-      let res = ctx.registry.resolveModel(f.modelRequested);
-      // A model a connected provider serves is added on first use: no Models step needed.
-      if (res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
-      if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
-      if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.alias, res.candidates) };
-      const head = res.candidates[0]!;
-      const headProv = ctx.registry.providers.get(head.providerId);
-      const price = headProv
-        ? ctx.pricing.resolve(headProv.kind, head.upstreamModel, head.pricingOverride, headProv.slug)
-        : { source: 'none' as const, key: head.upstreamModel, entry: undefined };
-      const maxOut = typeof body.max_tokens === 'number' ? body.max_tokens : Math.min(price.entry?.max_output ?? 4096, 4096);
-      const projected = projectCost(f.estInput, maxOut, price.entry);
-      // Spend made on someone's behalf also counts against the budgets of the agent that started the chain.
-      const origin = f.originKeyId && f.originKeyId !== key.id ? ctx.registry.keysById.get(f.originKeyId) : undefined;
-      const budgetScopes = [
-        ...new Set(
-          [key, ...(origin ? [origin] : [])].flatMap((k) => [`key:${k.id}`, k.team ? `team:${k.team}` : '', k.project ? `project:${k.project}` : '']).filter(Boolean),
-        ),
-      ];
-      const over = ctx.spend.reserve(budgetScopes, projected);
-      if (over) throw E.budgetExceeded(over.scope);
-      f.route = { alias: res.alias, candidates: res.candidates, price, projected, budgetScopes };
-      f.deployment = head;
-      f.provider = headProv;
-      this.emitStarted(f);
-      if ('error' in deleg) throw deleg.error; // recorded as a refused flight, with its chain
-      if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
-
-      // ---- policy ----
-      // Policy is evaluated against the primary route; fallbacks stay within the same alias.
-      const target: PolicyTarget = {
-        kind: 'model',
-        name: f.modelRequested,
-        providerId: headProv?.id,
-        providerKind: headProv?.kind,
-        deploymentId: head.id,
-        operation: 'read',
-      };
-      let decision = await ctx.policy.evaluate({
-        flightId: f.id,
-        key,
-        target,
-        args: { model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body) },
-        onBehalfOf,
-        estInputTokens: f.estInput,
-        projectedNanousd: projected,
+      const g = await this.gate(f, req, reply, {
+        keyOverride: runOpts.keyOverride,
+        args: () => ({ model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body) }),
       });
-
-      // A retry may carry a ticket or grant from an earlier hold.
-      const presentedApproval = req.headers['x-ct-approval'];
-      if (decision.effect === 'hold' && typeof presentedApproval === 'string' && presentedApproval) {
-        const scope = (decision as { scopeHash?: string }).scopeHash ?? '';
-        const r = await ctx.approvals.redeem(presentedApproval, key.id, scope, sessionIdOf(req, body));
-        if (r.ok) {
-          decision = { ...decision, effect: 'allow', reason: `approved (grant …${r.grantId.slice(-6)})` };
-        } else if (r.reason === 'pending') {
-          f.decision = decision;
-          this.emitDecision(f, 'hold', decision, 'ticket still pending');
-          f.status = 'ticketed';
-          throw E.approvalRequired('CONTROL_TOWER_APPROVAL_REQUIRED: still awaiting a human decision. Retry this exact call with the same x-ct-approval header after the suggested wait.', {
-            ct: { v: 1, status: 'pending', ticket: presentedApproval, retry_after_ms: r.retryAfterMs ?? 15_000, request_id: r.approvalId },
-          });
-        } else if (r.reason === 'denied') {
-          f.decision = decision;
-          this.emitDecision(f, 'deny', decision, 'denied by approver');
-          f.status = 'denied';
-          throw E.policyDenied('Denied by an approver.', decision.ruleId);
-        } else if (r.reason === 'scope_mismatch') {
-          f.decision = decision;
-          this.emitDecision(f, 'deny', decision, 'scope_mismatch');
-          ctx.log.warn({ flight: f.id, key: key.id }, 'SECURITY: approval redeemed with different arguments than approved');
-          f.status = 'denied';
-          throw E.policyDenied('The approval was granted for different arguments than this request (scope mismatch). Request approval again.', decision.ruleId);
-        }
-        // expired / exhausted / revoked / unknown: fall through and hold again.
-      }
-
-      f.decision = decision;
-      ctx.bus.emit({
-        t: 'flight.decision',
-        flight_id: f.id,
-        ts: Date.now(),
-        decision: decision.effect === 'hold' ? 'hold' : decision.effect,
-        rule_id: decision.ruleId,
-        zone_from: decision.zoneFrom,
-        zone_to: decision.zoneTo,
-        reason: decision.reason,
-        arg_hash: decision.argHash,
-      });
-      if (decision.effect === 'deny') {
-        f.status = 'denied';
-        throw E.policyDenied(decision.reason, decision.ruleId);
-      }
-      if (decision.effect === 'hold') {
-        const outcome = await ctx.approvals.hold(f, decision);
-        if (outcome.kind !== 'approved') {
-          f.status = outcome.kind === 'denied' ? 'denied' : 'ticketed';
-          throw outcome.error;
-        }
-      }
-      // An allow-with-limits gate: within its rate, and its cap on the reply's length.
-      const overGate = await gateLimitRefusal(ctx, decision, key, f.estInput);
-      if (overGate) {
-        f.status = 'rejected';
-        throw overGate;
-      }
-      capMaxTokens(body, decision);
+      capMaxTokens(body, g.decision);
 
       // ---- inspect (what the agent sends) ----
-      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
-      if (gates.length) {
-        f.inspectOut = gates.filter((g) => g.compiled.direction !== 'input');
-        const fields = ['messages', 'system', 'instructions', 'input', 'prompt'].filter((k) => body[k] !== undefined);
-        const picked = Object.fromEntries(fields.map((k) => [k, body[k]]));
-        const r = await inspect(ctx, f.key, gates, 'input', picked);
-        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
-        if (r.blocked) {
-          f.status = 'denied';
-          throw E.contentBlocked(blockedMessage(r.blocked, 'request'), r.blocked.ruleId, r.blocked.findings);
-        }
-        if (r.value !== picked) Object.assign(f.body, r.value as Record<string, unknown>);
-      }
+      await this.inspectInput(f, g, ['messages', 'system', 'instructions', 'input', 'prompt']);
 
       // ---- dispatch + egress ----
       await this.dispatch(f, reply);
@@ -378,6 +273,174 @@ export class FlightRunner {
     } finally {
       this.record(f);
     }
+  }
+
+  /**
+   * Everything before a call leaves: auth → admission → resolve → policy (and a hold for approval) → a gate's limits.
+   * Shared by chat calls and every other model API (images, audio, providers' own APIs); throws the refusal.
+   */
+  async gate(f: Flight, req: FastifyRequest, reply: FastifyReply, spec: GateSpec): Promise<Gated> {
+    const ctx = this.ctx;
+    // ---- auth ----
+    const presented = extractApiKey(req);
+    const key = spec.keyOverride ?? (presented ? ctx.registry.authenticate(presented) : undefined);
+    if (!key) throw E.unauthorized();
+    f.key = key;
+    const problem = keyProblem(key);
+    if (problem) throw problem === 'disabled' ? E.keyDisabled() : E.keyExpired();
+    // Whom this call is for, when an agent is acting for another (refused below if the key needs it).
+    const deleg = resolveDelegation(ctx, key, headerToken(req.headers));
+    f.chain = deleg.chain ?? [];
+    f.parentFlightId = deleg.parentFlightId;
+    f.originKeyId = 'error' in deleg ? undefined : deleg.originKeyId;
+    const onBehalfOf = 'error' in deleg ? [] : deleg.onBehalfOf;
+
+    // ---- admission ----
+    if (!ctx.registry.keyMayUseModel(key, f.modelRequested)) throw E.modelNotAllowed(f.modelRequested);
+    const maxParallel = key.limits.maxParallel ?? 0;
+    const release = await ctx.limiter.acquireSlot(`key:${key.id}`, maxParallel);
+    if (!release) throw E.tooManyParallel(maxParallel);
+    f.releaseSlot = release;
+    const admit = await ctx.limiter.admit(`key:${key.id}`, f.estInput, key.limits);
+    if (!admit.ok) {
+      reply.header('retry-after', String(Math.ceil(admit.retryAfterMs / 1000)));
+      throw E.rateLimited(admit.which ?? 'rpm', admit.retryAfterMs);
+    }
+
+    // ---- resolve ----
+    let res = spec.resolve ? await spec.resolve() : ctx.registry.resolveModel(f.modelRequested);
+    // A model a connected provider serves is added on first use: no Models step needed.
+    if (!spec.resolve && res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
+    if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
+    if (spec.servedBy) {
+      const served = res.candidates.filter((d) => {
+        const p = ctx.registry.providers.get(d.providerId);
+        return !!p && spec.servedBy!(p);
+      });
+      if (served.length === 0) throw E.endpointNotSupported(f.modelRequested, f.endpoint ?? f.kind, ctx.registry.providers.get(res.candidates[0]!.providerId)?.name);
+      res = { ...res, candidates: served };
+    }
+    if (res.alias?.strategy === 'least-cost') res = { ...res, candidates: cheapestFirst(ctx, res.alias, res.candidates) };
+    const head = res.candidates[0]!;
+    const headProv = ctx.registry.providers.get(head.providerId);
+    const price = headProv
+      ? ctx.pricing.resolve(headProv.kind, head.upstreamModel, head.pricingOverride, headProv.slug)
+      : { source: 'none' as const, key: head.upstreamModel, entry: undefined };
+    const maxOut = typeof f.body.max_tokens === 'number' ? f.body.max_tokens : Math.min(price.entry?.max_output ?? 4096, 4096);
+    const projected = spec.project ? spec.project(price) : projectCost(f.estInput, maxOut, price.entry);
+    // Spend made on someone's behalf also counts against the budgets of the agent that started the chain.
+    const origin = f.originKeyId && f.originKeyId !== key.id ? ctx.registry.keysById.get(f.originKeyId) : undefined;
+    const budgetScopes = [
+      ...new Set(
+        [key, ...(origin ? [origin] : [])].flatMap((k) => [`key:${k.id}`, k.team ? `team:${k.team}` : '', k.project ? `project:${k.project}` : '']).filter(Boolean),
+      ),
+    ];
+    const over = ctx.spend.reserve(budgetScopes, projected);
+    if (over) throw E.budgetExceeded(over.scope);
+    f.route = { alias: res.alias, candidates: res.candidates, price, projected, budgetScopes };
+    f.deployment = head;
+    f.provider = headProv;
+    this.emitStarted(f);
+    if ('error' in deleg) throw deleg.error; // recorded as a refused flight, with its chain
+    if (deleg.invalid) flagIgnoredToken(ctx, f.id, deleg.invalid);
+
+    // ---- policy ----
+    // Policy is evaluated against the primary route; fallbacks stay within the same alias.
+    const target: PolicyTarget = {
+      kind: 'model',
+      name: f.modelRequested,
+      providerId: headProv?.id,
+      providerKind: headProv?.kind,
+      deploymentId: head.id,
+      operation: 'read',
+    };
+    let decision = await ctx.policy.evaluate({
+      flightId: f.id,
+      key,
+      target,
+      args: spec.args(f),
+      onBehalfOf,
+      estInputTokens: f.estInput,
+      projectedNanousd: projected,
+    });
+
+    // A retry may carry a ticket or grant from an earlier hold.
+    const presentedApproval = req.headers['x-ct-approval'];
+    if (decision.effect === 'hold' && typeof presentedApproval === 'string' && presentedApproval) {
+      const scope = (decision as { scopeHash?: string }).scopeHash ?? '';
+      const r = await ctx.approvals.redeem(presentedApproval, key.id, scope, sessionIdOf(req, f.body));
+      if (r.ok) {
+        decision = { ...decision, effect: 'allow', reason: `approved (grant …${r.grantId.slice(-6)})` };
+      } else if (r.reason === 'pending') {
+        f.decision = decision;
+        this.emitDecision(f, 'hold', decision, 'ticket still pending');
+        f.status = 'ticketed';
+        throw E.approvalRequired('CONTROL_TOWER_APPROVAL_REQUIRED: still awaiting a human decision. Retry this exact call with the same x-ct-approval header after the suggested wait.', {
+          ct: { v: 1, status: 'pending', ticket: presentedApproval, retry_after_ms: r.retryAfterMs ?? 15_000, request_id: r.approvalId },
+        });
+      } else if (r.reason === 'denied') {
+        f.decision = decision;
+        this.emitDecision(f, 'deny', decision, 'denied by approver');
+        f.status = 'denied';
+        throw E.policyDenied('Denied by an approver.', decision.ruleId);
+      } else if (r.reason === 'scope_mismatch') {
+        f.decision = decision;
+        this.emitDecision(f, 'deny', decision, 'scope_mismatch');
+        ctx.log.warn({ flight: f.id, key: key.id }, 'SECURITY: approval redeemed with different arguments than approved');
+        f.status = 'denied';
+        throw E.policyDenied('The approval was granted for different arguments than this request (scope mismatch). Request approval again.', decision.ruleId);
+      }
+      // expired / exhausted / revoked / unknown: fall through and hold again.
+    }
+
+    f.decision = decision;
+    ctx.bus.emit({
+      t: 'flight.decision',
+      flight_id: f.id,
+      ts: Date.now(),
+      decision: decision.effect === 'hold' ? 'hold' : decision.effect,
+      rule_id: decision.ruleId,
+      zone_from: decision.zoneFrom,
+      zone_to: decision.zoneTo,
+      reason: decision.reason,
+      arg_hash: decision.argHash,
+    });
+    if (decision.effect === 'deny') {
+      f.status = 'denied';
+      throw E.policyDenied(decision.reason, decision.ruleId);
+    }
+    if (decision.effect === 'hold') {
+      const outcome = await ctx.approvals.hold(f, decision);
+      if (outcome.kind !== 'approved') {
+        f.status = outcome.kind === 'denied' ? 'denied' : 'ticketed';
+        throw outcome.error;
+      }
+    }
+    // An allow-with-limits gate: within its rate, and its cap on the reply's length.
+    const overGate = await gateLimitRefusal(ctx, decision, key, f.estInput);
+    if (overGate) {
+      f.status = 'rejected';
+      throw overGate;
+    }
+    return { key, target, onBehalfOf, decision };
+  }
+
+  /** Inspect gates on this path look at what the agent sends: the named fields of the body. */
+  async inspectInput(f: Flight, g: Gated, fields: string[]): Promise<void> {
+    const ctx = this.ctx;
+    const gates = ctx.policy.inspectors?.(g.key, g.target, g.onBehalfOf) ?? [];
+    if (!gates.length) return;
+    f.inspectOut = gates.filter((x) => x.compiled.direction !== 'input');
+    const present = fields.filter((k) => f.body[k] !== undefined);
+    if (!present.length) return;
+    const picked = Object.fromEntries(present.map((k) => [k, f.body[k]]));
+    const r = await inspect(ctx, f.key, gates, 'input', picked);
+    emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
+    if (r.blocked) {
+      f.status = 'denied';
+      throw E.contentBlocked(blockedMessage(r.blocked, 'request'), r.blocked.ruleId, r.blocked.findings);
+    }
+    if (r.value !== picked) Object.assign(f.body, r.value as Record<string, unknown>);
   }
 
   private emitDecision(f: Flight, decision: 'allow' | 'deny' | 'hold' | 'mutate' | 'flagged', d: PolicyDecision, reason?: string): void {
@@ -416,6 +479,9 @@ export class FlightRunner {
       provider_kind: f.provider?.kind,
       ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
       ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}),
+      ...(f.endpoint ? { endpoint: f.endpoint } : {}),
+      ...(f.tags.length ? { tags: f.tags } : {}),
+      ...(f.customer ? { customer: f.customer } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,
     });
@@ -716,7 +782,7 @@ export class FlightRunner {
     }
   }
 
-  private async fail(f: Flight, reply: FastifyReply, err: unknown): Promise<void> {
+  async fail(f: Flight, reply: FastifyReply, err: unknown): Promise<void> {
     if (f.clientGone) {
       // The client went away mid-flight; nothing to send, nothing to log at error level.
       f.status = f.status ?? 'client_aborted';
@@ -752,7 +818,7 @@ export class FlightRunner {
     await reply.status(ge.status).send(errorBody(f.dialect, ge));
   }
 
-  private record(f: Flight): void {
+  record(f: Flight): void {
     const ctx = this.ctx;
     f.t.end = Date.now();
     f.releaseSlot?.();
@@ -774,6 +840,8 @@ export class FlightRunner {
       ttft_ms: f.t.ttft == null ? undefined : f.t.ttft - f.t.start,
       duration_ms: f.t.end - f.t.start,
       gateway_overhead_ms: (f.t.upstreamSent ?? f.t.end) - f.t.start,
+      ...(f.units ? { units: f.units } : {}),
+      ...(f.cacheHit ? { cache_hit: true } : {}),
       error: err
         ? {
             code: err.code,

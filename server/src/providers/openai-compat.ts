@@ -38,7 +38,7 @@ function authStyle(p: ProviderRecord): AuthStyle {
   return p.creds.api_key ? 'bearer' : 'none';
 }
 
-export function buildUrl(p: ProviderRecord, path: 'chat/completions' | 'embeddings' | 'responses' | 'models', model?: string): string {
+export function buildUrl(p: ProviderRecord, path: 'chat/completions' | 'embeddings' | 'responses' | 'models' | (string & {}), model?: string): string {
   const base = baseUrl(p);
   if (p.kind === 'azure-openai') {
     // Azure serves the Responses API on its v1 surface, addressed by deployment name in the body.

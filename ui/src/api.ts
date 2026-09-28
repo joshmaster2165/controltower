@@ -230,6 +230,16 @@ export interface FlightRow {
   overhead_ms: number | null;
   error_code: string | null;
   error_message: string | null;
+  /** Model calls other than chat: the endpoint (images/generations, gemini:generateContent, …). */
+  endpoint?: string | null;
+  /** JSON array of the request's tags. */
+  tags?: string | null;
+  /** The end customer the agent was serving. */
+  customer?: string | null;
+  /** JSON: what a non-token call was billed on. */
+  units?: string | null;
+  /** 1 when answered from Control Tower's response cache. */
+  cache_hit?: number | null;
 }
 
 export interface KeyRow {

@@ -241,7 +241,7 @@ function region(p: ProviderRecord): string {
   return p.creds.region || (p.extra.region as string | undefined) || 'us-east-1';
 }
 
-function runtimeBase(p: ProviderRecord): string {
+export function runtimeBase(p: ProviderRecord): string {
   return ((p.extra.endpoint as string | undefined) ?? `https://bedrock-runtime.${region(p)}.amazonaws.com`).replace(/\/+$/, '');
 }
 
@@ -249,7 +249,7 @@ function controlBase(p: ProviderRecord): string {
   return ((p.extra.control_endpoint as string | undefined) ?? (p.extra.endpoint as string | undefined) ?? `https://bedrock.${region(p)}.amazonaws.com`).replace(/\/+$/, '');
 }
 
-async function signedHeaders(p: ProviderRecord, service: 'bedrock', method: 'POST' | 'GET', url: string, body: string | undefined): Promise<Record<string, string>> {
+export async function signedHeaders(p: ProviderRecord, service: 'bedrock', method: 'POST' | 'GET', url: string, body: string | undefined): Promise<Record<string, string>> {
   const u = new URL(url);
   const signer = new SignatureV4({
     credentials: { accessKeyId: p.creds.access_key_id ?? '', secretAccessKey: p.creds.secret_access_key ?? '', ...(p.creds.session_token ? { sessionToken: p.creds.session_token } : {}) },

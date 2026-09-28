@@ -33,7 +33,14 @@ const NAMESPACE: Record<string, string> = {
   perplexity: 'perplexity',
   cerebras: 'cerebras',
   sambanova: 'sambanova',
+  cohere: 'cohere',
+  jina_ai: 'jina',
+  voyage: 'voyage',
 };
+
+/** Modes kept. `responses` models (served only through the Responses API) are priced like chat. */
+const TOKEN_MODES = ['chat', 'completion', 'embedding', 'responses', 'moderation'];
+const UNIT_MODES = ['image_generation', 'image_edit', 'audio_speech', 'audio_transcription', 'rerank'];
 
 interface LiteEntry {
   litellm_provider?: string;
@@ -53,6 +60,18 @@ interface LiteEntry {
   supports_reasoning?: boolean;
   supports_prompt_caching?: boolean;
   deprecation_date?: string;
+  input_cost_per_image?: number;
+  output_cost_per_image?: number;
+  input_cost_per_pixel?: number;
+  output_cost_per_pixel?: number;
+  input_cost_per_image_token?: number;
+  output_cost_per_image_token?: number;
+  input_cost_per_character?: number;
+  input_cost_per_second?: number;
+  output_cost_per_second?: number;
+  input_cost_per_audio_token?: number;
+  output_cost_per_audio_token?: number;
+  input_cost_per_query?: number;
 }
 
 const perM = (v: number | undefined) => (typeof v === 'number' ? Math.round(v * 1e6 * 1e6) / 1e6 : undefined);
@@ -73,11 +92,25 @@ async function main() {
   for (const [key, v] of Object.entries(raw)) {
     if (key === 'sample_spec' || !v.litellm_provider) continue;
     const ns = NAMESPACE[v.litellm_provider];
-    if (!ns || !['chat', 'completion', 'embedding'].includes(v.mode ?? '')) {
+    const mode = v.mode ?? '';
+    if (!ns || (!TOKEN_MODES.includes(mode) && !UNIT_MODES.includes(mode))) {
       dropped++;
       continue;
     }
-    if (typeof v.input_cost_per_token !== 'number') {
+    // Token models need a token price; image, audio and rerank models need any price at all.
+    const unitPrices = {
+      per_image: v.output_cost_per_image ?? v.input_cost_per_image,
+      per_pixel: v.output_cost_per_pixel || v.input_cost_per_pixel || undefined,
+      image_input: perM(v.input_cost_per_image_token),
+      image_output: perM(v.output_cost_per_image_token),
+      per_character: v.input_cost_per_character,
+      per_second: mode === 'audio_speech' ? (v.output_cost_per_second ?? v.input_cost_per_second) : (v.input_cost_per_second ?? v.output_cost_per_second),
+      audio_input: perM(v.input_cost_per_audio_token),
+      audio_output: perM(v.output_cost_per_audio_token),
+      per_query: v.input_cost_per_query,
+    };
+    const hasUnitPrice = Object.values(unitPrices).some((x) => typeof x === 'number');
+    if (typeof v.input_cost_per_token !== 'number' && !(UNIT_MODES.includes(mode) && hasUnitPrice)) {
       dropped++;
       continue;
     }
@@ -90,10 +123,11 @@ async function main() {
       continue; // vertex non-gemini models (claude, llama) are priced under their own namespaces
     }
     const entry: Record<string, unknown> = {
-      mode: v.mode,
-      input: perM(v.input_cost_per_token),
+      mode: mode === 'responses' ? 'chat' : mode,
+      input: perM(v.input_cost_per_token) ?? 0,
       output: perM(v.output_cost_per_token) ?? 0,
     };
+    for (const [k, x] of Object.entries(unitPrices)) if (typeof x === 'number' && x > 0) entry[k] = x;
     if (v.cache_read_input_token_cost) entry.cache_read = perM(v.cache_read_input_token_cost);
     if (v.cache_creation_input_token_cost) entry.cache_write = perM(v.cache_creation_input_token_cost);
     const tiers: Array<Record<string, number>> = [];

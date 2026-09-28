@@ -51,7 +51,7 @@ export async function vertexAccessToken(p: ProviderRecord, slug: string): Promis
   return j.access_token;
 }
 
-function endpoint(p: ProviderRecord): { base: string; project: string; location: string } {
+export function endpoint(p: ProviderRecord): { base: string; project: string; location: string } {
   const project = String(p.extra.project ?? '');
   const location = String(p.extra.location ?? 'us-central1');
   const base = ((p.extra.endpoint as string | undefined) ?? (location === 'global' ? 'https://aiplatform.googleapis.com' : `https://${location}-aiplatform.googleapis.com`)).replace(/\/+$/, '');

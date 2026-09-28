@@ -6,6 +6,8 @@ import { extractApiKey, keyProblem, usableKey } from './key.js';
 import { E, errorBody } from './errors.js';
 import { ANTHROPIC_PASSTHROUGH_HEADERS } from '../providers/anthropic.js';
 import { parseObserveBody, parseOtlpTraces } from '../observe/observe.js';
+import { OPENAI_APIS, runApi } from '../passthrough/api.js';
+import { nativeRoutes } from '../passthrough/native.js';
 
 export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const runner = new FlightRunner(ctx);
@@ -23,6 +25,18 @@ export async function gatewayRoutes(app: FastifyInstance, ctx: AppContext): Prom
       await runner.runChat(req, reply, 'openai-responses');
     });
   }
+  // Images, audio, moderations, rerank and legacy completions: passed through to OpenAI-wire providers.
+  // Uploads (image edits, audio to transcribe) arrive as multipart/form-data and are passed on as they came.
+  const API_BODY_LIMIT = 64 * 1024 * 1024;
+  app.addContentTypeParser('multipart/form-data', { parseAs: 'buffer', bodyLimit: API_BODY_LIMIT }, (_req, body, done) => done(null, body));
+  for (const spec of OPENAI_APIS) {
+    const handler = (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => runApi(runner, ctx, req, reply, spec);
+    for (const prefix of ['/v1', '']) app.post(`${prefix}/${spec.endpoint}`, { bodyLimit: API_BODY_LIMIT }, handler);
+    if (spec.endpoint === 'rerank') app.post('/v2/rerank', handler); // Cohere's SDK
+  }
+  // Providers' own APIs: Gemini's (google-genai with base URL …/gemini) and Bedrock's runtime (endpoint URL …/bedrock).
+  nativeRoutes(app, ctx, runner);
+
   // Azure OpenAI style (LlamaIndex's AzureOpenAI, Cursor's Azure mode): the model is in the path.
   const azure = (kind: 'chat' | 'embeddings') => async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;

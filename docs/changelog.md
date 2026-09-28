@@ -2,7 +2,20 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.1.7 — 28 September 2026
+
+- **Security hardening.** Please read before upgrading a server that isn't set up yet:
+  - **Setting up needs a setup code.** A server with no admin prints a setup code in its log (and an **Open** link that carries it). The setup page asks for it, so only someone who can read the server's log can claim a fresh server. Set your own with `CT_SETUP_TOKEN`. Only one setup can ever succeed. Setting `CT_ADMIN_KEY` works as before.
+  - **Sign-ins are rate-limited:** `CT_LOGIN_RPM`, default 10 a minute per email and 20 per address. Over it, the answer is `429 rate_limited`.
+  - **Sessions** are stored hashed, and end after `CT_SESSION_IDLE_MS` unused (default 12 hours). Cookies are `Secure` over https.
+  - **Security headers:** the console and admin API send a Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, and HSTS over https.
+  - **Less said to strangers:** without signing in, `/admin/api/status` gives only whether setup is done, `/readyz` only `ok` and `shutting_down`, and `/health/readiness` no version. The details need the admin key. Someone still signed in with a one-time password can read nothing until they choose their own. Unexpected errors return a request id instead of the internal message.
+  - The console's live connection refuses pages from other sites.
+  - **Approvals are bound to the prompt.** An approved call can be retried only with the prompt that was approved, not with another under the same ticket.
+  - **Each agent gets its own session** with each MCP tool server. One agent's upstream session is never used for another's calls.
+  - **A2A push notifications** refuse every IPv6 form of a private address (IPv4-mapped, NAT64, 6to4, Teredo and more), and the address is checked again at delivery.
+  - **Config imports** through the console or the admin API can't read the server's own secrets (its database and Redis URLs, master key, passwords) from the environment. A `--config` file loaded at start still can.
+  - **The container image** keeps its app files read-only to the user it runs as; only `/data` is writable.
 
 - **People and roles:** admins add people to the console as **admin**, **approver** (sees everything, decides approvals) or **viewer** (sees everything, changes nothing) — enforced by the server. New people and password resets get a one-time password to replace at first sign-in; a new role or password ends their sessions. Everyone can change their own password. See [People and roles](people.md).
 - **Guardrail services:** inspect gates can ask Presidio, Lakera Guard, Amazon Bedrock Guardrails, Azure AI Content Safety (with Prompt Shields), OpenAI moderation (through a connected provider) or a signed URL of your own, alongside the built-in detectors. Findings get the gate's action; Presidio and your own URL can mask exactly. A new **Guardrails** page adds and tries them. See [Guardrail services](guardrails.md).

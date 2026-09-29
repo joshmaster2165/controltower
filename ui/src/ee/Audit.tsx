@@ -9,7 +9,7 @@ interface AuditEvent {
   seq: number;
   id: string;
   time: string;
-  actor: { type: 'person' | 'admin_key' | 'anonymous' | 'system'; id: string | null; email: string | null; role: string | null };
+  actor: { type: 'person' | 'admin_key' | 'anonymous' | 'system' | 'scim'; id: string | null; email: string | null; role: string | null };
   action: string;
   outcome: 'success' | 'denied' | 'failure';
   status: number | null;
@@ -43,6 +43,7 @@ const RANGES = [
 function who(a: AuditEvent['actor']): string {
   if (a.type === 'admin_key') return 'Admin key';
   if (a.type === 'system') return 'Control Tower';
+  if (a.type === 'scim') return `SCIM · ${(a.email ?? '').replace(/^scim:/, '')}`;
   if (a.email) return a.email;
   return 'Not signed in';
 }
@@ -183,7 +184,7 @@ export function AuditPage() {
               const t = new Date(e.time).getTime();
               return [
                 <tr key={e.seq} onClick={() => setOpen(open === e.seq ? null : e.seq)} style={{ cursor: 'pointer' }}>
-                  <td title={new Date(t).toLocaleString()}>
+                  <td title={new Date(t).toLocaleString()} style={{ whiteSpace: 'nowrap' }}>
                     <span className="mono">{new Date(t).toLocaleString([], { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                     <span className="sub">{ago(t)}</span>
                   </td>

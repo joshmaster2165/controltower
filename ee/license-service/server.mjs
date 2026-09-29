@@ -153,7 +153,7 @@ async function plansPage() {
   <ul><li>${INCLUDED_SEATS} seats and ${(REQUESTS_PER_YEAR / 1e6).toLocaleString()} million requests a year included</li><li>Volume pricing: each block of seats costs less per seat</li><li>Every Enterprise feature, and support</li></ul>
   <form method="post" action="/checkout" class="row"><input type="hidden" name="seats" id="seatsField" value="${INCLUDED_SEATS}"><input type="hidden" name="interval" id="intervalField" value="year"><button ${ready ? '' : 'disabled'}>Buy</button><span style="color:var(--dim)">More than ${MAX_SELF_SERVE_SEATS} seats or a billion requests a year? Contact sales for volume pricing.</span></form>
 </section>
-<section class="card">
+<section class="card" id="trial">
   <h2>Free 30-day trial</h2><p>${INCLUDED_SEATS} seats, every feature, no card.</p>
   <form method="post" action="/trial" class="row" style="display:grid;gap:8px"><input type="text" name="company" placeholder="Company" required maxlength="100"><input type="email" name="email" placeholder="Work email" required maxlength="200"><div><button>Get a trial key</button></div></form>
 </section>

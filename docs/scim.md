@@ -15,6 +15,9 @@ It works with Microsoft Entra ID, Okta, OneLogin, JumpCloud, and any other SCIM 
 
 1. Add the identity provider under **People → Single sign-on and provisioning** (OIDC or SAML), with its role map. For example, admin groups `CT Admins`, approver groups `CT Approvers`, and **Anyone else: Refused**.
 2. **Turn on provisioning.** Control Tower shows the **SCIM base URL** (`https://<your console>/scim/v2`) and a **token**, once. The token is stored only as a hash. **New SCIM token** replaces it; **Revoke token** turns provisioning off.
+
+   ![The SCIM base URL and token, shown once](images/scim-token.png)
+
 3. In the identity provider:
    - **Entra ID:** Enterprise application → Provisioning → Automatic. Tenant URL: the SCIM base URL. Secret token: the token.
    - **Okta:** App → Provisioning → Integration → SCIM connector base URL and the token as an HTTP header (Bearer). Unique identifier field: `userName`. Enable **Push New Users**, **Push Profile Updates**, **Push Groups** and **Deactivate Users**.
@@ -31,6 +34,8 @@ It works with Microsoft Entra ID, Okta, OneLogin, JumpCloud, and any other SCIM 
 | Deactivated or unassigned (`active: false`) | Signed out at once, and refused at sign-in, with password or single sign-on. Their account is kept, and joining a group doesn't bring them back |
 | Reactivated | Back in, if their groups give them a role |
 | Deleted | The account is removed |
+
+![Provisioned people on the People page, with roles from their groups](images/people.png)
 
 A provider sees and changes only the people and groups it provisioned. Looking someone up by `userName` also finds people an admin added by hand, so the provider can take them over. It never finds another provider's people. Roles for provisioned people come from SCIM groups. Groups in the ID token or SAML assertion don't override them.
 

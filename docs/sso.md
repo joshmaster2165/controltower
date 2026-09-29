@@ -17,6 +17,12 @@ People can sign in to the console through your identity provider, over OpenID Co
 4. **Test** checks that Control Tower can reach the provider and read its settings (`<issuer>/.well-known/openid-configuration`).
 5. The sign-in page now shows **Sign in with *name***.
 
+![Adding an OpenID Connect provider](images/sso-oidc-form.png)
+
+![Identity providers on the People page: an OIDC provider, and a SAML provider with provisioning on](images/sso-providers.png)
+
+![The sign-in page offers each provider](images/sso-signin.png)
+
 | Setting | |
 |---|---|
 | Name on the sign-in page | What the button says: "Sign in with Okta" |
@@ -36,6 +42,8 @@ Choose **SAML 2.0** when adding the identity provider:
 2. **Edit** it to see what to give the IdP: the **ACS (reply) URL** `…/admin/sso/<id>/acs`, the **entity ID (audience)** `…/admin/sso/<id>/metadata`, or just the **metadata URL** (the same address), which the IdP can read itself.
 3. In the IdP's SAML app, send the email as the NameID or as an attribute (`email`, `mail`, or set **Email attribute**), and groups as an attribute (set **Groups attribute** to its name, for example `groups` or Entra's `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`).
 4. **Test** checks the certificate can be read and hasn't expired.
+
+![A SAML provider's settings, with the ACS URL, entity ID and metadata URL to give the IdP](images/saml-form.png)
 
 What a SAML sign-in must pass:
 - **The assertion is signed** with the certificate you entered. A signed response around an unsigned assertion isn't enough, and signature-wrapping tricks (an extra, unsigned assertion placed beside the signed one) are refused.
@@ -68,6 +76,8 @@ A sign-in is refused, and the reason is shown and recorded, when:
 - the email already signs in through a *different* identity. Someone else at the provider can't take over an existing person's account by claiming their address.
 
 Someone an admin added by email is linked to their provider identity the first time they sign in with it. From then on they're recognised by that identity, even if their email changes. People created by single sign-on have no password; an admin can still give them a one-time password.
+
+![A refused sign-in says why](images/sso-refused.png)
 
 ## Security
 

@@ -4,6 +4,8 @@
 
 The audit log records every change made in Control Tower, and every attempt that was refused. It covers people in the console, scripts using the [admin key](configuration.md#admin-key), and [single sign-on](sso.md). Admins read it under **Audit log**.
 
+![The audit log, verified](images/audit-log.png)
+
 ## What's recorded
 
 | Event | When |
@@ -21,6 +23,8 @@ Each event says:
 - **the outcome:** done, refused or failed, with the HTTP status;
 - **where from:** address, browser and request ID;
 - **the request itself.**
+
+![One event opened: SCIM moved someone into an admin group](images/audit-event.png)
 
 **Secrets are never recorded.** Fields such as passwords, API keys, tokens, credentials and webhook URLs are replaced with `[redacted]`. Credentials inside URLs, and anything that looks like a provider key, are removed from the rest. Answers aren't recorded either, so the key or one-time password a change returns never reaches the log.
 

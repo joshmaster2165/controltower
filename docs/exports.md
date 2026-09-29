@@ -8,6 +8,8 @@
 
 Control Tower never records prompts or answers, so no destination ever receives one.
 
+![Exports: Datadog and an OpenTelemetry collector](images/exports.png)
+
 ## Destinations
 
 | Destination | What it receives | Settings |

@@ -18,9 +18,15 @@ Every change anyone makes, and every attempt their role refuses, is recorded in 
 
 People can also sign in through your identity provider, with their role set by their groups there, and passwords can be turned off. See [Single sign-on](sso.md).
 
+![People: an admin, someone with a one-time password, and people provisioned by the identity provider](images/people.png)
+
 ## Adding people
 
 **People** (admins only) → enter an email and a role → **Add person**. Control Tower shows a **one-time password**, only once. Share it with them however you share secrets.
+
+![Adding an approver on the People page](images/people-add.png)
+
+![The one-time password, shown once](images/people-otp.png)
 
 When they sign in with it, the only thing they can do is choose their own password (10 characters or more). After that, the one-time password no longer works.
 

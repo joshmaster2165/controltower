@@ -24,7 +24,13 @@ Features marked *Coming* are part of Enterprise when they ship; a license covers
 
 A license key starts with `ctl1.` and says whom it is for, the plan, the seats, the requests a year included, the features, and the end date. It is signed by the licensor, and Control Tower checks the signature on your server against a public key built into each release. That check needs no connection, so it works air-gapped. A changed key, or one signed by anyone else, is refused.
 
-Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the server (it then can't be changed in the console). Every instance sharing a database reads a key added in the console. With `CT_LICENSE_KEY`, set it on each instance.
+Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the server (it then can't be changed in the console).
+
+![Adding a license key](images/license-add.png)
+
+![The License page: who it's for, seats, requests a year, the end date, and what it turns on](images/license.png)
+
+ Every instance sharing a database reads a key added in the console. With `CT_LICENSE_KEY`, set it on each instance.
 
 **Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats.
 
@@ -39,6 +45,10 @@ Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the ser
 | After the grace period | Enterprise features stop. Single sign-on is no longer offered, and **passwords work again** even if you'd turned them off, so nobody is locked out. The audit log stops recording, and you can read it again once a license is added. Gateway traffic, gates, approvals and everything open source carry on as before |
 
 Adding a renewed key brings everything back, with the audit log's history and single sign-on settings as they were.
+
+Without a license, each Enterprise feature says so where it would be:
+
+![The audit log without a license](images/enterprise-notice.png)
 
 ## Buying and trying
 

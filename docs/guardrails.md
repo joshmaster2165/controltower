@@ -13,6 +13,8 @@
 
 **Try it** on the Guardrails page runs a service on a sample text and shows what it found, and what it would mask.
 
+![Guardrail services: Presidio and Lakera Guard](images/guardrails.png)
+
 ## In an inspect gate
 
 In the gate editor, **Guardrail services** lists the services you have added. Choose one or more.

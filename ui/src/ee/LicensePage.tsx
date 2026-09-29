@@ -12,13 +12,14 @@ export interface LicenseInfo {
   license?: { id: string; customer: string; email: string; plan: 'enterprise' | 'trial'; seats: number; requests_per_year: number; features: string[]; issued_at: number; expires_at: number };
 }
 
-const FEATURES: Array<[string, string]> = [
-  ['sso', 'Single sign-on (OIDC) and SCIM'],
-  ['audit', 'Audit log, and export to your SIEM'],
-  ['jwt_auth', 'Agents authenticate with your IdP’s JWTs'],
-  ['secret_managers', 'Secret managers and key rotation'],
-  ['orgs', 'Organisations and team admins'],
-  ['multi_region', 'Multi-region control plane'],
+/** [feature, label, available yet]. Features still being built are shown as coming, never as on. */
+const FEATURES: Array<[string, string, boolean]> = [
+  ['sso', 'Single sign-on (OIDC and SAML) and SCIM provisioning', true],
+  ['audit', 'Tamper-evident audit log, with export', true],
+  ['jwt_auth', 'Agents authenticate with your IdP’s JWTs', false],
+  ['secret_managers', 'Secret managers and key rotation', false],
+  ['orgs', 'Organisations and team admins', false],
+  ['multi_region', 'Multi-region control plane', false],
 ];
 const date = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 const days = (ms: number) => Math.max(0, Math.ceil((ms - Date.now()) / 86_400_000));
@@ -162,9 +163,10 @@ export function LicensePage() {
           Enterprise features
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
-          {FEATURES.map(([id, label]) => (
+          {FEATURES.map(([id, label, available]) => (
             <div key={id}>
-              <span className={`status ${on(id) ? 'ok' : ''}`}>{label}</span>
+              <span className={`status ${available && on(id) ? 'ok' : ''}`}>{label}</span>
+              {!available && <span className="tag muted" style={{ marginLeft: 8 }}>coming</span>}
             </div>
           ))}
         </div>

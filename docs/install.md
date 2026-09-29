@@ -97,11 +97,11 @@ From 0.1.8, CI signs every image it publishes with [Sigstore](https://www.sigsto
 
 ```bash
 cosign verify ghcr.io/joshmaster2165/controltower:0.1.8 \
-  --certificate-identity-regexp '^https://github.com/joshmaster2165/controltower/.github/workflows/ci.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github.com/joshmaster2165/controltower/.github/workflows/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-(For `main` images, end the identity with `@refs/heads/main` instead.) Use cosign 3 or later.
+The identity must be one of this repository's workflows. Only its maintainers can change or run them. Use cosign 3 or later.
 
 GitHub's own build attestation says which commit and workflow run built it:
 

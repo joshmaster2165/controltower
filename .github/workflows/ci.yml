@@ -20,6 +20,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm docs:build
       - run: pnpm test
+      - run: node --test ee/license-service/test.mjs
       - run: pnpm build
       - run: npx playwright install --with-deps chromium
       - run: pnpm test:e2e

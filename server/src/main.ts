@@ -53,7 +53,7 @@ import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 import { supportBundle } from './support/bundle.js';
 import { AuditLog } from './ee/audit.js';
-import { Licensing } from './ee/license.js';
+import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -293,6 +293,8 @@ async function main(): Promise<void> {
   const app = await buildApp(ctx, { uiDir });
   const full = ctx as AppContext;
   logRef = app.log;
+  // Renewals: daily, from the license service, unless CT_LICENSE_SERVER=off (air-gapped).
+  license.startRefresh(config.licenseServer === 'off' ? undefined : (config.licenseServer ?? LICENSE_STORE ?? undefined), app.log);
   // The config file (--config / --model), then the admin key it or the environment sets.
   try {
     await loadBootConfig(full);

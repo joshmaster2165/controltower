@@ -1,5 +1,7 @@
 # Audit log
 
+**Enterprise:** the audit log needs a [Control Tower Enterprise](enterprise.md) license. Nothing is recorded without one.
+
 The audit log records every change made in Control Tower, and every attempt that was refused. It covers people in the console, scripts using the [admin key](configuration.md#admin-key), and [single sign-on](sso.md). Admins read it under **Audit log**.
 
 ## What's recorded

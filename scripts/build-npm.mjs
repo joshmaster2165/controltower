@@ -21,6 +21,7 @@ fs.mkdirSync(path.join(out, 'bin'), { recursive: true });
 fs.cpSync(path.join(root, 'server', 'dist'), path.join(out, 'dist'), { recursive: true });
 fs.cpSync(path.join(root, 'ui', 'dist'), path.join(out, 'ui'), { recursive: true });
 for (const f of ['LICENSE', 'THIRD_PARTY.md']) fs.copyFileSync(path.join(root, f), path.join(out, f));
+fs.copyFileSync(path.join(root, 'ee', 'LICENSE'), path.join(out, 'LICENSE-ENTERPRISE'));
 
 fs.writeFileSync(
   path.join(out, 'package.json'),
@@ -29,14 +30,14 @@ fs.writeFileSync(
       name: 'controltower-ai',
       version: rootPkg.version,
       description: 'Self-hosted AI gateway for LLM, MCP and HTTP traffic with a live map of every agentic data flow — gate, approve, inspect and account for each call.',
-      license: 'Apache-2.0',
+      license: 'Apache-2.0 AND Elastic-2.0',
       homepage: 'https://joshmaster2165.github.io/controltower/',
       repository: { type: 'git', url: 'git+https://github.com/joshmaster2165/controltower.git' },
       bugs: 'https://github.com/joshmaster2165/controltower/issues',
       keywords: ['ai-gateway', 'llm-gateway', 'mcp', 'ai-agents', 'guardrails', 'observability', 'self-hosted'],
       type: 'module',
       bin: { 'controltower-ai': 'bin/controltower.mjs' },
-      files: ['bin', 'dist', 'ui', 'LICENSE', 'THIRD_PARTY.md'],
+      files: ['bin', 'dist', 'ui', 'LICENSE', 'LICENSE-ENTERPRISE', 'THIRD_PARTY.md'],
       engines: { node: '>=24' },
       dependencies: { 'better-sqlite3': `^${sqliteVersion}`, pg: `^${pgVersion}` },
     },

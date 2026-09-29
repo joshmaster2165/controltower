@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
-import { SsoSettings } from './Sso';
+import { SsoSettings } from '../ee/Sso';
 
 type Role = 'admin' | 'approver' | 'viewer';
 interface User {

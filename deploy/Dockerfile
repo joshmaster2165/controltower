@@ -33,6 +33,8 @@ COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /app/ui/dist ./ui
 COPY --from=build /app/server/package.json ./package.json
 COPY LICENSE ./LICENSE
+# The bundle includes Control Tower Enterprise code (every `ee` directory), under the Elastic License 2.0.
+COPY ee/LICENSE ./LICENSE-ENTERPRISE
 COPY --chmod=755 deploy/entrypoint.sh /usr/local/bin/ct-entrypoint
 ENV NODE_ENV=production \
     CT_IN_CONTAINER=1 \

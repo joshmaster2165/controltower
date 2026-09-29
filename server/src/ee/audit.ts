@@ -97,10 +97,12 @@ export interface AuditQuery {
 }
 
 export class AuditLog {
-  constructor(private readonly db: Db, private readonly log?: { warn(o: object, m: string): void }) {}
+  /** `enabled`: whether the audit log is on (it is an Enterprise feature). Nothing is recorded while it's off. */
+  constructor(private readonly db: Db, private readonly log?: { warn(o: object, m: string): void }, private readonly enabled: () => boolean = () => true) {}
 
   /** Record an event. Never throws: an audit failure is logged, and the request it describes goes on. */
   async record(e: AuditInput): Promise<void> {
+    if (!this.enabled()) return;
     try {
       await this.write(e);
     } catch (err) {

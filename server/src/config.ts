@@ -56,6 +56,10 @@ export interface Config {
   adminKey: string | undefined;
   /** The code first-run setup asks for (default: derived from the master key and printed at start). */
   setupToken: string | undefined;
+  /** A Control Tower Enterprise license key (CT_LICENSE_KEY); otherwise one an admin entered in the console. */
+  licenseKey: string | undefined;
+  /** Where licenses are refreshed from (CT_LICENSE_SERVER); "off" for air-gapped installs. */
+  licenseServer: string | undefined;
   /** Sign-in attempts a minute, per account (twice as many per address). */
   loginRpm: number;
   /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
@@ -144,6 +148,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     retention: { flightsDays: Math.max(0, int(env.CT_RETENTION_DAYS, 30)), eventsDays: Math.max(0, int(env.CT_EVENT_RETENTION_DAYS, 7)), auditDays: Math.max(0, int(env.CT_AUDIT_RETENTION_DAYS, 365)) },
     adminKey: env.CT_ADMIN_KEY || env.LITELLM_MASTER_KEY || undefined,
     setupToken: env.CT_SETUP_TOKEN || undefined,
+    licenseKey: env.CT_LICENSE_KEY?.trim() || undefined,
+    licenseServer: env.CT_LICENSE_SERVER === 'off' ? undefined : env.CT_LICENSE_SERVER || undefined,
     loginRpm: int(env.CT_LOGIN_RPM, 10),
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,

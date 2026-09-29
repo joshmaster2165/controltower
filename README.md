@@ -273,4 +273,6 @@ Everything is configured in the browser. Environment variables exist for operato
 
 ## License
 
-Apache-2.0 for everything outside `ee/`. See [LICENSE](LICENSE); third-party notices for bundled data are in [THIRD_PARTY.md](THIRD_PARTY.md).
+Apache-2.0 for everything outside directories named `ee`. See [LICENSE](LICENSE); third-party notices for bundled data are in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+Code in `ee` directories (`ee/`, `server/src/ee/`, `ui/src/ee/`) is **Control Tower Enterprise**, under the [Elastic License 2.0](ee/LICENSE): single sign-on, SCIM, the audit log and the other [Enterprise features](docs/enterprise.md) need a license key.

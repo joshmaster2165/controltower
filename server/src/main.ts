@@ -52,7 +52,8 @@ import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 import { supportBundle } from './support/bundle.js';
-import { AuditLog } from './audit/audit.js';
+import { AuditLog } from './ee/audit.js';
+import { Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -242,6 +243,10 @@ async function main(): Promise<void> {
   const observed = new ObservedStore(db.write, observedVersion);
 
   const adapters = new Adapters();
+  const license = new Licensing(db.write, config.licenseKey);
+  const ls = await license.load();
+  if (ls.status === 'invalid') console.warn(`[controltower] license: ${ls.reason}`);
+  else if (ls.license) console.warn(`[controltower] Enterprise license for ${ls.license.customer}: ${ls.status}, until ${new Date(ls.license.expires_at).toISOString().slice(0, 10)}`);
   const pricing = new PricingTable();
   const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
 
@@ -257,7 +262,8 @@ async function main(): Promise<void> {
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
     guardrails,
-    audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }),
+    license,
+    audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
     spend,
     budgets,
     bus,

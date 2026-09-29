@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api';
+import { EnterpriseNotice } from './LicensePage';
 
 type Role = 'admin' | 'approver' | 'viewer';
 interface Provider {
@@ -144,7 +145,15 @@ export function SsoSettings() {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
-  const load = useCallback(() => void api.get<Settings>('/admin/api/identity-providers').then(setS), []);
+  const [unlicensed, setUnlicensed] = useState(false);
+  const load = useCallback(
+    () =>
+      void api
+        .get<Settings>('/admin/api/identity-providers')
+        .then(setS)
+        .catch((e) => e instanceof ApiError && e.code === 'enterprise_required' && setUnlicensed(true)),
+    [],
+  );
   useEffect(() => {
     load();
   }, [load]);
@@ -171,6 +180,13 @@ export function SsoSettings() {
       load();
     }
   };
+  if (unlicensed)
+    return (
+      <section style={{ marginTop: 22 }}>
+        <h2 style={{ fontSize: 16, margin: '0 0 8px' }}>Single sign-on</h2>
+        <EnterpriseNotice feature="Single sign-on" />
+      </section>
+    );
   if (!s) return null;
   return (
     <section style={{ marginTop: 22 }}>

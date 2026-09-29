@@ -3,6 +3,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
 import { api, ApiError } from '../api';
 import { ago } from '../format';
+import { EnterpriseNotice } from './LicensePage';
 
 interface AuditEvent {
   seq: number;
@@ -57,6 +58,7 @@ export function AuditPage() {
   const [open, setOpen] = useState<number | null>(null);
   const [verify, setVerify] = useState<Verify | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [unlicensed, setUnlicensed] = useState(false);
 
   const query = useCallback(
     (before?: number) => {
@@ -80,7 +82,7 @@ export function AuditPage() {
           setEvents((prev) => (before ? [...prev, ...d.events] : d.events));
           setNext(d.events.length === 100 ? d.next : null);
         })
-        .catch((e) => setErr(e instanceof ApiError ? e.message : String(e)));
+        .catch((e) => (e instanceof ApiError && e.code === 'enterprise_required' ? setUnlicensed(true) : setErr(e instanceof ApiError ? e.message : String(e))));
     },
     [query],
   );
@@ -99,6 +101,13 @@ export function AuditPage() {
     return `/admin/api/audit/export?${p}`;
   };
 
+  if (unlicensed)
+    return (
+      <div className="page">
+        <PageHeader title="Audit log" description="Every change made in Control Tower, and every attempt that was refused, chained so edits to the log show." />
+        <EnterpriseNotice feature="The audit log" />
+      </div>
+    );
   return (
     <div className="page">
       <PageHeader

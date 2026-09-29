@@ -4,7 +4,7 @@ import type { AppContext } from '../context.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { hashPassword, verifyPassword, randomToken } from '../crypto/secrets.js';
 import { extractApiKey } from '../gateway/key.js';
-import type { AuditActor } from '../audit/audit.js';
+import type { AuditActor } from '../ee/audit.js';
 
 export const SESSION_COOKIE = 'ct_session';
 const CSRF_HEADER = 'x-ct-csrf';
@@ -72,6 +72,8 @@ const normCode = (s: string) => s.replace(/[\s-]/g, '').toUpperCase();
 
 /** Passwords turned off: everyone signs in through an identity provider (the admin key still works). */
 export async function ssoOnly(ctx: AppContext): Promise<boolean> {
+  // Without a license single sign-on is off, so passwords must work: nobody is locked out when a license lapses.
+  if (!ctx.license?.allows('sso')) return false;
   const row = await ctx.db.read.selectFrom('settings').select('value').where('key', '=', 'sso_only').executeTakeFirst();
   return row?.value === '1';
 }

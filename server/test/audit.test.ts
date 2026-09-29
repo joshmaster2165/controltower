@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openSqlite } from '../src/db/index.js';
-import { AuditLog, actionFor, redact } from '../src/audit/audit.js';
+import { AuditLog, actionFor, redact } from '../src/ee/audit.js';
 
 const person = { type: 'person' as const, id: 'u1', email: 'dana@example.com', role: 'admin' };
 

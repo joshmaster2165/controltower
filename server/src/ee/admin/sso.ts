@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
-import type { AppContext } from '../context.js';
-import { hashPassword, randomToken } from '../crypto/secrets.js';
-import { SsoService, issuerProblem, type IdentityProvider, type SsoRole } from '../sso/oidc.js';
-import { asRole, auditOrigin, createSession, requireAdmin, setCookie, ssoOnly } from './auth.js';
+import type { AppContext } from '../../context.js';
+import { hashPassword, randomToken } from '../../crypto/secrets.js';
+import { SsoService, issuerProblem, type IdentityProvider, type SsoRole } from '../oidc.js';
+import { asRole, auditOrigin, createSession, requireAdmin, setCookie, ssoOnly } from '../../admin/auth.js';
+import { requireEnterprise } from './license.js';
 
 const STATE_COOKIE = 'ct_sso';
 const STATE_TTL_MS = 10 * 60_000;
@@ -43,20 +44,22 @@ function publicProvider(p: IdentityProvider, base: string, row?: { last_status: 
  */
 export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   const sso = new SsoService(ctx.db.write, ctx.secrets);
-  const guard = requireAdmin(ctx);
+  const guard = [requireAdmin(ctx), requireEnterprise(ctx, 'sso')];
+  const licensed = () => ctx.license.allows('sso');
   const bad = (reply: FastifyReply, message: string) => reply.status(400).send({ error: { code: 'invalid', message } });
   const failTo = (reply: FastifyReply, message: string) => reply.redirect(`/?sso_error=${encodeURIComponent(message)}`, 303);
   const clearState = (reply: FastifyReply) => reply.clearCookie(STATE_COOKIE, { path: '/admin/sso' });
 
   // For the sign-in page: which providers to offer, and whether passwords still work. Nothing else.
   app.get('/admin/api/sso', async () => {
-    const providers = (await sso.list()).filter((p) => p.enabled).map((p) => ({ id: p.id, name: p.name }));
+    const providers = licensed() ? (await sso.list()).filter((p) => p.enabled).map((p) => ({ id: p.id, name: p.name })) : [];
     return { providers, sso_only: await ssoOnly(ctx) };
   });
 
   app.get('/admin/sso/:id/start', async (req, reply) => {
     const slow = await ctx.limiter.admit(`sso:ip:${req.ip}`, 1, { rpm: ctx.config.loginRpm * 3 });
     if (!slow.ok) return failTo(reply, 'Too many sign-in attempts. Wait a minute and try again.');
+    if (!licensed()) return failTo(reply, 'Single sign-on needs a Control Tower Enterprise license. Sign in with a password, or ask an admin.');
     const p = await sso.get((req.params as { id: string }).id);
     if (!p || !p.enabled) return failTo(reply, 'That sign-in option is not available.');
     const uri = redirectUri(baseUrl(ctx, req), p.id);
@@ -92,6 +95,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       return deny('no sign-in in progress (missing or altered state cookie)', undefined, 'This sign-in expired or was started elsewhere. Start again.');
     }
     if (st.p !== id || st.e < Date.now()) return deny('sign-in state expired or for another provider', undefined, 'This sign-in expired. Start again.');
+    if (!licensed()) return deny('no Enterprise license', undefined, 'Single sign-on needs a Control Tower Enterprise license. Sign in with a password, or ask an admin.');
     if (q.error) return deny(`the identity provider refused: ${q.error}${q.error_description ? ` (${q.error_description})` : ''}`, undefined, `${q.error_description || q.error}`);
     const p = await sso.get(id);
     if (!p || !p.enabled) return deny('provider removed or turned off', undefined, 'That sign-in option is not available.');
@@ -114,6 +118,11 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       const byEmail = await w.selectFrom('admins').selectAll().where('email', '=', result.email).executeTakeFirst();
       if (byEmail && byEmail.sso_subject && (byEmail.sso_provider_id !== p.id || byEmail.sso_subject !== result.subject)) {
         return deny('email already linked to another single sign-on identity', result.email, 'This email signs in through another identity. Ask an admin.');
+      }
+      // Seats: the people the license covers signing in this way. Someone already linked never counts against it.
+      const linked = Number((await w.selectFrom('admins').select((eb) => eb.fn.countAll<number>().as('n')).where('sso_subject', 'is not', null).executeTakeFirst())?.n ?? 0);
+      if (linked >= ctx.license.seats) {
+        return deny(`over the license's ${ctx.license.seats} single sign-on seats`, result.email, `Control Tower's license covers ${ctx.license.seats} ${ctx.license.seats === 1 ? 'person' : 'people'} signing in with single sign-on, and all seats are taken. Ask an admin to add seats.`);
       }
       if (byEmail) {
         await w.updateTable('admins').set({ sso_provider_id: p.id, sso_subject: result.subject }).where('id', '=', byEmail.id).execute();

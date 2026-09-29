@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { CT, admin } from './support/admin';
 import { testIdp, type TestIdp } from './support/oidc-idp';
+import { TEST_LICENSE_PUBLIC_KEY, testLicense } from './support/license';
 
 /**
  * Single sign-on over OpenID Connect, against a real (test) identity provider: people come in with the role
@@ -190,7 +191,7 @@ test.describe('only single sign-on', () => {
 
   test.beforeAll(async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-sso-'));
-    server = spawn('node', ['server/dist/server.mjs', '--port', String(PORT)], { env: { ...process.env, CT_DATA_DIR: dir, CT_UI_DIR: path.resolve('ui/dist'), CT_LOG_LEVEL: 'warn', CT_ADMIN_KEY: AK, CT_MODEL_HEALTH_INTERVAL_S: '0', CT_LOGIN_RPM: '1000' }, stdio: 'ignore' });
+    server = spawn('node', ['server/dist/server.mjs', '--port', String(PORT)], { env: { ...process.env, CT_DATA_DIR: dir, CT_UI_DIR: path.resolve('ui/dist'), CT_LOG_LEVEL: 'warn', CT_ADMIN_KEY: AK, CT_MODEL_HEALTH_INTERVAL_S: '0', CT_LOGIN_RPM: '1000', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_LICENSE_KEY: testLicense() }, stdio: 'ignore' });
     await expect.poll(async () => (await fetch(`${BASE}/healthz`).catch(() => undefined))?.status, { timeout: 20_000 }).toBe(200);
     pid = (await ak('POST', '/admin/api/identity-providers', { name: 'Test IdP', issuer: idp.url, client_id: idp.clientId, client_secret: idp.clientSecret, default_role: 'viewer' })).body.id;
   });

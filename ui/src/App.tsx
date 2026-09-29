@@ -17,7 +17,8 @@ import { LedgerPage } from './pages/Ledger';
 import { ExportsPage } from './pages/Exports';
 import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
-import { AuditPage } from './pages/Audit';
+import { AuditPage } from './ee/Audit';
+import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
 import { api } from './api';
@@ -53,6 +54,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
       { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
+      { id: 'license', label: 'License', icon: 'shield', hint: 'Control Tower Enterprise' },
     ],
   },
   {
@@ -237,6 +239,7 @@ export function App() {
             <ChangePassword onDone={() => setPasswordOpen(false)} />
           </div>
         )}
+        <LicenseBanner />
         {role !== 'admin' && route !== 'airspace' && (
           <div className="role-banner">{role === 'approver' ? 'You can see everything and decide approvals in the Tower. Changing settings needs an admin.' : 'You can see everything here. Changing anything needs an admin.'}</div>
         )}
@@ -256,6 +259,7 @@ export function App() {
         {route === 'guardrails' && <GuardrailsPage />}
         {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'audit' && role === 'admin' && <AuditPage />}
+        {route === 'license' && <LicensePage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
       </main>

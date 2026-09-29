@@ -1,5 +1,7 @@
 # Single sign-on
 
+**Enterprise:** single sign-on needs a [Control Tower Enterprise](enterprise.md) license.
+
 People can sign in to the console through your identity provider, anything that speaks OpenID Connect: Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Ping, JumpCloud. Their groups at the provider decide their [role](people.md) here: admin, approver or viewer. Every sign-in, and every refused one, goes into the [audit log](audit.md).
 
 ## Set it up

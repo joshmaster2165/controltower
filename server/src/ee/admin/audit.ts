@@ -1,8 +1,9 @@
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import type { AppContext } from '../context.js';
-import { publicEvent, type AuditEvent } from '../audit/audit.js';
-import { requireAdmin } from './auth.js';
+import type { AppContext } from '../../context.js';
+import { publicEvent, type AuditEvent } from '../audit.js';
+import { requireAdmin } from '../../admin/auth.js';
+import { requireEnterprise } from './license.js';
 
 const num = (v: unknown): number | undefined => (v === undefined || v === '' || Number.isNaN(Number(v)) ? undefined : Number(v));
 const time = (v: unknown): number | undefined => {
@@ -33,7 +34,7 @@ function csvRow(e: AuditEvent): string {
 
 /** The audit log, for admins: browse it, export it, check nothing in it was changed. */
 export async function auditRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
-  const guard = requireAdmin(ctx);
+  const guard = [requireAdmin(ctx), requireEnterprise(ctx, 'audit')];
   const audit = ctx.audit;
   if (!audit) return;
 

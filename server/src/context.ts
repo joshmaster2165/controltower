@@ -37,7 +37,9 @@ export interface AppContext {
   /** Guardrail services inspect gates can ask. */
   guardrails?: import('./guardrails/service-registry.js').GuardrailServices;
   /** Who changed what, and who tried (admin API, sign-ins, single sign-on). */
-  audit?: import('./audit/audit.js').AuditLog;
+  audit?: import('./ee/audit.js').AuditLog;
+  /** The Enterprise license in force, and which features it turns on. */
+  license: import('./ee/license.js').Licensing;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
   /** Cached answers, for models that opt in. */

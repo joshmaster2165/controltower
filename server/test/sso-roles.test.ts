@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupsFrom, issuerProblem, roleFor } from '../src/sso/oidc.js';
+import { groupsFrom, issuerProblem, roleFor } from '../src/ee/oidc.js';
 
 describe('single sign-on roles', () => {
   const p = { roleMap: { admin: ['ct-admins'], approver: ['security', 'ct-approvers'], viewer: ['eng'] }, defaultRole: 'none' as const };

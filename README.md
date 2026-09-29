@@ -267,7 +267,7 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.1.5 — agents calling agents** (shipped): delegation tokens, on-behalf-of gates, call chains and traces, the A2A gateway, MCP resources and prompts as flights, spend rolled up to the origin agent.
 - **v0.1.6 — approvals that keep up, agents that come and go** (shipped): approve the next N calls, approvals that say whom a chained call is for, hide idle agents, expiring and retired keys, allow-with-limits gates, model-checked prompt injection; chains tested with four agent frameworks.
 - **v0.1.7 — run it for a team** (shipped): Postgres and Redis for several instances, people with admin, approver and viewer roles, guardrail services, exporting flights, pass-through image, audio and provider APIs, retries and fallback models, regions and tags, health checks, response caching, and security hardening.
-- **v0.1.8 — ready for procurement**: signed images with SBOM and provenance, a Helm chart, a support bundle and a support offer.
+- **v0.1.8 — ready for procurement** (shipped): signed images with SBOM and provenance, a Helm chart, a support bundle and a support offer.
 - **Next (0.2)**: single sign-on, an audit log, guardrails drawn on the map, custom guardrails written in Control Tower, and MCP 2026-07-28 (approvals as protocol-level multi round-trip requests).
 - **v0.3 — trust it**: Postgres + Redis multi-instance ✓, people and roles ✓, egress proxy sidecar, Playwright fixture for browser agents, audit export, SSO.
 

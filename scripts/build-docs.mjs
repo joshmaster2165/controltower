@@ -21,7 +21,7 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf
 
 /** Sidebar: sections in reading order; each item is [file (without .md), label]. Order also drives previous / next. */
 const SIDEBAR = [
-  { title: 'Get Started', items: [['README', 'Overview'], ['getting-started', 'Quick start'], ['install', 'Deploy'], ['demo', 'Demo mode'], ['changelog', 'Changelog']] },
+  { title: 'Get Started', items: [['README', 'Overview'], ['getting-started', 'Quick start'], ['install', 'Deploy'], ['kubernetes', 'Kubernetes'], ['demo', 'Demo mode'], ['changelog', 'Changelog']] },
   {
     title: 'Client setup',
     items: [

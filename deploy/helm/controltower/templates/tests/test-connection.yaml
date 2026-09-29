@@ -1,0 +1,24 @@
+# `helm test <release>`: the service answers, and is ready to take traffic.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "controltower.fullname" . }}-test"
+  labels:
+    {{- include "controltower.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: ready
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+      command: ["node", "-e", "fetch('http://{{ include "controltower.fullname" . }}:{{ .Values.service.port }}/readyz').then(async r => { const j = await r.json(); console.log(r.status, JSON.stringify(j)); process.exit(r.ok && j.ok ? 0 : 1) }).catch(e => { console.error(e.message); process.exit(1) })"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }

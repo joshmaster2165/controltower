@@ -1,0 +1,8 @@
+# chart-testing: one pod on SQLite, setup code set, a config file.
+secrets:
+  setupToken: CI-SETUP-CODE
+# A model on a keyless local server: loading it proves the config file is mounted and read.
+config: |
+  model_list:
+    - model_name: local-llama
+      params: { model: ollama/llama3.2, api_base: "http://ollama.invalid:11434" }

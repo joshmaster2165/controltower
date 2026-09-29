@@ -6,7 +6,7 @@ import { openDatabase } from './db/index.js';
 import { copySqliteToPostgres } from './db/copy.js';
 import { PgSink } from './events/pg-sink.js';
 import type { EventSink } from './context.js';
-import { loadOrCreateMasterKey, SecretBox } from './crypto/secrets.js';
+import { decodeKey, keyId, loadOrCreateMasterKey, SecretBox } from './crypto/secrets.js';
 import { Registry } from './registry.js';
 import { Adapters } from './providers/index.js';
 import { PricingTable } from './pricing/index.js';
@@ -51,6 +51,7 @@ import { describeProxy, outboundProxyFromEnv, useOutboundProxy } from './net/pro
 import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
+import { supportBundle } from './support/bundle.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -65,6 +66,9 @@ Usage: controltower [options]            (docker: pass the same options after th
   --host <addr>         listen address (default 0.0.0.0)
   --copy-to-postgres <url>  copy this install's SQLite data (CT_DATA_DIR) into an empty Postgres
                         database, to run several instances on it; then exit
+  --support-bundle [file]  write a report for whoever helps you with a problem — version, settings
+                        by name, database, health and error counts; no keys, prompts or names —
+                        to the file, or print it; then exit
   --detailed_debug      verbose logs (also --debug)
   --version             print the version
 
@@ -89,6 +93,25 @@ async function main(): Promise<void> {
     const counts = await copySqliteToPostgres(config.dataDir, url, (l) => process.stdout.write(`${l}\n`));
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     process.stdout.write(`Done: ${total.toLocaleString()} rows in ${Object.keys(counts).length} tables. Start every instance with CT_DATABASE_URL set to it and this install's CT_MASTER_KEY.\n`);
+    process.exit(0);
+  }
+  if (argv.includes('--support-bundle')) {
+    // Reads what is there and changes nothing: no master key or data directory is created for it.
+    const mkFile = path.join(config.dataDir, 'master.key');
+    const mkRaw = config.masterKeyEnv ?? (fs.existsSync(mkFile) ? fs.readFileSync(mkFile, 'utf8').trim() : undefined);
+    const masterKey = mkRaw ? { id: keyId(decodeKey(mkRaw, 'master key')), source: config.masterKeyEnv ? 'env' : 'file' } : { id: '', source: 'none' };
+    if (!config.databaseUrl && !fs.existsSync(path.join(config.dataDir, 'controltower.db'))) {
+      process.stderr.write(`No Control Tower data in ${config.dataDir}. Run this where the server runs (docker exec / kubectl exec), with the same CT_DATA_DIR or CT_DATABASE_URL.\n`);
+      process.exit(1);
+    }
+    const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl });
+    const bundle = JSON.stringify(await supportBundle(db, config, masterKey), null, 2);
+    await db.close();
+    const next = argv[argv.indexOf('--support-bundle') + 1];
+    if (next && !next.startsWith('-')) {
+      fs.writeFileSync(next, `${bundle}\n`);
+      process.stderr.write(`Support bundle written to ${next}. Read it before sending it.\n`);
+    } else process.stdout.write(`${bundle}\n`);
     process.exit(0);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));

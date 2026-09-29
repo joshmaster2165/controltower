@@ -1,0 +1,9 @@
+# chart-testing: two pods on Postgres and Redis (installed by CI into the same namespace as `ci-pg` and `ci-redis`).
+replicaCount: 2
+secrets:
+  masterKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  adminKey: ci-admin-key-0123456789abcdef
+database:
+  url: postgres://postgres:ci@ci-pg:5432/postgres
+redis:
+  url: redis://ci-redis:6379

@@ -39,13 +39,13 @@ export function loadOrCreateMasterKey(dataDir: string, envValue?: string): Maste
   return { id: keyId(key), key, source: 'generated', file };
 }
 
-function decodeKey(s: string, where: string): Buffer {
+export function decodeKey(s: string, where: string): Buffer {
   const b = Buffer.from(s, 'base64');
   if (b.length !== 32) throw new Error(`${where}: master key must be 32 bytes base64 (got ${b.length})`);
   return b;
 }
 
-function keyId(key: Buffer): string {
+export function keyId(key: Buffer): string {
   return crypto.createHash('sha256').update(key).digest('base64url').slice(0, 8);
 }
 

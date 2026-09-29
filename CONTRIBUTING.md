@@ -43,6 +43,8 @@ pnpm test:e2e             # Playwright, against the built bundle (run `pnpm buil
 - One focused change per PR, with a short description of what and why.
 - Add or update tests for behaviour changes.
 - UI changes: include a screenshot.
+- `main` only changes through pull requests. Each needs a maintainer's approval and green `test`, `postgres` and `helm` checks. Pushing new commits after an approval asks for a fresh one, and review threads must be resolved before merging.
+- CI runs on pull requests from forks without access to the repository's secrets.
 
 ## License
 

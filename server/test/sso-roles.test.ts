@@ -11,7 +11,8 @@ describe('single sign-on roles', () => {
   });
   it('reads groups from arrays, strings, namespaced and nested claims', () => {
     expect(groupsFrom({ groups: ['a', 'b', 3] }, 'groups')).toEqual(['a', 'b']);
-    expect(groupsFrom({ groups: 'a, b c' }, 'groups')).toEqual(['a', 'b', 'c']);
+    expect(groupsFrom({ groups: 'a, b c' }, 'groups')).toEqual(['a', 'b c']);
+    expect(groupsFrom({ groups: 'Domain Admins' }, 'groups')).toEqual(['Domain Admins']); // one group, spaces and all
     expect(groupsFrom({ 'https://acme.com/groups': ['ct-admins'] }, 'https://acme.com/groups')).toEqual(['ct-admins']);
     expect(groupsFrom({ realm_access: { roles: ['ct-admins'] } }, 'realm_access.roles')).toEqual(['ct-admins']);
     expect(groupsFrom({ groups: ['a'] }, undefined)).toEqual([]);

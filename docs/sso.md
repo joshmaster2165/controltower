@@ -44,7 +44,7 @@ What a SAML sign-in must pass:
 
 ## Groups and roles
 
-Set **Groups claim** to the ID-token claim that lists someone's groups (usually `groups`). Then list the groups for each role. Someone in several gets the highest role (admin, then approver, then viewer). Someone in none gets the **Anyone else** role, or is refused.
+Set **Groups claim** to the ID-token claim that lists someone's groups (usually `groups`). A list is read as it is; a single text value is one group, spaces and all ("Domain Admins"), unless it's comma-separated. Then list the groups for each role. Someone in several gets the highest role (admin, then approver, then viewer). Someone in none gets the **Anyone else** role, or is refused.
 
 With a groups claim set, the provider decides roles at every sign-in. Moving someone to another group changes their role the next time they sign in, and ends their other sessions. Leave the groups claim empty to manage roles in Control Tower instead: the **Anyone else** role applies when someone is first created, and an admin changes it from then on.
 

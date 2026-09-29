@@ -61,6 +61,10 @@ test('a signed assertion signs someone in, with the role their groups give; it i
   // Groups decide the role at every sign-in.
   const again = await samlSignIn(() => ({ groups: ['ct-admins'] }));
   expect((await me(again.cookie!)).role).toBe('admin');
+  // A single group with a space in its name (one attribute value, which arrives as a string) is one group.
+  await admin.patch(`/admin/api/identity-providers/${pid}`, { role_map: { admin: ['ct-admins'], approver: ['CT Approvers'] } });
+  const spaced = await samlSignIn(() => ({ groups: ['CT Approvers'] }));
+  expect((await me(spaced.cookie!)).role).toBe('approver');
   const events = (await admin.get('/admin/api/audit?limit=200')).body.events as any[];
   expect(events.some((e) => e.action === 'auth.sign_in' && e.detail?.method === 'saml' && e.outcome === 'success')).toBe(true);
 });

@@ -68,13 +68,16 @@ export function roleFor(p: Pick<IdentityProvider, 'roleMap' | 'defaultRole'>, gr
   return best ?? (p.defaultRole === 'none' ? undefined : p.defaultRole);
 }
 
-/** The groups a claim lists: an array of strings, or one string (comma- or space-separated). */
+/**
+ * The groups a claim lists: an array of strings, or one string. A string is one group (names have spaces:
+ * "Domain Admins"; SAML gives a single-valued attribute as a string) unless it is comma-separated.
+ */
 export function groupsFrom(claims: Record<string, unknown>, claim: string | undefined): string[] {
   if (!claim) return [];
   // The claim's own name first (Auth0's are URLs: dots and all), then as a path into nested claims.
   const v = claim in claims ? claims[claim] : claim.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), claims);
   if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
-  if (typeof v === 'string') return v.split(/[\s,]+/).filter(Boolean);
+  if (typeof v === 'string') return v.split(',').map((g) => g.trim()).filter(Boolean);
   return [];
 }
 

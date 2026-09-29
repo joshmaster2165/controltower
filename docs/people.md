@@ -14,6 +14,10 @@ The [admin key](configuration.md#admin-key) always acts as an admin.
 
 Every change anyone makes, and every attempt their role refuses, is recorded in the [audit log](audit.md). Only admins can read it.
 
+## Single sign-on
+
+People can also sign in through your identity provider, with their role set by their groups there, and passwords can be turned off. See [Single sign-on](sso.md).
+
 ## Adding people
 
 **People** (admins only) → enter an email and a role → **Add person**. Control Tower shows a **one-time password**, only once. Share it with them however you share secrets.

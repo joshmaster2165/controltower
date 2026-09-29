@@ -4,6 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Single sign-on:** people sign in to the console through any OpenID Connect provider (Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, …). Their groups there decide their role (admin, approver or viewer) at every sign-in. Sign-ins can be limited to your email domains, and people can be created on first sign-in or only when an admin has added them. **Only single sign-on** turns passwords off, keeping the admin key as the way back in. The sign-in uses PKCE, state and nonce, and ID-token signatures are checked against the provider's keys. Every sign-in and refusal is in the audit log. See [Single sign-on](sso.md).
 - **Audit log:** every change made in Control Tower, by a person, the admin key or a script, is recorded with who made it, what it touched and the outcome. So are refused attempts, sign-ins, setup and password changes. Secrets in requests are never recorded. Each event is chained to the one before it by hash, so **Verify** finds any event edited or removed outside Control Tower. Admins browse it under **Audit log** and export it as CSV or JSON Lines. It's kept 365 days (`CT_AUDIT_RETENTION_DAYS`). See [Audit log](audit.md).
 
 ## 0.1.8 — 28 September 2026

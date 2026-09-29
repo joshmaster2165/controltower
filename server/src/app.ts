@@ -12,6 +12,7 @@ import { compatRoutes } from './gateway/compat.js';
 import { auditOrigin, authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
 import { actionFor } from './audit/audit.js';
 import { auditRoutes } from './admin/audit.js';
+import { ssoRoutes } from './admin/sso.js';
 import { timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
@@ -193,6 +194,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     if (full.guardrails) await guardrailServiceRoutes(a, full);
     await userRoutes(a, full);
     await auditRoutes(a, full);
+    await ssoRoutes(a, full);
     await viewRoutes(a, full);
     await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);

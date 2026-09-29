@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { api, ApiError } from '../api';
 import { useStore } from '../store';
+import { SsoSettings } from './Sso';
 
 type Role = 'admin' | 'approver' | 'viewer';
 interface User {
@@ -11,6 +12,7 @@ interface User {
   created_at: number;
   last_seen_at: number | null;
   must_change_password: boolean;
+  sso: boolean;
 }
 
 const ROLE_TEXT: Record<Role, string> = {
@@ -122,6 +124,7 @@ export function UsersPage() {
                   <span className="strong">{u.email}</span>
                   {u.id === (me as { id?: string } | null)?.id || u.email === me?.email ? <span className="sub">you</span> : null}
                   {u.must_change_password && <span className="sub">has a one-time password</span>}
+                  {u.sso && <span className="sub">signs in with single sign-on</span>}
                 </td>
                 <td>
                   <select className="input" style={{ width: 150 }} value={u.role} onChange={(e) => void run(() => api.patch(`/admin/api/users/${u.id}`, { role: e.target.value }))}>
@@ -149,6 +152,7 @@ export function UsersPage() {
           </tbody>
         </table>
       </div>
+      <SsoSettings />
     </div>
   );
 }

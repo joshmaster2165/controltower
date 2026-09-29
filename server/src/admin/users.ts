@@ -19,10 +19,10 @@ export async function userRoutes(app: FastifyInstance, ctx: AppContext): Promise
   const admins = async () => Number((await ctx.db.read.selectFrom('admins').select((eb) => eb.fn.countAll<number>().as('n')).where('role', '=', 'admin').executeTakeFirst())?.n ?? 0);
 
   app.get('/admin/api/users', { preHandler: [guard, adminOnly] }, async () => {
-    const rows = await ctx.db.read.selectFrom('admins').select(['id', 'email', 'role', 'created_at', 'must_change_password']).orderBy('created_at').execute();
+    const rows = await ctx.db.read.selectFrom('admins').select(['id', 'email', 'role', 'created_at', 'must_change_password', 'sso_subject']).orderBy('created_at').execute();
     const seen = await ctx.db.read.selectFrom('sessions').select((eb) => ['admin_id', eb.fn.max<number>('last_seen_at').as('last')]).groupBy('admin_id').execute();
     const last = new Map(seen.map((s) => [s.admin_id, Number(s.last)]));
-    return { users: rows.map((r) => ({ id: r.id, email: r.email, role: r.role ?? 'admin', created_at: r.created_at, last_seen_at: last.get(r.id) ?? null, must_change_password: r.must_change_password === 1 })), roles: ROLES };
+    return { users: rows.map((r) => ({ id: r.id, email: r.email, role: r.role ?? 'admin', created_at: r.created_at, last_seen_at: last.get(r.id) ?? null, must_change_password: r.must_change_password === 1, sso: !!r.sso_subject })), roles: ROLES };
   });
 
   app.post('/admin/api/users', { preHandler: [guard, adminOnly] }, async (req, reply) => {

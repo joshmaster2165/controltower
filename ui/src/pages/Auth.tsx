@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError, type Me } from '../api';
 import { useStore } from '../store';
 import type { ReactNode } from 'react';
@@ -93,8 +93,16 @@ export function LoginPage() {
   const setMe = useStore((s) => s.setMe);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // A single sign-on that came back refused lands here as ?sso_error=…; shown once, then taken off the address.
+  const [error, setError] = useState<string | null>(() => new URLSearchParams(location.search).get('sso_error'));
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState<{ providers: Array<{ id: string; name: string }>; sso_only: boolean }>({ providers: [], sso_only: false });
+  const [showPassword, setShowPassword] = useState(false);
+  useEffect(() => {
+    if (location.search.includes('sso_error')) history.replaceState(null, '', location.pathname + location.hash);
+    void api.get<typeof sso>('/admin/api/sso').then(setSso).catch(() => undefined);
+  }, []);
+  const passwords = !sso.sso_only || showPassword;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -115,18 +123,38 @@ export function LoginPage() {
       <form className="auth" onSubmit={submit}>
         <h1>Sign in</h1>
         <p>Welcome back. Sign in to the Airspace, approvals and settings.</p>
-        <div className="field">
-          <label>Email or username</label>
-          <input className="input" type="text" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </div>
-        <div className="field">
-          <label>Password</label>
-          <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </div>
+        {sso.providers.length > 0 && (
+          <div className="sso-options" style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+            {sso.providers.map((p) => (
+              <button key={p.id} type="button" className={`btn auth-submit ${sso.sso_only ? 'primary' : ''}`} onClick={() => location.assign(`/admin/sso/${encodeURIComponent(p.id)}/start`)}>
+                Sign in with {p.name}
+              </button>
+            ))}
+            {passwords && <div className="hint" style={{ textAlign: 'center' }}>or with a password</div>}
+          </div>
+        )}
+        {passwords && (
+          <>
+            <div className="field">
+              <label htmlFor="login-email">Email or username</label>
+              <input id="login-email" className="input" type="text" autoComplete="username" autoFocus={!sso.providers.length} value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </div>
+            <div className="field">
+              <label htmlFor="login-password">Password</label>
+              <input id="login-password" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            </div>
+          </>
+        )}
         {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
-        <button className="btn primary auth-submit" disabled={busy} type="submit">
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
+        {passwords ? (
+          <button className={`btn auth-submit ${sso.sso_only ? '' : 'primary'}`} disabled={busy} type="submit">
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+        ) : (
+          <button type="button" className="link-btn hint" onClick={() => setShowPassword(true)}>
+            Sign in with the admin key instead
+          </button>
+        )}
       </form>
     </AuthLayout>
   );

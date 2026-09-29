@@ -573,6 +573,8 @@ export interface IdentityProvidersTable {
   default_role: string;
   /** Create the person on first sign-in. */
   create_users: Bool;
+  /** How Control Tower authenticates to the token endpoint: client_secret_basic, client_secret_post or none (PKCE only). */
+  token_auth: string;
   enabled: Bool;
   last_status: string | null;
   last_error: string | null;

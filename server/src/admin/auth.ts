@@ -38,7 +38,7 @@ export function roleMay(role: Role, method: string, route: string): boolean {
   return ROLE_MAY[role].has(k);
 }
 
-const asRole = (r: string | null | undefined): Role => ((ROLES as readonly string[]).includes(r ?? '') ? (r as Role) : 'admin');
+export const asRole = (r: string | null | undefined): Role => ((ROLES as readonly string[]).includes(r ?? '') ? (r as Role) : 'admin');
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -70,12 +70,18 @@ export function setupCode(ctx: Pick<AppContext, 'config' | 'secrets'>): string {
 }
 const normCode = (s: string) => s.replace(/[\s-]/g, '').toUpperCase();
 
+/** Passwords turned off: everyone signs in through an identity provider (the admin key still works). */
+export async function ssoOnly(ctx: AppContext): Promise<boolean> {
+  const row = await ctx.db.read.selectFrom('settings').select('value').where('key', '=', 'sso_only').executeTakeFirst();
+  return row?.value === '1';
+}
+
 export async function isSetupComplete(ctx: AppContext): Promise<boolean> {
   const row = await ctx.db.read.selectFrom('settings').select('value').where('key', '=', 'setup_complete').executeTakeFirst();
   return row?.value === '1';
 }
 
-async function createSession(ctx: AppContext, adminId: string, email: string, role: Role = 'admin'): Promise<AdminSession> {
+export async function createSession(ctx: AppContext, adminId: string, email: string, role: Role = 'admin'): Promise<AdminSession> {
   const now = Date.now();
   const s: AdminSession = { id: randomToken(32), adminId, email, csrf: randomToken(16), expiresAt: now + ctx.config.sessionTtlMs, role };
   // Stored as a hash: reading the database doesn't give anyone a session to use.
@@ -86,7 +92,7 @@ async function createSession(ctx: AppContext, adminId: string, email: string, ro
   return s;
 }
 
-function setCookie(ctx: AppContext, reply: FastifyReply, s: AdminSession): void {
+export function setCookie(ctx: AppContext, reply: FastifyReply, s: AdminSession): void {
   reply.setCookie(SESSION_COOKIE, s.id, {
     path: '/',
     httpOnly: true,
@@ -228,6 +234,14 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
       }
     }
     const admin = await ctx.db.read.selectFrom('admins').selectAll().where('email', '=', email).executeTakeFirst();
+    // With single sign-on required, passwords only work for the admin-key account (the way back in if the IdP breaks).
+    if (await ssoOnly(ctx)) {
+      const envAdmin = await ctx.db.read.selectFrom('settings').select('value').where('key', '=', 'env_admin_email').executeTakeFirst();
+      if (!envAdmin || envAdmin.value !== email) {
+        await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: admin ? 'person' : 'anonymous', id: admin?.id, email }, status: 403, detail: { method: 'password', reason: 'single sign-on required' }, ...auditOrigin(req) });
+        return reply.status(403).send({ error: { code: 'sso_required', message: 'Sign in with single sign-on. Passwords are turned off for this Control Tower.' } });
+      }
+    }
     // Always run the verifier so timing does not leak whether the email exists.
     const ok = await verifyPassword(body.password ?? '', admin?.password_hash ?? 'scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
     if (!admin || !ok) {

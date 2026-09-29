@@ -784,3 +784,11 @@ ALTER TABLE admins ADD COLUMN sso_subject TEXT;
 CREATE UNIQUE INDEX admins_sso ON admins (sso_provider_id, sso_subject);
 `,
 });
+
+migrations.push({
+  version: 26,
+  name: 'identity_provider_token_auth',
+  sqlite: `
+ALTER TABLE identity_providers ADD COLUMN token_auth TEXT NOT NULL DEFAULT 'client_secret_basic';
+`,
+});

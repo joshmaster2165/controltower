@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Audit log:** every change made in Control Tower, by a person, the admin key or a script, is recorded with who made it, what it touched and the outcome. So are refused attempts, sign-ins, setup and password changes. Secrets in requests are never recorded. Each event is chained to the one before it by hash, so **Verify** finds any event edited or removed outside Control Tower. Admins browse it under **Audit log** and export it as CSV or JSON Lines. It's kept 365 days (`CT_AUDIT_RETENTION_DAYS`). See [Audit log](audit.md).
+
 ## 0.1.8 — 28 September 2026
 
 - **Helm chart:** `helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower` runs one pod on SQLite, or several on Postgres and Redis. Pods run as an unprivileged user on a read-only root filesystem, with health probes, a clean shutdown, an optional ingress and a Prometheus ServiceMonitor. The chart refuses settings that would lose data, such as several pods on SQLite or Postgres without a shared master key. CI installs it on a Kubernetes cluster both ways before every release. See [Kubernetes](kubernetes.md).

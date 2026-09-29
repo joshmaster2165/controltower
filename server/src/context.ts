@@ -36,6 +36,8 @@ export interface AppContext {
   autoModels: AutoModels;
   /** Guardrail services inspect gates can ask. */
   guardrails?: import('./guardrails/service-registry.js').GuardrailServices;
+  /** Who changed what, and who tried (admin API, sign-ins, single sign-on). */
+  audit?: import('./audit/audit.js').AuditLog;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
   /** Cached answers, for models that opt in. */

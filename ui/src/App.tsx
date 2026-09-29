@@ -17,6 +17,7 @@ import { LedgerPage } from './pages/Ledger';
 import { ExportsPage } from './pages/Exports';
 import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
+import { AuditPage } from './pages/Audit';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
 import { api } from './api';
@@ -51,6 +52,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
       { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
+      { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
     ],
   },
   {
@@ -133,7 +135,7 @@ export function App() {
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-label">{g.group}</div>
-              {g.items.filter((n) => n.id !== 'users' || role === 'admin').map((n) => {
+              {g.items.filter((n) => (n.id !== 'users' && n.id !== 'audit') || role === 'admin').map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
                 const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
@@ -253,6 +255,7 @@ export function App() {
         {route === 'exports' && <ExportsPage />}
         {route === 'guardrails' && <GuardrailsPage />}
         {route === 'users' && role === 'admin' && <UsersPage />}
+        {route === 'audit' && role === 'admin' && <AuditPage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
       </main>

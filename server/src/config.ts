@@ -46,7 +46,7 @@ export interface Config {
   policyFile: string | undefined;
   policyMode: 'merge' | 'replace';
   /** Days to keep per-request rows (flights / their event trail); 0 keeps them forever. */
-  retention: { flightsDays: number; eventsDays: number };
+  retention: { flightsDays: number; eventsDays: number; auditDays: number };
   /**
    * Admin API key: a bearer token for the admin API and
    * the /key and /model management routes, an all-access key for model
@@ -141,7 +141,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     quickModel: val('model', 'm'),
     policyFile: (val('policy') ?? env.CT_POLICY) ? path.resolve((val('policy') ?? env.CT_POLICY)!) : undefined,
     policyMode: env.CT_POLICY_MODE === 'replace' ? 'replace' : 'merge',
-    retention: { flightsDays: Math.max(0, int(env.CT_RETENTION_DAYS, 30)), eventsDays: Math.max(0, int(env.CT_EVENT_RETENTION_DAYS, 7)) },
+    retention: { flightsDays: Math.max(0, int(env.CT_RETENTION_DAYS, 30)), eventsDays: Math.max(0, int(env.CT_EVENT_RETENTION_DAYS, 7)), auditDays: Math.max(0, int(env.CT_AUDIT_RETENTION_DAYS, 365)) },
     adminKey: env.CT_ADMIN_KEY || env.LITELLM_MASTER_KEY || undefined,
     setupToken: env.CT_SETUP_TOKEN || undefined,
     loginRpm: int(env.CT_LOGIN_RPM, 10),

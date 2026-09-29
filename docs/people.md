@@ -12,6 +12,8 @@ The person who sets up Control Tower is its first admin. The server enforces rol
 
 The [admin key](configuration.md#admin-key) always acts as an admin.
 
+Every change anyone makes, and every attempt their role refuses, is recorded in the [audit log](audit.md). Only admins can read it.
+
 ## Adding people
 
 **People** (admins only) → enter an email and a role → **Add person**. Control Tower shows a **one-time password**, only once. Share it with them however you share secrets.

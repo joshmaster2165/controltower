@@ -22,6 +22,9 @@ export interface AdminsTable {
   role?: string;
   /** Set when an admin made (or reset) the password: the person is asked to choose their own. */
   must_change_password?: Bool;
+  /** Signs in through this identity provider, as this subject (the IdP's stable id for the person). */
+  sso_provider_id?: string | null;
+  sso_subject?: string | null;
 }
 
 export interface SessionsTable {
@@ -520,6 +523,61 @@ export interface Database {
   export_destinations: ExportDestinationsTable;
   guardrail_services: GuardrailServicesTable;
   schema_migrations: SchemaMigrationsTable;
+  audit_events: AuditEventsTable;
+  identity_providers: IdentityProvidersTable;
+}
+
+/** Who changed what in Control Tower, and who tried. Each row carries the hash of the one before it. */
+export interface AuditEventsTable {
+  seq: number;
+  id: string;
+  ts: number;
+  /** person, admin_key, anonymous or system. */
+  actor_type: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_role: string | null;
+  /** keys.create, users.update, auth.sign_in, … */
+  action: string;
+  /** success, denied or failure. */
+  outcome: string;
+  status: number | null;
+  target_type: string | null;
+  target_id: string | null;
+  /** JSON: the route and the request, secrets removed. */
+  detail: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  prev_hash: string;
+  hash: string;
+}
+
+/** OpenID Connect providers people sign in with (Okta, Entra ID, Google, Auth0, Keycloak, …). */
+export interface IdentityProvidersTable {
+  id: string;
+  name: string;
+  kind: string;
+  issuer: string;
+  client_id: string;
+  /** Encrypted (AAD: identity_providers.client_secret_enc.<id>). */
+  client_secret_enc: string | null;
+  scopes: string;
+  /** JSON array of email domains allowed to sign in; empty allows any the IdP vouches for. */
+  allowed_domains: string;
+  /** The ID-token claim listing the person's groups (e.g. "groups"). */
+  groups_claim: string | null;
+  /** JSON {admin: [groups], approver: [groups], viewer: [groups]}. */
+  role_map: string;
+  /** Role for someone in none of the mapped groups; "none" refuses them. */
+  default_role: string;
+  /** Create the person on first sign-in. */
+  create_users: Bool;
+  enabled: Bool;
+  last_status: string | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 /** Guardrail services outside Control Tower that inspect gates can ask (Presidio, Lakera, Bedrock, Azure, …). */

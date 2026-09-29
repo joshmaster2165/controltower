@@ -13,6 +13,8 @@ export interface RetentionPolicy {
   flightsDays: number;
   /** flight_events (the per-step trail of each flight); 0 keeps them forever */
   eventsDays: number;
+  /** audit_events, oldest first so the chain that remains stays whole; 0 keeps them forever (default 365) */
+  auditDays?: number;
 }
 
 const DAY = 24 * 3600 * 1000;
@@ -20,7 +22,7 @@ const CHUNK = 5000;
 /** Hourly rollups, observed traffic, the alert inbox and approval decisions. */
 const HISTORY_DAYS = 90;
 
-type Table = 'flights' | 'flight_events' | 'observed_hourly' | 'paths' | 'alerts' | 'approvals' | 'tickets' | 'grants' | 'sessions' | 'usage_hourly';
+type Table = 'flights' | 'flight_events' | 'audit_events' | 'observed_hourly' | 'paths' | 'alerts' | 'approvals' | 'tickets' | 'grants' | 'sessions' | 'usage_hourly';
 
 async function deleteChunked(db: Kysely<Database>, table: Table, where: ReturnType<typeof sql>): Promise<number> {
   let total = 0;
@@ -45,6 +47,8 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   };
   if (policy.flightsDays > 0) await run('flights', sql`ts < ${now - policy.flightsDays * DAY}`);
   if (policy.eventsDays > 0) await run('flight_events', sql`ts < ${now - policy.eventsDays * DAY}`);
+  const auditDays = policy.auditDays ?? 365;
+  if (auditDays > 0) await run('audit_events', sql`ts < ${now - auditDays * DAY}`);
   await run('usage_hourly', sql`bucket < ${new Date(history).toISOString().slice(0, 13)}`);
   // The hourly traffic summary is small (one row per path per hour) and has no rowid: one delete.
   const traffic = await sql`DELETE FROM traffic_hourly WHERE bucket < ${history}`.execute(db);

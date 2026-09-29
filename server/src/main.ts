@@ -52,6 +52,7 @@ import { Metrics } from './metrics/metrics.js';
 import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 import { supportBundle } from './support/bundle.js';
+import { AuditLog } from './audit/audit.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -256,6 +257,7 @@ async function main(): Promise<void> {
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
     guardrails,
+    audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }),
     spend,
     budgets,
     bus,

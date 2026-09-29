@@ -236,7 +236,7 @@ Everything is configured in the browser. Environment variables exist for operato
 |---|---|---|
 | `CT_PORT` | `4000` | Listen port (falls back to `PORT`, which most platforms set). `--port` wins. |
 | `CT_CONFIG` | — | [Config file](docs/config-file.md) applied at every start (also `CONFIG_FILE_PATH` or `--config`) |
-| `CT_RETENTION_DAYS` | `30` | Days to keep per-request flights (`0` = forever); daily spend history is always kept. `CT_EVENT_RETENTION_DAYS` (7) for event trails |
+| `CT_RETENTION_DAYS` | `30` | Days to keep per-request flights (`0` = forever); daily spend history is always kept. `CT_EVENT_RETENTION_DAYS` (7) for event trails, `CT_AUDIT_RETENTION_DAYS` (365) for the audit log |
 | `CT_POLICY` | — | [Policy file](docs/policy-as-code.md) (zones and gates) applied at every start (also `--policy`); `CT_POLICY_MODE=replace` makes the policy match it |
 | `CT_ADMIN_KEY` | — | Admin key for the admin API and model calls, and the console password for `UI_USERNAME` (default `admin`; `UI_PASSWORD` sets another). `master_key` in the config file works too. |
 | `CT_SETUP_TOKEN` | derived from the master key | The setup code the first-run page asks for; printed in the log at start |

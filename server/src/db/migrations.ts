@@ -726,3 +726,61 @@ ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';
 ALTER TABLE admins ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
 `,
 });
+
+migrations.push({
+  version: 24,
+  name: 'audit_events',
+  sqlite: `
+CREATE TABLE audit_events (
+  seq          INTEGER PRIMARY KEY,
+  id           TEXT NOT NULL UNIQUE,
+  ts           INTEGER NOT NULL,
+  actor_type   TEXT NOT NULL,
+  actor_id     TEXT,
+  actor_email  TEXT,
+  actor_role   TEXT,
+  action       TEXT NOT NULL,
+  outcome      TEXT NOT NULL,
+  status       INTEGER,
+  target_type  TEXT,
+  target_id    TEXT,
+  detail       TEXT,
+  ip           TEXT,
+  user_agent   TEXT,
+  request_id   TEXT,
+  prev_hash    TEXT NOT NULL,
+  hash         TEXT NOT NULL
+);
+CREATE INDEX audit_events_ts ON audit_events (ts);
+CREATE INDEX audit_events_actor ON audit_events (actor_email, ts);
+`,
+});
+
+migrations.push({
+  version: 25,
+  name: 'single_sign_on',
+  sqlite: `
+CREATE TABLE identity_providers (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  kind              TEXT NOT NULL DEFAULT 'oidc',
+  issuer            TEXT NOT NULL,
+  client_id         TEXT NOT NULL,
+  client_secret_enc TEXT,
+  scopes            TEXT NOT NULL DEFAULT 'openid email profile',
+  allowed_domains   TEXT NOT NULL DEFAULT '[]',
+  groups_claim      TEXT,
+  role_map          TEXT NOT NULL DEFAULT '{}',
+  default_role      TEXT NOT NULL DEFAULT 'none',
+  create_users      INTEGER NOT NULL DEFAULT 1,
+  enabled           INTEGER NOT NULL DEFAULT 1,
+  last_status       TEXT,
+  last_error        TEXT,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
+);
+ALTER TABLE admins ADD COLUMN sso_provider_id TEXT;
+ALTER TABLE admins ADD COLUMN sso_subject TEXT;
+CREATE UNIQUE INDEX admins_sso ON admins (sso_provider_id, sso_subject);
+`,
+});

@@ -54,7 +54,7 @@ Requests held for approval are retried with `x-ct-approval: <ticket>` (MCP also 
 
 ## Admin API
 
-All paths are under `/admin/api`. Approvers and viewers may read any of them (except `/users`); only admins change anything, except that approvers decide approvals and everyone may change their own password.
+All paths are under `/admin/api`. Approvers and viewers may read any of them (except `/users` and `/audit`); only admins change anything, except that approvers decide approvals and everyone may change their own password.
 
 ### Session
 
@@ -68,6 +68,7 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | POST | `/me/password` | Change your own password (`{current, password}`) |
 | GET, POST | `/users` | People who sign in, and their roles (admins only); add one — see [People and roles](people.md) |
 | PATCH, DELETE | `/users/:id` | Change a role, reset a password (a new one-time password), remove |
+| GET | `/audit`, `/audit/export`, `/audit/verify` | The [audit log](audit.md) (admins only): browse with filters, download as CSV or JSON Lines, check its hash chain |
 
 ### Providers, models, aliases
 

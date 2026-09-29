@@ -4,6 +4,7 @@ import type { AppContext } from '../context.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { hashPassword, verifyPassword, randomToken } from '../crypto/secrets.js';
 import { extractApiKey } from '../gateway/key.js';
+import type { AuditActor } from '../audit/audit.js';
 
 export const SESSION_COOKIE = 'ct_session';
 const CSRF_HEADER = 'x-ct-csrf';
@@ -27,8 +28,8 @@ const ROLE_MAY: Record<Exclude<Role, 'admin'>, Set<string>> = {
   approver: new Set(['POST /admin/api/approvals/:id/decide', 'POST /admin/api/me/password']),
   viewer: new Set(['POST /admin/api/me/password']),
 };
-/** Reads only admins may make: the list of people and their roles. */
-const ADMIN_ONLY_READS = new Set(['GET /admin/api/users']);
+/** Reads only admins may make: people and their roles, the audit log, identity-provider settings. */
+const ADMIN_ONLY_READS = new Set(['GET /admin/api/users', 'GET /admin/api/audit', 'GET /admin/api/audit/export', 'GET /admin/api/audit/verify', 'GET /admin/api/identity-providers']);
 
 export function roleMay(role: Role, method: string, route: string): boolean {
   if (role === 'admin') return true;
@@ -42,7 +43,17 @@ const asRole = (r: string | null | undefined): Role => ((ROLES as readonly strin
 declare module 'fastify' {
   interface FastifyRequest {
     admin: AdminSession | undefined;
+    /** Set by requireAdmin: who made this admin request, for the audit log (and why it was refused, if it was). */
+    auditActor?: AuditActor;
+    auditRefused?: string;
+    /** The id of what a request created (read from its answer), for the audit log. */
+    auditCreatedId?: string;
   }
+}
+
+/** Where a request came from, for the audit log. */
+export function auditOrigin(req: FastifyRequest): { ip: string; userAgent: string | undefined; requestId: string } {
+  return { ip: req.ip, userAgent: req.headers['user-agent'], requestId: String(req.id) };
 }
 
 /**
@@ -129,24 +140,30 @@ export function requireAdmin(ctx: AppContext) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> => {
     if (hasAdminKey(ctx, req)) {
       req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER, role: 'admin' };
+      req.auditActor = { type: 'admin_key', role: 'admin' };
       return;
     }
     const s = await loadSession(ctx, req);
+    req.auditActor = s ? { type: 'person', id: s.adminId, email: s.email, role: s.role } : { type: 'anonymous' };
     if (!s) {
+      req.auditRefused = 'unauthenticated';
       return reply.status(401).send({ error: { code: 'unauthenticated', message: 'Sign in required (or send the admin key as a bearer token).' } });
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       const hdr = Buffer.from(String(req.headers[CSRF_HEADER] ?? ''));
       const want = Buffer.from(s.csrf);
       if (hdr.length !== want.length || !timingSafeEqual(hdr, want)) {
+        req.auditRefused = 'csrf';
         return reply.status(403).send({ error: { code: 'csrf', message: `Missing or invalid ${CSRF_HEADER} header.` } });
       }
     }
     // A one-time password (an admin made or reset it) only lets its owner choose a new one.
     if (s.mustChangePassword && (req.routeOptions.url ?? '') !== '/admin/api/me/password') {
+      req.auditRefused = 'password_change_required';
       return reply.status(403).send({ error: { code: 'password_change_required', message: 'Choose your own password first.' } });
     }
     if (!roleMay(s.role, req.method, req.routeOptions.url ?? req.url)) {
+      req.auditRefused = 'forbidden';
       return reply.status(403).send({ error: { code: 'forbidden', message: s.role === 'approver' ? 'Approvers can see everything and decide approvals, but not change settings. Ask an admin.' : `Your role (${s.role}) can see everything but not change it. Ask an admin.` } });
     }
     req.admin = s;
@@ -167,6 +184,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const given = Buffer.from(normCode(body.setup_code ?? ''));
     const want = Buffer.from(normCode(setupCode(ctx)));
     if (given.length !== want.length || !timingSafeEqual(given, want)) {
+      await ctx.audit?.record({ action: 'auth.setup', outcome: 'denied', actor: { type: 'anonymous' }, status: 403, detail: { reason: 'wrong setup code' }, ...auditOrigin(req) });
       return reply.status(403).send({ error: { code: 'setup_code', message: 'Enter the setup code from the server\'s log (it is printed at start, under "Setup code"; with Docker: docker logs <container>).' } });
     }
     const email = (body.email ?? '').trim().toLowerCase();
@@ -192,6 +210,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const s = await createSession(ctx, id, email);
     setCookie(ctx, reply, s);
     ctx.log.info({ email }, 'admin account created');
+    await ctx.audit?.record({ action: 'auth.setup', outcome: 'success', actor: { type: 'person', id, email, role: 'admin' }, status: 200, target: { type: 'users', id }, ...auditOrigin(req) });
     return reply.send({ ok: true, email, csrf: s.csrf });
   });
 
@@ -203,6 +222,8 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
       const a = await ctx.limiter.admit(scope, 1, { rpm });
       if (!a.ok) {
         ctx.log.warn({ email, ip: req.ip }, 'sign-in attempts rate-limited');
+        // One event per minute per scope is enough to show a guessing run.
+        if ((await ctx.limiter.admit(`audit:${scope}`, 1, { rpm: 1 })).ok) await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: 'anonymous', email }, status: 429, detail: { reason: 'rate limited', scope: scope.split(':')[1] }, ...auditOrigin(req) });
         return reply.status(429).header('retry-after', String(Math.ceil(a.retryAfterMs / 1000))).send({ error: { code: 'rate_limited', message: 'Too many sign-in attempts. Wait a minute and try again.' } });
       }
     }
@@ -210,17 +231,21 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     // Always run the verifier so timing does not leak whether the email exists.
     const ok = await verifyPassword(body.password ?? '', admin?.password_hash ?? 'scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
     if (!admin || !ok) {
+      await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: admin ? 'person' : 'anonymous', id: admin?.id, email }, status: 401, detail: { method: 'password', reason: admin ? 'wrong password' : 'no such person' }, ...auditOrigin(req) });
       await new Promise((r) => setTimeout(r, 250));
       return reply.status(401).send({ error: { code: 'bad_credentials', message: 'Incorrect email or password.' } });
     }
     const s = await createSession(ctx, admin.id, admin.email, asRole(admin.role));
     setCookie(ctx, reply, s);
+    await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'success', actor: { type: 'person', id: admin.id, email: admin.email, role: s.role }, status: 200, detail: { method: 'password' }, ...auditOrigin(req) });
     return reply.send({ ok: true, email: admin.email, csrf: s.csrf, role: s.role, must_change_password: admin.must_change_password === 1 });
   });
 
   app.post('/admin/api/logout', async (req, reply) => {
     const cookie = req.cookies?.[SESSION_COOKIE];
+    const s = cookie ? await loadSession(ctx, req) : undefined;
     if (cookie) await ctx.db.write.deleteFrom('sessions').where('id', '=', sessionKey(cookie)).execute();
+    if (s) await ctx.audit?.record({ action: 'auth.sign_out', outcome: 'success', actor: { type: 'person', id: s.adminId, email: s.email, role: s.role }, status: 200, ...auditOrigin(req) });
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return reply.send({ ok: true });
   });

@@ -9,7 +9,9 @@ import fastifyStatic from '@fastify/static';
 import type { AppContext } from './context.js';
 import { gatewayRoutes } from './gateway/routes.js';
 import { compatRoutes } from './gateway/compat.js';
-import { authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
+import { auditOrigin, authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
+import { actionFor } from './audit/audit.js';
+import { auditRoutes } from './admin/audit.js';
 import { timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
@@ -86,6 +88,44 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     return payload;
   });
 
+  // What a change created: the id in its answer (`{id}`, or `{provider: {id}}`), so the audit event can name it.
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.auditActor && req.method === 'POST' && reply.statusCode < 300 && typeof payload === 'string' && payload.length < 64 * 1024 && payload.startsWith('{')) {
+      try {
+        const j = JSON.parse(payload) as Record<string, unknown>;
+        const nested = Object.values(j).find((v) => v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string') as { id: string } | undefined;
+        const id = typeof j.id === 'string' ? j.id : nested?.id;
+        if (id) req.auditCreatedId = id;
+      } catch {
+        /* not JSON */
+      }
+    }
+    return payload;
+  });
+
+  // The audit log: every change made through a route behind requireAdmin (which says who asked), and refused
+  // attempts. Reads aren't recorded, except a signed-in person refused one. Anonymous refusals are capped per address.
+  app.addHook('onResponse', async (req, reply) => {
+    const actor = req.auditActor;
+    if (!full.audit || !actor) return;
+    const read = req.method === 'GET' || req.method === 'HEAD';
+    if (read && (!req.auditRefused || actor.type === 'anonymous')) return;
+    if (actor.type === 'anonymous' && !(await full.limiter.admit(`audit:anon:${req.ip}`, 1, { rpm: 20 })).ok) return;
+    const route = req.routeOptions.url ?? req.url.split('?')[0] ?? req.url;
+    const status = reply.statusCode;
+    const params = (req.params ?? {}) as Record<string, string>;
+    const resource = route.replace(/^\/admin\/api\//, '').replace(/^\//, '').split('/')[0] || undefined;
+    await full.audit.record({
+      action: actionFor(req.method, route),
+      outcome: req.auditRefused || status === 401 || status === 403 ? 'denied' : status >= 400 ? 'failure' : 'success',
+      actor,
+      status,
+      target: { type: resource, id: params.id ?? req.auditCreatedId },
+      detail: { method: req.method, route, ...(Object.keys(params).length ? { params } : {}), ...(req.auditRefused ? { refused: req.auditRefused } : {}), ...(req.body !== undefined && req.body !== null && !read ? { body: req.body } : {}) },
+      ...auditOrigin(req),
+    });
+  });
+
   // Errors nobody meant to send: details go to the log, not to whoever asked.
   app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
@@ -152,6 +192,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     if (full.exporter) await exportDestinationRoutes(a, full);
     if (full.guardrails) await guardrailServiceRoutes(a, full);
     await userRoutes(a, full);
+    await auditRoutes(a, full);
     await viewRoutes(a, full);
     await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);

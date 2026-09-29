@@ -1323,7 +1323,8 @@ test('MCP: resources and prompts are flights too — recorded, gated and inspect
   expect(String((doc.contents[0] as { text: string }).text)).toContain('Q3 plan');
   const prompt = await client.getPrompt({ name: 'summarise', arguments: { path: 'plan.md' } });
   expect(JSON.stringify(prompt.messages)).toContain('three bullet points');
-  const flights = await flightsFor(agent.id, (f) => f.length >= 2);
+  // Both recorded and finished: a flight's outcome is written a moment after it starts.
+  const flights = await flightsFor(agent.id, (f) => f.length >= 2 && f.every((x) => x.status));
   expect(flights.map((f) => f.tool).sort()).toEqual(['prompts/get', 'resources/read']);
   expect(flights.every((f) => f.kind === 'mcp.tool' && f.status === 'ok')).toBe(true);
 

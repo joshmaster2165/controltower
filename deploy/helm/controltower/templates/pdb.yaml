@@ -1,0 +1,13 @@
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "controltower.fullname" . }}
+  labels:
+    {{- include "controltower.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "controltower.selectorLabels" . | nindent 6 }}
+{{- end }}

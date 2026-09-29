@@ -2,6 +2,8 @@
 
 Start with the flight. Model, HTTP API and A2A responses carry `x-ct-flight-id` (MCP responses, `/v1/models` and token counting don't; an MCP refusal carries `flight_id` in its text). Search for it under **Flights** to see which key made the call, where it was routed, which gate decided it and what the provider answered. Server logs are on stdout (`docker logs controltower`); `--detailed_debug` or `CT_LOG_LEVEL=debug` adds detail.
 
+Asking for help? Attach a support bundle. It holds the version, settings by name, database state, health and the last day's error counts, and never includes keys, prompts or names: `docker exec controltower node dist/server.mjs --support-bundle > support-bundle.json`. See [SUPPORT.md](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md).
+
 ## The agent gets an error
 
 Every refusal has a code and a message meant to be read by the agent (or its model). On model calls and HTTP APIs, a key's rate-limit `429` also carries `retry-after`.

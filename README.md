@@ -1,7 +1,7 @@
 <p align="center">
   <img src="ui/public/logo-wordmark.svg" alt="Control Tower" width="320"><br/>
   The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.<br/>
-  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="docs/README.md">Docs</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="docs/README.md">Docs</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="SUPPORT.md">Support</a>
 </p>
 
 <p align="center">
@@ -39,6 +39,7 @@ Just exploring? `CT_DEMO=1` (or *Start the demo fleet* on the Get started page) 
 
 ### Other ways to run it
 
+- **Kubernetes:** `helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower` — one pod on SQLite, or several on Postgres and Redis. See [docs/kubernetes.md](docs/kubernetes.md).
 - **Docker Compose:** `docker compose -f deploy/docker-compose.yml up -d`
 - **Render, one click:** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/joshmaster2165/controltower) — the published image on a Starter instance with a 1 GB disk for the database (Render disks need a paid instance). The console is at the `onrender.com` URL Render gives you.
 - **Fly.io:** with [`flyctl`](https://fly.io/docs/flyctl/install/):
@@ -266,7 +267,8 @@ Everything is configured in the browser. Environment variables exist for operato
 - **v0.1.5 — agents calling agents** (shipped): delegation tokens, on-behalf-of gates, call chains and traces, the A2A gateway, MCP resources and prompts as flights, spend rolled up to the origin agent.
 - **v0.1.6 — approvals that keep up, agents that come and go** (shipped): approve the next N calls, approvals that say whom a chained call is for, hide idle agents, expiring and retired keys, allow-with-limits gates, model-checked prompt injection; chains tested with four agent frameworks.
 - **v0.1.7 — run it for a team** (shipped): Postgres and Redis for several instances, people with admin, approver and viewer roles, guardrail services, exporting flights, pass-through image, audio and provider APIs, retries and fallback models, regions and tags, health checks, response caching, and security hardening.
-- **Next**: signed images and a Helm chart; audit log export and single sign-on; MCP 2026-07-28 (approvals as protocol-level multi round-trip requests).
+- **v0.1.8 — ready for procurement**: signed images with SBOM and provenance, a Helm chart, a support bundle and a support offer.
+- **Next (0.2)**: single sign-on, an audit log, guardrails drawn on the map, custom guardrails written in Control Tower, and MCP 2026-07-28 (approvals as protocol-level multi round-trip requests).
 - **v0.3 — trust it**: Postgres + Redis multi-instance ✓, people and roles ✓, egress proxy sidecar, Playwright fixture for browser agents, audit export, SSO.
 
 ## License

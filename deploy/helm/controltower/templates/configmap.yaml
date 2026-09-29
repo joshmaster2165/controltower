@@ -1,0 +1,17 @@
+{{- if or .Values.config .Values.policy }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "controltower.fullname" . }}
+  labels:
+    {{- include "controltower.labels" . | nindent 4 }}
+data:
+  {{- with .Values.config }}
+  config.yaml: |
+    {{- . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.policy }}
+  policy.yaml: |
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- end }}

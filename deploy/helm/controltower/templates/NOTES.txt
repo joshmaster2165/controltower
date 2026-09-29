@@ -1,0 +1,31 @@
+Control Tower {{ .Chart.AppVersion }} is starting{{ if include "controltower.postgres" . }} on Postgres ({{ .Values.replicaCount }} replica{{ if gt (int .Values.replicaCount) 1 }}s{{ end }}){{ else }} on SQLite{{ end }}.
+{{- $url := include "controltower.publicUrl" . }}
+
+1. Open the console:
+{{- if $url }}
+     {{ $url }}
+{{- else }}
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "controltower.fullname" . }} 4000:{{ .Values.service.port }}
+     then http://localhost:4000
+{{- end }}
+
+2. Create the admin account.
+{{- if or .Values.secrets.adminKey .Values.secrets.existingSecret }}
+   With an admin key set, sign in as "admin" with it{{ if .Values.secrets.existingSecret }} (if CT_ADMIN_KEY is in {{ .Values.secrets.existingSecret }}){{ end }}. Otherwise:
+{{- end }}
+   The setup page asks for a setup code, printed in the pod's log on a fresh install:
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "controltower.fullname" . }} | grep -A1 "Setup code"
+{{- if .Values.secrets.setupToken }}
+   (You set it yourself with secrets.setupToken.)
+{{- end }}
+
+3. Point agents at it:
+     OPENAI_BASE_URL={{ $url | default "http://<host>" }}/v1
+     ANTHROPIC_BASE_URL={{ $url | default "http://<host>" }}
+     MCP: {{ $url | default "http://<host>" }}/mcp
+{{- if and (not (include "controltower.postgres" .)) (not .Values.secrets.masterKey) (not .Values.secrets.existingSecret) }}
+
+Back up the master key: it was generated on the volume ({{ include "controltower.fullname" . }}), and stored
+credentials are unreadable without it:
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "controltower.fullname" . }} -- cat /data/master.key
+{{- end }}

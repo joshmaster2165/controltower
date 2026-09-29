@@ -2,6 +2,13 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Helm chart:** `helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower` runs one pod on SQLite, or several on Postgres and Redis. Pods run as an unprivileged user on a read-only root filesystem, with health probes, a clean shutdown, an optional ingress and a Prometheus ServiceMonitor. The chart refuses settings that would lose data, such as several pods on SQLite or Postgres without a shared master key. CI installs it on a Kubernetes cluster both ways before every release. See [Kubernetes](kubernetes.md).
+- **Signed images:** every image CI publishes is signed with Sigstore cosign (keyless, tied to this repository's workflow) and carries an SBOM and full build provenance, plus GitHub's build attestation. The Helm chart is signed too. See [Verifying the image](install.md#verifying-the-image).
+- **Support bundle:** `--support-bundle [file]` writes what someone helping you needs to know: version, settings by name, the database, health and the last day's error counts. It never includes keys, credentials, prompts, hostnames, or the names of agents and people.
+- **Support:** [SUPPORT.md](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md) says where to get help, and what paid support will include. SECURITY.md lists response targets.
+
 ## 0.1.7 — 28 September 2026
 
 - **Security hardening.** Please read before upgrading a server that isn't set up yet:

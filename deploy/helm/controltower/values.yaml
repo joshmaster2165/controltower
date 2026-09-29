@@ -1,0 +1,125 @@
+# Control Tower on Kubernetes.
+#
+# Two ways to run it:
+#  - One pod on SQLite (the default): data on a persistent volume. replicaCount must stay 1.
+#  - Several pods on Postgres and Redis: set database.url and redis.url (or existingSecret keys),
+#    and a masterKey every pod shares. The chart refuses more than one replica without them.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/joshmaster2165/controltower
+  # Defaults to the chart's appVersion. Pin a digest for production: tag: "0.1.8@sha256:…"
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# The public URL people and agents use (sets CT_PUBLIC_URL). Links in approval emails and Slack
+# messages point here, and cookies are marked Secure when it is https. Defaults to the ingress host.
+publicUrl: ""
+
+# Secrets. Leave a value empty to leave it unset, or put them in a Secret of your own (existingSecret).
+secrets:
+  # Encrypts stored credentials. Required with Postgres; on SQLite, one is generated
+  # on first start and kept on the volume. Back it up: stored credentials are unreadable without it.
+  masterKey: ""
+  # Bearer token for the admin API, and a console sign-in as "admin" (skips the setup page).
+  adminKey: ""
+  # The setup code the setup page asks for on a fresh install. Unset: one is printed in the pod's log.
+  setupToken: ""
+  # Bearer token Prometheus uses for /metrics.
+  metricsToken: ""
+  # An existing Secret holding any of these keys instead: CT_MASTER_KEY, CT_ADMIN_KEY, CT_SETUP_TOKEN,
+  # CT_METRICS_TOKEN, CT_DATABASE_URL, CT_REDIS_URL. Values above are ignored when this is set.
+  existingSecret: ""
+
+database:
+  # postgres://user:password@host:5432/controltower — empty means SQLite on the volume.
+  url: ""
+  # true when CT_DATABASE_URL is in secrets.existingSecret instead.
+  inExistingSecret: false
+redis:
+  # redis://host:6379 — needed with Postgres and more than one replica.
+  url: ""
+  # true when CT_REDIS_URL is in secrets.existingSecret instead.
+  inExistingSecret: false
+
+# Provider keys and other settings, as environment variables:
+#   env: [{ name: OPENAI_API_KEY, valueFrom: { secretKeyRef: { name: llm-keys, key: openai } } }]
+env: []
+envFrom: []
+
+# A config file (models, aliases, MCP servers), mounted read-only and loaded at start (CT_CONFIG).
+# Reference secrets as os.environ/NAME and provide them with env or envFrom.
+config: ""
+# Gates and zones as YAML, loaded at start (CT_POLICY).
+policy: ""
+
+persistence:
+  # SQLite's database and its generated master key live here. Not used with Postgres: the data is in
+  # the database, and the master key must be given (secrets.masterKey or existingSecret).
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 4000
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # The live map uses a WebSocket (/admin/ws); most controllers pass it through as is.
+  hosts:
+    - host: controltower.example.com
+      paths: [{ path: /, pathType: Prefix }]
+  tls: []
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
+
+# Runs as the image's `node` user (uid 1000) with a read-only root filesystem: only /data and /tmp are writable.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }
+
+# Held calls become tickets and streams get this long to finish when a pod stops (CT_SHUTDOWN_GRACE_MS is 15 s).
+terminationGracePeriodSeconds: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# With more than one replica, keep at least this many serving during node drains.
+podDisruptionBudget:
+  minAvailable: 1
+
+# Prometheus Operator: scrape /metrics with secrets.metricsToken.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}

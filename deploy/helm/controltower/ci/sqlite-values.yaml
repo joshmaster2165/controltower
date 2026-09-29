@@ -1,0 +1,5 @@
+# chart-testing: one pod on SQLite, setup code set, a config file.
+secrets:
+  setupToken: CI-SETUP-CODE
+config: |
+  model_list: []

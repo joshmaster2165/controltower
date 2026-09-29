@@ -8,10 +8,10 @@ Control Tower is one process with one data directory: a SQLite database (`contro
 docker run -d --name controltower \
   -p 4000:4000 \
   -v controltower-data:/data \
-  ghcr.io/joshmaster2165/controltower:0.1.5
+  ghcr.io/joshmaster2165/controltower:0.1.8
 ```
 
-- **Tags:** `latest` is the newest release, `0.1.5` pins one, `main` follows the main branch.
+- **Tags:** `latest` is the newest release, `0.1.8` pins one, `main` follows the main branch. Every image is signed: see [Verifying the image](#verifying-the-image).
 - **Architectures:** `linux/amd64` and `linux/arm64`.
 - **Data:** keep `/data` on a named volume (or a platform disk). Without one, Docker gives each new container an empty anonymous volume, so an upgrade starts from scratch. On platforms that ignore the image's `VOLUME`, the server warns at startup that `/data` is not on a volume.
 - **Port:** 4000, or `PORT` / `CT_PORT` / `--port`.
@@ -67,6 +67,16 @@ Railway runs the published image directly; the only extra step is a volume, so t
 
 Links in alerts and approval messages use the Railway domain automatically (`RAILWAY_PUBLIC_DOMAIN`); set `CT_PUBLIC_URL` if you add a custom domain. To run from a [config file](config-file.md), build a small image `FROM ghcr.io/joshmaster2165/controltower` that copies in your `config.yaml`, set `CT_CONFIG` to its path, and put the provider keys in **Variables**.
 
+## Kubernetes
+
+A Helm chart installs Control Tower as one pod on SQLite, or several on Postgres and Redis:
+
+```bash
+helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.1.8
+```
+
+See [Kubernetes](kubernetes.md).
+
 ## Any container platform
 
 Use `ghcr.io/joshmaster2165/controltower`, mount a volume at `/data`, and send traffic to port 4000, or to the `PORT` the platform sets. Set `CT_PUBLIC_URL` to the public address so links in alerts and approval messages point at your console (detected automatically on Render, Fly.io and Railway).
@@ -80,6 +90,32 @@ Health checks:
 | `/health` | Checks every connected provider; needs the admin key or an agent key |
 
 On `SIGTERM` the server stops accepting requests, turns every request waiting for approval into a ticket the agent can retry, lets streams finish (up to 15 s), then flushes and exits.
+
+## Verifying the image
+
+From 0.1.8, CI signs every image it publishes with [Sigstore](https://www.sigstore.dev/) cosign. The signing is keyless: the signature is tied to this repository's CI workflow, with no private key to leak. Check that an image came from that workflow, for a release tag:
+
+```bash
+cosign verify ghcr.io/joshmaster2165/controltower:0.1.8 \
+  --certificate-identity-regexp '^https://github.com/joshmaster2165/controltower/.github/workflows/ci.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+(For `main` images, end the identity with `@refs/heads/main` instead.) Use cosign 3 or later.
+
+GitHub's own build attestation says which commit and workflow run built it:
+
+```bash
+gh attestation verify oci://ghcr.io/joshmaster2165/controltower:0.1.8 --repo joshmaster2165/controltower
+```
+
+Each image also carries an SBOM (every package inside it) and full build provenance, as attestations next to the image:
+
+```bash
+docker buildx imagetools inspect ghcr.io/joshmaster2165/controltower:0.1.8 --format '{{ json .SBOM }}'
+```
+
+The Helm chart is signed the same way: `cosign verify ghcr.io/joshmaster2165/charts/controltower:0.1.8` with the same two flags.
 
 ## Behind a corporate proxy
 

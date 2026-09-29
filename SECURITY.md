@@ -13,7 +13,20 @@ Include what you can of:
 - how to reproduce it (requests, config, or a minimal script),
 - what an attacker gains, and any conditions it needs.
 
-This is a young project maintained on a best-effort basis. You will get an acknowledgement as soon as a maintainer sees the report, we will keep you updated while we work on a fix, and we will credit you in the advisory unless you prefer otherwise. Please give us a reasonable window to ship a fix before disclosing publicly.
+What happens next:
+
+| | Target |
+|---|---|
+| Acknowledgement | TBD (best effort today: as soon as a maintainer sees it) |
+| First assessment (is it real, how severe) | TBD |
+| Fix released, critical or high severity | TBD |
+| Fix released, medium or low | Next release |
+
+We will keep you updated while we work on a fix, and credit you in the advisory unless you prefer otherwise. Please give us a reasonable window to ship a fix before disclosing publicly. Customers with [Enterprise support](SUPPORT.md#paid-support) hear about fixes before public disclosure.
+
+## Verifying what you run
+
+From 0.1.8, every image and Helm chart is signed in CI with Sigstore (keyless: the signing identity is this repository's workflow). Each image also carries an SBOM and build provenance. [Verifying images](docs/install.md#verifying-the-image) shows how to check them.
 
 ## What counts
 

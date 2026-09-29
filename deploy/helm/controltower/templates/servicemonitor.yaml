@@ -1,0 +1,27 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- if not (or .Values.secrets.metricsToken .Values.secrets.existingSecret) }}
+{{- fail "serviceMonitor needs secrets.metricsToken (or CT_METRICS_TOKEN in existingSecret): /metrics is never anonymous." }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "controltower.fullname" . }}
+  labels:
+    {{- include "controltower.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "controltower.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "controltower.secretName" . }}
+          key: CT_METRICS_TOKEN
+{{- end }}

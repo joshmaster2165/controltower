@@ -1,0 +1,158 @@
+{{- include "controltower.validate" . }}
+{{- $pg := include "controltower.postgres" . }}
+{{- $secret := include "controltower.secretName" . }}
+{{- $own := not .Values.secrets.existingSecret }}
+{{- $publicUrl := include "controltower.publicUrl" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controltower.fullname" . }}
+  labels:
+    {{- include "controltower.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- if $pg }}
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+    {{- else }}
+    # SQLite on a ReadWriteOnce volume: the old pod lets go of it before the new one starts.
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "controltower.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if and $own (or .Values.secrets.masterKey .Values.secrets.adminKey .Values.secrets.setupToken .Values.secrets.metricsToken .Values.database.url .Values.redis.url) }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if or .Values.config .Values.policy }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "controltower.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "controltower.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: controltower
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Straight to the server: the image's entrypoint only exists to fix volume ownership as root,
+          # which fsGroup does here.
+          command: ["/sbin/tini", "--"]
+          args: ["node", "dist/server.mjs"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: CT_PORT
+              value: "4000"
+            - name: CT_DATA_DIR
+              value: /data
+            - name: CT_INSTANCE_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            {{- if $publicUrl }}
+            - name: CT_PUBLIC_URL
+              value: {{ $publicUrl | quote }}
+            {{- end }}
+            {{- if .Values.config }}
+            - name: CT_CONFIG
+              value: /etc/controltower/config.yaml
+            {{- end }}
+            {{- if .Values.policy }}
+            - name: CT_POLICY
+              value: /etc/controltower/policy.yaml
+            {{- end }}
+            {{- range $name, $on := dict "CT_MASTER_KEY" .Values.secrets.masterKey "CT_ADMIN_KEY" .Values.secrets.adminKey "CT_SETUP_TOKEN" .Values.secrets.setupToken "CT_METRICS_TOKEN" .Values.secrets.metricsToken "CT_DATABASE_URL" (or $.Values.database.url $.Values.database.inExistingSecret) "CT_REDIS_URL" (or $.Values.redis.url $.Values.redis.inExistingSecret) }}
+            {{- if or $on (not $own) }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ $name }}
+                  {{- if not $own }}
+                  optional: true
+                  {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            {{- if or .Values.config .Values.policy }}
+            - name: config
+              mountPath: /etc/controltower
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if and (not $pg) .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "controltower.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if or .Values.config .Values.policy }}
+        - name: config
+          configMap:
+            name: {{ include "controltower.fullname" . }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

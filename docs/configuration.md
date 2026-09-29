@@ -14,7 +14,9 @@ controltower [options]            (docker: pass the same options after the image
   --host <addr>         listen address (default 0.0.0.0)
   --detailed_debug      verbose logs (also --debug)
   --copy-to-postgres <url>  copy this install's SQLite data into an empty Postgres database, then exit
-                        (last on the line with no URL: uses CT_DATABASE_URL)
+                        (with no URL: uses CT_DATABASE_URL)
+  --support-bundle [file]  write a report for whoever helps you — version, settings by name,
+                        database, health, error counts; no keys, prompts or names — then exit
   --version, -v         print the version
   --help, -h            this list
 ```

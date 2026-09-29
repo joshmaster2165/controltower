@@ -81,6 +81,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write       # keyless signing: GitHub's OIDC token is the signing identity
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -126,7 +128,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-      - uses: docker/build-push-action@v7
+      - id: push
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -136,6 +139,116 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # An SBOM and full build provenance, attached to the image as attestations.
+          sbom: true
+          provenance: mode=max
+      # Sign what was pushed, by digest, with this workflow's identity (Sigstore keyless: no key to leak or rotate),
+      # and record GitHub's own build attestation. Then check the signature the way a user would.
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${DIGEST}"
+      - uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the signature
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          cosign verify "ghcr.io/${{ github.repository }}@${DIGEST}" \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "::notice::Signed ghcr.io/${{ github.repository }}@${DIGEST}"
+
+  # Helm chart: lint, refuse settings that lose data, then install on a kind cluster the way people will —
+  # one pod on SQLite, and two on Postgres and Redis — with the image this commit builds. Published on tags.
+  helm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      CHART: deploy/helm/controltower
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5.0.1
+      - name: Lint and render
+        run: |
+          set -e
+          helm lint "$CHART"
+          for f in "$CHART"/ci/*-values.yaml; do helm lint "$CHART" -f "$f"; helm template t "$CHART" -f "$f" > /dev/null; done
+          helm template t "$CHART" | grep -q 'readOnlyRootFilesystem: true'
+          # Settings that would lose data or never work stop the install with a reason.
+          refuses() { if out=$(helm template t "$CHART" "${@:2}" 2>&1); then echo "expected a refusal: ${*:2}"; exit 1; fi; echo "$out" | grep -q "$1" || { echo "$out"; exit 1; }; }
+          refuses 'needs Postgres and Redis' --set replicaCount=2
+          refuses 'needs redis.url' --set replicaCount=2 --set database.url=postgres://x --set secrets.masterKey=k
+          refuses 'set secrets.masterKey' --set database.url=postgres://x
+          refuses 'metricsToken' --set serviceMonitor.enabled=true
+      - name: Chart version matches the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          grep -q "^version: $v$" "$CHART/Chart.yaml" && grep -q "^appVersion: \"$v\"$" "$CHART/Chart.yaml" || { echo "Chart.yaml must say version $v"; exit 1; }
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          load: true
+          tags: ghcr.io/joshmaster2165/controltower:ci
+          cache-from: type=gha
+      - uses: helm/kind-action@v1.15.0
+        with:
+          cluster_name: ct
+      - name: Install on SQLite
+        run: |
+          set -e
+          kind load docker-image ghcr.io/joshmaster2165/controltower:ci --name ct
+          helm install ct-sqlite "$CHART" -f "$CHART/ci/sqlite-values.yaml" --set image.tag=ci --set image.pullPolicy=Never --wait --timeout 4m
+          helm test ct-sqlite --logs
+          kubectl logs deploy/ct-sqlite-controltower | grep -q 'CI-SETUP-CODE'
+          kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & sleep 3
+          curl -fsS -X POST localhost:4400/admin/api/setup -H 'content-type: application/json' -d '{"email":"ci@example.com","password":"ci-password-123","setup_code":"CI-SETUP-CODE"}' >/dev/null
+          curl -sI localhost:4400/ | grep -qi 'content-security-policy'
+          # A new pod on the same volume keeps the data.
+          kubectl rollout restart deploy/ct-sqlite-controltower && kubectl rollout status deploy/ct-sqlite-controltower --timeout 3m
+          kill %1; kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & sleep 3
+          curl -fsS localhost:4400/admin/api/status | grep -q '"setup_complete":true'
+          curl -fsS -X POST localhost:4400/admin/api/login -H 'content-type: application/json' -d '{"email":"ci@example.com","password":"ci-password-123"}' >/dev/null
+          kill %1
+      - name: Install two pods on Postgres and Redis
+        run: |
+          set -e
+          kubectl create deployment ci-pg --image=postgres:17-alpine && kubectl set env deployment/ci-pg POSTGRES_PASSWORD=ci && kubectl expose deployment ci-pg --port 5432
+          kubectl create deployment ci-redis --image=redis:7-alpine && kubectl expose deployment ci-redis --port 6379
+          kubectl rollout status deployment/ci-pg --timeout 3m && kubectl rollout status deployment/ci-redis --timeout 3m
+          helm install ct-pg "$CHART" -f "$CHART/ci/postgres-values.yaml" --set image.tag=ci --set image.pullPolicy=Never --wait --timeout 5m
+          helm test ct-pg --logs
+          for p in $(kubectl get pods -l app.kubernetes.io/instance=ct-pg -o name); do kubectl logs "$p" | grep -q 'sharing Postgres and Redis'; done
+          test "$(kubectl get pods -l app.kubernetes.io/instance=ct-pg --field-selector=status.phase=Running -o name | wc -l)" = 2
+          kubectl port-forward svc/ct-pg-controltower 4401:4000 >/dev/null 2>&1 & sleep 3
+          curl -fsS -H 'Authorization: Bearer ci-admin-key-0123456789abcdef' localhost:4401/admin/api/keys >/dev/null
+          kill %1
+      - name: Show what went wrong
+        if: failure()
+        run: kubectl get all,pvc; kubectl describe pods; for p in $(kubectl get pods -o name); do echo "== $p"; kubectl logs "$p" --all-containers --tail 80; done
+      - name: Publish the chart
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -e
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "$CHART" -d dist-chart
+          helm push dist-chart/controltower-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1 | tee push.log
+          echo "DIGEST=$(grep -o 'sha256:[0-9a-f]*' push.log | head -1)" >> "$GITHUB_ENV"
+      - uses: sigstore/cosign-installer@v4.1.2
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Sign the chart
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cosign sign --yes "ghcr.io/${{ github.repository_owner }}/charts/controltower@${DIGEST}"
 
   # npm package: `npx controltower-ai`. Publishes on version tags once an NPM_TOKEN
   # repository secret exists; until then the job builds the package and skips publishing.

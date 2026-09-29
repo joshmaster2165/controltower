@@ -47,7 +47,7 @@ Adding a renewed key brings everything back, with the audit log's history and si
 - **Enterprise:** a yearly subscription per deployment. The base plan includes 5 single sign-on seats and 100 million requests a year. Add seats as you grow: seats 6–25 and seats 26–100 each have their own price, and the per-seat price drops for the larger block. Monthly billing is available at a higher rate.
 - **More than 100 seats, or over a billion requests a year:** contact sales for volume pricing.
 
-The license key is shown as soon as payment completes. Checkout, trial keys and automatic renewal are being set up; until then, ask for a key through [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md).
+Plans, checkout and trial keys are at the **[license service](https://license-production-9780.up.railway.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
 
 ## API
 

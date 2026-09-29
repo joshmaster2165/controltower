@@ -117,11 +117,11 @@ export async function loadSession(ctx: AppContext, req: FastifyRequest): Promise
   const row = await ctx.db.read
     .selectFrom('sessions')
     .innerJoin('admins', 'admins.id', 'sessions.admin_id')
-    .select(['sessions.id', 'sessions.admin_id', 'sessions.csrf', 'sessions.expires_at', 'sessions.last_seen_at', 'admins.email', 'admins.role', 'admins.must_change_password'])
+    .select(['sessions.id', 'sessions.admin_id', 'sessions.csrf', 'sessions.expires_at', 'sessions.last_seen_at', 'admins.email', 'admins.role', 'admins.must_change_password', 'admins.disabled'])
     .where('sessions.id', '=', id)
     .executeTakeFirst();
   const now = Date.now();
-  if (!row || row.expires_at < now || now - row.last_seen_at > ctx.config.sessionIdleMs) return undefined;
+  if (!row || (row.disabled ?? 0) !== 0 || row.expires_at < now || now - row.last_seen_at > ctx.config.sessionIdleMs) return undefined;
   // Used now: kept alive (written at most once a minute).
   if (now - row.last_seen_at > 60_000) void ctx.db.write.updateTable('sessions').set({ last_seen_at: now }).where('id', '=', id).execute().catch(() => undefined);
   return { id: row.id, adminId: row.admin_id, email: row.email, csrf: row.csrf, expiresAt: row.expires_at, role: asRole(row.role), mustChangePassword: row.must_change_password === 1 };
@@ -246,6 +246,10 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     }
     // Always run the verifier so timing does not leak whether the email exists.
     const ok = await verifyPassword(body.password ?? '', admin?.password_hash ?? 'scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    if (admin && ok && (admin.disabled ?? 0) !== 0) {
+      await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: 'person', id: admin.id, email }, status: 403, detail: { method: 'password', reason: 'account deactivated' }, ...auditOrigin(req) });
+      return reply.status(403).send({ error: { code: 'account_disabled', message: 'This account has been deactivated. Ask an admin.' } });
+    }
     if (!admin || !ok) {
       await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: admin ? 'person' : 'anonymous', id: admin?.id, email }, status: 401, detail: { method: 'password', reason: admin ? 'wrong password' : 'no such person' }, ...auditOrigin(req) });
       await new Promise((r) => setTimeout(r, 250));

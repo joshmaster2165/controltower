@@ -2,7 +2,7 @@
 
 **Enterprise:** single sign-on needs a [Control Tower Enterprise](enterprise.md) license.
 
-People can sign in to the console through your identity provider, anything that speaks OpenID Connect: Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak, Ping, JumpCloud. Their groups at the provider decide their [role](people.md) here: admin, approver or viewer. Every sign-in, and every refused one, goes into the [audit log](audit.md).
+People can sign in to the console through your identity provider, over OpenID Connect or SAML 2.0: Okta, Microsoft Entra ID, Google Workspace, OneLogin, Auth0, Keycloak, Ping, JumpCloud, ADFS. With [SCIM](scim.md), the provider can also add, deactivate and remove people. Their groups at the provider decide their [role](people.md) here: admin, approver or viewer. Every sign-in, and every refused one, goes into the [audit log](audit.md).
 
 ## Set it up
 
@@ -27,6 +27,20 @@ People can sign in to the console through your identity provider, anything that 
 | Groups claim, and admin, approver and viewer groups | See below |
 | Anyone else | The role for someone in none of the groups: viewer, approver, admin, or **refused** |
 | Create people on first sign-in | On: someone who passes the checks above is added with their role the first time they sign in. Off: only people an admin already [added](people.md#adding-people) by email get in |
+
+## SAML
+
+Choose **SAML 2.0** when adding the identity provider:
+
+1. Enter the IdP's **SAML sign-in URL** (its single sign-on URL for HTTP-Redirect), its **signing certificate** (PEM, or the bare base64 many IdPs show), and its **entity ID** (issuer). Save.
+2. **Edit** it to see what to give the IdP: the **ACS (reply) URL** `…/admin/sso/<id>/acs`, the **entity ID (audience)** `…/admin/sso/<id>/metadata`, or just the **metadata URL** (the same address), which the IdP can read itself.
+3. In the IdP's SAML app, send the email as the NameID or as an attribute (`email`, `mail`, or set **Email attribute**), and groups as an attribute (set **Groups attribute** to its name, for example `groups` or Entra's `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`).
+4. **Test** checks the certificate can be read and hasn't expired.
+
+What a SAML sign-in must pass:
+- **The assertion is signed** with the certificate you entered. A signed response around an unsigned assertion isn't enough, and signature-wrapping tricks (an extra, unsigned assertion placed beside the signed one) are refused.
+- **It answers this sign-in.** Control Tower starts every SAML sign-in itself. The response must answer the request it sent (`InResponseTo`), from the same browser over https, within 10 minutes, and **only once**: posting the same response again is refused. Sign-ins started from the IdP's own app dashboard (IdP-initiated) are refused; people start from Control Tower's sign-in page.
+- **It's for this service provider** (audience), current (with a minute's clock skew), and, with the entity ID set, from your IdP.
 
 ## Groups and roles
 
@@ -59,7 +73,8 @@ Someone an admin added by email is linked to their provider identity the first t
 
 - The sign-in uses the authorization code flow with PKCE, plus `state` and `nonce`. The state travels in a short-lived (10 minute) encrypted cookie that works only for the sign-in callback. A callback can't be replayed, and a stolen or altered state is refused.
 - The ID token's issuer, audience, expiry and nonce are checked, and so is its signature, against the keys the provider publishes. The OIDC spec allows skipping the signature for tokens fetched directly over TLS; Control Tower checks both.
-- Issuers must use https. Plain http is allowed only for a provider on the same machine (`localhost`), for development.
+- Issuers and SAML sign-in URLs must use https. Plain http is allowed only for a provider on the same machine (`localhost`), for development.
+- SAML signatures are checked by `node-saml` with `xml-crypto` 6, pinned; the checks above are tested against tampered, unsigned, foreign-signed, wrapped, misaddressed, expired and replayed responses.
 - Sign-in attempts are limited per address (three times `CT_LOGIN_RPM` a minute).
 
 ## Only single sign-on
@@ -83,10 +98,13 @@ Admins only, except `GET /admin/api/sso`, which the sign-in page reads without s
 | Method | Path | |
 |---|---|---|
 | GET | `/admin/api/sso` | `{providers: [{id, name}], sso_only}`: what the sign-in page offers |
-| GET, POST | `/admin/api/identity-providers` | List, with each provider's redirect URL, `sso_only` and `admin_key_set`; add one: `{name, issuer, client_id, client_secret, allowed_domains, groups_claim, role_map: {admin: [...], approver: [...], viewer: [...]}, default_role, create_users, token_auth}` |
+| GET, POST | `/admin/api/identity-providers` | List, with each provider's redirect URL (OIDC), ACS URL and entity ID (SAML), `sso_only` and `admin_key_set`; add one. OIDC: `{name, issuer, client_id, client_secret, token_auth, …}`. SAML: `{kind: "saml", name, saml_entry_point, saml_idp_cert, saml_idp_issuer, email_attribute, …}`. Both: `allowed_domains, groups_claim, role_map: {admin: [...], approver: [...], viewer: [...]}, default_role, create_users` |
 | PATCH, DELETE | `/admin/api/identity-providers/:id` | Change (also `enabled`) or remove. Removing unlinks the people who signed in with it |
-| POST | `/admin/api/identity-providers/:id/test` | Load the provider's discovery document |
+| POST | `/admin/api/identity-providers/:id/test` | OIDC: load the provider's discovery document. SAML: read the signing certificate and its expiry |
+| POST, DELETE | `/admin/api/identity-providers/:id/scim-token` | Issue (shown once) or revoke the provider's [SCIM](scim.md) token |
 | PUT | `/admin/api/sso/settings` | `{sso_only: true | false}` |
-| GET | `/admin/sso/:id/start`, `/admin/sso/:id/callback` | The browser sign-in itself |
+| GET | `/admin/sso/:id/start`, `/admin/sso/:id/callback` | The browser sign-in itself (OIDC) |
+| POST | `/admin/sso/:id/acs` | Where the IdP posts its SAML response |
+| GET | `/admin/sso/:id/metadata` | This service provider's SAML metadata (also its entity ID) |
 
 Refused sign-ins come back to the sign-in page as `/?sso_error=<reason>`. A password sign-in while passwords are off answers `403 sso_required`.

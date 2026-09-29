@@ -2,7 +2,7 @@
   "name": "controltower",
   "version": "0.1.8",
   "private": true,
-  "description": "Control Tower — self-hosted AI gateway with a live, animated map of agent traffic, visual access rules and human approvals.",
+  "description": "Control Tower \u2014 self-hosted AI gateway with a live, animated map of agent traffic, visual access rules and human approvals.",
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.30.3",
   "engines": {
@@ -51,5 +51,10 @@
     "vitest": "^5.0.1",
     "ws": "8.21.3",
     "zod": "^4.6.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "xml-crypto": "6.3.2"
+    }
   }
 }

@@ -13,6 +13,9 @@ interface User {
   last_seen_at: number | null;
   must_change_password: boolean;
   sso: boolean;
+  provisioned: boolean;
+  disabled: boolean;
+  display_name: string | null;
 }
 
 const ROLE_TEXT: Record<Role, string> = {
@@ -124,7 +127,10 @@ export function UsersPage() {
                   <span className="strong">{u.email}</span>
                   {u.id === (me as { id?: string } | null)?.id || u.email === me?.email ? <span className="sub">you</span> : null}
                   {u.must_change_password && <span className="sub">has a one-time password</span>}
+                  {u.display_name && <span className="sub">{u.display_name}</span>}
                   {u.sso && <span className="sub">signs in with single sign-on</span>}
+                  {u.provisioned && <span className="sub">provisioned by your identity provider</span>}
+                  {u.disabled && <span className="tag muted">deactivated</span>}
                 </td>
                 <td>
                   <select className="input" style={{ width: 150 }} value={u.role} onChange={(e) => void run(() => api.patch(`/admin/api/users/${u.id}`, { role: e.target.value }))}>

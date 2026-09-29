@@ -16,6 +16,15 @@ export type TokenAuth = 'client_secret_basic' | 'client_secret_post' | 'none';
 export interface IdentityProvider {
   id: string;
   name: string;
+  kind: 'oidc' | 'saml';
+  /** SAML: the IdP's sign-in URL, signing certificate (PEM) and entity ID. */
+  samlEntryPoint: string | undefined;
+  samlIdpCert: string | undefined;
+  samlIdpIssuer: string | undefined;
+  /** The claim or attribute with the email, when not one of the usual ones. */
+  emailAttribute: string | undefined;
+  /** A SCIM token is set (its hash is stored; the token itself only shown once). */
+  scimTokenSet: boolean;
   issuer: string;
   clientId: string;
   clientSecret: string | undefined;
@@ -32,7 +41,7 @@ export interface IdentityProvider {
 
 /** A sign-in that got as far as the IdP and back: who they are, and the role they get (or why they don't). */
 export type SsoResult =
-  | { ok: true; subject: string; email: string; role: SsoRole; groups: string[] }
+  | { ok: true; subject: string; email: string; role: SsoRole | undefined; groups: string[] }
   | { ok: false; reason: string; email?: string | undefined };
 
 const aad = (id: string) => `identity_providers.client_secret_enc.${id}`;
@@ -79,6 +88,12 @@ export class SsoService {
     return {
       id: r.id,
       name: r.name,
+      kind: r.kind === 'saml' ? 'saml' : 'oidc',
+      samlEntryPoint: r.saml_entry_point ?? undefined,
+      samlIdpCert: r.saml_idp_cert ?? undefined,
+      samlIdpIssuer: r.saml_idp_issuer ?? undefined,
+      emailAttribute: r.email_attribute ?? undefined,
+      scimTokenSet: !!r.scim_token_hash,
       issuer: r.issuer,
       clientId: r.client_id,
       clientSecret: r.client_secret_enc ? this.secrets.decrypt(r.client_secret_enc, aad(r.id)) : undefined,
@@ -145,15 +160,14 @@ export class SsoService {
     const tokens = await oidc.authorizationCodeGrant(config, callbackUrl, { pkceCodeVerifier: checks.verifier, expectedState: checks.state, expectedNonce: checks.nonce, idTokenExpected: true });
     const claims = (tokens.claims() ?? {}) as Record<string, unknown>;
     const subject = typeof claims.sub === 'string' ? claims.sub : '';
-    const email = String(claims.email ?? claims.preferred_username ?? claims.upn ?? '').trim().toLowerCase();
+    const email = String((p.emailAttribute ? claims[p.emailAttribute] : undefined) ?? claims.email ?? claims.preferred_username ?? claims.upn ?? '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'The identity provider sent no subject.' };
     if (!email.includes('@')) return { ok: false, reason: 'The identity provider sent no email address. Add the email scope or claim for this app.' };
     if (claims.email_verified === false) return { ok: false, reason: 'The identity provider says this email address is not verified.', email };
     const domain = email.split('@')[1] ?? '';
     if (p.allowedDomains.length && !p.allowedDomains.some((d) => d.toLowerCase() === domain)) return { ok: false, reason: `${domain} is not one of the email domains allowed to sign in.`, email };
     const groups = groupsFrom(claims, p.groupsClaim);
-    const role = roleFor(p, groups);
-    if (!role) return { ok: false, reason: 'You are in none of the groups allowed to sign in. Ask an admin to add you.', email };
-    return { ok: true, subject, email, role, groups };
+    // No role from the token's groups is decided later: someone provisioned over SCIM gets their role from SCIM.
+    return { ok: true, subject, email, role: roleFor(p, groups), groups };
   }
 }

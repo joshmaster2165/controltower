@@ -792,3 +792,38 @@ migrations.push({
 ALTER TABLE identity_providers ADD COLUMN token_auth TEXT NOT NULL DEFAULT 'client_secret_basic';
 `,
 });
+
+migrations.push({
+  version: 27,
+  name: 'saml_and_scim',
+  sqlite: `
+ALTER TABLE identity_providers ADD COLUMN saml_entry_point TEXT;
+ALTER TABLE identity_providers ADD COLUMN saml_idp_cert TEXT;
+ALTER TABLE identity_providers ADD COLUMN saml_idp_issuer TEXT;
+ALTER TABLE identity_providers ADD COLUMN email_attribute TEXT;
+ALTER TABLE identity_providers ADD COLUMN scim_token_hash TEXT;
+ALTER TABLE identity_providers ADD COLUMN scim_token_last4 TEXT;
+ALTER TABLE admins ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admins ADD COLUMN display_name TEXT;
+ALTER TABLE admins ADD COLUMN scim_provider_id TEXT;
+ALTER TABLE admins ADD COLUMN scim_external_id TEXT;
+CREATE TABLE scim_groups (
+  id           TEXT PRIMARY KEY,
+  provider_id  TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  external_id  TEXT,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX scim_groups_name ON scim_groups (provider_id, display_name);
+CREATE TABLE scim_group_members (
+  group_id  TEXT NOT NULL,
+  admin_id  TEXT NOT NULL,
+  PRIMARY KEY (group_id, admin_id)
+);
+CREATE TABLE sso_used (
+  id          TEXT PRIMARY KEY,
+  expires_at  INTEGER NOT NULL
+);
+`,
+});

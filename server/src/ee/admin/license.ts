@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../../context.js';
 import { requireAdmin } from '../../admin/auth.js';
 import { LICENSE_STORE, type Feature } from '../license.js';
+import { seatsUsed } from '../seats.js';
 
 const NAMES: Record<Feature, string> = {
   sso: 'Single sign-on',
@@ -55,8 +56,7 @@ export async function licenseRoutes(app: FastifyInstance, ctx: AppContext): Prom
 
   // Everyone signed in sees the state (the console shows a banner when a license is ending); admins change it.
   app.get('/admin/api/license', { preHandler: guard }, async () => {
-    const seatsUsed = Number((await ctx.db.read.selectFrom('admins').select((eb) => eb.fn.countAll<number>().as('n')).where('sso_subject', 'is not', null).executeTakeFirst())?.n ?? 0);
-    return { ...publicLicense(ctx), seats_used: seatsUsed };
+    return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read) };
   });
 
   app.put('/admin/api/license', { preHandler: guard }, async (req, reply) => {

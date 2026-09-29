@@ -2,7 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { AppContext } from '../../context.js';
 import { hashPassword, randomToken } from '../../crypto/secrets.js';
-import { SsoService, issuerProblem, type IdentityProvider, type SsoRole } from '../oidc.js';
+import { SsoService, issuerProblem, type IdentityProvider, type SsoResult, type SsoRole } from '../oidc.js';
+import { seatsUsed } from '../seats.js';
+import { samlFinish, samlMetadata, samlStart } from '../saml.js';
+import { X509Certificate } from 'node:crypto';
+import { scimTokenRoutes } from '../scim.js';
 import { asRole, auditOrigin, createSession, requireAdmin, setCookie, ssoOnly } from '../../admin/auth.js';
 import { requireEnterprise } from './license.js';
 
@@ -16,6 +20,10 @@ function baseUrl(ctx: AppContext, req: FastifyRequest): string {
   return `${req.protocol}://${req.host}`;
 }
 const redirectUri = (base: string, id: string) => `${base}/admin/sso/${id}/callback`;
+/** SAML: where the IdP posts its response, and this service provider's entity ID (also its metadata URL). */
+const acsUrl = (base: string, id: string) => `${base}/admin/sso/${id}/acs`;
+const spEntityId = (base: string, id: string) => `${base}/admin/sso/${id}/metadata`;
+const SAML_COOKIE = 'ct_saml';
 
 function publicProvider(p: IdentityProvider, base: string, row?: { last_status: string | null; last_error: string | null }) {
   return {
@@ -32,7 +40,17 @@ function publicProvider(p: IdentityProvider, base: string, row?: { last_status: 
     create_users: p.createUsers,
     enabled: p.enabled,
     token_auth: p.tokenAuth,
+    kind: p.kind,
     redirect_uri: redirectUri(base, p.id),
+    saml_entry_point: p.samlEntryPoint ?? null,
+    saml_idp_cert_set: !!p.samlIdpCert,
+    saml_idp_issuer: p.samlIdpIssuer ?? null,
+    email_attribute: p.emailAttribute ?? null,
+    acs_url: acsUrl(base, p.id),
+    sp_entity_id: spEntityId(base, p.id),
+    metadata_url: spEntityId(base, p.id),
+    scim_token_set: p.scimTokenSet,
+    scim_url: `${base}/scim/v2`,
     last_status: row?.last_status ?? null,
     last_error: row?.last_error ?? null,
   };
@@ -50,6 +68,60 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
   const failTo = (reply: FastifyReply, message: string) => reply.redirect(`/?sso_error=${encodeURIComponent(message)}`, 303);
   const clearState = (reply: FastifyReply) => reply.clearCookie(STATE_COOKIE, { path: '/admin/sso' });
 
+  type Deny = (reason: string, email?: string, shown?: string) => Promise<FastifyReply>;
+  /**
+   * After the IdP vouched for someone (OIDC or SAML): who they are here, whether a seat covers them, their role,
+   * and a session. Someone who signed in this way before is found by their IdP identity; otherwise by email (an
+   * admin or SCIM added them), or created.
+   */
+  const complete = async (p: IdentityProvider, result: Extract<SsoResult, { ok: true }>, origin: ReturnType<typeof auditOrigin>, deny: Deny, reply: FastifyReply, method: 'oidc' | 'saml'): Promise<FastifyReply> => {
+    const w = ctx.db.write;
+    const noGroup = 'You are in none of the groups allowed to sign in. Ask an admin to add you.';
+    let person = await w.selectFrom('admins').selectAll().where('sso_provider_id', '=', p.id).where('sso_subject', '=', result.subject).executeTakeFirst();
+    if (!person) {
+      const pre = await w.selectFrom('admins').select('scim_provider_id').where('email', '=', result.email).executeTakeFirst();
+      // Roles from the IdP's groups apply to people it didn't provision over SCIM (SCIM decides for those).
+      if (!pre?.scim_provider_id && !result.role) return deny('in none of the groups allowed to sign in', result.email, noGroup);
+      const byEmail = await w.selectFrom('admins').selectAll().where('email', '=', result.email).executeTakeFirst();
+      if (byEmail && byEmail.sso_subject && (byEmail.sso_provider_id !== p.id || byEmail.sso_subject !== result.subject)) {
+        return deny('email already linked to another single sign-on identity', result.email, 'This email signs in through another identity. Ask an admin.');
+      }
+      // Seats: people who come in through Enterprise identity. Someone already counted (provisioned by SCIM) isn't charged twice.
+      if (!byEmail?.scim_provider_id && (await seatsUsed(w)) >= ctx.license.seats) {
+        return deny(`over the license's ${ctx.license.seats} single sign-on seats`, result.email, `Control Tower's license covers ${ctx.license.seats} ${ctx.license.seats === 1 ? 'person' : 'people'} signing in with single sign-on, and all seats are taken. Ask an admin to add seats.`);
+      }
+      if (byEmail) {
+        await w.updateTable('admins').set({ sso_provider_id: p.id, sso_subject: result.subject }).where('id', '=', byEmail.id).execute();
+        person = { ...byEmail, sso_provider_id: p.id, sso_subject: result.subject };
+      } else if (p.createUsers) {
+        const newId = ulid();
+        // No usable password: they sign in through the IdP (an admin can still give them a one-time password).
+        await w.insertInto('admins').values({ id: newId, email: result.email, password_hash: await hashPassword(randomToken(32)), created_at: Date.now(), role: result.role ?? 'viewer', must_change_password: 0, sso_provider_id: p.id, sso_subject: result.subject }).execute();
+        person = await w.selectFrom('admins').selectAll().where('id', '=', newId).executeTakeFirstOrThrow();
+        await ctx.audit?.record({ action: 'users.create', outcome: 'success', actor: { type: 'system' }, status: 201, target: { type: 'users', id: newId }, detail: { reason: 'first single sign-on', provider: p.name, email: result.email, role: result.role }, ...origin });
+      } else {
+        return deny('not added to Control Tower (new people are not created from this provider)', result.email, 'You have not been added to Control Tower. Ask an admin to add you.');
+      }
+    }
+    if ((person.disabled ?? 0) !== 0) return deny('account deactivated', result.email, 'This account has been deactivated. Ask an admin.');
+    const scim = !!person.scim_provider_id;
+    if (!scim && !result.role && p.groupsClaim) return deny('in none of the groups allowed to sign in', result.email, noGroup);
+    // With groups mapped, the IdP decides the role at every sign-in: moving someone between groups changes it here.
+    // (For people provisioned over SCIM, SCIM's groups decide instead.)
+    let role = asRole(person.role);
+    if (!scim && p.groupsClaim && result.role && role !== result.role) {
+      await w.updateTable('admins').set({ role: result.role }).where('id', '=', person.id).execute();
+      await w.deleteFrom('sessions').where('admin_id', '=', person.id).execute();
+      await ctx.audit?.record({ action: 'users.update', outcome: 'success', actor: { type: 'system' }, status: 200, target: { type: 'users', id: person.id }, detail: { reason: 'groups changed at the identity provider', provider: p.name, from: role, to: result.role }, ...origin });
+      role = result.role;
+    }
+    const s = await createSession(ctx, person.id, person.email, role);
+    setCookie(ctx, reply, s);
+    clearState(reply);
+    await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'success', actor: { type: 'person', id: person.id, email: person.email, role }, status: 200, detail: { method, provider: p.name, groups: result.groups.slice(0, 50) }, ...origin });
+    return reply.redirect('/', 303);
+  };
+
   // For the sign-in page: which providers to offer, and whether passwords still work. Nothing else.
   app.get('/admin/api/sso', async () => {
     const providers = licensed() ? (await sso.list()).filter((p) => p.enabled).map((p) => ({ id: p.id, name: p.name })) : [];
@@ -62,7 +134,25 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     if (!licensed()) return failTo(reply, 'Single sign-on needs a Control Tower Enterprise license. Sign in with a password, or ask an admin.');
     const p = await sso.get((req.params as { id: string }).id);
     if (!p || !p.enabled) return failTo(reply, 'That sign-in option is not available.');
-    const uri = redirectUri(baseUrl(ctx, req), p.id);
+    const base = baseUrl(ctx, req);
+    if (p.kind === 'saml') {
+      const nonce = randomToken(16);
+      let url: URL;
+      try {
+        const st = await samlStart(p, acsUrl(base, p.id), spEntityId(base, p.id), '');
+        // RelayState carries the sealed sign-in (the IdP returns it unchanged): the request id the response must
+        // answer, for this provider, until it expires. Requests aren't signed, so it can be set on the URL here.
+        url = new URL(st.url);
+        url.searchParams.set('RelayState', ctx.secrets.encrypt(JSON.stringify({ p: p.id, rid: st.requestId, inst: st.instant, n: nonce, e: Date.now() + STATE_TTL_MS }), 'saml-state'));
+      } catch (err) {
+        ctx.log.warn({ err: (err as Error).message, provider: p.name }, 'single sign-on: SAML sign-in could not start');
+        return failTo(reply, `${p.name} is not set up correctly. Ask an admin to check its settings.`);
+      }
+      // Over https a cookie binds the sign-in to this browser too (SameSite=None: the IdP posts back cross-site).
+      if (base.startsWith('https://')) reply.setCookie(SAML_COOKIE, nonce, { path: '/admin/sso', httpOnly: true, sameSite: 'none', secure: true, maxAge: STATE_TTL_MS / 1000 });
+      return reply.redirect(url.href, 302);
+    }
+    const uri = redirectUri(base, p.id);
     let start;
     try {
       start = await sso.start(p, uri);
@@ -81,7 +171,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     const q = req.query as Record<string, string | undefined>;
     const origin = auditOrigin(req);
     const deny = async (reason: string, email?: string, shown = reason) => {
-      await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: 'anonymous', email }, status: 403, detail: { method: 'sso', provider: id, reason }, ...origin });
+      await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: 'anonymous', email }, status: 403, detail: { method: 'oidc', provider: id, reason }, ...origin });
       clearState(reply);
       return failTo(reply, shown);
     };
@@ -111,49 +201,69 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     }
     if (!result.ok) return deny(result.reason, result.email, result.reason);
 
-    // Who this is here: someone who signed in this way before, or someone an admin added by email.
-    const w = ctx.db.write;
-    let person = await w.selectFrom('admins').selectAll().where('sso_provider_id', '=', p.id).where('sso_subject', '=', result.subject).executeTakeFirst();
-    if (!person) {
-      const byEmail = await w.selectFrom('admins').selectAll().where('email', '=', result.email).executeTakeFirst();
-      if (byEmail && byEmail.sso_subject && (byEmail.sso_provider_id !== p.id || byEmail.sso_subject !== result.subject)) {
-        return deny('email already linked to another single sign-on identity', result.email, 'This email signs in through another identity. Ask an admin.');
-      }
-      // Seats: the people the license covers signing in this way. Someone already linked never counts against it.
-      const linked = Number((await w.selectFrom('admins').select((eb) => eb.fn.countAll<number>().as('n')).where('sso_subject', 'is not', null).executeTakeFirst())?.n ?? 0);
-      if (linked >= ctx.license.seats) {
-        return deny(`over the license's ${ctx.license.seats} single sign-on seats`, result.email, `Control Tower's license covers ${ctx.license.seats} ${ctx.license.seats === 1 ? 'person' : 'people'} signing in with single sign-on, and all seats are taken. Ask an admin to add seats.`);
-      }
-      if (byEmail) {
-        await w.updateTable('admins').set({ sso_provider_id: p.id, sso_subject: result.subject }).where('id', '=', byEmail.id).execute();
-        person = { ...byEmail, sso_provider_id: p.id, sso_subject: result.subject };
-      } else if (p.createUsers) {
-        const newId = ulid();
-        // No usable password: they sign in through the IdP (an admin can still give them a one-time password).
-        await w.insertInto('admins').values({ id: newId, email: result.email, password_hash: await hashPassword(randomToken(32)), created_at: Date.now(), role: result.role, must_change_password: 0, sso_provider_id: p.id, sso_subject: result.subject }).execute();
-        person = await w.selectFrom('admins').selectAll().where('id', '=', newId).executeTakeFirstOrThrow();
-        await ctx.audit?.record({ action: 'users.create', outcome: 'success', actor: { type: 'system' }, status: 201, target: { type: 'users', id: newId }, detail: { reason: 'first single sign-on', provider: p.name, email: result.email, role: result.role }, ...origin });
-      } else {
-        return deny('not added to Control Tower (new people are not created from this provider)', result.email, 'You have not been added to Control Tower. Ask an admin to add you.');
-      }
-    }
-    // With groups mapped, the IdP decides the role at every sign-in: moving someone between groups changes it here.
-    let role = asRole(person.role);
-    if (p.groupsClaim && role !== result.role) {
-      await w.updateTable('admins').set({ role: result.role }).where('id', '=', person.id).execute();
-      await w.deleteFrom('sessions').where('admin_id', '=', person.id).execute();
-      await ctx.audit?.record({ action: 'users.update', outcome: 'success', actor: { type: 'system' }, status: 200, target: { type: 'users', id: person.id }, detail: { reason: 'groups changed at the identity provider', provider: p.name, from: role, to: result.role }, ...origin });
-      role = result.role;
-    }
-    const s = await createSession(ctx, person.id, person.email, role);
-    setCookie(ctx, reply, s);
-    clearState(reply);
-    await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'success', actor: { type: 'person', id: person.id, email: person.email, role }, status: 200, detail: { method: 'sso', provider: p.name, groups: result.groups.slice(0, 50) }, ...origin });
-    return reply.redirect('/', 303);
+    return complete(p, result, origin, deny, reply, 'oidc');
   });
+
+  // SAML: the IdP posts its response here (a cross-site form POST, so only this route parses form bodies).
+  await app.register(async (saml) => {
+    saml.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 1024 * 1024 }, (_req, body, done) => done(null, Object.fromEntries(new URLSearchParams(String(body)))));
+    saml.post('/admin/sso/:id/acs', async (req, reply) => {
+      const id = (req.params as { id: string }).id;
+      const origin = auditOrigin(req);
+      const deny: Deny = async (reason, email, shown = reason) => {
+        await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'denied', actor: { type: 'anonymous', email }, status: 403, detail: { method: 'saml', provider: id, reason }, ...origin });
+        reply.clearCookie(SAML_COOKIE, { path: '/admin/sso' });
+        return failTo(reply, shown);
+      };
+      const slow = await ctx.limiter.admit(`sso:ip:${req.ip}`, 1, { rpm: ctx.config.loginRpm * 3 });
+      if (!slow.ok) return failTo(reply, 'Too many sign-in attempts. Wait a minute and try again.');
+      const body = (req.body ?? {}) as Record<string, string>;
+      if (!body.SAMLResponse) return deny('no SAMLResponse in the post', undefined, 'The identity provider sent nothing to sign in with.');
+      let st: { p: string; rid: string; inst: string; n: string; e: number };
+      try {
+        st = JSON.parse(ctx.secrets.decrypt(body.RelayState ?? '', 'saml-state'));
+      } catch {
+        return deny('no sign-in in progress (missing or altered RelayState: IdP-initiated sign-in is not accepted)', undefined, 'Start signing in from Control Tower, not from the identity provider.');
+      }
+      if (st.p !== id || st.e < Date.now()) return deny('sign-in expired or for another provider', undefined, 'This sign-in expired. Start again.');
+      const base = baseUrl(ctx, req);
+      if (base.startsWith('https://') && req.cookies?.[SAML_COOKIE] !== st.n) return deny('sign-in started in another browser', undefined, 'This sign-in was started in another browser. Start again.');
+      if (!licensed()) return deny('no Enterprise license', undefined, 'Single sign-on needs a Control Tower Enterprise license. Sign in with a password, or ask an admin.');
+      const p = await sso.get(id);
+      if (!p || !p.enabled || p.kind !== 'saml') return deny('provider removed or turned off', undefined, 'That sign-in option is not available.');
+      let result;
+      try {
+        result = await samlFinish(p, acsUrl(base, p.id), spEntityId(base, p.id), { SAMLResponse: body.SAMLResponse, ...(body.RelayState ? { RelayState: body.RelayState } : {}) }, { id: st.rid, instant: st.inst });
+      } catch (err) {
+        ctx.log.warn({ err: (err as Error).message, provider: p.name }, 'SAML sign-in refused');
+        return deny(`the SAML response could not be verified: ${(err as Error).message}`, undefined, 'The sign-in could not be verified. Start again.');
+      }
+      if (!result.ok) return deny(result.reason, result.email, result.reason);
+      // Once only: the first post of a response wins; the same response again (a replay) is refused.
+      const first = await ctx.db.write.insertInto('sso_used').values({ id: `saml:${st.rid}`, expires_at: st.e + 60_000 }).onConflict((oc) => oc.column('id').doNothing()).executeTakeFirst();
+      if (Number(first.numInsertedOrUpdatedRows ?? 0) === 0) return deny('a SAML response for this request was already used (replay)', result.email, 'This sign-in was already used. Start again.');
+      reply.clearCookie(SAML_COOKIE, { path: '/admin/sso' });
+      return complete(p, result, origin, deny, reply, 'saml');
+    });
+  });
+
+  // SAML: this service provider's metadata (entity ID, ACS URL), for the IdP's app settings.
+  app.get('/admin/sso/:id/metadata', async (req, reply) => {
+    const p = await sso.get((req.params as { id: string }).id);
+    if (!p || p.kind !== 'saml') return reply.status(404).send({ error: { code: 'not_found', message: 'no SAML provider here' } });
+    const base = baseUrl(ctx, req);
+    return reply.type('application/samlmetadata+xml').send(samlMetadata(p, acsUrl(base, p.id), spEntityId(base, p.id)));
+  });
+
+  await scimTokenRoutes(app, ctx, [requireAdmin(ctx), requireEnterprise(ctx, 'scim')]);
 
   // Settings, for admins.
   interface Body {
+    kind?: string;
+    saml_entry_point?: string;
+    saml_idp_cert?: string;
+    saml_idp_issuer?: string | null;
+    email_attribute?: string | null;
     name?: string;
     issuer?: string;
     client_id?: string;
@@ -167,13 +277,27 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     enabled?: boolean;
     token_auth?: string;
   }
-  const check = (b: Body, partial: boolean): string | undefined => {
+  const check = (b: Body, partial: boolean, kind: 'oidc' | 'saml'): string | undefined => {
     if (!partial || b.name !== undefined) if (!b.name?.trim() || b.name.length > 80) return 'Give it a name people will recognise on the sign-in page, such as "Okta".';
-    if (!partial || b.issuer !== undefined) {
-      const problem = issuerProblem(b.issuer ?? '');
-      if (problem) return problem;
+    if (kind === 'saml') {
+      if (!partial || b.saml_entry_point !== undefined) {
+        const problem = issuerProblem(b.saml_entry_point ?? '');
+        if (problem) return problem.replace('issuer', 'SAML sign-in URL');
+      }
+      if (!partial || b.saml_idp_cert !== undefined) {
+        try {
+          new X509Certificate(pem(b.saml_idp_cert ?? ''));
+        } catch {
+          return 'Paste the identity provider\'s signing certificate (X.509, PEM or base64).';
+        }
+      }
+    } else {
+      if (!partial || b.issuer !== undefined) {
+        const problem = issuerProblem(b.issuer ?? '');
+        if (problem) return problem;
+      }
+      if (!partial || b.client_id !== undefined) if (!b.client_id?.trim()) return 'Enter the client ID from your identity provider.';
     }
-    if (!partial || b.client_id !== undefined) if (!b.client_id?.trim()) return 'Enter the client ID from your identity provider.';
     if (b.default_role !== undefined && ![...ROLES, 'none'].includes(b.default_role)) return 'default_role must be admin, approver, viewer or none.';
     if (b.token_auth !== undefined && !['client_secret_basic', 'client_secret_post', 'none'].includes(b.token_auth)) return 'token_auth must be client_secret_basic, client_secret_post or none.';
     if (b.role_map !== undefined) {
@@ -182,7 +306,17 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     if (b.allowed_domains !== undefined && (!Array.isArray(b.allowed_domains) || b.allowed_domains.some((d) => typeof d !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)))) return 'allowed_domains is a list of email domains, such as example.com.';
     return undefined;
   };
+  /** A certificate as PEM, whether it was pasted as PEM or as the bare base64 IdPs often show. */
+  const pem = (c: string) => {
+    const t = c.trim();
+    if (t.includes('BEGIN CERTIFICATE')) return t;
+    return `-----BEGIN CERTIFICATE-----\n${t.replace(/\s+/g, '').replace(/(.{64})/g, '$1\n')}\n-----END CERTIFICATE-----`;
+  };
   const columns = (b: Body, id: string): Record<string, unknown> => ({
+    ...(b.saml_entry_point !== undefined ? { saml_entry_point: b.saml_entry_point.trim() } : {}),
+    ...(b.saml_idp_cert !== undefined ? { saml_idp_cert: pem(b.saml_idp_cert) } : {}),
+    ...(b.saml_idp_issuer !== undefined ? { saml_idp_issuer: b.saml_idp_issuer?.trim() || null } : {}),
+    ...(b.email_attribute !== undefined ? { email_attribute: b.email_attribute?.trim() || null } : {}),
     ...(b.name !== undefined ? { name: b.name.trim() } : {}),
     ...(b.issuer !== undefined ? { issuer: b.issuer.trim().replace(/\/+$/, '') } : {}),
     ...(b.client_id !== undefined ? { client_id: b.client_id.trim() } : {}),
@@ -211,7 +345,8 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
 
   app.post('/admin/api/identity-providers', { preHandler: guard }, async (req, reply) => {
     const b = (req.body ?? {}) as Body;
-    const problem = check(b, false);
+    const kind = b.kind === 'saml' ? 'saml' : 'oidc';
+    const problem = check(b, false, kind);
     if (problem) return bad(reply, problem);
     const id = ulid();
     const now = Date.now();
@@ -220,7 +355,9 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       .values({
         id,
         name: '',
-        issuer: '',
+        kind,
+        // SAML has no OIDC issuer or client: the IdP's sign-in URL stands in (the columns are required).
+        issuer: kind === 'saml' ? (b.saml_idp_issuer || b.saml_entry_point || '') : '',
         client_id: '',
         client_secret_enc: null,
         scopes: 'openid email profile',
@@ -244,9 +381,10 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
 
   app.patch('/admin/api/identity-providers/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    if (!(await sso.get(id))) return reply.status(404).send({ error: { code: 'not_found', message: 'identity provider not found' } });
+    const existing = await sso.get(id);
+    if (!existing) return reply.status(404).send({ error: { code: 'not_found', message: 'identity provider not found' } });
     const b = (req.body ?? {}) as Body;
-    const problem = check(b, true);
+    const problem = check(b, true, existing.kind);
     if (problem) return bad(reply, problem);
     await ctx.db.write.updateTable('identity_providers').set({ ...columns(b, id), updated_at: Date.now() }).where('id', '=', id).execute();
     return { ok: true, provider: publicProvider((await sso.get(id))!, baseUrl(ctx, req)) };
@@ -266,6 +404,17 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     const p = await sso.get((req.params as { id: string }).id);
     if (!p) return reply.status(404).send({ error: { code: 'not_found', message: 'identity provider not found' } });
     let result: { ok: boolean; message: string; authorization_endpoint?: string | undefined };
+    if (p.kind === 'saml') {
+      try {
+        const cert = new X509Certificate(p.samlIdpCert ?? '');
+        const until = new Date(cert.validTo);
+        result = until.getTime() < Date.now() ? { ok: false, message: `The signing certificate expired on ${until.toISOString().slice(0, 10)}.` } : { ok: true, message: `Signing certificate for ${cert.subject.replace(/\n/g, ', ')}, valid until ${until.toISOString().slice(0, 10)}.` };
+      } catch {
+        result = { ok: false, message: 'The signing certificate could not be read.' };
+      }
+      await ctx.db.write.updateTable('identity_providers').set({ last_status: result.ok ? 'ok' : 'error', last_error: result.ok ? null : result.message }).where('id', '=', p.id).execute();
+      return result;
+    }
     try {
       const meta = (await sso.config(p)).serverMetadata();
       result = { ok: true, message: `Found ${meta.issuer}.`, authorization_endpoint: meta.authorization_endpoint };

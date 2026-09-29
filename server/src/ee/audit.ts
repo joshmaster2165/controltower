@@ -16,7 +16,7 @@ import { scrub } from '../providers/adapter.js';
 
 export type AuditOutcome = 'success' | 'denied' | 'failure';
 export interface AuditActor {
-  type: 'person' | 'admin_key' | 'anonymous' | 'system';
+  type: 'person' | 'admin_key' | 'anonymous' | 'system' | 'scim';
   id?: string | undefined;
   email?: string | undefined;
   role?: string | undefined;

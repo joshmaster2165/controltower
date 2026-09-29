@@ -25,6 +25,12 @@ export interface AdminsTable {
   /** Signs in through this identity provider, as this subject (the IdP's stable id for the person). */
   sso_provider_id?: string | null;
   sso_subject?: string | null;
+  /** 0 active; 1 deactivated (by the IdP over SCIM); 2 in no group that gives a role. Only 0 signs in. */
+  disabled?: Bool;
+  display_name?: string | null;
+  /** Provisioned by this identity provider over SCIM, with the IdP's id for the person. */
+  scim_provider_id?: string | null;
+  scim_external_id?: string | null;
 }
 
 export interface SessionsTable {
@@ -525,6 +531,29 @@ export interface Database {
   schema_migrations: SchemaMigrationsTable;
   audit_events: AuditEventsTable;
   identity_providers: IdentityProvidersTable;
+  scim_groups: ScimGroupsTable;
+  scim_group_members: ScimGroupMembersTable;
+  sso_used: SsoUsedTable;
+}
+
+/** Single sign-on requests already answered (SAML request ids): a response is accepted once. */
+export interface SsoUsedTable {
+  id: string;
+  expires_at: number;
+}
+
+/** Groups an identity provider pushes over SCIM; their names map to roles through the provider's role map. */
+export interface ScimGroupsTable {
+  id: string;
+  provider_id: string;
+  display_name: string;
+  external_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+export interface ScimGroupMembersTable {
+  group_id: string;
+  admin_id: string;
 }
 
 /** Who changed what in Control Tower, and who tried. Each row carries the hash of the one before it. */
@@ -575,6 +604,15 @@ export interface IdentityProvidersTable {
   create_users: Bool;
   /** How Control Tower authenticates to the token endpoint: client_secret_basic, client_secret_post or none (PKCE only). */
   token_auth: string;
+  /** kind "saml": the IdP's single sign-on URL, its signing certificate (PEM, public), and its entity ID. */
+  saml_entry_point: string | null;
+  saml_idp_cert: string | null;
+  saml_idp_issuer: string | null;
+  /** The attribute (SAML) or claim holding the email, when not the usual ones. */
+  email_attribute: string | null;
+  /** SCIM: the provisioning token's hash (the token is shown once) and its last four characters. */
+  scim_token_hash: string | null;
+  scim_token_last4: string | null;
   enabled: Bool;
   last_status: string | null;
   last_error: string | null;

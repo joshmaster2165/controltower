@@ -47,6 +47,7 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   };
   if (policy.flightsDays > 0) await run('flights', sql`ts < ${now - policy.flightsDays * DAY}`);
   if (policy.eventsDays > 0) await run('flight_events', sql`ts < ${now - policy.eventsDays * DAY}`);
+  await db.deleteFrom('sso_used').where('expires_at', '<', now).execute();
   const auditDays = policy.auditDays ?? 365;
   if (auditDays > 0) await run('audit_events', sql`ts < ${now - auditDays * DAY}`);
   await run('usage_hourly', sql`bucket < ${new Date(history).toISOString().slice(0, 13)}`);

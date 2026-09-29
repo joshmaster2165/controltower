@@ -14,6 +14,7 @@ import { actionFor } from './ee/audit.js';
 import { auditRoutes } from './ee/admin/audit.js';
 import { ssoRoutes } from './ee/admin/sso.js';
 import { licenseRoutes } from './ee/admin/license.js';
+import { scimRoutes } from './ee/scim.js';
 import { timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
@@ -197,6 +198,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await auditRoutes(a, full);
     await ssoRoutes(a, full);
     await licenseRoutes(a, full);
+    await scimRoutes(a, full);
     await viewRoutes(a, full);
     await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);

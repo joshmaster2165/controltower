@@ -88,7 +88,7 @@ test('someone new signs in, is created with the role their groups give, and it i
   const [created] = await audited((e) => e.action === 'users.create' && e.detail?.email === 'sso-new@example.com');
   expect(created).toMatchObject({ actor: { type: 'system' }, detail: { reason: 'first single sign-on', role: 'approver' } });
   const [signIn] = await audited((e) => e.action === 'auth.sign_in' && e.actor.email === 'sso-new@example.com' && e.outcome === 'success');
-  expect(signIn.detail).toMatchObject({ method: 'sso', provider: 'Test IdP', groups: ['staff', 'ct-approvers'] });
+  expect(signIn.detail).toMatchObject({ method: 'oidc', provider: 'Test IdP', groups: ['staff', 'ct-approvers'] });
   // They have no password to sign in with.
   const pw = await fetch(`${CT}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sso-new@example.com', password: '' }) });
   expect(pw.status).toBe(401);

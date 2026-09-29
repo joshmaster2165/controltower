@@ -6,10 +6,9 @@ Control Tower is free and open source, and everything else in these docs works w
 
 | Feature | Status |
 |---|---|
-| [Single sign-on](sso.md) (OIDC), with roles from your identity provider's groups | Available |
+| [Single sign-on](sso.md) over OIDC and SAML 2.0, with roles from your identity provider's groups | Available |
 | [Audit log](audit.md): every change and refused attempt, hash-chained, exportable | Available |
-| SCIM provisioning: your identity provider adds, changes and removes people | Coming |
-| SAML single sign-on | Coming |
+| [SCIM provisioning](scim.md): your identity provider adds, changes, deactivates and removes people, and its groups set roles | Available |
 | Audit log shipped to your SIEM (Splunk, Datadog, OpenTelemetry, S3, webhook) | Coming |
 | OIDC / JWT auth: agents authenticate with tokens from your identity provider | Coming |
 | Secret managers (AWS, GCP, Azure, Vault) and key rotation | Coming |
@@ -27,7 +26,7 @@ A license key starts with `ctl1.` and says whom it is for, the plan, the seats, 
 
 Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the server (it then can't be changed in the console). Every instance sharing a database reads a key added in the console. With `CT_LICENSE_KEY`, set it on each instance.
 
-**Seats** are the people who sign in with single sign-on (or, later, are provisioned by SCIM). Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats.
+**Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats.
 
 **Requests a year:** the console shows usage against the allowance. Going over is a conversation at renewal. It never slows or stops traffic.
 

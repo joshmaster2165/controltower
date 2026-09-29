@@ -88,6 +88,11 @@ test('seats cap how many people sign in with single sign-on', async () => {
   idp.user = { sub: 'seat-2', email: 'second@example.com' };
   expect((await ssoSignIn(p.body.id)).error).toContain('covers 1 person');
   expect((await ak('GET', '/admin/api/license')).body.seats_used).toBe(1);
+  // SCIM can't provision past the seats either.
+  const t = (await ak('POST', `/admin/api/identity-providers/${p.body.id}/scim-token`)).body.token;
+  const r = await fetch(`${BASE}/scim/v2/Users`, { method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/scim+json' }, body: JSON.stringify({ userName: 'third@example.com' }) });
+  expect(r.status).toBe(403);
+  expect(((await r.json()) as any).detail).toContain('covers 1 person');
 });
 
 test('an ended license: grace keeps Enterprise on; after it, features stop and passwords come back', async () => {

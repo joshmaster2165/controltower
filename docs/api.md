@@ -68,6 +68,7 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | POST | `/me/password` | Change your own password (`{current, password}`) |
 | GET, POST | `/users` | People who sign in, and their roles (admins only); add one — see [People and roles](people.md) |
 | PATCH, DELETE | `/users/:id` | Change a role, reset a password (a new one-time password), remove |
+| GET, POST, PATCH, DELETE | `/identity-providers…`, `/sso/settings` | [Single sign-on](sso.md#api) (OIDC and SAML) and [SCIM](scim.md) tokens (admins; Enterprise) |
 | GET | `/audit`, `/audit/export`, `/audit/verify` | The [audit log](audit.md) (admins only): browse with filters, download as CSV or JSON Lines, check its hash chain |
 
 ### Providers, models, aliases
@@ -191,6 +192,10 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/delete`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` (also `/key/:key/regenerate`), `GET /model/info` (also `/v1/model/info`), `POST /model/new`, `POST /model/delete`. See [Keys](keys.md#key-management-api).
 
 `POST /model/new` takes one entry in the form of a [config file](config-file.md#model_list)'s `model_list`: `{model_name, params: {model: "<provider>/<model>", api_key?, api_base?, …}, model_info?}`. Credentials it leaves out are read from the usual environment variables; it reuses a provider with the same endpoint and credentials, and returns the new model's `model_id`. `POST /model/delete` takes `{id}`.
+
+## SCIM 2.0
+
+`/scim/v2/Users`, `/scim/v2/Groups`, `/scim/v2/ServiceProviderConfig`, `/scim/v2/ResourceTypes`, `/scim/v2/Schemas`, with an identity provider's SCIM token as a bearer token (Enterprise). See [SCIM provisioning](scim.md).
 
 ## Health and metrics
 

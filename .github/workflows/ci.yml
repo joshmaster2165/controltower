@@ -212,15 +212,16 @@ jobs:
           helm test ct-sqlite --logs
           kubectl logs deploy/ct-sqlite-controltower | grep -q 'CI-SETUP-CODE'
           kubectl logs deploy/ct-sqlite-controltower | grep -q 'config loaded'   # the mounted config file was read
-          kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & sleep 3
+          # Port-forwards are tracked by pid: one dies with the pod it points at, and a restart replaces the pod.
+          kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & PF=$!; sleep 3
           curl -fsS -X POST localhost:4400/admin/api/setup -H 'content-type: application/json' -d '{"email":"ci@example.com","password":"ci-password-123","setup_code":"CI-SETUP-CODE"}' >/dev/null
           curl -sI localhost:4400/ | grep -qi 'content-security-policy'
           # A new pod on the same volume keeps the data.
           kubectl rollout restart deploy/ct-sqlite-controltower && kubectl rollout status deploy/ct-sqlite-controltower --timeout 3m
-          kill %1; kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & sleep 3
+          kill $PF 2>/dev/null || true; kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & PF=$!; sleep 3
           curl -fsS localhost:4400/admin/api/status | grep -q '"setup_complete":true'
           curl -fsS -X POST localhost:4400/admin/api/login -H 'content-type: application/json' -d '{"email":"ci@example.com","password":"ci-password-123"}' >/dev/null
-          kill %1
+          kill $PF 2>/dev/null || true
       - name: Install two pods on Postgres and Redis
         run: |
           set -e
@@ -231,9 +232,9 @@ jobs:
           helm test ct-pg --logs
           for p in $(kubectl get pods -l app.kubernetes.io/instance=ct-pg -o name); do kubectl logs "$p" | grep -q 'sharing Postgres and Redis'; done
           test "$(kubectl get pods -l app.kubernetes.io/instance=ct-pg --field-selector=status.phase=Running -o name | wc -l)" = 2
-          kubectl port-forward svc/ct-pg-controltower 4401:4000 >/dev/null 2>&1 & sleep 3
+          kubectl port-forward svc/ct-pg-controltower 4401:4000 >/dev/null 2>&1 & PF=$!; sleep 3
           curl -fsS -H 'Authorization: Bearer ci-admin-key-0123456789abcdef' localhost:4401/admin/api/keys >/dev/null
-          kill %1
+          kill $PF 2>/dev/null || true
       - name: Show what went wrong
         if: failure()
         run: kubectl get all,pvc; kubectl describe pods; for p in $(kubectl get pods -o name); do echo "== $p"; kubectl logs "$p" --all-containers --tail 80; done

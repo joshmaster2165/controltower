@@ -211,6 +211,7 @@ jobs:
           helm install ct-sqlite "$CHART" -f "$CHART/ci/sqlite-values.yaml" --set image.tag=ci --set image.pullPolicy=Never --wait --timeout 4m
           helm test ct-sqlite --logs
           kubectl logs deploy/ct-sqlite-controltower | grep -q 'CI-SETUP-CODE'
+          kubectl logs deploy/ct-sqlite-controltower | grep -q 'config loaded'   # the mounted config file was read
           kubectl port-forward svc/ct-sqlite-controltower 4400:4000 >/dev/null 2>&1 & sleep 3
           curl -fsS -X POST localhost:4400/admin/api/setup -H 'content-type: application/json' -d '{"email":"ci@example.com","password":"ci-password-123","setup_code":"CI-SETUP-CODE"}' >/dev/null
           curl -sI localhost:4400/ | grep -qi 'content-security-policy'

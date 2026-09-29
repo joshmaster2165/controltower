@@ -10,7 +10,8 @@ sources:
   - https://github.com/joshmaster2165/controltower
 icon: https://raw.githubusercontent.com/joshmaster2165/controltower/main/site/logo.svg
 keywords: [ai-gateway, llm, mcp, agents, approvals, guardrails]
-license: Apache-2.0
+annotations:
+  artifacthub.io/license: Apache-2.0
 maintainers:
   - name: Control Tower maintainers
     url: https://github.com/joshmaster2165/controltower

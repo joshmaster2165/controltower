@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from './db/schema.js';
 import type { SecretBox } from './crypto/secrets.js';
 import { hashApiKey } from './crypto/apikeys.js';
+import { looksLikeJwt } from './ee/tokens.js';
 
 /**
  * Everything the hot path needs lives in memory and is reloaded on admin
@@ -37,6 +38,8 @@ export interface KeyRecord {
   delegatedOnly: boolean;
   /** Region globs its calls may be served in (data residency); empty = anywhere. */
   regions: string[];
+  /** Only tokens from a trusted issuer are accepted, not the secret (while JWT authentication is licensed). */
+  tokensOnly: boolean;
 }
 
 export interface CustomerRecord {
@@ -180,6 +183,7 @@ export class Registry {
         lastUsedAt: k.last_used_at ?? undefined,
         delegatedOnly: k.delegated_only === 1,
         regions: parseJson<string[]>(k.regions, []),
+        tokensOnly: k.tokens_only === 1,
       };
       keysByHash.set(rec.hash, rec);
       keysById.set(rec.id, rec);
@@ -295,9 +299,17 @@ export class Registry {
    * admin key: anything of a plausible length is looked up by its hash.
    */
   authenticate(plaintext: string): KeyRecord | undefined {
+    // A token from a trusted issuer (Enterprise), verified when the request arrived.
+    if (looksLikeJwt(plaintext)) return this.tokens?.keyFor(plaintext);
     if (plaintext.length < 16 || plaintext.length > 512) return undefined;
-    return this.keysByHash.get(hashApiKey(plaintext));
+    const key = this.keysByHash.get(hashApiKey(plaintext));
+    // A key that takes only tokens refuses its secret, while tokens can be used (so nobody is locked out after a license ends).
+    if (key?.tokensOnly && this.tokens?.enforced()) return undefined;
+    return key;
   }
+
+  /** Agents' tokens (Enterprise JWT authentication), when set up. */
+  tokens: { keyFor(token: string): KeyRecord | undefined; enforced(): boolean } | undefined;
 
   private missing = new Map<string, number>();
   /**

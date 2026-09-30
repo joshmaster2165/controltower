@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import { openAiUpstream } from '../../e2e/support/upstreams.ts';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license.ts';
+import { signJwt, testSigner } from '../../e2e/support/jwt.ts';
 
 const DIR = process.env.RESULTS_DIR ?? new URL('.', import.meta.url).pathname;
 const REPO = new URL('../..', import.meta.url).pathname;
@@ -184,6 +185,18 @@ try {
   const inOrder = siemGot.every((x, i) => i === 0 || x === siemGot[i - 1]! + 1);
   const holder = ((await a('GET', '/admin/api/exports')).body.destinations as any[]).find((d) => d.id === dest.id)?.audit;
   c('the audit log reaches the SIEM once, in order, from changes made through both instances', arrived && dupes === 0 && inOrder && siemGot.length >= 21, `${siemGot.length} events (seq ${siemGot[0]}–${siemGot.at(-1)}), newest recorded ${upTo}, ${dupes} twice, ${inOrder ? 'in order' : 'out of order'}; status: ${holder?.last_status}, ${holder?.behind} behind`);
+
+  // Agent identity: an issuer trusted through one instance; the other accepts its tokens, and stops when it's turned off.
+  const signer = testSigner('cluster-idp');
+  const ISS = 'https://idp.cluster.test';
+  const ti = (await a('POST', '/admin/api/token-issuers', { name: 'Cluster IdP', issuer: ISS, jwks: { keys: [signer.jwk] }, audiences: ['controltower'], rules: [{ claims: { sub: 'svc-cluster' }, key_id: k.id }] })).body;
+  await sleep(300);
+  const tok = signJwt(signer, { iss: ISS, aud: 'controltower', sub: 'svc-cluster' });
+  const viaToken = await chat(B.url, tok);
+  await a('PATCH', `/admin/api/token-issuers/${ti.id}`, { enabled: false });
+  await sleep(300);
+  const afterOff = await chat(B.url, tok);
+  c('a token issuer trusted through one instance is honoured by the other, and turning it off applies to both', viaToken.status === 200 && afterOff.status === 401, `token through b: ${viaToken.status} ${viaToken.code ?? ''}; after turning it off through a: ${afterOff.status}`);
 
   // An instance that crashes: the other closes out what it left open.
   const ck = (await a('POST', '/admin/api/keys', { name: 'cluster-crash' })).body;

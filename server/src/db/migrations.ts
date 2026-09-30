@@ -847,3 +847,34 @@ CREATE TABLE audit_exports (
 );
 `,
 });
+
+migrations.push({
+  version: 29,
+  name: 'token_issuers',
+  sqlite: `
+CREATE TABLE token_issuers (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  issuer          TEXT NOT NULL,
+  jwks_uri        TEXT,
+  jwks_json       TEXT,
+  audiences       TEXT NOT NULL DEFAULT '[]',
+  rules           TEXT NOT NULL DEFAULT '[]',
+  principal_claim TEXT NOT NULL DEFAULT 'sub',
+  max_lifetime_s  INTEGER,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  last_status     TEXT,
+  last_error      TEXT,
+  accepted_count  INTEGER NOT NULL DEFAULT 0,
+  refused_count   INTEGER NOT NULL DEFAULT 0,
+  last_refusal    TEXT,
+  last_refusal_at INTEGER,
+  last_used_at    INTEGER,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX token_issuers_issuer ON token_issuers (issuer);
+ALTER TABLE api_keys ADD COLUMN tokens_only INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE flights ADD COLUMN principal TEXT;
+`,
+});

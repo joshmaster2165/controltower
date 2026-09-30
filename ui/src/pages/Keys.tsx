@@ -336,7 +336,21 @@ export function KeysPage() {
                   </div>
                 </td>
                 <td className="mono muted">
-                  {k.prefix}…{k.last4}
+                  {k.tokens_only ? <s title="The secret is refused: only tokens are accepted">{k.prefix}…{k.last4}</s> : `${k.prefix}…${k.last4}`}
+                  {k.token_issuers?.length || k.tokens_only ? (
+                    <span className="sub key-tokens">
+                      {k.tokens_only ? 'tokens only' : 'or tokens'}
+                      {k.token_issuers?.length ? ` from ${k.token_issuers.join(', ')}` : ''}
+                      {' · '}
+                      <button
+                        className="link-btn"
+                        title={k.tokens_only ? 'Accept the secret again, as well as tokens' : 'Refuse the secret: accept only tokens from the issuers that name this key'}
+                        onClick={() => void api.patch(`/admin/api/keys/${k.id}`, { tokens_only: !k.tokens_only }).then(load)}
+                      >
+                        {k.tokens_only ? 'allow the secret' : 'refuse the secret'}
+                      </button>
+                    </span>
+                  ) : null}
                 </td>
                 <td>
                   {globList(k.allowed_models)}
@@ -357,6 +371,7 @@ export function KeysPage() {
                     <button className="btn sm" onClick={() => void toggle(k)}>
                       {k.enabled ? 'Disable' : 'Enable'}
                     </button>
+
                     <button className="btn sm danger" onClick={() => void remove(k)}>
                       Delete
                     </button>

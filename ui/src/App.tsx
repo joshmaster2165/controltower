@@ -18,6 +18,7 @@ import { ExportsPage } from './pages/Exports';
 import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
 import { AuditPage } from './ee/Audit';
+import { AgentIdentityPage } from './ee/AgentIdentity';
 import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -48,6 +49,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'providers', label: 'Providers', icon: 'plug', hint: 'LLM provider connections' },
       { id: 'models', label: 'Models', icon: 'cpu', hint: 'Deployments and aliases' },
       { id: 'keys', label: 'Keys', icon: 'key', hint: 'One API key per agent' },
+      { id: 'agent-identity', label: 'Agent identity', icon: 'shield', hint: 'Agents authenticate with tokens from your identity provider' },
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
@@ -137,7 +139,7 @@ export function App() {
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-label">{g.group}</div>
-              {g.items.filter((n) => (n.id !== 'users' && n.id !== 'audit') || role === 'admin').map((n) => {
+              {g.items.filter((n) => !['users', 'audit', 'agent-identity'].includes(n.id) || role === 'admin').map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
                 const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
@@ -259,6 +261,7 @@ export function App() {
         {route === 'guardrails' && <GuardrailsPage />}
         {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'audit' && role === 'admin' && <AuditPage />}
+        {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'license' && <LicensePage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}

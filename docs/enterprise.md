@@ -10,7 +10,7 @@ Control Tower is free and open source, and everything else in these docs works w
 | [Audit log](audit.md): every change and refused attempt, hash-chained, exportable | Available |
 | [SCIM provisioning](scim.md): your identity provider adds, changes, deactivates and removes people, and its groups set roles | Available |
 | [Audit log to your SIEM](siem.md): Splunk, Datadog, OpenTelemetry, S3 or a webhook, in order, with nothing lost while the SIEM is down | Available |
-| OIDC / JWT auth: agents authenticate with tokens from your identity provider | Coming |
+| [Agent identity](agent-identity.md): agents authenticate with tokens from your identity provider (Kubernetes, GitHub Actions, Entra ID, Okta, Auth0, Google) instead of keys' secrets | Available |
 | Secret managers (AWS, GCP, Azure, Vault) and key rotation | Coming |
 | Organisations and team admins | Coming |
 | Multi-region control plane | Coming |

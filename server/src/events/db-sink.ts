@@ -54,10 +54,10 @@ export class DbSink {
       insertFlight: db.prepare(`
         INSERT INTO flights (id, ts, key_id, key_name, agent_id, team, project, kind, dialect, model_requested,
           alias_id, deployment_id, provider_id, provider_kind, mcp_server_id, tool, stream, on_behalf_of, parent_flight_id, instance_id,
-          endpoint, tags, customer)
+          endpoint, tags, customer, principal)
         VALUES (@id, @ts, @key_id, @key_name, @agent_id, @team, @project, @kind, @dialect, @model_requested,
           @alias_id, @deployment_id, @provider_id, @provider_kind, @mcp_server_id, @tool, @stream, @on_behalf_of, @parent_flight_id, @instance_id,
-          @endpoint, @tags, @customer)
+          @endpoint, @tags, @customer, @principal)
         ON CONFLICT(id) DO UPDATE SET
           deployment_id = COALESCE(excluded.deployment_id, flights.deployment_id),
           provider_id = COALESCE(excluded.provider_id, flights.provider_id)`),
@@ -166,6 +166,7 @@ export class DbSink {
             endpoint: e.endpoint ?? null,
             tags: e.tags?.length ? JSON.stringify(e.tags) : null,
             customer: e.customer ?? null,
+            principal: e.principal ?? null,
           });
           break;
         case 'flight.decision':

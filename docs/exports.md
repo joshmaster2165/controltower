@@ -4,7 +4,8 @@
 - who made the call (key, agent, team, project, and the agents it acted for);
 - where it went (model, provider, tool);
 - what the gates decided, and any approval;
-- tokens, cost, timings, errors, tags and the customer.
+- tokens, cost, timings, errors, tags and the customer;
+- who presented the token, when the agent used [one from your identity provider](agent-identity.md) (`principal`).
 
 Control Tower never records prompts or answers, so no destination ever receives one.
 

@@ -134,6 +134,9 @@ importers:
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       kysely:
         specifier: ^0.29.6
         version: 0.29.6

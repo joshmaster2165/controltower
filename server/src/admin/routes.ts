@@ -281,6 +281,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           demo: k.demo,
           delegated_only: k.delegatedOnly,
           regions: k.regions,
+          tokens_only: k.tokensOnly,
+          ...(ctx.tokens ? { token_issuers: ctx.tokens.issuersFor(k.id) } : {}),
           created_at: k.createdAt,
           last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,
           // Control Tower's own keys (admin, playground, guardrail): never retired or tidied in bulk.
@@ -302,6 +304,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       expires_at?: number | null;
       delegated_only?: boolean;
       regions?: string[];
+      tokens_only?: boolean;
       budget?: { limit_usd: number; period: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null;
     };
     const name = (b.name ?? '').trim();
@@ -327,6 +330,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         enabled: 1,
         expires_at: b.expires_at ?? null,
         delegated_only: b.delegated_only ? 1 : 0,
+        tokens_only: b.tokens_only ? 1 : 0,
         regions: regionsJson(b.regions),
         created_by: req.admin?.email ?? null,
         demo: 0,
@@ -356,6 +360,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (b.limits && typeof b.limits === 'object') patch.limits = JSON.stringify(b.limits);
     if ('expires_at' in b) patch.expires_at = (b.expires_at as number | null) ?? null;
     if (typeof b.delegated_only === 'boolean') patch.delegated_only = b.delegated_only ? 1 : 0;
+    if (typeof b.tokens_only === 'boolean') patch.tokens_only = b.tokens_only ? 1 : 0;
     if (Array.isArray(b.regions) || b.regions === null) patch.regions = regionsJson(b.regions as string[] | null);
     const budget = b.budget as { limit_usd?: number; period?: 'daily' | 'weekly' | 'monthly' | 'total'; hard?: boolean } | null | undefined;
     if (budget !== undefined && budget !== null && !(typeof budget.limit_usd === 'number' && budget.limit_usd > 0 && ['daily', 'weekly', 'monthly', 'total'].includes(budget.period ?? ''))) {

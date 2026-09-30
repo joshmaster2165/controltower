@@ -54,6 +54,7 @@ import { NANO_PER_USD } from '@controltower/shared';
 import { supportBundle } from './support/bundle.js';
 import { AuditLog } from './ee/audit.js';
 import { AuditShipper } from './ee/siem.js';
+import { TokenAuth } from './ee/tokens.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -251,6 +252,11 @@ async function main(): Promise<void> {
   // The audit log to SIEMs, from each destination's position in the log (Enterprise).
   const auditShipper = new AuditShipper({ db, destinations: () => exporter.auditDestinations(), allowed: () => license.allows('siem_export'), instanceId: cluster.id, version: config.version, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
   auditShipper.start();
+  // Agents' tokens from trusted issuers, instead of keys' secrets (Enterprise).
+  const tokens = new TokenAuth({ db: db.write, keys: () => registry.keysById, allowed: () => license.allows('jwt_auth'), log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
+  await tokens.reload();
+  tokens.start();
+  registry.tokens = tokens;
   const pricing = new PricingTable();
   const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
 
@@ -266,6 +272,7 @@ async function main(): Promise<void> {
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
     auditShipper,
+    tokens,
     guardrails,
     license,
     audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
@@ -418,7 +425,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);
@@ -440,6 +447,7 @@ async function main(): Promise<void> {
     modelHealth.stop();
     await exporter.stop();
     await auditShipper.stop();
+    await tokens.stop();
     clearInterval(guardrailSaver);
     await guardrails.save();
     observed.stop();

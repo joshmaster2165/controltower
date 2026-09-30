@@ -120,7 +120,7 @@ export function FlightsPage() {
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const hit = s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.endpoint ?? ''} ${tagsOf(f.tags).join(' ')} ${f.customer ?? ''} ${f.error_code ?? ''} ${f.id} ${behalf(f.on_behalf_of)}`.toLowerCase().includes(s)) : rows;
+    const hit = s ? rows.filter((f) => `${f.key_name} ${f.team ?? ''} ${f.model_requested} ${f.endpoint ?? ''} ${tagsOf(f.tags).join(' ')} ${f.customer ?? ''} ${f.principal ?? ''} ${f.error_code ?? ''} ${f.id} ${behalf(f.on_behalf_of)}`.toLowerCase().includes(s)) : rows;
     return trace ? treeOrder(hit) : hit.map((f) => ({ f, depth: 0 }));
   }, [rows, q, trace]);
 
@@ -226,6 +226,7 @@ export function FlightsPage() {
                     <Target name={f.model_requested} />
                     {f.endpoint && <span className="sub mono">{f.endpoint}</span>}
                     {f.customer && <span className="sub">for customer {f.customer}</span>}
+                    {f.principal && <span className="sub" title="The token the agent authenticated with">token: {f.principal}</span>}
                     {tagsOf(f.tags).length > 0 && (
                       <span className="sub">
                         {tagsOf(f.tags).map((t) => (

@@ -288,6 +288,7 @@ export class McpGateway {
         tool: toolName,
         ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
         ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}),
+        ...(req.ctPrincipal ? { principal: req.ctPrincipal } : {}),
         est_input_tokens: f.estInput,
         projected_nanousd: 0,
       });

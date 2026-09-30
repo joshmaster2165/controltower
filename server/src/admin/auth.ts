@@ -48,6 +48,8 @@ declare module 'fastify' {
     auditRefused?: string;
     /** The id of what a request created (read from its answer), for the audit log. */
     auditCreatedId?: string;
+    /** Who presented the token an agent authenticated with (issuer · subject), when it used one. */
+    ctPrincipal?: string;
   }
 }
 

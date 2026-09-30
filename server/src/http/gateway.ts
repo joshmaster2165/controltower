@@ -88,7 +88,7 @@ export class HttpGateway {
     const started = (): void => {
       if (f.started) return;
       f.started = true;
-      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
+      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), ...(req.ctPrincipal ? { principal: req.ctPrincipal } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
     };
     const complete = (status: Status, http: number, error?: { code: string; message: string }, outBytes = 0): void => {
       f.t.end = Date.now();

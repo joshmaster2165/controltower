@@ -243,6 +243,8 @@ export interface FlightRow {
   tags?: string | null;
   /** The end customer the agent was serving. */
   customer?: string | null;
+  /** Who presented the token the call was made with (issuer · subject), when the agent used one. */
+  principal?: string | null;
   /** JSON: what a non-token call was billed on. */
   units?: string | null;
   /** 1 when answered from Control Tower's response cache. */
@@ -270,6 +272,10 @@ export interface KeyRow {
   last_used_at?: number;
   /** Control Tower's own keys (admin, playground, guardrail). */
   built_in?: boolean;
+  /** Only tokens from a trusted issuer are accepted, not the secret (Enterprise). */
+  tokens_only?: boolean;
+  /** Token issuers with a rule naming this key (Enterprise). */
+  token_issuers?: string[];
 }
 
 export interface Zone {

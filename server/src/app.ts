@@ -11,6 +11,8 @@ import { gatewayRoutes } from './gateway/routes.js';
 import { compatRoutes } from './gateway/compat.js';
 import { auditOrigin, authRoutes, hasAdminKey, loadSession } from './admin/auth.js';
 import { actionFor } from './ee/audit.js';
+import { looksLikeJwt } from './ee/tokens.js';
+import { tokenIssuerRoutes } from './ee/admin/tokens.js';
 import { auditRoutes } from './ee/admin/audit.js';
 import { ssoRoutes } from './ee/admin/sso.js';
 import { licenseRoutes } from './ee/admin/license.js';
@@ -66,8 +68,18 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
   const gzipAsync = promisify(gzip);
   // A key this instance doesn't know yet may have just been made through another one: look it up before any route checks it.
   app.addHook('onRequest', async (req) => {
-    const presented = extractApiKey(req);
-    if (presented && !full.registry.authenticate(presented)) await full.registry.findStored(presented);
+    // HTTP APIs pass Authorization on to the API: there, only x-ct-key carries Control Tower's credential.
+    const xct = req.headers['x-ct-key'];
+    const presented = req.url.startsWith('/http/') ? (typeof xct === 'string' ? xct.trim() : undefined) : (extractApiKey(req) ?? (typeof xct === 'string' ? xct.trim() : undefined));
+    if (!presented) return;
+    // A token from a trusted issuer (Enterprise): checked once, then known until it expires.
+    if (looksLikeJwt(presented)) {
+      if (!full.tokens?.configured) return;
+      const v = await full.tokens.verify(presented);
+      if ('principal' in v) req.ctPrincipal = v.principal;
+      return;
+    }
+    if (!full.registry.authenticate(presented)) await full.registry.findStored(presented);
   });
   app.addHook('onSend', async (req, reply, payload) => {
     if (typeof payload !== 'string' || payload.length < 16 * 1024 || !req.url.startsWith('/admin/api/')) return payload;
@@ -196,6 +208,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     if (full.guardrails) await guardrailServiceRoutes(a, full);
     await userRoutes(a, full);
     await auditRoutes(a, full);
+    await tokenIssuerRoutes(a, full);
     await ssoRoutes(a, full);
     await licenseRoutes(a, full);
     await scimRoutes(a, full);

@@ -5,6 +5,7 @@ import { nav, shot, startServer } from './helpers';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license';
 import { testIdp, type TestIdp } from '../../e2e/support/oidc-idp';
 import { testSamlIdp } from '../../e2e/support/saml-idp';
+import { signJwt, testSigner } from '../../e2e/support/jwt';
 
 /**
  * Screenshots for the Enterprise and administration pages: License, People, single sign-on (OIDC and SAML),
@@ -163,6 +164,42 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await shot(page, 'exports-audit-form', { clip: exForm, pad: 8 });
     await exForm.getByRole('button', { name: 'Cancel' }).click();
     intake.close();
+
+    // Agent identity: a Kubernetes cluster's and GitHub Actions' tokens, used as keys.
+    const invoice = await api('POST', '/admin/api/keys', { name: 'invoice-bot', agent_id: 'invoice-bot', team: 'finance' });
+    const release = await api('POST', '/admin/api/keys', { name: 'release-notes', agent_id: 'release-notes', team: 'platform' });
+    const eks = testSigner('eks-1');
+    const gh = testSigner('gh-1');
+    const EKS = 'https://oidc.eks.us-east-1.amazonaws.com/id/B71EXAMPLE5D3A9C4F2E';
+    const GH = 'https://token.actions.githubusercontent.com';
+    await api('POST', '/admin/api/token-issuers', { name: 'EKS prod cluster', issuer: EKS, jwks: { keys: [eks.jwk] }, audiences: ['controltower'], max_lifetime_s: 3600, rules: [{ claims: { sub: 'system:serviceaccount:finance:invoice-bot' }, key_id: invoice.id }, { claims: { sub: 'system:serviceaccount:finance:*' }, key_id: release.id }] });
+    await api('POST', '/admin/api/token-issuers', { name: 'GitHub Actions', issuer: GH, jwks: { keys: [gh.jwk] }, audiences: ['controltower'], rules: [{ claims: { repository: 'acme/website', ref: 'refs/heads/main' }, key_id: release.id }] });
+    for (let i = 0; i < 3; i++) await fetch(`${ct.url}/v1/models`, { headers: { authorization: `Bearer ${signJwt(eks, { iss: EKS, aud: 'controltower', sub: 'system:serviceaccount:finance:invoice-bot', n: i })}` } });
+    await fetch(`${ct.url}/v1/models`, { headers: { authorization: `Bearer ${signJwt(gh, { iss: GH, aud: 'controltower', sub: 'repo:acme/website:ref:refs/heads/main', repository: 'acme/website', ref: 'refs/heads/main' })}` } });
+    await fetch(`${ct.url}/v1/models`, { headers: { authorization: `Bearer ${signJwt(gh, { iss: GH, aud: 'controltower', sub: 'repo:acme/website:ref:refs/heads/feature-x', repository: 'acme/website', ref: 'refs/heads/feature-x' })}` } });
+    await api('PATCH', `/admin/api/keys/${invoice.id}`, { tokens_only: true });
+    await page.goto(`${ct.url}/#/agent-identity`);
+    await expect(page.getByText('EKS prod cluster')).toBeVisible();
+    await expect(page.getByText('3 accepted')).toBeVisible();
+    await shot(page, 'agent-identity');
+    // "Try a token" with one for another service.
+    await page.getByLabel('Token').fill(signJwt(eks, { iss: EKS, aud: 'https://graph.microsoft.com', sub: 'system:serviceaccount:finance:invoice-bot' }));
+    await page.getByRole('button', { name: 'Check' }).click();
+    await expect(page.getByText('Refused: the token is not meant for Control Tower')).toBeVisible();
+    await shot(page, 'agent-identity-check', { clip: page.locator('section.card', { hasText: 'Try a token' }), pad: 8 });
+    await page.getByRole('button', { name: '+ Token issuer' }).click();
+    await page.getByRole('button', { name: 'Kubernetes' }).click();
+    const idForm = page.locator('form.card');
+    await idForm.getByLabel('Name', { exact: true }).fill('EKS staging cluster');
+    await idForm.getByLabel('Issuer (the tokens\' iss)').fill('https://oidc.eks.eu-west-1.amazonaws.com/id/C24EXAMPLE9B1E07D5A3');
+    await idForm.getByLabel('Longest token lifetime (seconds)').fill('3600');
+    await idForm.getByLabel('Matches').first().fill('system:serviceaccount:staging:invoice-bot');
+    await idForm.getByLabel('Key', { exact: true }).first().selectOption({ label: 'invoice-bot' });
+    await shot(page, 'agent-identity-form', { clip: idForm, pad: 8 });
+    await idForm.getByRole('button', { name: 'Cancel' }).click();
+    await nav(page, 'Keys');
+    await expect(page.getByText('tokens only from EKS prod cluster')).toBeVisible();
+    await shot(page, 'keys-tokens', { clip: page.locator('table.table').first(), pad: 8 });
 
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);

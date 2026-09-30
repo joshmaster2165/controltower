@@ -95,6 +95,8 @@ export const FlightStarted = z.object({
   tags: z.array(z.string()).optional(),
   /** Whom the agent was serving: the end customer (x-ct-customer header, or the request's user field). */
   customer: z.string().optional(),
+  /** Who presented the token the call was made with (issuer · subject), when the agent used a token, not a key's secret. */
+  principal: z.string().optional(),
   /** The agent's own trace (a W3C traceparent header), so exported spans join it. */
   trace: z.object({ trace_id: z.string(), parent_span_id: z.string().optional() }).optional(),
   est_input_tokens: z.number().int().nonnegative(),

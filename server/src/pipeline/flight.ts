@@ -97,6 +97,8 @@ export interface Flight {
   tags: string[];
   /** The end customer the agent was serving. */
   customer: string | undefined;
+  /** Who presented the token the call was made with, when it wasn't a key's secret. */
+  principal: string | undefined;
   /** What a non-token call was billed on. */
   units: Units | undefined;
   /** Answered from the response cache. */
@@ -179,6 +181,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     endpoint: undefined,
     tags: [],
     customer: undefined,
+    principal: undefined,
     units: undefined,
     cacheHit: false,
     plan: undefined,
@@ -323,6 +326,7 @@ export class FlightRunner {
     const meta = requestMeta(req, f.body);
     f.tags = meta.tags;
     f.customer = meta.customer;
+    f.principal = spec.keyOverride ? undefined : req.ctPrincipal;
     f.trace = meta.trace;
     if (f.customer && ctx.registry.customers.get(f.customer)?.blocked) throw E.customerBlocked(f.customer);
 
@@ -552,6 +556,7 @@ export class FlightRunner {
       ...(f.endpoint ? { endpoint: f.endpoint } : {}),
       ...(f.tags.length ? { tags: f.tags } : {}),
       ...(f.customer ? { customer: f.customer } : {}),
+      ...(f.principal ? { principal: f.principal } : {}),
       ...(f.trace ? { trace: f.trace } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,

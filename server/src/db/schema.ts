@@ -122,6 +122,8 @@ export interface ApiKeysTable {
   created_by: string | null;
   demo: Bool;
   delegated_only: Generated<number>;
+  /** Only tokens from a trusted issuer are accepted, not the secret (while the license includes it). */
+  tokens_only: Generated<number>;
   created_at: number;
   last_used_at: number | null;
 }
@@ -186,6 +188,8 @@ export interface FlightsTable {
   tags: string | null;
   /** The end customer the agent was serving. */
   customer: string | null;
+  /** Who presented the token the call was made with (issuer · subject), when it wasn't a key's secret. */
+  principal: string | null;
   /** JSON: what a non-token call was billed on ({images, characters, seconds, queries}). */
   units: string | null;
   cache_hit: Bool | null;
@@ -531,6 +535,7 @@ export interface Database {
   schema_migrations: SchemaMigrationsTable;
   audit_events: AuditEventsTable;
   audit_exports: AuditExportsTable;
+  token_issuers: TokenIssuersTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -688,3 +693,36 @@ export interface CustomersTable {
 
 // Re-exported so call sites can use Generated/ColumnType if they need them later.
 export type { ColumnType, Generated };
+
+/**
+ * Identity providers whose tokens agents may present instead of a key's secret (Enterprise). Rules map a
+ * token's claims to the key whose permissions apply; the first rule that matches wins.
+ */
+export interface TokenIssuersTable {
+  id: string;
+  name: string;
+  /** The token's `iss`, exactly. */
+  issuer: string;
+  /** Where its signing keys are; discovered from the issuer's OpenID configuration when null. */
+  jwks_uri: string | null;
+  /** Signing keys given directly (a JWKS document), for issuers Control Tower can't reach. */
+  jwks_json: string | null;
+  /** JSON array: a token's `aud` must include one of these. */
+  audiences: string;
+  /** JSON array of {claims: {name: pattern}, key_id}. */
+  rules: string;
+  /** The claim that names who presented the token, recorded with each call (default `sub`). */
+  principal_claim: string;
+  /** Tokens valid for longer than this (exp − iat) are refused. */
+  max_lifetime_s: number | null;
+  enabled: Bool;
+  last_status: string | null;
+  last_error: string | null;
+  accepted_count: number;
+  refused_count: number;
+  last_refusal: string | null;
+  last_refusal_at: number | null;
+  last_used_at: number | null;
+  created_at: number;
+  updated_at: number;
+}

@@ -57,6 +57,7 @@ Protections that are always on:
   - argument conditions, such as `repo` must match `acme/*`.
 - **Delegation gates** ([agents calling agents](agent-to-agent.md)) decide what an agent may do on behalf of another.
 - **Route allowlists** for [HTTP APIs](http-apis.md).
+- **[Agent identity](agent-identity.md)** (Enterprise): agents prove which workload they are with short-lived tokens from your identity provider rather than long-lived secrets, and each call records who presented the token.
 
 **Turn it on:** give each agent its own key, restrict `allowed_mcp` and `allowed_models`, and put *require approval* gates on the destructive tools.
 

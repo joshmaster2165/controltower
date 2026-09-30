@@ -113,6 +113,10 @@ Tags given as `metadata.tags` are taken out of the request before it reaches the
 
 In **Ledger → Customers** a customer can be **blocked** — its calls are refused with `403 customer_blocked` — or given a **monthly budget**, which works like any other budget: a hard budget refuses its calls with `429 budget_exceeded` once spent, and other customers carry on. Customer budgets don't raise [budget alerts](alerts.md); those cover key, team and project budgets. Customers can be named for the list. Through the API: `PUT /admin/api/customers/:id` (`{name, blocked, note}`) and `PUT /admin/api/budgets/customer/:id`.
 
+## Tokens instead of the secret
+
+With [Enterprise](enterprise.md), an agent can present a token from your identity provider in place of the key's secret: a Kubernetes service account token, a GitHub Actions token, or a client-credentials token from Entra ID, Okta, Auth0 or Google. Rules on a trusted issuer say which tokens are used as which key, and the key can then refuse its secret altogether. See [Agent identity](agent-identity.md).
+
 ## Disable, rotate, delete
 
 - **Disable** stops a key immediately (`401 key_disabled`) and keeps its history; **Enable** restores it.

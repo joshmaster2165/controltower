@@ -23,6 +23,8 @@ export interface FlightRecord {
   on_behalf_of?: string[] | undefined;
   parent_flight_id?: string | undefined;
   customer?: string | undefined;
+  /** Who presented the token the call was made with (issuer · subject), when it wasn't a key's secret. */
+  principal?: string | undefined;
   tags?: string[] | undefined;
   target: {
     model_requested: string;
@@ -118,6 +120,7 @@ export class Assembler {
           on_behalf_of: s.on_behalf_of,
           parent_flight_id: s.parent_flight_id,
           customer: s.customer,
+          ...(s.principal ? { principal: s.principal } : {}),
           tags: s.tags,
           target: { model_requested: s.model_requested, deployment_id: e.deployment_id ?? s.deployment_id, provider_id: s.provider_id, provider_kind: s.provider_kind, upstream_model: p.upstream, mcp_server_id: s.mcp_server_id, tool: s.tool },
           decision: p.decision,

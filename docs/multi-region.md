@@ -2,14 +2,14 @@
 
 **Enterprise:** several regions need a [Control Tower Enterprise](enterprise.md) license on the control plane.
 
-**Status:** in progress. Available now:
+What you get:
 - one control plane configures every region;
 - regions keep serving through a control-plane outage;
 - calls stay in their region;
 - one console shows every region's calls, spend, map and held calls;
 - rate limits, budgets and the yearly request count are global.
 
-Still to come: a tested deployment across cloud regions, with failure drills.
+It's [tested across three continents](#tested-across-regions), with failure drills.
 
 Run Control Tower close to your agents, in as many regions as you need, and configure it in one place:
 
@@ -65,7 +65,7 @@ What a region measures itself stays its own: health checks, delivery counters, a
 
    It also shows which server last checked in, its version, and any error it reported.
 
-**New token** replaces a region's token; the old one stops at once, so restart the region's servers with the new one. **Remove** stops the control plane answering that region.
+**New token** replaces a region's token, and the old one stops at once. Until the region's servers restart with the new one, they keep serving on the configuration they last received, and their console and **Regions** say the token was refused. **Remove** stops the control plane answering that region.
 
 Models are added on the control plane. A region doesn't add a model the first time an agent names it, because its configuration is the control plane's.
 
@@ -118,6 +118,35 @@ Every 2 seconds, each region tells the control plane what it let through and spe
 Occasionally, a report that the control plane received but whose answer was lost is sent again. Spend is then counted twice, never missed.
 
 **A new budget** starts from the spend the control plane can see in its own records. Calls made in regions before the budget was set aren't counted.
+
+## Tested across regions
+
+It is tested on a control plane in US West with three regions:
+
+| Region | Where | Runs on |
+|---|---|---|
+| `us-east` | Virginia | 2 servers sharing their own Postgres and Redis in US East |
+| `eu-west` | Amsterdam | 1 server on SQLite |
+| `asia-se` | Singapore | 1 server on SQLite |
+
+Agents call each region directly. What was measured:
+
+| | Result |
+|---|---|
+| A key added on the control plane is served | in 1.5–6 s in every region (regions check every 5 s) |
+| A key disabled on the control plane is refused | in 1.5–6 s in every region |
+| The control plane's Flights, across all three regions | answers in about 0.3 s |
+| A call held in Singapore | is on the control plane's Tower within about a second; approved there, the call completes within 2 s of being made |
+| The live map on the control plane | shows Singapore's calls within about 1.5 s |
+| 3 requests a minute for one agent | one call in each region uses it up everywhere |
+| A hard budget spent in Amsterdam | is seen in Virginia and Singapore within 5 s, and stops the agent there |
+
+And the failure drills:
+
+- **A region's token revoked:** the region keeps serving on its last configuration and says why. With its new token, it's back in sync.
+- **A region gone:** the console still answers within 0.3 s, naming the region it can't reach, and the other regions carry on. The region comes back with its calls.
+- **A region redeployed under steady traffic:** calls keep being answered.
+- **The control plane gone:** every region keeps serving and says it can't reach it, even a region restarted during the outage. When the control plane is back, a change made then reaches every region within seconds, and spend made during the outage is added to the budgets' totals.
 
 ## What isn't there yet
 

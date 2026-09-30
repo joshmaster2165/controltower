@@ -13,7 +13,7 @@ Control Tower is free and open source, and everything else in these docs works w
 | [Agent identity](agent-identity.md): agents authenticate with tokens from your identity provider (Kubernetes, GitHub Actions, Entra ID, Okta, Auth0, Google) instead of keys' secrets | Available |
 | [Secret managers](secret-managers.md) (AWS, Google, Azure, Vault) and [key rotation](key-rotation.md): credentials read by reference and followed when they rotate; agents' keys rotated on a schedule into your secret manager | Available |
 | [Organisations and team admins](teams.md): each team manages its own agents' keys, budgets, people and held calls, and members see only their teams, everywhere in the console | Available |
-| [Multi-region control plane](multi-region.md): configure every region from one control plane; regions serve through its outages, keep their calls to themselves, and share limits and budgets | In progress: configuration, outages, one console and global limits and budgets available; a tested cross-cloud deployment next |
+| [Multi-region control plane](multi-region.md): configure every region from one control plane; regions serve through its outages, keep their calls to themselves, and share limits and budgets | Available |
 | Self-hosted, air-gap available | Available: licenses are checked on your server, with no connection needed |
 | 24/7 support with SLAs, dedicated support and onboarding | See [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md) |
 | Annual request capacity and volume discounts | In the license. Usage against it is shown; traffic is never stopped |

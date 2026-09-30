@@ -34,7 +34,20 @@ Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the ser
 
 **Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats.
 
-**Requests a year:** the console shows usage against the allowance. Going over is a conversation at renewal. It never slows or stops traffic.
+**Requests a year:** see [below](#requests-a-year). Going over is a conversation at renewal; it never slows or stops traffic.
+
+## Requests a year
+
+A license includes a number of requests a year, and **License** shows how many have been used this license year. The count covers every call through the gateway, allowed or not: model calls, tool calls, HTTP APIs and agents calling agents. It is summed across every instance sharing the database.
+
+![Requests this license year: used, the pace, and each month](images/license-usage.png)
+
+- **The license year** runs from when your subscription began (a trial: from when it started), then from that date each year. For a key without that date, it runs from when this install first saw it.
+- **At this pace** projects the year from the months so far, once a week has passed, so you can see early if you'll need more.
+- **At 80%, and again at 100%,** a line at the top of the console says so. The [audit log](audit.md) records it once each year as `license.usage`, and the server logs it.
+- **Going over never slows, refuses or stops anything.** It's a conversation at renewal, where more requests a year cost less each ([pricing](https://website-production-77c1.up.railway.app/pricing.html)).
+
+**What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
 
 ## When a license ends
 

@@ -16,10 +16,11 @@ const PRICES = [
   { id: 'price_sm', lookup_key: 'ct_enterprise_seat_month', unit_amount: null, tiers: [{ up_to: 20, unit_amount: 6000 }, { up_to: 95, unit_amount: 4500 }] },
 ];
 const periodEnd = Math.floor(Date.now() / 1000) + 365 * 86400;
-const stripe = { sessions: [], subStatus: 'active', seatQty: 7, periodEnd };
+const stripe = { sessions: [], subStatus: 'active', seatQty: 7, periodEnd, metadata: [] };
 const sub = () => ({
   id: 'sub_123',
   status: stripe.subStatus,
+  start_date: 1788000000,
   customer: { id: 'cus_1', name: 'Acme Inc', email: 'buyer@acme.com' },
   items: { data: [{ price: { id: 'price_py', lookup_key: 'ct_enterprise_platform_year' }, quantity: 1, current_period_end: stripe.periodEnd }, { price: { id: 'price_sy', lookup_key: 'ct_enterprise_seat_year' }, quantity: stripe.seatQty, current_period_end: stripe.periodEnd }] },
 });
@@ -42,6 +43,7 @@ before(async () => {
         return j(200, { id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay/cs_test_1' });
       }
       if (u.pathname === '/v1/checkout/sessions/cs_test_1') return j(200, { id: 'cs_test_1', status: 'complete', customer_details: { name: 'Acme Inc', email: 'buyer@acme.com' }, subscription: sub() });
+      if (u.pathname === '/v1/subscriptions/sub_123' && req.method === 'POST') return (stripe.metadata.push(Object.fromEntries(new URLSearchParams(body))), j(200, sub()));
       if (u.pathname === '/v1/subscriptions/sub_123') return j(200, sub());
       if (u.pathname === '/v1/billing_portal/sessions') return j(200, { url: 'https://billing.stripe.com/p/session/x' });
       return j(404, { error: { message: 'no such thing' } });
@@ -115,6 +117,21 @@ test('refresh: unchanged, renewed with new seats or period, ended when cancelled
   const head = `ctl1.${Buffer.from(JSON.stringify({ sub: 'sub_123' })).toString('base64url')}`;
   assert.equal((await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: `${head}.${crypto.sign(null, Buffer.from(head), other).toString('base64url')}` }) })).status, 400);
   stripe.subStatus = 'active';
+});
+
+test('refresh: keys carry when the subscription began; the request count is kept on the subscription', async () => {
+  const t = await (await fetch(`${base}/success?session_id=cs_test_1`)).text();
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(t)[1];
+  assert.equal(decode(key).period_start, 1788000000 * 1000);
+  const r = await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, usage: { requests: 412345, period_start: 1788000000 * 1000, period_end: 1819536000 * 1000 } }) }).then((x) => x.json());
+  assert.equal(r.status, 'unchanged');
+  const m = stripe.metadata.at(-1);
+  assert.equal(m['metadata[requests_this_year]'], '412345');
+  assert.equal(m['metadata[requests_period_start]'], new Date(1788000000 * 1000).toISOString().slice(0, 10));
+  // A count that isn't a number is ignored.
+  const before = stripe.metadata.length;
+  await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, usage: { requests: 'lots' } }) });
+  assert.equal(stripe.metadata.length, before);
 });
 
 test('trial keys: 30 days, 5 seats, rate-limited', async () => {

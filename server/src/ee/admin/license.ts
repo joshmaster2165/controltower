@@ -3,6 +3,7 @@ import type { AppContext } from '../../context.js';
 import { requireAdmin } from '../../admin/auth.js';
 import { LICENSE_STORE, type Feature } from '../license.js';
 import { seatsUsed } from '../seats.js';
+import { scopeOf } from '../../admin/scope.js';
 
 const NAMES: Record<Feature, string> = {
   sso: 'Single sign-on',
@@ -24,6 +25,10 @@ export function requireEnterprise(ctx: AppContext, feature: Feature) {
 }
 
 /** The license, as the console shows it: never the key itself. */
+export async function licenseUsage(ctx: AppContext) {
+  return ctx.metering ? await ctx.metering.usage() : undefined;
+}
+
 export function publicLicense(ctx: AppContext) {
   const s = ctx.license.current;
   const l = s.license;
@@ -55,8 +60,10 @@ export async function licenseRoutes(app: FastifyInstance, ctx: AppContext): Prom
   const guard = requireAdmin(ctx);
 
   // Everyone signed in sees the state (the console shows a banner when a license is ending); admins change it.
-  app.get('/admin/api/license', { preHandler: guard }, async () => {
-    return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read) };
+  app.get('/admin/api/license', { preHandler: guard }, async (req) => {
+    // Requests this license year, against the allowance: the whole install's, so not for those who see only their teams.
+    const usage = scopeOf(req).all ? await licenseUsage(ctx) : undefined;
+    return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read), ...(usage ? { usage } : {}) };
   });
 
   app.put('/admin/api/license', { preHandler: guard }, async (req, reply) => {

@@ -47,6 +47,8 @@ export interface LicensePayload {
   expires_at: number;
   /** The subscription behind it, for renewals (opaque here). */
   sub?: string;
+  /** When the subscription began: license years (for the request allowance) run from it. */
+  period_start?: number;
 }
 
 export type LicenseStatus = 'none' | 'valid' | 'expiring' | 'grace' | 'expired' | 'invalid';
@@ -141,7 +143,10 @@ export class Licensing {
     const l = this.state.license;
     if (!l?.sub || !this.raw) return 'skipped';
     try {
-      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw }), signal: AbortSignal.timeout(15_000) });
+      // With the key goes this license year's request count (a number, nothing else), for renewals and capacity.
+      const u = await this.usage?.().catch(() => undefined);
+      const usage = u ? { requests: u.used, period_start: u.period_start, period_end: u.period_end } : undefined;
+      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}) }), signal: AbortSignal.timeout(15_000) });
       const j = (await r.json()) as { status?: string; key?: string };
       if (j.status === 'renewed' && j.key) {
         const next = parseLicense(j.key);
@@ -159,6 +164,9 @@ export class Licensing {
       return 'failed';
     }
   }
+
+  /** This license year's request count, sent with renewals (set by the metering service). */
+  usage: (() => Promise<{ used: number; period_start: number; period_end: number } | undefined>) | undefined;
 
   /** Refresh a minute after start and then daily. */
   startRefresh(server: string | undefined, log: Parameters<Licensing['refresh']>[1]): () => void {

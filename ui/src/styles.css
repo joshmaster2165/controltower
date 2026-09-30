@@ -1020,3 +1020,18 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .member-add select.input { width: 120px; }
 .idp-groups { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 12.5px; }
 .idp-groups label { display: grid; gap: 4px; font-size: 12px; color: var(--text-dim); flex: 1; min-width: 180px; }
+/* License: requests this year */
+.usage-card { padding: 14px 16px; margin-top: 14px; }
+.usage-figure { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage-figure .sub { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+.usage-figure.warn { color: #b45309; }
+.usage-figure.over { color: var(--danger); }
+.usage-bar { position: relative; height: 10px; border-radius: 6px; background: var(--border); margin-top: 12px; overflow: visible; }
+.usage-bar > span { display: block; height: 100%; border-radius: 6px; background: var(--accent, #1f5eff); }
+.usage-bar.warn > span { background: #d97706; }
+.usage-bar.over > span { background: var(--danger); }
+.usage-bar > i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-dim); opacity: 0.5; }
+.usage-months { display: flex; align-items: flex-end; gap: 6px; height: 90px; margin-top: 14px; }
+.usage-months > div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 4px; }
+.usage-months > div > span { width: 100%; max-width: 40px; background: var(--accent-soft, #dbe6ff); border-radius: 4px 4px 0 0; }
+.usage-months small { font-size: 11px; color: var(--text-dim); }

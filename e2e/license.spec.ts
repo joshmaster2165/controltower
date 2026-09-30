@@ -137,3 +137,29 @@ test('the console shows the license, and Enterprise notices where features are o
   await page.reload();
   await expect(page.locator('.role-banner')).toContainText('ends on');
 });
+
+test("requests are counted against the year's allowance: the console warns, and traffic is never stopped", async ({ page }) => {
+  // An earlier test turned on "only single sign-on": passwords back on, to sign in here.
+  await ak('PUT', '/admin/api/sso/settings', { sso_only: false });
+  await page.goto(BASE);
+  await page.getByLabel('Email or username').fill('admin');
+  await page.getByLabel('Password').fill(AK);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('.side-user')).toBeVisible();
+  expect((await ak('PUT', '/admin/api/license', { key: testLicense({ customer: 'Metered Co', requests_per_year: 10, period_start: Date.now() - 30 * DAY }) })).status).toBe(200);
+  const agent = (await ak('POST', '/admin/api/keys', { name: 'metered-agent' })).body;
+  const call = () => fetch(`${BASE}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${agent.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'no-such-model', messages: [{ role: 'user', content: 'hi' }] }) });
+  // Past the allowance, calls are answered as they would be anyway (here: no such model), never refused for it.
+  const statuses: number[] = [];
+  for (let i = 0; i < 12; i++) statuses.push((await call()).status);
+  expect(statuses.every((s) => s === statuses[0] && s !== 429 && s !== 402)).toBe(true);
+  await new Promise((r) => setTimeout(r, 300));
+  const u = (await ak('GET', '/admin/api/license')).body.usage;
+  expect(u).toMatchObject({ allowance: 10, level: 'over' });
+  expect(u.used).toBeGreaterThanOrEqual(12);
+  expect(u.period_end - u.period_start).toBeGreaterThan(364 * DAY);
+  await page.goto(`${BASE}/#/license`);
+  await page.reload();
+  await expect(page.locator('.role-banner')).toContainText('requests used this license year');
+  await expect(page.getByLabel('Requests this license year')).toContainText('Requests this license year');
+});

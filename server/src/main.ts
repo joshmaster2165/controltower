@@ -60,6 +60,7 @@ import { TokenAuth } from './ee/tokens.js';
 import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
+import { Metering } from './ee/metering.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -355,6 +356,11 @@ async function main(): Promise<void> {
   const app = await buildApp(ctx, { uiDir });
   const full = ctx as AppContext;
   logRef = app.log;
+  // Requests against the license's yearly allowance: shown, recorded at 80% and 100%, sent with renewals. Never limits.
+  const metering = new Metering({ db, license, audit: full.audit, log: () => app.log });
+  full.metering = metering;
+  license.usage = () => metering.usage();
+  metering.start();
   // Keys whose rotation schedule is due get a new secret, delivered to the secret manager (Enterprise).
   const rotator = new KeyRotator(() => full, { instance: cluster.id, allowed: () => license.allows('secret_managers'), log: () => app.log });
   rotator.start();
@@ -502,6 +508,7 @@ async function main(): Promise<void> {
     await auditShipper.stop();
     secretRefs.stop();
     rotator.stop();
+    metering.stop();
     await tokens.stop();
     clearInterval(guardrailSaver);
     await guardrails.save();

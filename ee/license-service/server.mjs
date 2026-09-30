@@ -61,6 +61,8 @@ function licenseFor(sub, customer) {
     issued_at: Date.now(),
     expires_at: end,
     sub: sub.id,
+    // License years (the request allowance) run from when the subscription began.
+    ...(sub.start_date ? { period_start: sub.start_date * 1000 } : {}),
   };
 }
 
@@ -253,7 +255,7 @@ export function createServer() {
         const email = String(b.email ?? '').trim().toLowerCase().slice(0, 200);
         if (!company || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return html(res, 400, page('Check the form', '<h1>Enter your company and a work email</h1>'));
         const now = Date.now();
-        const key = sign({ v: 1, kid: KID, id: `lic_trial_${crypto.randomBytes(6).toString('hex')}`, customer: company, email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: now, expires_at: now + 30 * DAY });
+        const key = sign({ v: 1, kid: KID, id: `lic_trial_${crypto.randomBytes(6).toString('hex')}`, customer: company, email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: now, expires_at: now + 30 * DAY, period_start: now });
         console.log(JSON.stringify({ event: 'trial', company, email, at: new Date(now).toISOString() }));
         return html(res, 200, keyPage('Your trial key', key, `30 days of Control Tower Enterprise for ${company}, with ${INCLUDED_SEATS} seats.`));
       }
@@ -265,9 +267,15 @@ export function createServer() {
         if (!lic) return json(res, 400, { error: 'invalid_license' });
         if (!lic.sub) return json(res, 200, { status: 'unchanged' }); // trials and hand-issued keys don't renew here
         const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        // The server's request count this license year (a number, nothing else): kept on the subscription, for renewals.
+        const u = b.usage;
+        if (u && Number.isFinite(u.requests) && u.requests >= 0 && Number.isFinite(u.period_start)) {
+          console.log(JSON.stringify({ event: 'usage', license: lic.id, customer: lic.customer, requests: Math.round(u.requests), allowance: lic.requests_per_year, period_start: new Date(u.period_start).toISOString() }));
+          await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { requests_this_year: String(Math.round(u.requests)), requests_allowance: String(lic.requests_per_year), requests_period_start: new Date(u.period_start).toISOString().slice(0, 10), usage_reported_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `usage not recorded: ${err.message}`, license: lic.id })));
+        }
         if (!['active', 'trialing', 'past_due'].includes(sub.status)) return json(res, 200, { status: 'ended', subscription: sub.status });
         const next = licenseFor(sub, { name: sub.customer?.name ?? lic.customer, email: sub.customer?.email ?? lic.email });
-        if (next.expires_at === lic.expires_at && next.seats === lic.seats) return json(res, 200, { status: 'unchanged' });
+        if (next.expires_at === lic.expires_at && next.seats === lic.seats && next.period_start === lic.period_start) return json(res, 200, { status: 'unchanged' });
         return json(res, 200, { status: 'renewed', key: sign(next) });
       }
 

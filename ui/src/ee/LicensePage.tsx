@@ -9,6 +9,8 @@ export interface LicenseInfo {
   editable: boolean;
   store_url: string | null;
   seats_used?: number;
+  /** Requests this license year against the allowance (warns; never limits). */
+  usage?: { allowance: number; used: number; share: number; period_start: number; period_end: number; projected: number | null; level: 'ok' | 'warn' | 'over'; by_month: Array<{ month: string; requests: number }> };
   license?: { id: string; customer: string; email: string; plan: 'enterprise' | 'trial'; seats: number; requests_per_year: number; features: string[]; issued_at: number; expires_at: number };
 }
 
@@ -59,13 +61,66 @@ export function EnterpriseNotice({ feature }: { feature: string }) {
   );
 }
 
-/** A line at the top of every page while a license is ending or has ended. */
+const short = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+function usageLine(u: NonNullable<LicenseInfo['usage']>): string {
+  return `${short(u.used)} of ${short(u.allowance)} requests used this license year (${Math.round(u.share * 100)}%), which renews ${date(u.period_end)}.`;
+}
+
+/** Requests this license year against the allowance: a bar, the pace, and each month. */
+function UsageCard({ u }: { u: NonNullable<LicenseInfo['usage']> }) {
+  const max = Math.max(...u.by_month.map((m) => m.requests), 1);
+  const pct = Math.min(100, u.share * 100);
+  return (
+    <section className="card usage-card" aria-label="Requests this license year">
+      <div className="issuer-head">
+        <div>
+          <div className="strong">Requests this license year</div>
+          <div className="sub">
+            {date(u.period_start)} – {date(u.period_end)} · every call through the gateway counts; going over never slows or stops anything
+          </div>
+        </div>
+        <div className={`usage-figure ${u.level}`}>
+          {u.used.toLocaleString()} <span className="sub">of {u.allowance.toLocaleString()}</span>
+        </div>
+      </div>
+      <div className={`usage-bar ${u.level}`} role="meter" aria-valuemin={0} aria-valuemax={u.allowance} aria-valuenow={u.used} aria-label="Requests used">
+        <span style={{ width: `${pct}%` }} />
+        <i style={{ left: '80%' }} title="80%" />
+      </div>
+      <div className="sub" style={{ marginTop: 6 }}>
+        {Math.round(u.share * 100)}% used
+        {u.projected !== null ? ` · at this pace, about ${short(u.projected)} by ${date(u.period_end)}${u.projected > u.allowance ? ' — more than the allowance: talk to us about capacity at renewal' : ''}` : ''}
+      </div>
+      {u.by_month.length > 0 && (
+        <div className="usage-months">
+          {u.by_month.map((m) => (
+            <div key={m.month} title={`${m.month}: ${m.requests.toLocaleString()} requests`}>
+              <span style={{ height: `${Math.max(2, (m.requests / max) * 100)}%` }} />
+              <small>{new Date(`${m.month}-01T00:00:00Z`).toLocaleDateString([], { month: 'short', timeZone: 'UTC' })}</small>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A line at the top of every page while a license is ending or has ended, or its requests pass 80%. */
 export function LicenseBanner() {
   const [l, setL] = useState<LicenseInfo | null>(null);
   useEffect(() => {
     void api.get<LicenseInfo>('/admin/api/license').then(setL).catch(() => undefined);
   }, []);
-  if (!l?.license || (l.status !== 'expiring' && l.status !== 'grace' && l.status !== 'expired')) return null;
+  if (!l?.license) return null;
+  // Past 80% of the year's requests: said once at the top, never enforced.
+  if (l.status === 'valid' && l.usage && l.usage.level !== 'ok') {
+    return (
+      <div className="role-banner" role="status">
+        {usageLine(l.usage)} Traffic is never limited: talk to us about capacity at renewal. <a href="#/license">License</a>
+      </div>
+    );
+  }
+  if (l.status !== 'expiring' && l.status !== 'grace' && l.status !== 'expired') return null;
   const end = l.license.expires_at;
   const text =
     l.status === 'expiring'
@@ -143,7 +198,10 @@ export function LicensePage() {
               </tr>
               <tr>
                 <td className="muted">Requests a year</td>
-                <td>{lic.requests_per_year ? lic.requests_per_year.toLocaleString() : 'Unlimited'}</td>
+                <td>
+                  {lic.requests_per_year ? lic.requests_per_year.toLocaleString() : 'Unlimited'}
+                  {l.usage && <span className="sub">{Math.round(l.usage.share * 100)}% used this license year</span>}
+                </td>
               </tr>
               <tr>
                 <td className="muted">Until</td>
@@ -158,6 +216,7 @@ export function LicensePage() {
             </tbody>
           </table>
         )}
+        {l.usage && <UsageCard u={l.usage} />}
       </div>
       <div className="card" style={{ padding: 16, marginBottom: 14 }}>
         <div className="strong" style={{ marginBottom: 8 }}>

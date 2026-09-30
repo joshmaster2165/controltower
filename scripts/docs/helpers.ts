@@ -9,7 +9,7 @@ export const REPO = path.resolve(__dirname, '../..');
 export const OUT = path.join(REPO, 'docs/images');
 fs.mkdirSync(OUT, { recursive: true });
 
-export async function startServer(port: number, env: Record<string, string>): Promise<{ url: string; stop: () => Promise<void> }> {
+export async function startServer(port: number, env: Record<string, string>): Promise<{ url: string; data: string; stop: () => Promise<void> }> {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-docs-'));
   const p: ChildProcess = spawn('node', ['server/dist/server.mjs', '--port', String(port)], {
     cwd: REPO,
@@ -20,6 +20,7 @@ export async function startServer(port: number, env: Record<string, string>): Pr
   await expect.poll(async () => (await fetch(`${url}/health/liveliness`).catch(() => undefined))?.status, { timeout: 20_000 }).toBe(200);
   return {
     url,
+    data,
     stop: async () => {
       const done = new Promise((r) => p.once('exit', r));
       p.kill('SIGTERM');

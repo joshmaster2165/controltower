@@ -1,7 +1,9 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
-import { nav, shot, startServer } from './helpers';
+import { REPO, nav, shot, startServer } from './helpers';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license';
 import { testIdp, type TestIdp } from '../../e2e/support/oidc-idp';
 import { testSamlIdp } from '../../e2e/support/saml-idp';
@@ -45,11 +47,20 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
 
     // Adding the license.
     await page.goto(`${ct.url}/#/license`);
-    await page.getByLabel('Add a license key').fill(testLicense({ customer: 'Acme Corp', email: 'it@acme.com', seats: 25, requests_per_year: 250_000_000 }));
+    // Seven months of traffic already in the ledger, so the license shows its requests this year.
+    const periodStart = Date.now() - 200 * 86_400_000;
+    type Sqlite = new (file: string) => { prepare(q: string): { run(...a: unknown[]): unknown }; close(): void };
+    const sqlite = createRequire(path.join(REPO, 'server/package.json'))('better-sqlite3') as Sqlite;
+    const ledger = new sqlite(path.join(ct.data, 'controltower.db'));
+    const put = ledger.prepare("INSERT INTO usage_daily (bucket, key_id, deployment_id, alias_id, kind, requests) VALUES (?, 'k_docs', '', '', 'chat', ?)");
+    for (let d = 0; d < 200; d++) put.run(new Date(periodStart + d * 86_400_000).toISOString().slice(0, 10), Math.round(560_000 + d * 2_600 + (d % 7 < 5 ? 90_000 : -140_000)));
+    ledger.close();
+    await page.getByLabel('Add a license key').fill(testLicense({ customer: 'Acme Corp', email: 'it@acme.com', seats: 25, requests_per_year: 250_000_000, period_start: periodStart }));
     await shot(page, 'license-add', { el: page.getByRole('button', { name: 'Save' }) });
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Acme Corp')).toBeVisible();
     await shot(page, 'license');
+    await shot(page, 'license-usage', { clip: page.getByLabel('Requests this license year'), pad: 8 });
 
     // People: adding someone, and their one-time password.
     await nav(page, 'People');

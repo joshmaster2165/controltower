@@ -94,8 +94,10 @@ export class Metering {
     const s = this.deps.license.current;
     const l = s.license;
     if (!l || !l.requests_per_year || !['valid', 'expiring', 'grace'].includes(s.status)) return undefined;
+    const anchor = await this.anchor(l.id, l.period_start);
+    // Read after the anchor: a license first seen just now must not look a year old.
     const now = Date.now();
-    const { start, end } = licenseYear(await this.anchor(l.id, l.period_start), now);
+    const { start, end } = licenseYear(Math.min(anchor, now), now);
     const rows = await this.deps.db.read
       .selectFrom('usage_daily')
       .select(['bucket'])

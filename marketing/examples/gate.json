@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-01",
+  "angle": "feature",
+  "title": "Human approval for agent tool calls",
+  "video": {
+    "scene": "gate",
+    "headline": "Put a *human* between your agent and Salesforce",
+    "sub": "Drag a gate onto the map. The next call waits for approval."
+  },
+  "cards": [
+    {
+      "template": "diagram",
+      "size": "square",
+      "eyebrow": "How it works",
+      "headline": "One gateway. *Every* agent flow.",
+      "sub": "Agents point at Control Tower like any OpenAI-compatible endpoint. Gates decide what crosses.",
+      "agents": ["support-triage", "pr-reviewer", "outbound-sdr"],
+      "destinations": [{"name": "Claude", "kind": "model"}, {"name": "GPT-4.1", "kind": "model"}, {"name": "Salesforce MCP", "kind": "mcp"}, {"name": "GitHub MCP", "kind": "mcp"}],
+      "gates": [{"to": "Salesforce MCP", "action": "approve"}, {"to": "GitHub MCP", "action": "deny"}],
+      "alt": "Diagram: three agents route through Control Tower to Claude, GPT-4.1, a Salesforce MCP server (needs approval) and a GitHub MCP server (denied)."
+    },
+    {
+      "template": "feature",
+      "size": "square",
+      "still": "airspace",
+      "eyebrow": "The Airspace",
+      "headline": "See where your agents *actually* go",
+      "bullets": ["Models, MCP tools and APIs on one map", "Click an agent to trace it", "Drag to add a gate"],
+      "alt": "The Control Tower Airspace map"
+    }
+  ],
+  "carousel": [
+    {"template": "cover", "headline": "5 things your AI agents are doing *right now* that nobody approved", "sub": "And how to see them."},
+    {"template": "statement", "eyebrow": "1 / Tool calls", "statement": "Your support agent can read *every* Salesforce contact. Did anyone decide that?"},
+    {"template": "feature", "still": "airspace-trace", "eyebrow": "Trace it", "headline": "Click an agent. See *everything* it touches."},
+    {"template": "code", "eyebrow": "Try it", "headline": "Up in *one command*", "code": "$ docker run -p 4000:4000 \\\n    ghcr.io/joshmaster2165/controltower\n# open the printed link, start the demo fleet"},
+    {"template": "cta"}
+  ],
+  "linkedin": {
+    "text": "Your agents call tools all day. Who approved that?\n\nIn Control Tower you drag a gate onto the map. The next call waits for a human.\n\nOpen source, self-hosted: https://github.com/joshmaster2165/controltower\n\n#AIAgents #MCP #OpenSource",
+    "media": "video"
+  },
+  "x": {
+    "posts": [
+      "Your agent calls Salesforce 40 times an hour.\n\nDrag a gate onto the map → the next call waits for a human to approve it.\n\nOpen-source AI gateway for agents + MCP 👇",
+      "⭐ https://github.com/joshmaster2165/controltower"
+    ],
+    "media": "video"
+  }
+}

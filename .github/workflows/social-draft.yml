@@ -1,0 +1,87 @@
+name: social-draft
+
+# The daily social routine pushes a brief to claude/social-<date>
+# (marketing/drafts/<date>.json). This renders it — screen recording of the
+# real console, cards, carousel — stores the media under refs/social/<date>
+# (outside branches, so clones stay small), opens a review issue and deletes
+# the draft branch. Adding the `approved` label to the issue publishes it
+# (social-publish.yml).
+
+on:
+  push:
+    branches: ['claude/social-*']
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Draft id (the date in marketing/drafts/<id>.json on main)
+        required: true
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: social-draft-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Find the brief
+        id: brief
+        run: |
+          if [ -n "${{ inputs.id }}" ]; then id="${{ inputs.id }}"; else id="${GITHUB_REF_NAME#claude/social-}"; fi
+          f="marketing/drafts/$id.json"
+          test -f "$f" || { echo "::error::no $f on ${GITHUB_REF_NAME}"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "file=$f" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build && pnpm docs:build
+      - run: npx playwright install --with-deps chromium && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Render
+        run: node marketing/render.mjs "${{ steps.brief.outputs.file }}" out
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: social-render-failure
+          path: out
+          if-no-files-found: ignore
+      - name: Store media under refs/social/${{ steps.brief.outputs.id }}
+        id: store
+        env:
+          ID: ${{ steps.brief.outputs.id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_INDEX_FILE="$RUNNER_TEMP/social-index"
+          cp "${{ steps.brief.outputs.file }}" out/brief.json
+          git --work-tree=out add -A .
+          tree=$(git write-tree)
+          commit=$(git commit-tree "$tree" -m "social draft $ID")
+          git push -f origin "$commit:refs/social/$ID"
+          echo "sha=$commit" >> "$GITHUB_OUTPUT"
+      - name: Open (or refresh) the review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ steps.brief.outputs.id }}
+        run: |
+          gh label create social-draft --color 1f5eff --description "Daily social post waiting for review" 2>/dev/null || true
+          gh label create approved --color 1a9e6b --description "Publish this social draft" 2>/dev/null || true
+          gh label create published --color 0b3d91 --description "Social draft was posted" 2>/dev/null || true
+          node marketing/lib/issue.mjs body out/manifest.json "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.store.outputs.sha }}" "$ID" > body.md
+          title="📣 Social draft $ID: $(jq -r .title out/manifest.json)"
+          existing=$(gh issue list --label social-draft --state open --search "\"social draft $ID\" in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then gh issue edit "$existing" --title "$title" --body-file body.md; else gh issue create --title "$title" --label social-draft --body-file body.md --assignee "${{ github.repository_owner }}"; fi
+      - name: Delete the draft branch
+        if: startsWith(github.ref_name, 'claude/social-')
+        run: git push origin --delete "$GITHUB_REF_NAME"

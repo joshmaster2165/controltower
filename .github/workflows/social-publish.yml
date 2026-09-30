@@ -1,0 +1,88 @@
+name: social-publish
+
+# Posts a reviewed social draft when the repository owner adds the `approved`
+# label to its issue. Text is taken from the issue as edited; media from
+# refs/social/<id>. A platform without secrets is skipped; a platform that
+# fails can be retried by removing and re-adding the label (platforms that
+# already posted are not posted again).
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: social-publish-${{ github.event.issue.number }}
+
+jobs:
+  publish:
+    if: github.event.label.name == 'approved' && contains(github.event.issue.labels.*.name, 'social-draft') && github.event.sender.login == github.repository_owner
+    runs-on: ubuntu-latest
+    environment: social
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: marketing
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Fetch the draft
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number }}
+        run: |
+          gh issue view "$N" --json body --jq .body > body.md
+          id=$(grep -oP '(?<=<!-- social-id: )[^ ]+' body.md)
+          git fetch --depth=1 origin "refs/social/$id"
+          mkdir media && git archive FETCH_HEAD | tar -x -C media
+          done=$(gh issue view "$N" --json comments --jq '[.comments[].body | capture("<!-- social-posted: (?<p>[a-z]+) -->").p] | join(",")')
+          echo "skip=$done" >> "$GITHUB_OUTPUT"
+      - name: Post
+        id: post
+        continue-on-error: true
+        env:
+          SKIP: ${{ steps.draft.outputs.skip }}
+          LINKEDIN_ORG_ID: ${{ secrets.LINKEDIN_ORG_ID }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          LINKEDIN_REFRESH_TOKEN: ${{ secrets.LINKEDIN_REFRESH_TOKEN }}
+          LINKEDIN_VERSION: ${{ vars.LINKEDIN_VERSION }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: node marketing/publish.mjs body.md media
+      - name: Report back on the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number }}
+        run: |
+          r=media/results.json
+          test -f "$r" || { gh issue comment "$N" --body "Publishing crashed — see the [run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."; gh issue edit "$N" --remove-label approved; exit 1; }
+          {
+            for p in linkedin x; do
+              name=$([ $p = x ] && echo X || echo LinkedIn)
+              url=$(jq -r ".$p.url // empty" $r); skipped=$(jq -r ".$p.skipped // empty" $r); err=$(jq -r ".$p.error // empty" $r)
+              if [ -n "$url" ]; then echo "- ✅ **$name**: $url <!-- social-posted: $p -->"
+              elif [ -n "$err" ]; then echo "- ❌ **$name**: \`$err\`"
+              else echo "- ⏭️ **$name**: $skipped"; fi
+            done
+          } > comment.md
+          gh issue comment "$N" --body-file comment.md
+          if jq -e '[.[] | select(.error)] | length > 0' $r >/dev/null; then
+            gh issue edit "$N" --remove-label approved
+            echo "Fix the problem, then add the approved label again to retry the failed platform." | gh issue comment "$N" --body-file -
+            exit 1
+          fi
+          if ! jq -e '[.[] | select(.url or .skipped == "already posted")] | length > 0' $r >/dev/null; then
+            gh issue edit "$N" --remove-label approved
+            echo "Nothing was posted — add the LinkedIn / X secrets to the \`social\` environment (see marketing/README.md), then add the approved label again." | gh issue comment "$N" --body-file -
+            exit 0
+          fi
+          gh issue edit "$N" --add-label published
+          gh issue close "$N" --reason completed

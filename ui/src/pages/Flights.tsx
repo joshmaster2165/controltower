@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type FlightRow } from '../api';
+import { RegionsNotice } from '../components/RegionsNotice';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
@@ -63,6 +64,9 @@ function Target({ name }: { name: string }) {
 
 export function FlightsPage() {
   const [rows, setRows] = useState<FlightRow[]>([]);
+  // On a control plane with regions: which regions answered, and which one to show ('' all, 'here' this install).
+  const [regionNote, setRegionNote] = useState<Record<string, string> | undefined>();
+  const [region, setRegion] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
@@ -98,8 +102,12 @@ export function FlightsPage() {
       if (status) p.set('status', status);
       if (forAgent) p.set('for', forAgent);
       if (trace) p.set('trace', trace);
-      const r = await api.get<{ flights: FlightRow[] }>(`/admin/api/flights?${p.toString()}`);
-      if (mine === seq.current) setRows(r.flights);
+      if (region) p.set('region', region);
+      const r = await api.get<{ flights: FlightRow[]; regions?: Record<string, string> }>(`/admin/api/flights?${p.toString()}`);
+      if (mine === seq.current) {
+        setRows(r.flights);
+        if (r.regions) setRegionNote((prev) => ({ ...prev, ...r.regions }));
+      }
     } finally {
       setBusy(false);
     }
@@ -108,7 +116,7 @@ export function FlightsPage() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, forAgent, trace]);
+  }, [status, forAgent, trace, region]);
 
   // Follow the traffic while live; debounce so a busy gateway does not thrash the table.
   useEffect(() => {
@@ -149,6 +157,17 @@ export function FlightsPage() {
             </button>
           ))}
         </div>
+        {regionNote && (
+          <select className="input" style={{ width: 'auto' }} aria-label="Region" value={region} onChange={(e) => setRegion(e.target.value)}>
+            <option value="">All regions</option>
+            <option value="here">This control plane</option>
+            {Object.keys(regionNote).sort().map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        )}
         <label className="search">
           <Icon name="search" size={15} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by agent, model, tool, error or flight id" aria-label="Filter flights" />
@@ -176,6 +195,7 @@ export function FlightsPage() {
           </button>
         </div>
       )}
+      <RegionsNotice regions={regionNote} />
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <table className="table">
           <thead>
@@ -198,6 +218,7 @@ export function FlightsPage() {
                   <td title={new Date(f.ts).toLocaleString()}>
                     <span className="mono">{new Date(f.ts).toLocaleTimeString([], { hour12: false })}</span>
                     <span className="sub">{ago(f.ts)}</span>
+                    {regionNote && <span className="sub region-tag">{f.region ?? 'control plane'}</span>}
                   </td>
                   <td>
                     <div className="agent-cell" style={depth ? { paddingLeft: depth * 18 } : undefined}>

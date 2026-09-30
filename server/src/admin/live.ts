@@ -47,6 +47,12 @@ export class LiveFrames {
 
   /** Frames this instance produces go here too — to the other instances, when several share the work. */
   onLocal: ((m: WsServerMessage) => void) | undefined;
+  private localListeners = new Set<(m: WsServerMessage) => void>();
+  /** Also hear the frames this instance produces (a region sends them to its control plane). */
+  onLocalFrame(fn: (m: WsServerMessage) => void): () => void {
+    this.localListeners.add(fn);
+    return () => this.localListeners.delete(fn);
+  }
 
   /** A frame from another instance: its consoles' traffic, shown on this instance's consoles too. */
   receive(m: WsServerMessage): void {
@@ -157,6 +163,7 @@ export class LiveFrames {
 
   private emit(m: WsServerMessage): void {
     this.onLocal?.(m);
+    for (const l of this.localListeners) l(m);
     this.deliver(m);
   }
 

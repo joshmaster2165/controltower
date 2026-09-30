@@ -62,6 +62,8 @@ import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
 import { Metering } from './ee/metering.js';
 import { RegionSync } from './ee/multi-region/region.js';
+import { RegionHub } from './ee/multi-region/hub.js';
+import { RegionLink } from './ee/multi-region/link.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -331,6 +333,8 @@ async function main(): Promise<void> {
     tokens,
     instanceId: cluster.id,
     orgs,
+    // The control plane reaches into regions through the hub; a region answers it in-process, marked by a secret.
+    ...(region ? { internalSecret: crypto.randomBytes(32).toString('base64url') } : { regionHub: new RegionHub(cluster.shared ? cluster : undefined) }),
     guardrails,
     license,
     audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => !region && license.allows('audit')),
@@ -415,6 +419,7 @@ async function main(): Promise<void> {
   // A region: the newest configuration from the control plane before serving (or the last one received, if it
   // can't be reached), then every few seconds.
   let regionSync: RegionSync | undefined;
+  let regionLink: RegionLink | undefined;
   if (region) {
     regionSync = new RegionSync({
       db,
@@ -429,10 +434,22 @@ async function main(): Promise<void> {
       log: () => app.log,
     });
     full.regionSync = regionSync;
+    const link = new RegionLink({
+      app,
+      region,
+      instanceId: cluster.id,
+      internalSecret: full.internalSecret!,
+      onLocalFrame: (fn) => live.onLocalFrame(fn),
+      onApprovals: (fn) => approvalsVersion.onChange(fn),
+      onTopology: (fn) => paths.onNew(fn),
+      log: () => app.log,
+    });
+    regionLink = link;
     await regionSync.init();
     const first = await regionSync.poll();
     if (first === 'failed') app.log.warn(regionSync.status().applied_etag ? 'region: serving on the configuration last received from the control plane' : 'region: no configuration from the control plane yet: nothing to serve until it arrives');
     regionSync.start();
+    regionLink?.start();
   }
 
   if (mk.source === 'generated') {
@@ -521,6 +538,8 @@ async function main(): Promise<void> {
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);
+    // Regions' live frames reach one control-plane instance: it passes them to the others.
+    if (!region) full.liveRelay = (m) => cluster.publish('live', m);
     cluster.on('live', (m) => live.receive(m));
     approvals.onDecided = (id, status) => cluster.publish('approval', { id, status });
     cluster.on('approval', (p: { id: string; status: 'approved' | 'denied' }) => approvals.decidedElsewhere(p.id, p.status));
@@ -542,6 +561,7 @@ async function main(): Promise<void> {
     secretRefs.stop();
     rotator.stop();
     regionSync?.stop();
+    regionLink?.stop();
     metering.stop();
     await tokens.stop();
     clearInterval(guardrailSaver);

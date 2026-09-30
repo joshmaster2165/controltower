@@ -103,9 +103,60 @@ try {
   c('the control plane lists both regions in sync, with who reported', listed.length === 2 && listed.every((x) => x.status === 'in_sync' && x.version), listed.map((x) => `${x.name}:${x.status}:${x.instance}`).join(', '));
 
   // Calls stay in their region.
-  const cpFlights = (await cp('GET', `/admin/api/flights?key_id=${key.id}`)).body.flights as any[];
+  const cpFlights = (await cp('GET', `/admin/api/flights?key_id=${key.id}&region=here`)).body.flights as any[];
   const euFlights = (await api(EU.url, RAK)('GET', `/admin/api/flights?key_id=${key.id}`)).body.flights as any[];
   c('calls stay in their region: the control plane holds none', cpFlights.length === 0 && euFlights.length >= 1, `control plane ${cpFlights.length}, eu-west ${euFlights.length}`);
+
+  // ---- Phase 2: one console across regions.
+  await until(async () => (await cp('GET', '/admin/api/regions')).body.regions as any[], (r) => r.every((x) => x.status === 'in_sync'));
+  const seen = await until(async () => (await cp('GET', `/admin/api/flights?key_id=${key.id}`)).body, (b: any) => new Set((b.flights ?? []).map((f: any) => f.region)).size >= 2);
+  const where = [...new Set((seen.flights as any[]).map((f) => f.region))].sort();
+  c("the control plane's Flights shows every region's calls, each marked with its region", where.join() === 'eu-west,us-east' && Object.values(seen.regions ?? {}).every((v) => v === 'ok'), `${seen.flights.length} calls from ${where.join(', ')}; regions ${JSON.stringify(seen.regions)}`);
+  const one = (seen.flights as any[]).find((f) => f.region === 'eu-west');
+  const detail = (await cp('GET', `/admin/api/flights/${one.id}`)).body;
+  c('a call in a region opens from the control plane, with its events', detail.flight?.id === one.id && detail.flight?.region === 'eu-west' && Array.isArray(detail.events) && detail.events.length > 0, `${detail.flight?.region} ${detail.events?.length} events`);
+  const onlyEu = (await cp('GET', `/admin/api/flights?key_id=${key.id}&region=eu-west`)).body.flights as any[];
+  c('Flights can show one region', onlyEu.length > 0 && onlyEu.every((f) => f.region === 'eu-west'), `${onlyEu.length} from eu-west`);
+  const ledger = (await cp('GET', '/admin/api/ledger/summary?window=24h')).body;
+  const mine = (ledger.by_key as any[]).find((r) => r.key_id === key.id);
+  c("the Ledger adds up every region's spend and calls", mine?.requests >= 3, `${mine?.requests} calls for the key across regions`);
+  const topo = (await cp('GET', '/admin/api/topology')).body;
+  const edge = (topo.edges as any[]).find((e) => e.key_id === key.id);
+  c("the map draws every region's traffic", edge?.requests >= 3, `${edge?.requests} calls on the agent's connection`);
+  // Live: a call in a region shows on the control plane's live map.
+  const WebSocket = (await import('ws')).default;
+  const login = await fetch(`${CP.url}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin', password: AK }) });
+  const cookie = login.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ');
+  const ws = new WebSocket(`${CP.url.replace('http', 'ws')}/admin/ws`, { headers: { cookie, origin: CP.url } });
+  let liveCalls = 0;
+  ws.on('message', (raw: Buffer) => {
+    const m = JSON.parse(String(raw));
+    if (m.type === 'tick') for (const p of m.paths ?? []) if (p[0] === key.id) liveCalls += p[3];
+  });
+  await new Promise((r) => ws.once('open', r));
+  for (let i = 0; i < 3; i++) await chat(EU.url, key.key);
+  await until(async () => liveCalls, (x) => x >= 3, 6000);
+  ws.close();
+  c("the control plane's live map shows a region's calls as they happen", liveCalls >= 3, `${liveCalls} calls seen live`);
+
+  // Someone who sees only their team sees only their team's calls, from every region too.
+  const other = (await cp('POST', '/admin/api/keys', { name: 'ops-agent', team: 'ops' })).body;
+  const team = (await cp('POST', '/admin/api/teams', { name: 'eu' })).body;
+  const added = (await cp('PUT', `/admin/api/teams/${team.id}/members`, { email: 'eu-lead@regions.test', role: 'admin' })).body;
+  const signIn = async (password: string) => {
+    const r = await fetch(`${CP.url}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'eu-lead@regions.test', password }) });
+    return { cookie: r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; '), csrf: ((await r.json()) as any).csrf as string };
+  };
+  const s1 = await signIn(added.password);
+  await fetch(`${CP.url}/admin/api/me/password`, { method: 'POST', headers: { cookie: s1.cookie, 'x-ct-csrf': s1.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ current: added.password, password: 'eu-lead-password-1' }) });
+  const lead = await signIn('eu-lead-password-1');
+  await until(async () => (await cp('GET', '/admin/api/regions')).body.regions as any[], (r) => r.every((x) => x.status === 'in_sync'));
+  await until(async () => chat(EU.url, other.key), (x) => x === 200);
+  const theirs = await until(
+    async () => ((await (await fetch(`${CP.url}/admin/api/flights?limit=100`, { headers: { cookie: lead.cookie } })).json()) as any).flights as any[],
+    (f) => f.some((x) => x.region === 'eu-west'),
+  );
+  c("a team member on the control plane sees their team's calls from regions, and no one else's", theirs.length > 0 && theirs.every((f) => f.team === 'eu') && theirs.some((f) => f.region), `${theirs.length} calls, teams ${[...new Set(theirs.map((f) => f.team))].join(',')}`);
 
   // A change on the control plane reaches every region within seconds.
   await cp('PATCH', `/admin/api/keys/${key.id}`, { enabled: false });
@@ -118,7 +169,7 @@ try {
   await cp('DELETE', `/admin/api/rules/${gate.id}`);
   await until(async () => [await chat(EU.url, key.key), await chat(US1.url, key.key), await chat(US2.url, key.key)], (v) => v.every((x) => x === 200));
 
-  // A held call in a region is decided in that region.
+  // A held call in a region is decided from the control plane's Tower (and still in its own).
   const before = (await cp('GET', '/admin/api/regions')).body.config_etag;
   const hold = (await cp('POST', '/admin/api/rules', { name: 'Hold in the region', target_kind: 'model', match: { keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 15000 } })).body;
   // Until the control plane says eu-west has the configuration with the new gate.
@@ -128,9 +179,17 @@ try {
     heldCall ??= chat(EU.url, key.key);
     return ((await api(EU.url, RAK)('GET', '/admin/api/approvals?status=pending')).body.approvals as any[] | undefined)?.[0];
   }, (a) => !!a);
-  const decided = pending ? await api(EU.url, RAK)('POST', `/admin/api/approvals/${pending.id}/decide`, { action: 'approve' }) : { status: 0 };
+  const tower = (await cp('GET', '/admin/api/approvals?status=pending')).body.approvals as any[];
+  const card = tower.find((a) => a.id === pending?.id);
+  const decided = pending ? await cp('POST', `/admin/api/approvals/${pending.id}/decide`, { action: 'approve' }) : { status: 0 };
   const released = heldCall ? await heldCall : 0;
-  c("a call held in a region is decided in that region's console", decided.status === 200 && released === 200, `decide ${decided.status}, call ${released}`);
+  const afterwards = (await api(EU.url, RAK)('GET', `/admin/api/approvals/${pending?.id}`)).body.approval;
+  c("a call held in a region shows in the control plane's Tower and is decided there", card?.region === 'eu-west' && decided.status === 200 && released === 200 && afterwards?.status === 'approved', `card ${card?.region}, decide ${decided.status}, call ${released}, in the region: ${afterwards?.status} by ${afterwards?.resolved_by}`);
+  // Held again, and decided in the region's own console.
+  heldCall = chat(EU.url, key.key);
+  const second = await until(async () => ((await api(EU.url, RAK)('GET', '/admin/api/approvals?status=pending')).body.approvals as any[] | undefined)?.[0], (a) => !!a);
+  const local = second ? await api(EU.url, RAK)('POST', `/admin/api/approvals/${second.id}/decide`, { action: 'approve' }) : { status: 0 };
+  c("…or in the region's own console", local.status === 200 && (await heldCall) === 200, `decide ${local.status}`);
   await cp('DELETE', `/admin/api/rules/${hold.id}`);
   await until(async () => [await chat(EU.url, key.key), await chat(US1.url, key.key), await chat(US2.url, key.key)], (v) => v.every((x) => x === 200));
 
@@ -140,9 +199,17 @@ try {
   const forged = await fetch(`${CP.url}/cp/v1/config`, { headers: { authorization: 'Bearer ctr_not-a-region' } });
   c('the control plane refuses an unknown region token', forged.status === 401, `${forged.status}`);
 
+  // A region that goes quiet: the console still answers, and says which region it can't show.
+  await stop(US1);
+  await stop(US2);
+  await sleep(2000);
+  const t0 = Date.now();
+  const partial = (await cp('GET', `/admin/api/flights?key_id=${key.id}`)).body;
+  c('with a region down, the console still answers, naming the region it can’t reach', partial.regions?.['us-east'] !== 'ok' && partial.regions?.['eu-west'] === 'ok' && Date.now() - t0 < 9000, `${Date.now() - t0} ms; ${JSON.stringify(partial.regions)}`);
+
   // The control plane goes down: regions keep serving, even across a restart.
   await stop(CP);
-  const during = [await chat(EU.url, key.key), await chat(US1.url, key.key)];
+  const during = [await chat(EU.url, key.key)];
   await stop(EU);
   const EU2 = start('eu-west', 4911, { ...regionEnv(eu.env), CT_DATA_DIR: path.join(scratch, 'eu') });
   procs.push(EU2);
@@ -156,7 +223,7 @@ try {
   procs.push(CP);
   await CP.ready;
   await api(CP.url, AK)('PATCH', `/admin/api/keys/${key.id}`, { enabled: false });
-  const caught = await until(async () => [await chat(EU2.url, key.key), await chat(US1.url, key.key)], (v) => v.every((s) => s === 401), 15_000);
+  const caught = await until(async () => [await chat(EU2.url, key.key)], (v) => v.every((s) => s === 401), 15_000);
   const stAfter = (await api(EU2.url, RAK)('GET', '/admin/api/status')).body.region;
   c('the control plane back: regions catch up, and report no error', caught.every((s) => s === 401) && !stAfter?.error, `${caught.join(' ')}; eu-west error: ${stAfter?.error ?? 'none'}`);
 } finally {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
 import { inList, scopeOf } from './scope.js';
+import { askRegions, note } from '../ee/multi-region/federate.js';
 
 const MAX = 50_000;
 
@@ -37,13 +38,22 @@ export async function replayRoutes(app: FastifyInstance, ctx: AppContext): Promi
       for (const r of a) held.set(r.flight_id, r.status);
     }
     const oldest = await ctx.db.read.selectFrom('flights').select((eb) => eb.fn.min<number>('ts').as('ts')).executeTakeFirst();
+    // With regions (Enterprise): their calls in the window too.
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    const flightsOut = rows.map((r) => [r.id, r.ts, r.key_id, r.key_name, r.kind, r.mcp_server_id ?? r.deployment_id, r.tool, r.status, r.duration_ms, r.rule_id, held.get(r.id) ?? null] as unknown[]);
+    if (remote.length) {
+      for (const a of remote) if (a.ok) flightsOut.push(...((a.body?.flights ?? []) as unknown[][]));
+      flightsOut.sort((x, y) => Number(x[1]) - Number(y[1]));
+      if (flightsOut.length > MAX) flightsOut.length = MAX;
+    }
     return {
       from,
       to,
       oldest: oldest?.ts ?? null,
-      truncated,
+      truncated: truncated || remote.some((a) => a.ok && a.body?.truncated) || flightsOut.length >= MAX,
+      ...(remote.length ? { regions: note(remote) } : {}),
       // [id, ts, key_id, key_name, kind, target_id, tool, status, duration_ms, rule_id, approval_status]
-      flights: rows.map((r) => [r.id, r.ts, r.key_id, r.key_name, r.kind, r.mcp_server_id ?? r.deployment_id, r.tool, r.status, r.duration_ms, r.rule_id, held.get(r.id) ?? null]),
+      flights: flightsOut,
     };
   });
 }

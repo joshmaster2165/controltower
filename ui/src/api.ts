@@ -207,6 +207,8 @@ export interface ObservedEdge {
 
 export interface FlightRow {
   id: string;
+  /** The region it was served in, on a control plane with regions (Enterprise); null: here. */
+  region?: string | null;
   ts: number;
   key_id: string;
   key_name: string;
@@ -347,6 +349,8 @@ export interface PolicyBundle {
 
 export interface Approval {
   id: string;
+  /** The region holding the call, on a control plane with regions (Enterprise). */
+  region?: string | null;
   flight_id: string;
   key_id: string;
   key_name: string;

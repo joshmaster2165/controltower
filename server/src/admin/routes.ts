@@ -24,6 +24,8 @@ export function budgetVisible(ctx: AppContext, scope: Scope, budgetScope: string
   return false;
 }
 import { asInt, jsonAt } from '../db/sqlfn.js';
+import { askRegions, findInRegions, note } from '../ee/multi-region/federate.js';
+import { mergeLedger, mergeTopology } from '../ee/multi-region/merge.js';
 
 /** The start of the hour a time falls in: the hourly traffic summary's buckets. */
 export const hourStart = (ts: number): number => Math.floor(ts / 3_600_000) * 3_600_000;
@@ -60,6 +62,12 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   // ---- topology: what the Airspace draws before any flight arrives ----
   app.get('/admin/api/topology', { preHandler: guard }, async (req) => {
+    const local = await topologyHere(req);
+    // With regions (Enterprise): every region's traffic on the one map.
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    return remote.length ? { ...mergeTopology(local, remote.filter((a) => a.ok).map((a) => a.body)), regions: note(remote) } : local;
+  });
+  const topologyHere = async (req: import('fastify').FastifyRequest) => {
     const r = ctx.registry;
     // Someone who sees only their teams gets only their agents, their connections and their links.
     const scope = scopeOf(req);
@@ -232,7 +240,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       // Since when connections have been recorded: a connection is only "new" once there is history to compare with.
       paths_since: ctx.paths.since,
     };
-  });
+  };
 
   // ---- Airspace arrangement: the map is shared documentation, so node positions live on the server ----
   app.get('/admin/api/airspace/layout', { preHandler: guard }, async () => {
@@ -272,7 +280,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/events/recent', { preHandler: guard }, async (req) => {
     const q = req.query as { since?: string };
     const since = q.since ? Number(q.since) : Date.now() - 10_000;
-    const events = ctx.ring.since(since);
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    const events = [...ctx.ring.since(since), ...remote.flatMap((a) => (a.ok ? (a.body?.events ?? []) : []))];
     const scope = scopeOf(req);
     if (scope.all) return { events };
     // Only the calls of agents they see: a call's other events follow its start.
@@ -282,8 +291,11 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   // ---- keys ----
   app.get('/admin/api/keys', { preHandler: guard }, async (req) => {
-    // Last use comes from what the key actually did: gateway flights and observe reports.
+    // Last use comes from what the key actually did: gateway flights and observe reports — in every region.
     const used = await lastUseByKey(ctx);
+    for (const a of await askRegions(ctx, req, 'GET', '/admin/api/keys')) {
+      for (const k of (a.ok ? a.body?.keys : []) ?? []) if (k.last_used_at && k.last_used_at > (used.get(k.id) ?? 0)) used.set(k.id, k.last_used_at);
+    }
     const scope = scopeOf(req);
     return {
       keys: [...ctx.registry.keysById.values()]
@@ -464,8 +476,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         SELECT id FROM down LIMIT 500`.execute(ctx.db.read);
       qb = qb.where('id', 'in', ids.rows.length ? ids.rows.map((r) => r.id) : ['']);
     }
-    const rows = await qb.execute();
-    return { flights: rows, next_before: rows.length === limit ? rows[rows.length - 1]!.ts : null };
+    // With regions (Enterprise): theirs too, newest first, each marked with its region; ?region= picks one
+    // (`here` for this install's own).
+    const pick = (req.query as { region?: string }).region;
+    const rows = pick && pick !== 'here' ? [] : await qb.execute();
+    const fwd = new URL(req.url, 'http://x');
+    fwd.searchParams.delete('region');
+    const remote = pick === 'here' ? [] : await askRegions(ctx, req, 'GET', `${fwd.pathname}${fwd.search}`, undefined, pick || undefined);
+    if (!remote.length) return { flights: rows, next_before: rows.length === limit ? rows[rows.length - 1]!.ts : null };
+    const all = [...rows.map((f) => ({ ...f, region: null as string | null })), ...remote.flatMap((a) => (a.ok ? ((a.body?.flights ?? []) as typeof rows).map((f) => ({ ...f, region: a.region })) : []))]
+      .sort((a, b) => Number(b.ts) - Number(a.ts))
+      .slice(0, limit);
+    return { flights: all, next_before: all.length === limit ? all[all.length - 1]!.ts : null, regions: note(remote) };
   });
 
   /**
@@ -519,6 +541,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/flights/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const flight = await ctx.db.read.selectFrom('flights').selectAll().where('id', '=', id).executeTakeFirst();
+    if (!flight) {
+      const found = await findInRegions(ctx, req, req.url);
+      if (found) return { ...found.body, flight: { ...found.body.flight, region: found.region } };
+    }
     if (!flight || !seesTeam(scopeOf(req), flight.team)) return reply.status(404).send({ error: { code: 'not_found', message: 'flight not found' } });
     const events = await ctx.db.read.selectFrom('flight_events').selectAll().where('flight_id', '=', id).orderBy('seq').execute();
     return { flight, events: events.map((e) => JSON.parse(e.payload)) };
@@ -574,7 +600,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       .orderBy('bucket')
       .execute();
     const num = (v: unknown) => Number(v ?? 0);
-    return {
+    const summary = {
       window: win,
       by_key: byKey.map((r) => ({ key_id: r.key_id, requests: num(r.requests), errors: num(r.errors), denied: num(r.denied), cost_nanousd: num(r.cost_nanousd), in_tokens: num(r.in_tokens), out_tokens: num(r.out_tokens) })),
       by_deployment: byDeployment.map((r) => ({
@@ -584,10 +610,16 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         in_tokens: num(r.in_tokens),
         out_tokens: num(r.out_tokens),
         avg_ms: num(r.lat_count) > 0 ? num(r.lat_sum_ms) / num(r.lat_count) : null,
+        lat_sum_ms: num(r.lat_sum_ms),
+        lat_count: num(r.lat_count),
       })),
       series: series.map((r) => ({ bucket: r.bucket, requests: num(r.requests), cost_nanousd: num(r.cost_nanousd), errors: num(r.errors) })),
       budgets: ctx.budgets.snapshot().filter((b) => scope.all || budgetVisible(ctx, scope, b.scope)),
     };
+    // With regions (Enterprise): their spend and traffic added in (their calls stay theirs; only these sums come).
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    if (!remote.length) return summary;
+    return { ...mergeLedger(summary, remote.filter((a) => a.ok).map((a) => a.body)), regions: note(remote) };
   });
 
   // ---- demo mode: start it from the console, or stop it and remove everything it added ----

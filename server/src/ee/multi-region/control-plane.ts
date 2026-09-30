@@ -85,6 +85,49 @@ export class ControlPlane {
 
   routes(app: FastifyInstance): void {
     const ctx = this.ctx;
+    /** The region a request comes from (its token), or an answer sent already. */
+    const regionOf = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
+      if (!ctx.license.allows('multi_region')) return void reply.status(402).send({ error: { code: 'enterprise_required', feature: 'multi_region', message: 'Several regions need a Control Tower Enterprise license on the control plane.' } });
+      const auth = String(req.headers.authorization ?? '');
+      const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+      const region = token ? await ctx.db.read.selectFrom('regions').select(['id', 'name']).where('token_hash', '=', sha256(token)).executeTakeFirst() : undefined;
+      if (!region) return void reply.status(401).send({ error: { code: 'unknown_region', message: 'Unknown or revoked region token.' } });
+      return region;
+    };
+    const hub = ctx.regionHub;
+    if (hub) {
+      // A region waits here for the console's questions…
+      app.get('/cp/v1/link/next', async (req, reply) => {
+        const r = await regionOf(req, reply);
+        if (!r) return reply;
+        // A region that hangs up (it stopped) ends its poll at once, so the console knows it's gone.
+        const closed = new Promise<void>((resolve) => reply.raw.once('close', () => resolve()));
+        const requests = await hub.next(r.name, undefined, closed);
+        if (reply.raw.destroyed) return reply;
+        return requests.length ? { requests } : reply.status(204).send();
+      });
+      // …sends its answers…
+      app.post('/cp/v1/link/res', { bodyLimit: 32 * 1024 * 1024 }, async (req, reply) => {
+        const r = await regionOf(req, reply);
+        if (!r) return reply;
+        hub.answer(((req.body as { responses?: unknown[] } | undefined)?.responses ?? []) as import('./hub.js').RpcResponse[]);
+        return { ok: true };
+      });
+      // …and its live traffic, every second: shown on the control plane's live map like its own.
+      app.post('/cp/v1/link/live', { bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
+        const r = await regionOf(req, reply);
+        if (!r) return reply;
+        const b = (req.body ?? {}) as { frames?: import('@controltower/shared').WsServerMessage[]; approvals?: boolean; topology?: boolean };
+        for (const m of b.frames ?? []) {
+          if (m?.type !== 'tick' && m?.type !== 'events') continue;
+          ctx.live.receive(m);
+          ctx.liveRelay?.(m);
+        }
+        if (b.approvals) ctx.approvalsVersion.bump();
+        if (b.topology) ctx.viewsVersion.bump();
+        return { ok: true };
+      });
+    }
     // A region asks for the configuration (with the etag it has: 304 when nothing changed) and says how it is.
     app.get('/cp/v1/config', async (req, reply) => {
       if (!ctx.license.allows('multi_region')) return reply.status(402).send({ error: { code: 'enterprise_required', feature: 'multi_region', message: 'Several regions need a Control Tower Enterprise license on the control plane.' } });

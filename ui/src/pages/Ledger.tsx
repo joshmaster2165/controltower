@@ -3,6 +3,7 @@ import { formatUsd } from '@controltower/shared';
 import { usd } from '../format';
 import { api } from '../api';
 import { useStore } from '../store';
+import { RegionsNotice } from '../components/RegionsNotice';
 import { PageHeader } from '../components/PageHeader';
 import { BudgetsCard } from '../components/BudgetsCard';
 import { CustomersCard, TagsCard } from '../components/CustomersCard';
@@ -17,6 +18,8 @@ type Window = '1h' | '24h' | '7d' | '30d';
 
 interface Summary {
   window: Window;
+  /** On a control plane with regions: which regions' traffic is included. */
+  regions?: Record<string, string>;
   by_key: Array<{ key_id: string; requests: number; errors: number; denied: number; cost_nanousd: number; in_tokens: number; out_tokens: number }>;
   by_deployment: Array<{ deployment_id: string; requests: number; cost_nanousd: number; in_tokens: number; out_tokens: number; avg_ms: number | null }>;
   series: Array<{ bucket: string; requests: number; cost_nanousd: number; errors: number }>;
@@ -243,6 +246,7 @@ export function LedgerPage() {
           </div>
         }
       />
+      <RegionsNotice regions={data?.regions} />
 
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
         <StatTile label={`Spend · ${win}`} value={formatUsd(totals.spend)} trend={trend((s) => s.cost_nanousd)} />

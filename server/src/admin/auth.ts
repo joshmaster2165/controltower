@@ -1,4 +1,4 @@
-import { ADMIN_SCOPE, EMPTY_SCOPE, hasScopedRights, type Scope } from './scope.js';
+import { ADMIN_SCOPE, EMPTY_SCOPE, hasScopedRights, parseScope, type Scope } from './scope.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
@@ -210,6 +210,16 @@ export function requireAdmin(ctx: AppContext) {
   // Every refusal returns the reply: an async hook that only calls send() lets Fastify go on to the handler
   // whenever the response hasn't finished by the time the hook resolves (an async onSend hook delays it).
   return async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> => {
+    // In a region: a question from the control plane's console, run here on behalf of the person who asked (their
+    // scope, their name on decisions). The secret never leaves this process.
+    const internal = req.headers['x-ct-internal'];
+    if (ctx.internalSecret && typeof internal === 'string' && internal.length === ctx.internalSecret.length && timingSafeEqual(Buffer.from(internal), Buffer.from(ctx.internalSecret))) {
+      const acting = typeof req.headers['x-ct-acting'] === 'string' ? req.headers['x-ct-acting'].slice(0, 200) : 'control plane';
+      req.admin = { id: 'control-plane', adminId: 'control-plane', email: acting, csrf: '', expiresAt: Number.MAX_SAFE_INTEGER, role: 'admin' };
+      req.scope = parseScope(typeof req.headers['x-ct-scope'] === 'string' ? req.headers['x-ct-scope'] : undefined) ?? ADMIN_SCOPE;
+      req.auditActor = { type: 'system', id: 'control-plane', email: acting };
+      return;
+    }
     if (hasAdminKey(ctx, req)) {
       req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER, role: 'admin' };
       req.auditActor = { type: 'admin_key', role: 'admin' };

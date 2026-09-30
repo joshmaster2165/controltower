@@ -54,3 +54,24 @@ export function visibleKeyIds(ctx: AppContext, scope: Scope): string[] | undefin
 
 /** An id list safe for SQL `IN` (never empty: an empty scope matches nothing). */
 export const inList = (ids: string[]) => (ids.length ? ids : ['\u0000none']);
+
+/** A scope as it travels to a region (which applies it to the person asking on the control plane). */
+export interface SerializedScope {
+  all: boolean;
+  teams: string[];
+  manage: string[] | 'all';
+  approve: string[] | 'all';
+  org_admin: string[] | 'all';
+}
+const list = (v: ReadonlySet<string> | 'all') => (v === 'all' ? 'all' : [...v]);
+const set = (v: unknown): ReadonlySet<string> | 'all' => (v === 'all' ? 'all' : new Set(Array.isArray(v) ? v.map(String) : []));
+export const serializeScope = (s: Scope): SerializedScope => ({ all: s.all, teams: [...s.teams], manage: list(s.manage), approve: list(s.approve), org_admin: list(s.orgAdmin) });
+export function parseScope(raw: string | undefined): Scope | undefined {
+  if (!raw) return undefined;
+  try {
+    const j = JSON.parse(raw) as Partial<SerializedScope>;
+    return { all: j.all === true, teams: new Set(Array.isArray(j.teams) ? j.teams.map(String) : []), manage: set(j.manage), approve: set(j.approve), orgAdmin: set(j.org_admin) };
+  } catch {
+    return undefined;
+  }
+}

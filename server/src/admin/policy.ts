@@ -10,6 +10,7 @@ import { simulate } from '../policy/simulate.js';
 import { applyPolicyImport, exportPolicy, planPolicyImport, policyYaml } from '../policy/yaml.js';
 import type { RuleRecord } from '../policy/policy.js';
 import { approvesTeam, inList, scopeOf, seesKey, visibleKeyIds } from './scope.js';
+import { askRegions, findInRegions, note } from '../ee/multi-region/federate.js';
 
 const EFFECTS = ['allow', 'deny', 'require_approval', 'allow_with_limits', 'inspect'];
 
@@ -235,21 +236,30 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const keyIds = visibleKeyIds(ctx, scopeOf(req));
     if (keyIds) qb = qb.where('key_id', 'in', inList(keyIds));
     const rows = await qb.execute();
-    return {
-      approvals: rows.map((a) => ({
-        ...a,
-        target: JSON.parse(a.target) as unknown,
-        args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null,
-        demo: a.demo === 1,
-      })),
-      held: ctx.approvals.heldCount,
-      server_time: Date.now(),
-    };
+    const local = rows.map((a) => ({
+      ...a,
+      target: JSON.parse(a.target) as unknown,
+      args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null,
+      demo: a.demo === 1,
+      region: null as string | null,
+    }));
+    // Held calls in regions (Enterprise), each marked with its region.
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    if (!remote.length) return { approvals: local, held: ctx.approvals.heldCount, server_time: Date.now() };
+    const all = [...local, ...remote.flatMap((a) => (a.ok ? ((a.body?.approvals ?? []) as typeof local).map((x) => ({ ...x, region: a.region })) : []))]
+      .sort((a, b) => Number(b.requested_at) - Number(a.requested_at))
+      .slice(0, limit);
+    return { approvals: all, held: ctx.approvals.heldCount + remote.reduce((n, a) => n + Number(a.body?.held ?? 0), 0), server_time: Date.now(), regions: note(remote) };
   });
 
   app.get('/admin/api/approvals/:id', { preHandler: guard }, async (req, reply) => {
     const a = await ctx.db.read.selectFrom('approvals').selectAll().where('id', '=', (req.params as { id: string }).id).executeTakeFirst();
     const scope = scopeOf(req);
+    if (!a) {
+      // Held in a region?
+      const found = await findInRegions(ctx, req, req.url);
+      if (found) return { ...found.body, approval: { ...found.body.approval, region: found.region } };
+    }
     if (!a || !(scope.all || seesKey(scope, ctx.registry.keysById.get(a.key_id)))) return reply.status(404).send({ error: { code: 'not_found', message: 'approval not found' } });
     return {
       approval: { ...a, target: JSON.parse(a.target) as unknown, args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null, demo: a.demo === 1 },
@@ -265,6 +275,14 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
     // A team's members decide its agents' held calls; approvers and admins decide any.
     const held = await ctx.db.read.selectFrom('approvals').select('key_id').where('id', '=', id).executeTakeFirst();
+    if (!held) {
+      // A call held in a region is decided there, by this person, within their teams.
+      const found = await findInRegions(ctx, req, `/admin/api/approvals/${encodeURIComponent(id)}`);
+      if (found) {
+        const [r] = await askRegions(ctx, req, 'POST', req.url, req.body, found.region);
+        return reply.status(r?.status ?? 502).send(r?.body ?? { error: { code: 'region_unreachable', message: `region ${found.region} didn't answer` } });
+      }
+    }
     if (held && !approvesTeam(scopeOf(req), ctx.registry.keysById.get(held.key_id)?.team)) return reply.status(403).send({ error: { code: 'forbidden', message: "That call isn't from one of your teams' agents." } });
     const r = await approvals.decide(id, req.admin?.email ?? 'admin', b.action, { ...(b.note ? { note: b.note } : {}), ...(b.window ? { window: b.window } : {}) });
     if (!r.ok) return reply.status(409).send({ error: { code: 'conflict', message: r.status } });
@@ -306,20 +324,24 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
       .orderBy('grants.created_at', 'desc')
       .limit(100)
       .execute();
-    return {
-      windows: rows.map((w) => ({
-        ...w,
-        any_args: w.any_args === 1,
-        uses_left: w.uses_allowed - w.uses_consumed,
-        args_preview: w.args_preview ? (JSON.parse(w.args_preview as string) as unknown) : null,
-      })),
-      server_time: now,
-    };
+    const windows = rows.map((w) => ({
+      ...w,
+      any_args: w.any_args === 1,
+      uses_left: w.uses_allowed - w.uses_consumed,
+      args_preview: w.args_preview ? (JSON.parse(w.args_preview as string) as unknown) : null,
+      region: null as string | null,
+    }));
+    const remote = await askRegions(ctx, req, 'GET', req.url);
+    return { windows: [...windows, ...remote.flatMap((a) => (a.ok ? ((a.body?.windows ?? []) as typeof windows).map((x) => ({ ...x, region: a.region })) : []))], server_time: now, ...(remote.length ? { regions: note(remote) } : {}) };
   });
 
   app.post('/admin/api/grants/:id/revoke', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const ok = await approvals.revokeGrant(id);
+    if (!ok) {
+      // A window opened in a region is ended there.
+      for (const a of await askRegions(ctx, req, 'POST', req.url)) if (a.ok) return a.body;
+    }
     if (!ok) return reply.status(404).send({ error: { code: 'not_found', message: 'grant not found or already revoked' } });
     return { ok: true };
   });

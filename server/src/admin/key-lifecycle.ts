@@ -7,6 +7,7 @@ import { ADMIN_KEY_ID } from './admin-key.js';
 import { PLAYGROUND_KEY_ID } from './playground.js';
 import { GUARDRAIL_KEY_ID } from '../guardrails/model-check.js';
 import { managesTeam, scopeOf } from './scope.js';
+import { askRegions } from '../ee/multi-region/federate.js';
 
 /**
  * Agents come and go: a session spins up sub-agents, a pipeline mints a key per
@@ -45,9 +46,15 @@ export async function retireIdleDays(db: Kysely<Database>): Promise<number> {
  * done nothing for `days` — counting from its creation if it never did
  * anything — expires now. Returns the keys it retired.
  */
-export async function retireIdleKeys(ctx: Pick<AppContext, 'db' | 'registry'>, days: number, now = Date.now()): Promise<Array<{ id: string; name: string }>> {
+export async function retireIdleKeys(ctx: Pick<AppContext, 'db' | 'registry'> & Partial<AppContext>, days: number, now = Date.now()): Promise<Array<{ id: string; name: string }>> {
   if (!(days > 0)) return [];
   const used = await lastUseByKey(ctx);
+  // Keys used only in regions count as used: every region must answer, or nothing is retired this time.
+  if (ctx.regionHub && ctx.license) {
+    const answers = await askRegions(ctx as AppContext, undefined, 'GET', '/admin/api/keys');
+    if (answers.some((a) => !a.ok)) return [];
+    for (const a of answers) for (const k of (a.body?.keys ?? []) as Array<{ id: string; last_used_at?: number | null }>) if (k.last_used_at && k.last_used_at > (used.get(k.id) ?? 0)) used.set(k.id, k.last_used_at);
+  }
   const cutoff = now - days * DAY;
   const idle = [...ctx.registry.keysById.values()].filter(
     (k) => !BUILT_IN_KEYS.has(k.id) && !k.demo && !(k.expiresAt && k.expiresAt <= now) && (used.get(k.id) ?? k.lastUsedAt ?? k.createdAt) < cutoff,

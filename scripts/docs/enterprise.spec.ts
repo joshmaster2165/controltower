@@ -8,6 +8,7 @@ import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license'
 import { testIdp, type TestIdp } from '../../e2e/support/oidc-idp';
 import { testSamlIdp } from '../../e2e/support/saml-idp';
 import { signJwt, testSigner } from '../../e2e/support/jwt';
+import { openAiUpstream } from '../../e2e/support/upstreams';
 
 /**
  * Screenshots for the Enterprise and administration pages: License, People, single sign-on (OIDC and SAML),
@@ -284,6 +285,10 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await member.close();
 
     // Regions: two regions started from what the control plane gives them, in sync.
+    const model = await openAiUpstream({ models: ['gpt-4.1-mini'] });
+    const fieldProv = await api('POST', '/admin/api/providers', { catalog_id: 'custom', name: 'Field models', slug: 'field', base_url: `${model.url}/v1`, credentials: { api_key: 'sk-field-example' } });
+    await api('POST', '/admin/api/deployments', { provider_id: (fieldProv.provider ?? fieldProv).id, upstream_model: 'gpt-4.1-mini', public_name: 'field-mini' });
+    const field = await api('POST', '/admin/api/keys', { name: 'field-agent', agent_id: 'field-agent', team: 'finance' });
     const regionServers: Array<{ stop: () => Promise<void> }> = [];
     for (const [i, name] of ['eu-west', 'us-east'].entries()) {
       const reg = await api('POST', '/admin/api/regions', { name });
@@ -302,7 +307,31 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await expect(rp.getByText('This is region')).toBeVisible();
     await shot(rp, 'region-console');
     await rp.close();
+
+    // One console across regions: calls in both regions on the control plane's Flights, marked with their region…
+    const ask = (port: number) => fetch(`http://localhost:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${field.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'field-mini', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+    for (let i = 0; i < 3; i++) await Promise.all([ask(4001), ask(4002)]);
+    await nav(page, 'Flights');
+    await expect(page.locator('.region-tag', { hasText: 'eu-west' }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.region-tag', { hasText: 'us-east' }).first()).toBeVisible();
+    await shot(page, 'regions-flights');
+    // …and a call held in eu-west, decided from the control plane's Tower.
+    const etag = (await api('GET', '/admin/api/regions')).config_etag;
+    const gate = await api('POST', '/admin/api/rules', { name: 'Field agents need a look', target_kind: 'model', match: { keys: [field.id] }, effect: 'require_approval', config: { hold_ms: 20000 } });
+    await expect.poll(async () => {
+      const r = await api('GET', '/admin/api/regions');
+      return r.config_etag !== etag && r.regions.every((x: any) => x.status === 'in_sync');
+    }, { timeout: 15_000 }).toBe(true);
+    const held = ask(4001);
+    await nav(page, 'Tower');
+    await expect(page.locator('.approval .tag', { hasText: 'eu-west' }).first()).toBeVisible({ timeout: 15_000 });
+    await shot(page, 'regions-tower', { clip: page.locator('.approval').first(), pad: 10 });
+    const pending = (await api('GET', '/admin/api/approvals?status=pending')).approvals.find((a: any) => a.region === 'eu-west');
+    await api('POST', `/admin/api/approvals/${pending.id}/decide`, { action: 'approve' });
+    await held;
+    await api('DELETE', `/admin/api/rules/${gate.id}`);
     for (const r of regionServers) await r.stop();
+    await model.close();
 
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);

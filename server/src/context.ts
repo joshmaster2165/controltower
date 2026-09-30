@@ -46,6 +46,12 @@ export interface AppContext {
   metering?: import('./ee/metering.js').Metering;
   /** The control plane of a multi-region deployment: sends regions their configuration (Enterprise). */
   controlPlane?: import('./ee/multi-region/control-plane.js').ControlPlane;
+  /** On the control plane: how the console reaches into regions (Enterprise). */
+  regionHub?: import('./ee/multi-region/hub.js').RegionHub;
+  /** On a control plane shared by several instances: pass a region's live frame to the others too. */
+  liveRelay?: (m: import('@controltower/shared').WsServerMessage) => void;
+  /** In a region: the secret that marks a question from the control plane, run in-process (never leaves it). */
+  internalSecret?: string;
   /** This install is a region: its configuration comes from the control plane (Enterprise). */
   regionSync?: import('./ee/multi-region/region.js').RegionSync;
   /** Organisations, teams and who belongs to them (Enterprise). */

@@ -60,6 +60,11 @@ export interface Config {
   licenseKey: string | undefined;
   /** Where licenses are renewed from (CT_LICENSE_SERVER; default: the license service); "off" never calls out. */
   licenseServer: string | undefined;
+  /**
+   * This install is a region of a multi-region deployment (CT_ROLE=region, Enterprise): its configuration comes from
+   * the control plane (CT_CONTROL_PLANE_URL), which it signs in to with CT_REGION_TOKEN; its calls stay here.
+   */
+  region: { name: string; controlPlaneUrl: string; token: string; pollMs: number } | undefined;
   /** Sign-in attempts a minute, per account (twice as many per address). */
   loginRpm: number;
   /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
@@ -150,6 +155,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     setupToken: env.CT_SETUP_TOKEN || undefined,
     licenseKey: env.CT_LICENSE_KEY?.trim() || undefined,
     licenseServer: env.CT_LICENSE_SERVER || undefined,
+    region:
+      env.CT_ROLE === 'region'
+        ? {
+            name: env.CT_REGION || '',
+            controlPlaneUrl: (env.CT_CONTROL_PLANE_URL || '').replace(/\/+$/, ''),
+            token: env.CT_REGION_TOKEN || '',
+            pollMs: Math.max(1, Number(env.CT_CONFIG_POLL_S) || 5) * 1000,
+          }
+        : undefined,
     loginRpm: int(env.CT_LOGIN_RPM, 10),
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,

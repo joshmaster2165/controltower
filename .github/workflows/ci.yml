@@ -56,13 +56,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: npx playwright install --with-deps chromium
-      - run: for db in e2e cluster copytest; do PGPASSWORD=ci psql -h localhost -U postgres -c "CREATE DATABASE $db"; done
+      - run: for db in e2e cluster copytest regions; do PGPASSWORD=ci psql -h localhost -U postgres -c "CREATE DATABASE $db"; done
       - run: pnpm test:e2e
         env:
           E2E_DATABASE_URL: postgres://postgres:ci@localhost:5432/e2e
       - run: npx tsx scripts/cluster/cluster.mts
         env:
           PG_URL: postgres://postgres:ci@localhost:5432/cluster
+          REDIS_URL: redis://localhost:6379
+          RESULTS_DIR: ${{ runner.temp }}
+      - run: npx tsx scripts/cluster/regions.mts
+        env:
+          PG_URL: postgres://postgres:ci@localhost:5432/regions
           REDIS_URL: redis://localhost:6379
           RESULTS_DIR: ${{ runner.temp }}
       - run: npx tsx scripts/cluster/copy-test.mts

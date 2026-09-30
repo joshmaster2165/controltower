@@ -51,6 +51,8 @@ export const api = {
 export interface Status {
   version: string;
   setup_complete: boolean;
+  /** This install is a region of a multi-region deployment (Enterprise). */
+  region?: { region: string; control_plane: string; applied_etag: string | null; applied_at: number | null; last_contact: number | null; error: string | null };
   demo: boolean;
   mode: 'on' | 'off';
   uptime_s: number;

@@ -21,6 +21,7 @@ import { AuditPage } from './ee/Audit';
 import { AgentIdentityPage } from './ee/AgentIdentity';
 import { SecretManagersPage } from './ee/SecretManagers';
 import { TeamsPage } from './ee/Teams';
+import { RegionsPage } from './ee/Regions';
 import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -59,6 +60,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
       { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
       { id: 'teams', label: 'Teams', icon: 'agents', hint: 'Organisations, teams and their admins' },
+      { id: 'regions', label: 'Regions', icon: 'globe', hint: 'Regions served from this control plane' },
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
       { id: 'license', label: 'License', icon: 'shield', hint: 'Control Tower Enterprise' },
     ],
@@ -112,12 +114,15 @@ export function App() {
   if (!status?.setup_complete) return <SetupPage />;
   if (!me?.email) return <LoginPage />;
   if (me.must_change_password) return <ChangePassword forced onDone={() => void useStore.getState().boot()} />;
-  const role = me.role ?? 'admin';
+  // A region's console shows what it serves; its configuration is changed on the control plane.
+  const role = status?.region ? 'viewer' : (me.role ?? 'admin');
   // Someone scoped to teams (a member) sees their teams' agents: the pages that show them, and Teams.
   const MEMBER_PAGES = new Set(['airspace', 'tower', 'flights', 'ledger', 'keys', 'teams']);
   const hasTeams = !!me.scope && (me.scope.teams.length > 0 || me.scope.manage === 'all' || me.scope.manage.length > 0 || me.scope.org_admin === 'all' || me.scope.org_admin.length > 0);
   const navShows = (id: string) =>
-    role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
+    id === 'regions'
+      ? role === 'admin' && !status?.region
+      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
   const manages = me.scope && me.scope.manage !== 'all' ? me.scope.manage : [];
 
   const logout = async () => {
@@ -229,7 +234,7 @@ export function App() {
             <span className="nav-label user-meta">
               <span className="user-email">{me.email}</span>
               <span className="user-version">
-                {role} · v{status.version}
+                {me.role ?? 'admin'}{status.region ? ` · ${status.region.region}` : ''} · v{status.version}
               </span>
             </span>
             <button className="icon-btn" onClick={() => setPasswordOpen((o) => !o)} title="Change your password" aria-label="Change your password">
@@ -252,7 +257,13 @@ export function App() {
           </div>
         )}
         <LicenseBanner />
-        {role !== 'admin' && route !== 'airspace' && (
+        {status?.region && (
+          <div className="role-banner" role="status">
+            This is region <b>{status.region.region}</b>: its configuration comes from the control plane at {status.region.control_plane} — change it there.
+            {status.region.error ? ` The control plane can't be reached right now (${status.region.error}): serving on the configuration last received.` : ''}
+          </div>
+        )}
+        {role !== 'admin' && route !== 'airspace' && !status?.region && (
           <div className="role-banner">
             {role === 'member'
               ? me.scope?.teams.length
@@ -291,6 +302,7 @@ export function App() {
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
         {route === 'teams' && navShows('teams') && <TeamsPage />}
+        {route === 'regions' && navShows('regions') && <RegionsPage />}
         {route === 'license' && <LicensePage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}

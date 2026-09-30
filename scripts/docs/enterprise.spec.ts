@@ -21,7 +21,7 @@ const AK = 'docs-admin-key-0123456789abcdef';
 test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, exports', async ({ page, browser }) => {
   const idp: TestIdp = await testIdp({ clientId: 'control-tower', clientSecret: 'okta-client-secret' });
   const saml = testSamlIdp();
-  const ct = await startServer(4000, { CT_ADMIN_KEY: AK, CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_MODEL_HEALTH_INTERVAL_S: '0' });
+  const ct = await startServer(4000, { CT_PUBLIC_URL: 'http://localhost:4000', CT_ADMIN_KEY: AK, CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_MODEL_HEALTH_INTERVAL_S: '0' });
   const api = (method: string, p: string, body?: unknown) =>
     fetch(`${ct.url}${p}`, { method, headers: { authorization: `Bearer ${AK}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }).then(async (r) => (await r.json().catch(() => ({}))) as any);
   const signIn = async (p: Page, email: string, password: string) => {
@@ -282,6 +282,27 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await mp.waitForTimeout(2500);
     await shot(mp, 'teams-member-airspace');
     await member.close();
+
+    // Regions: two regions started from what the control plane gives them, in sync.
+    const regionServers: Array<{ stop: () => Promise<void> }> = [];
+    for (const [i, name] of ['eu-west', 'us-east'].entries()) {
+      const reg = await api('POST', '/admin/api/regions', { name });
+      regionServers.push(await startServer(4001 + i, { ...reg.env, CT_CONTROL_PLANE_URL: ct.url, CT_ADMIN_KEY: `docs-region-key-${name}-0123456789`, CT_CONFIG_POLL_S: '1', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_MODEL_HEALTH_INTERVAL_S: '0' }));
+    }
+    await nav(page, 'Regions');
+    await expect(page.getByText('in sync')).toHaveCount(2, { timeout: 20_000 });
+    await shot(page, 'regions');
+    // A region's own console says where its configuration comes from.
+    const rp = await browser.newPage();
+    await rp.goto('http://localhost:4001');
+    await rp.getByLabel('Email or username').fill('admin');
+    await rp.getByLabel('Password').fill('docs-region-key-eu-west-0123456789');
+    await rp.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await rp.goto('http://localhost:4001/#/keys');
+    await expect(rp.getByText('This is region')).toBeVisible();
+    await shot(rp, 'region-console');
+    await rp.close();
+    for (const r of regionServers) await r.stop();
 
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);

@@ -45,6 +45,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     return {
       version: ctx.config.version,
       setup_complete: await isSetupComplete(ctx),
+      // A region of a multi-region deployment: which, where its configuration comes from, and how that's going.
+      ...(ctx.regionSync ? { region: ctx.regionSync.status() } : {}),
       demo: ctx.demo !== undefined,
       mode: ctx.config.mode,
       uptime_s: Math.round((Date.now() - ctx.startedAt) / 1000),

@@ -552,6 +552,7 @@ export interface Database {
   orgs: OrgsTable;
   teams: TeamsTable;
   memberships: MembershipsTable;
+  regions: RegionsTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -787,4 +788,25 @@ export interface MembershipsTable {
   /** console, or idp (from identity-provider groups, recomputed at each sign-in and SCIM change). */
   source: string;
   created_at: number;
+}
+
+/** Regions of a multi-region deployment, as the control plane knows them (Enterprise). */
+export interface RegionsTable {
+  id: string;
+  /** What the region calls itself (CT_REGION): eu-west, us-east… */
+  name: string;
+  /** sha256 of the region's token (how it signs in). */
+  token_hash: string;
+  /** The token itself, encrypted: the control plane signs what it sends the region with it. */
+  token_enc: string;
+  /** The region's own master key, encrypted: credentials sent to the region are encrypted with it. */
+  master_key_enc: string;
+  created_at: number;
+  last_seen: number | null;
+  last_instance: string | null;
+  last_version: string | null;
+  /** The configuration the region last said it applied. */
+  applied_etag: string | null;
+  applied_at: number | null;
+  last_error: string | null;
 }

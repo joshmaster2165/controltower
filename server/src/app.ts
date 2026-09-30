@@ -16,6 +16,8 @@ import { tokenIssuerRoutes } from './ee/admin/tokens.js';
 import { secretManagerRoutes } from './ee/admin/secret-managers.js';
 import { keyRotationRoutes } from './ee/admin/rotation.js';
 import { orgRoutes } from './ee/admin/orgs.js';
+import { regionRoutes } from './ee/admin/regions.js';
+import { ControlPlane } from './ee/multi-region/control-plane.js';
 import { auditRoutes } from './ee/admin/audit.js';
 import { ssoRoutes } from './ee/admin/sso.js';
 import { licenseRoutes } from './ee/admin/license.js';
@@ -84,8 +86,25 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     }
     if (!full.registry.authenticate(presented)) await full.registry.findStored(presented);
   });
+  // A region's configuration is the control plane's: changes are made there. What is the region's own stays
+  // local: signing in, its first-run setup and password, deciding its held calls, ending its approval windows,
+  // and its alert inbox.
+  if (full.config.region) {
+    const LOCAL = /^\/admin\/api\/(login|logout|setup|me\/password|approvals\/[^/]+\/decide|grants\/[^/]+\/revoke|alerts\/read)$/;
+    app.addHook('onRequest', async (req, reply) => {
+      if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return;
+      const p = req.url.split('?')[0]!;
+      if ((p.startsWith('/admin/api/') && !LOCAL.test(p)) || p.startsWith('/key/') || p.startsWith('/model/') || p.startsWith('/team/') || p.startsWith('/customer/')) {
+        return reply.status(409).send({ error: { code: 'managed_by_control_plane', message: `This is region ${full.config.region!.name}: change its configuration on the control plane (${full.config.region!.controlPlaneUrl}).` } });
+      }
+    });
+  } else {
+    full.controlPlane ??= new ControlPlane(full);
+    full.controlPlane.routes(app);
+  }
+
   app.addHook('onSend', async (req, reply, payload) => {
-    if (typeof payload !== 'string' || payload.length < 16 * 1024 || !req.url.startsWith('/admin/api/')) return payload;
+    if (typeof payload !== 'string' || payload.length < 16 * 1024 || !(req.url.startsWith('/admin/api/') || req.url.startsWith('/cp/'))) return payload;
     if (reply.getHeader('content-encoding') || !/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) return payload;
     reply.header('content-encoding', 'gzip');
     reply.header('vary', 'accept-encoding');
@@ -215,6 +234,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await secretManagerRoutes(a, full);
     await keyRotationRoutes(a, full, full.instanceId ?? 'local');
     await orgRoutes(a, full);
+    await regionRoutes(a, full);
     await ssoRoutes(a, full);
     await licenseRoutes(a, full);
     await scimRoutes(a, full);

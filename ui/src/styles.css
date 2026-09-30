@@ -1035,3 +1035,4 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .usage-months > div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 4px; }
 .usage-months > div > span { width: 100%; max-width: 40px; background: var(--accent-soft, #dbe6ff); border-radius: 4px 4px 0 0; }
 .usage-months small { font-size: 11px; color: var(--text-dim); }
+.region-env pre.code { background: var(--surface-2, #f6f8fb); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; overflow-x: auto; margin: 8px 0 10px; }

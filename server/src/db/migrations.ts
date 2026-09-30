@@ -946,3 +946,26 @@ CREATE TABLE memberships (
 CREATE INDEX memberships_scope ON memberships (scope_type, scope_id);
 `,
 });
+
+migrations.push({
+  version: 33,
+  name: 'regions',
+  sqlite: `
+CREATE TABLE regions (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  token_hash     TEXT NOT NULL,
+  token_enc      TEXT NOT NULL,
+  master_key_enc TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  last_seen      INTEGER,
+  last_instance  TEXT,
+  last_version   TEXT,
+  applied_etag   TEXT,
+  applied_at     INTEGER,
+  last_error     TEXT
+);
+CREATE UNIQUE INDEX regions_name ON regions (name);
+CREATE UNIQUE INDEX regions_token ON regions (token_hash);
+`,
+});

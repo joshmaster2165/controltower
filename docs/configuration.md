@@ -94,6 +94,7 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 | `CT_EVENT_RETENTION_DAYS` | `7` | Days to keep each flight's event trail |
 | `CT_LICENSE_KEY` | unset | A [Control Tower Enterprise](enterprise.md) license key. Set here, it can't be changed in the console |
 | `CT_LICENSE_SERVER` | the license service | Where renewed keys come from, daily; the call carries the key and this license year's request count ([what's sent](enterprise.md#requests-a-year)). `off` never calls out (air-gapped) |
+| `CT_ROLE`, `CT_REGION`, `CT_CONTROL_PLANE_URL`, `CT_REGION_TOKEN`, `CT_CONFIG_POLL_S` | unset | Run as a region of a [multi-region](multi-region.md#environment) deployment (Enterprise) |
 | `CT_AUDIT_RETENTION_DAYS` | `365` | Days to keep the [audit log](audit.md) (`0` = forever). The oldest events go first, so the rest still verifies |
 | `CT_SESSION_TTL_MS` | 7 days | Console session lifetime |
 | `CT_SESSION_IDLE_MS` | 12 hours | A console session unused this long ends |

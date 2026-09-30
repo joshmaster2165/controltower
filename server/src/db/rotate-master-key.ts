@@ -17,6 +17,8 @@ export const ENCRYPTED_COLUMNS = [
   ['guardrail_services', 'config_enc'],
   ['identity_providers', 'client_secret_enc'],
   ['secret_managers', 'config_enc'],
+  ['regions', 'token_enc'],
+  ['regions', 'master_key_enc'],
 ] as const;
 
 /**

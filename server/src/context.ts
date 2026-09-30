@@ -44,6 +44,10 @@ export interface AppContext {
   exporter?: import('./exports/exporter.js').Exporter;
   /** Requests against the license's yearly allowance (Enterprise; warns, never limits). */
   metering?: import('./ee/metering.js').Metering;
+  /** The control plane of a multi-region deployment: sends regions their configuration (Enterprise). */
+  controlPlane?: import('./ee/multi-region/control-plane.js').ControlPlane;
+  /** This install is a region: its configuration comes from the control plane (Enterprise). */
+  regionSync?: import('./ee/multi-region/region.js').RegionSync;
   /** Organisations, teams and who belongs to them (Enterprise). */
   orgs?: import('./ee/orgs.js').Orgs;
   /** This instance's id (shared by name with the others on the database). */

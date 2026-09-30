@@ -61,6 +61,7 @@ import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
 import { Metering } from './ee/metering.js';
+import { RegionSync } from './ee/multi-region/region.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -154,6 +155,12 @@ async function main(): Promise<void> {
       process.stderr.write(`Support bundle written to ${next}. Read it before sending it.\n`);
     } else process.stdout.write(`${bundle}\n`);
     process.exit(0);
+  }
+  // A region of a multi-region deployment takes its configuration from the control plane.
+  const region = config.region;
+  if (region) {
+    const missing = [!region.name && 'CT_REGION', !/^https?:\/\//.test(region.controlPlaneUrl) && 'CT_CONTROL_PLANE_URL (an http(s) URL)', !region.token && 'CT_REGION_TOKEN', !config.masterKeyEnv && 'CT_MASTER_KEY'].filter(Boolean);
+    if (missing.length) throw new CliError(`CT_ROLE=region needs ${missing.join(', ')}: add the region on the control plane (Regions) and set what it shows`);
   }
   const here = path.dirname(fileURLToPath(import.meta.url));
   const uiDir = config.uiDir ?? [path.resolve(here, '../../ui/dist'), path.resolve(here, '../ui')].find((p) => fs.existsSync(path.join(p, 'index.html')));
@@ -297,7 +304,7 @@ async function main(): Promise<void> {
   else if (ls.license) console.warn(`[controltower] Enterprise license for ${ls.license.customer}: ${ls.status}, until ${new Date(ls.license.expires_at).toISOString().slice(0, 10)}`);
   // The audit log to SIEMs, from each destination's position in the log (Enterprise).
   const auditShipper = new AuditShipper({ db, destinations: () => exporter.auditDestinations(), allowed: () => license.allows('siem_export'), instanceId: cluster.id, version: config.version, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
-  auditShipper.start();
+  if (!region) auditShipper.start();
   // Agents' tokens from trusted issuers, instead of keys' secrets (Enterprise).
   const tokens = new TokenAuth({ db: db.write, keys: () => registry.keysById, allowed: () => license.allows('jwt_auth'), log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
   await tokens.reload();
@@ -307,7 +314,7 @@ async function main(): Promise<void> {
   const orgs = new Orgs({ db: db.write, allowed: () => license.allows('orgs') });
   await orgs.reload();
   const pricing = new PricingTable();
-  const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
+  const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels && !region }, (msg) => (logRef ?? console).info?.(msg));
 
   const ctx: Omit<AppContext, 'log'> = {
     config,
@@ -326,7 +333,7 @@ async function main(): Promise<void> {
     orgs,
     guardrails,
     license,
-    audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
+    audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => !region && license.allows('audit')),
     spend,
     budgets,
     bus,
@@ -360,15 +367,18 @@ async function main(): Promise<void> {
   const metering = new Metering({ db, license, audit: full.audit, log: () => app.log });
   full.metering = metering;
   license.usage = () => metering.usage();
-  metering.start();
+  if (!region) metering.start();
   // Keys whose rotation schedule is due get a new secret, delivered to the secret manager (Enterprise).
   const rotator = new KeyRotator(() => full, { instance: cluster.id, allowed: () => license.allows('secret_managers'), log: () => app.log });
-  rotator.start();
+  if (!region) rotator.start();
   // Renewals: daily, from the license service, unless CT_LICENSE_SERVER=off (air-gapped).
-  license.startRefresh(config.licenseServer === 'off' ? undefined : (config.licenseServer ?? LICENSE_STORE ?? undefined), app.log);
-  // The config file (--config / --model), then the admin key it or the environment sets.
+  // (A region's license comes from the control plane, which renews it.)
+  if (!region) license.startRefresh(config.licenseServer === 'off' ? undefined : (config.licenseServer ?? LICENSE_STORE ?? undefined), app.log);
+  // The config file (--config / --model), then the admin key it or the environment sets. A region's configuration
+  // is the control plane's: files are for the control plane.
+  if (region && (config.configFile || config.quickModel || config.policyFile)) app.log.warn('a region takes its configuration from the control plane: --config, --model and --policy are ignored here');
   try {
-    await loadBootConfig(full);
+    if (!region) await loadBootConfig(full);
   } catch (err) {
     if (err instanceof BootConfigError) {
       app.log.error(err.message);
@@ -378,7 +388,7 @@ async function main(): Promise<void> {
   }
   await applyAdminKey(full);
   try {
-    await loadBootPolicy(full);
+    if (!region) await loadBootPolicy(full);
   } catch (err) {
     if (err instanceof BootPolicyError) {
       app.log.error(err.message);
@@ -402,6 +412,29 @@ async function main(): Promise<void> {
   alerts.start();
   observed.start();
 
+  // A region: the newest configuration from the control plane before serving (or the last one received, if it
+  // can't be reached), then every few seconds.
+  let regionSync: RegionSync | undefined;
+  if (region) {
+    regionSync = new RegionSync({
+      db,
+      region,
+      masterKeyId: mk.id,
+      version: config.version,
+      instanceId: cluster.id,
+      reload: async () => {
+        await Promise.all([registry.reload(), mcp.reload(), http.reload(), a2a.reload(), policy.reload(), budgets.reload(), exporter.reload(), guardrails.reload(), alerts.reload(), tokens.reload(), secretRefs.reload()]);
+        await license.load();
+      },
+      log: () => app.log,
+    });
+    full.regionSync = regionSync;
+    await regionSync.init();
+    const first = await regionSync.poll();
+    if (first === 'failed') app.log.warn(regionSync.status().applied_etag ? 'region: serving on the configuration last received from the control plane' : 'region: no configuration from the control plane yet: nothing to serve until it arrives');
+    regionSync.start();
+  }
+
   if (mk.source === 'generated') {
     app.log.warn(`Generated a new master key at ${mk.file}. BACK IT UP: provider credentials are unreadable without it.`);
   }
@@ -411,7 +444,7 @@ async function main(): Promise<void> {
   const url = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`;
   app.log.info(`Control Tower ${config.version} listening on ${url}  (ui: ${uiDir ?? 'not built'})`);
 
-  if (config.demo) {
+  if (config.demo && !region) {
     try {
       await startDemo(full);
     } catch (err) {
@@ -477,7 +510,7 @@ async function main(): Promise<void> {
     (deleted) => app.log.info({ deleted }, 'retention: old rows removed'),
     (err) => app.log.warn({ err }, 'retention pass failed'),
   );
-  const stopRetirement = startKeyRetirement(
+  const stopRetirement = region ? () => undefined : startKeyRetirement(
     full,
     (retired, days) => app.log.info({ retired: retired.map((k) => k.name), days }, 'keys retired after going unused'),
     (err) => app.log.warn({ err }, 'key retirement pass failed'),
@@ -508,6 +541,7 @@ async function main(): Promise<void> {
     await auditShipper.stop();
     secretRefs.stop();
     rotator.stop();
+    regionSync?.stop();
     metering.stop();
     await tokens.stop();
     clearInterval(guardrailSaver);

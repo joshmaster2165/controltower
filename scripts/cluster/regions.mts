@@ -104,7 +104,8 @@ try {
 
   // Calls stay in their region.
   const cpFlights = (await cp('GET', `/admin/api/flights?key_id=${key.id}&region=here`)).body.flights as any[];
-  const euFlights = (await api(EU.url, RAK)('GET', `/admin/api/flights?key_id=${key.id}`)).body.flights as any[];
+  // (A region writes its calls within moments: wait for it rather than race it.)
+  const euFlights = await until(async () => ((await api(EU.url, RAK)('GET', `/admin/api/flights?key_id=${key.id}`)).body.flights ?? []) as any[], (f) => f.length >= 1);
   c('calls stay in their region: the control plane holds none', cpFlights.length === 0 && euFlights.length >= 1, `control plane ${cpFlights.length}, eu-west ${euFlights.length}`);
 
   // ---- Phase 2: one console across regions.
@@ -117,10 +118,10 @@ try {
   c('a call in a region opens from the control plane, with its events', detail.flight?.id === one.id && detail.flight?.region === 'eu-west' && Array.isArray(detail.events) && detail.events.length > 0, `${detail.flight?.region} ${detail.events?.length} events`);
   const onlyEu = (await cp('GET', `/admin/api/flights?key_id=${key.id}&region=eu-west`)).body.flights as any[];
   c('Flights can show one region', onlyEu.length > 0 && onlyEu.every((f) => f.region === 'eu-west'), `${onlyEu.length} from eu-west`);
-  const ledger = (await cp('GET', '/admin/api/ledger/summary?window=24h')).body;
+  const ledger = await until(async () => (await cp('GET', '/admin/api/ledger/summary?window=24h')).body, (b: any) => ((b.by_key ?? []) as any[]).some((r) => r.key_id === key.id && r.requests >= 3));
   const mine = (ledger.by_key as any[]).find((r) => r.key_id === key.id);
   c("the Ledger adds up every region's spend and calls", mine?.requests >= 3, `${mine?.requests} calls for the key across regions`);
-  const topo = (await cp('GET', '/admin/api/topology')).body;
+  const topo = await until(async () => (await cp('GET', '/admin/api/topology')).body, (b: any) => ((b.edges ?? []) as any[]).some((e) => e.key_id === key.id && e.requests >= 3));
   const edge = (topo.edges as any[]).find((e) => e.key_id === key.id);
   c("the map draws every region's traffic", edge?.requests >= 3, `${edge?.requests} calls on the agent's connection`);
   // Live: a call in a region shows on the control plane's live map.

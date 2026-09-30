@@ -65,8 +65,10 @@ export interface Me {
   setup_complete: boolean;
   email?: string;
   csrf?: string;
-  /** admin (everything), approver (sees everything, decides approvals), viewer (sees everything). */
-  role?: 'admin' | 'approver' | 'viewer';
+  /** admin (everything), approver (sees everything, decides approvals), viewer (sees everything), member (sees their teams). */
+  role?: 'admin' | 'approver' | 'viewer' | 'member';
+  /** What they see and may change beyond their role (Enterprise organisations and teams). */
+  scope?: { all: boolean; teams: string[]; manage: string[] | 'all'; approve: string[] | 'all'; org_admin: string[] | 'all' };
   /** Signed in with a one-time password: they choose their own before anything else. */
   must_change_password?: boolean;
 }

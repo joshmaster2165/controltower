@@ -8,6 +8,7 @@ import { hashPassword, randomToken } from '../crypto/secrets.js';
 import { auditOrigin } from '../admin/auth.js';
 import { SsoService, roleFor, type IdentityProvider } from './oidc.js';
 import { seatsUsed } from './seats.js';
+import { syncIdpTeams } from './orgs.js';
 
 /**
  * SCIM 2.0 (RFC 7643/7644): an identity provider — Okta, Microsoft Entra ID, OneLogin, JumpCloud — adds,
@@ -110,6 +111,8 @@ export async function scimRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const syncRole = async (req: FastifyRequest, p: IdentityProvider, adminId: string) => {
       const u = await w.selectFrom('admins').selectAll().where('id', '=', adminId).executeTakeFirst();
       if (!u || u.scim_provider_id !== p.id) return;
+      // Their teams follow their groups too.
+      if (ctx.orgs) await syncIdpTeams(w, ctx.orgs, adminId, (await groupsOf(p.id, adminId)).map((g) => g.display_name));
       const role = await roleOf(p, adminId);
       const patch: { role?: string; disabled?: number } = {};
       if (role && role !== u.role) patch.role = role;
@@ -244,6 +247,8 @@ export async function scimRoutes(app: FastifyInstance, ctx: AppContext): Promise
       await w.deleteFrom('sessions').where('admin_id', '=', u.id).execute();
       await w.deleteFrom('scim_group_members').where('admin_id', '=', u.id).execute();
       await w.deleteFrom('admins').where('id', '=', u.id).execute();
+      await w.deleteFrom('memberships').where('admin_id', '=', u.id).execute();
+      await ctx.orgs?.reload();
       await audit(req, p, 'users.delete', { type: 'users', id: u.id }, { email: u.email }, 204);
       return reply.status(204).send();
     });

@@ -15,6 +15,7 @@ import { looksLikeJwt } from './ee/tokens.js';
 import { tokenIssuerRoutes } from './ee/admin/tokens.js';
 import { secretManagerRoutes } from './ee/admin/secret-managers.js';
 import { keyRotationRoutes } from './ee/admin/rotation.js';
+import { orgRoutes } from './ee/admin/orgs.js';
 import { auditRoutes } from './ee/admin/audit.js';
 import { ssoRoutes } from './ee/admin/sso.js';
 import { licenseRoutes } from './ee/admin/license.js';
@@ -213,6 +214,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await tokenIssuerRoutes(a, full);
     await secretManagerRoutes(a, full);
     await keyRotationRoutes(a, full, full.instanceId ?? 'local');
+    await orgRoutes(a, full);
     await ssoRoutes(a, full);
     await licenseRoutes(a, full);
     await scimRoutes(a, full);

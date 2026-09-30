@@ -549,6 +549,9 @@ export interface Database {
   audit_exports: AuditExportsTable;
   token_issuers: TokenIssuersTable;
   secret_managers: SecretManagersTable;
+  orgs: OrgsTable;
+  teams: TeamsTable;
+  memberships: MembershipsTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -753,4 +756,35 @@ export interface SecretManagersTable {
   refresh_s: number;
   created_at: number;
   updated_at: number;
+}
+
+/** Organisations: groups of teams, each with its own admins (Enterprise). */
+export interface OrgsTable {
+  id: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Teams: the `team` label keys carry, made a thing with members and admins (Enterprise). */
+export interface TeamsTable {
+  id: string;
+  /** The label on its keys (keys.team). */
+  name: string;
+  org_id: string | null;
+  /** JSON {admin: [group…], member: [group…]}: identity-provider groups that make people its admins or members. */
+  idp_groups: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Who belongs to which team or organisation, as admin or member. */
+export interface MembershipsTable {
+  admin_id: string;
+  scope_type: 'org' | 'team';
+  scope_id: string;
+  role: 'admin' | 'member';
+  /** console, or idp (from identity-provider groups, recomputed at each sign-in and SCIM change). */
+  source: string;
+  created_at: number;
 }

@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import type { WsClientMessage, WsServerMessage } from '@controltower/shared';
 import type { AppContext } from '../context.js';
 import { loadSession } from './auth.js';
+import { ADMIN_SCOPE, EMPTY_SCOPE, seesKey, type Scope } from './scope.js';
 
 /** A browser always sends Origin on a WebSocket; one from another site is refused (the cookie alone isn't proof). */
 function sameOrigin(ctx: AppContext, origin: string | undefined, host: string | undefined): boolean {
@@ -47,10 +48,35 @@ export async function wsRoutes(app: FastifyInstance, ctx: AppContext): Promise<v
       return;
     }
 
-    const send = (m: WsServerMessage): void => {
+    // Someone who sees only their teams gets only their agents' traffic (their scope is looked at again every 10 s).
+    let scope: Scope = ctx.orgs ? ctx.orgs.scopeFor(session) : session.role === 'member' ? EMPTY_SCOPE : ADMIN_SCOPE;
+    let scopeAt = Date.now();
+    const flightSeen = new Map<string, boolean>();
+    const mine = (m: WsServerMessage): WsServerMessage | undefined => {
+      if (Date.now() - scopeAt > 10_000 && ctx.orgs) {
+        scope = ctx.orgs.scopeFor(session);
+        scopeAt = Date.now();
+      }
+      if (scope.all) return m;
+      const visible = (keyId: string) => seesKey(scope, ctx.registry.keysById.get(keyId));
+      if (m.type === 'tick') {
+        const paths = m.paths.filter((p) => visible(p[0]));
+        const t = paths.reduce((a, p) => ({ flights: a.flights + p[3], errors: a.errors + p[4], denied: a.denied + p[5], cost: a.cost + p[6] }), { flights: 0, errors: 0, denied: 0, cost: 0 });
+        return { ...m, paths, rules: {}, totals: { flights: t.flights, ok: Math.max(0, t.flights - t.errors - t.denied), errors: t.errors, denied: t.denied, cost_nanousd: t.cost, tokens: 0 } };
+      }
+      if (m.type === 'events') {
+        for (const e of m.events) if (e.t === 'flight.started') flightSeen.set(e.flight_id, visible(e.key_id));
+        if (flightSeen.size > 5000) for (const k of [...flightSeen.keys()].slice(0, 2500)) flightSeen.delete(k);
+        const events = m.events.filter((e) => flightSeen.get(e.flight_id));
+        return events.length ? { ...m, events } : undefined;
+      }
+      return m;
+    };
+    const send = (raw: WsServerMessage): void => {
       if (socket.readyState !== socket.OPEN) return;
       if (socket.bufferedAmount > MAX_BUFFERED) return;
-      socket.send(JSON.stringify(m));
+      const m = mine(raw);
+      if (m) socket.send(JSON.stringify(m));
     };
 
     send({ type: 'hello', server_time: Date.now(), version: ctx.config.version });

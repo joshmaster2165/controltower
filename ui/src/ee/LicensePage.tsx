@@ -19,7 +19,7 @@ const FEATURES: Array<[string, string, boolean]> = [
   ['siem_export', 'The audit log sent to your SIEM', true],
   ['jwt_auth', 'Agents authenticate with your IdP’s JWTs', true],
   ['secret_managers', 'Secret managers and key rotation', true],
-  ['orgs', 'Organisations and team admins', false],
+  ['orgs', 'Organisations and team admins', true],
   ['multi_region', 'Multi-region control plane', false],
 ];
 const date = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });

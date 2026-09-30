@@ -11,6 +11,18 @@ import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
 import { BUILT_IN_KEYS, lastUseByKey } from './key-lifecycle.js';
 import { nextRotation } from '../ee/rotation.js';
+import { inList, managesTeam, scopeOf, seesKey, seesTeam, visibleKeyIds, type Scope } from './scope.js';
+
+const notYours = (reply: import('fastify').FastifyReply, message: string) => reply.status(403).send({ error: { code: 'forbidden', message } });
+/** A budget someone scoped to teams may see: their keys' budgets and their teams'. */
+export function budgetVisible(ctx: AppContext, scope: Scope, budgetScope: string): boolean {
+  const i = budgetScope.indexOf(':');
+  const type = budgetScope.slice(0, i);
+  const id = budgetScope.slice(i + 1);
+  if (type === 'key') return seesKey(scope, ctx.registry.keysById.get(id));
+  if (type === 'team') return seesTeam(scope, id);
+  return false;
+}
 import { asInt, jsonAt } from '../db/sqlfn.js';
 
 /** The start of the hour a time falls in: the hourly traffic summary's buckets. */
@@ -45,8 +57,11 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   });
 
   // ---- topology: what the Airspace draws before any flight arrives ----
-  app.get('/admin/api/topology', { preHandler: guard }, async () => {
+  app.get('/admin/api/topology', { preHandler: guard }, async (req) => {
     const r = ctx.registry;
+    // Someone who sees only their teams gets only their agents, their connections and their links.
+    const scope = scopeOf(req);
+    const visible = (keyId: string) => scope.all || seesKey(scope, r.keysById.get(keyId));
     const since = Date.now() - 24 * 3600 * 1000;
     const routes = await recentRoutes(ctx);
     const a2aMethods = await recentMethods(ctx);
@@ -92,7 +107,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     };
     for (const e of edgeRows.rows) {
       // A deleted key's history stays in Flights and the Ledger; the map has no station to draw it from.
-      if (!r.keysById.has(e.key_id) || expired(e.key_id)) continue;
+      if (!r.keysById.has(e.key_id) || expired(e.key_id) || !visible(e.key_id)) continue;
       const k = `${bucketOf(e.key_id)}>${e.target}|${e.tool ?? ''}`;
       const recent = recentBy.get(`${e.key_id}|${e.target}|${e.tool ?? ''}`) ?? [];
       const m = merged.get(k);
@@ -129,7 +144,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         } catch {
           continue;
         }
-        if (!chain.length || !r.keysById.has(row.key_id)) continue;
+        if (!chain.length || !r.keysById.has(row.key_id) || !visible(row.key_id)) continue;
         const from = chain[chain.length - 1]!;
         const k = `${from}>${bucketOf(row.key_id)}`;
         const cur = out.get(k);
@@ -143,7 +158,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
     // Built-in keys (console playground, admin key) only appear once they have carried traffic.
     const active = new Set(edgeRows.rows.map((e) => e.key_id));
-    const shown = [...r.keysById.values()].filter((k) => (!BUILT_IN_KEYS.has(k.id) || active.has(k.id)) && !expired(k.id));
+    const shown = [...r.keysById.values()].filter((k) => (!BUILT_IN_KEYS.has(k.id) || active.has(k.id)) && !expired(k.id) && visible(k.id));
 
     return {
       version: r.version,
@@ -209,7 +224,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         })),
       ],
       edges,
-      observed: await ctx.observed.summary(since),
+      observed: scope.all ? await ctx.observed.summary(since) : [],
       views: await loadViews(ctx),
       delegations: await delegationLinks(),
       // Since when connections have been recorded: a connection is only "new" once there is history to compare with.
@@ -255,15 +270,22 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/events/recent', { preHandler: guard }, async (req) => {
     const q = req.query as { since?: string };
     const since = q.since ? Number(q.since) : Date.now() - 10_000;
-    return { events: ctx.ring.since(since) };
+    const events = ctx.ring.since(since);
+    const scope = scopeOf(req);
+    if (scope.all) return { events };
+    // Only the calls of agents they see: a call's other events follow its start.
+    const mine = new Set(events.filter((e) => e.t === 'flight.started' && seesKey(scope, ctx.registry.keysById.get(e.key_id))).map((e) => e.flight_id));
+    return { events: events.filter((e) => mine.has(e.flight_id)) };
   });
 
   // ---- keys ----
-  app.get('/admin/api/keys', { preHandler: guard }, async () => {
+  app.get('/admin/api/keys', { preHandler: guard }, async (req) => {
     // Last use comes from what the key actually did: gateway flights and observe reports.
     const used = await lastUseByKey(ctx);
+    const scope = scopeOf(req);
     return {
       keys: [...ctx.registry.keysById.values()]
+        .filter((k) => scope.all || (seesKey(scope, k) && !BUILT_IN_KEYS.has(k.id)))
         .sort((a, b) => b.createdAt - a.createdAt)
         .map((k) => ({
           id: k.id,
@@ -314,6 +336,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     };
     const name = (b.name ?? '').trim();
     if (!name) return reply.status(400).send({ error: { code: 'invalid', message: 'name is required' } });
+    // A team admin makes keys for their own teams only.
+    const scope = scopeOf(req);
+    if (!managesTeam(scope, b.team?.trim() || null)) return notYours(reply, 'Give the key one of your teams.');
     const gen = generateApiKey();
     const id = ulid();
     const now = Date.now();
@@ -372,7 +397,11 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       return reply.status(400).send({ error: { code: 'invalid', message: 'budget needs limit_usd > 0 and period daily | weekly | monthly | total' } });
     }
     if (Object.keys(patch).length === 0 && budget === undefined) return reply.status(400).send({ error: { code: 'invalid', message: 'nothing to update' } });
-    if (!ctx.registry.keysById.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    const cur = ctx.registry.keysById.get(id);
+    if (!cur) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    const scope = scopeOf(req);
+    if (!managesTeam(scope, cur.team)) return notYours(reply, "That key isn't in one of your teams.");
+    if ('team' in patch && !managesTeam(scope, patch.team as string | null)) return notYours(reply, 'Move it to one of your teams.');
     if (Object.keys(patch).length) await ctx.db.write.updateTable('api_keys').set(patch).where('id', '=', id).execute();
     if (budget === null) {
       await ctx.db.write.deleteFrom('budgets').where('scope_type', '=', 'key').where('scope_id', '=', id).execute();
@@ -386,6 +415,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   app.delete('/admin/api/keys/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
+    const k = ctx.registry.keysById.get(id);
+    if (k && !managesTeam(scopeOf(req), k.team)) return notYours(reply, "That key isn't in one of your teams.");
     const res = await ctx.db.write.deleteFrom('api_keys').where('id', '=', id).executeTakeFirst();
     if (Number(res.numDeletedRows) === 0) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
     await ctx.db.write.deleteFrom('budgets').where('scope_type', '=', 'key').where('scope_id', '=', id).execute();
@@ -408,6 +439,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (q.before) qb = qb.where('ts', '<', Number(q.before));
     if (q.status) qb = qb.where('status', '=', q.status);
     if (q.key_id) qb = qb.where('key_id', '=', q.key_id);
+    const scope = scopeOf(req);
+    if (!scope.all) qb = qb.where('team', 'in', inList([...scope.teams]));
     if (q.kind) qb = qb.where('kind', '=', q.kind);
     // Calls made on behalf of an agent, anywhere up the chain.
     if (q.for) {
@@ -441,8 +474,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/airspace/agent-link', { preHandler: guard }, async (req) => {
     const q = req.query as { from?: string; to?: string; since?: string };
     const ids = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 500);
-    const fromKeys = ids(q.from);
-    const toKeys = ids(q.to);
+    const scope = scopeOf(req);
+    const mine = (id: string) => scope.all || seesKey(scope, ctx.registry.keysById.get(id));
+    const fromKeys = ids(q.from).filter(mine);
+    const toKeys = ids(q.to).filter(mine);
     const since = Number(q.since) || Date.now() - 7 * 24 * 3600_000;
     const ref = (keyId: string) => ctx.registry.keysById.get(keyId)?.agentId ?? keyId;
     const fromRefs = [...new Set(fromKeys.map(ref))];
@@ -482,7 +517,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/admin/api/flights/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const flight = await ctx.db.read.selectFrom('flights').selectAll().where('id', '=', id).executeTakeFirst();
-    if (!flight) return reply.status(404).send({ error: { code: 'not_found', message: 'flight not found' } });
+    if (!flight || !seesTeam(scopeOf(req), flight.team)) return reply.status(404).send({ error: { code: 'not_found', message: 'flight not found' } });
     const events = await ctx.db.read.selectFrom('flight_events').selectAll().where('flight_id', '=', id).orderBy('seq').execute();
     return { flight, events: events.map((e) => JSON.parse(e.payload)) };
   });
@@ -494,6 +529,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const ms = { '1h': 3600e3, '24h': 24 * 3600e3, '7d': 7 * 24 * 3600e3, '30d': 30 * 24 * 3600e3 }[win];
     const table = win === '1h' || win === '24h' ? 'usage_hourly' : 'usage_daily';
     const sinceBucket = new Date(Date.now() - ms).toISOString().slice(0, table === 'usage_hourly' ? 13 : 10);
+    // Someone who sees only their teams gets their agents' spend, and only their budgets.
+    const scope = scopeOf(req);
+    const keyIds = visibleKeyIds(ctx, scope);
     const byKey = await ctx.db.read
       .selectFrom(table)
       .select(['key_id'])
@@ -506,6 +544,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         eb.fn.sum<number>('out_tokens').as('out_tokens'),
       ])
       .where('bucket', '>=', sinceBucket)
+      .$if(!!keyIds, (qb) => qb.where('key_id', 'in', inList(keyIds!)))
       .groupBy('key_id')
       .execute();
     const byDeployment = await ctx.db.read
@@ -520,6 +559,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         eb.fn.sum<number>('lat_count').as('lat_count'),
       ])
       .where('bucket', '>=', sinceBucket)
+      .$if(!!keyIds, (qb) => qb.where('key_id', 'in', inList(keyIds!)))
       .groupBy('deployment_id')
       .execute();
     const series = await ctx.db.read
@@ -527,6 +567,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       .select(['bucket'])
       .select((eb) => [eb.fn.sum<number>('requests').as('requests'), eb.fn.sum<number>('cost_nanousd').as('cost_nanousd'), eb.fn.sum<number>('errors').as('errors')])
       .where('bucket', '>=', sinceBucket)
+      .$if(!!keyIds, (qb) => qb.where('key_id', 'in', inList(keyIds!)))
       .groupBy('bucket')
       .orderBy('bucket')
       .execute();
@@ -543,7 +584,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         avg_ms: num(r.lat_count) > 0 ? num(r.lat_sum_ms) / num(r.lat_count) : null,
       })),
       series: series.map((r) => ({ bucket: r.bucket, requests: num(r.requests), cost_nanousd: num(r.cost_nanousd), errors: num(r.errors) })),
-      budgets: ctx.budgets.snapshot(),
+      budgets: ctx.budgets.snapshot().filter((b) => scope.all || budgetVisible(ctx, scope, b.scope)),
     };
   });
 

@@ -9,8 +9,8 @@ import type { SecretBox } from '../crypto/secrets.js';
  * openid-client's. This file decides who may come in, and with which role.
  */
 
-export type SsoRole = 'admin' | 'approver' | 'viewer';
-const RANK: Record<SsoRole, number> = { admin: 3, approver: 2, viewer: 1 };
+export type SsoRole = 'admin' | 'approver' | 'viewer' | 'member';
+const RANK: Record<SsoRole, number> = { admin: 4, approver: 3, viewer: 2, member: 1 };
 export type TokenAuth = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 export interface IdentityProvider {
@@ -104,7 +104,7 @@ export class SsoService {
       allowedDomains: JSON.parse(r.allowed_domains || '[]') as string[],
       groupsClaim: r.groups_claim || undefined,
       roleMap,
-      defaultRole: (['admin', 'approver', 'viewer'].includes(r.default_role) ? r.default_role : 'none') as SsoRole | 'none',
+      defaultRole: (['admin', 'approver', 'viewer', 'member'].includes(r.default_role) ? r.default_role : 'none') as SsoRole | 'none',
       createUsers: r.create_users === 1,
       enabled: r.enabled === 1,
       tokenAuth: (['client_secret_basic', 'client_secret_post', 'none'].includes(r.token_auth) ? r.token_auth : 'client_secret_basic') as TokenAuth,

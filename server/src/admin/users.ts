@@ -73,6 +73,8 @@ export async function userRoutes(app: FastifyInstance, ctx: AppContext): Promise
     if ((user.role ?? 'admin') === 'admin' && (await admins()) <= 1) return bad(reply, 'Someone has to stay an admin.');
     await ctx.db.write.deleteFrom('sessions').where('admin_id', '=', id).execute();
     await ctx.db.write.deleteFrom('admins').where('id', '=', id).execute();
+    await ctx.db.write.deleteFrom('memberships').where('admin_id', '=', id).execute();
+    await ctx.orgs?.reload();
     ctx.log.info({ email: user.email, by: req.admin?.email }, 'console user removed');
     return { ok: true };
   });

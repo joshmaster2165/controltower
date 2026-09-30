@@ -55,6 +55,9 @@ export function KeysPage() {
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
+  // Someone who manages only some teams (a team or organisation admin) makes keys for those teams.
+  const scope = useStore((st) => st.me?.scope);
+  const myTeams = scope && scope.manage !== 'all' ? scope.manage : undefined;
   const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
@@ -193,7 +196,18 @@ export function KeysPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="field">
               <label>Team</label>
-              <input className="input" value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} placeholder="finance" />
+              {myTeams ? (
+                <select className="input" required value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })}>
+                  <option value="">Choose one of your teams…</option>
+                  {myTeams.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input className="input" value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} placeholder="finance" />
+              )}
             </div>
             <div className="field">
               <label>Project</label>
@@ -258,6 +272,7 @@ export function KeysPage() {
             </button>
           ))}
         </div>
+        {!myTeams && (
         <label className="retire">
           <span>Retire keys unused for</span>
           <select value={retireDays} onChange={(e) => void chooseRetire(Number(e.target.value))} aria-label="Retire keys unused for">
@@ -267,6 +282,7 @@ export function KeysPage() {
             <option value={90}>90 days</option>
           </select>
         </label>
+        )}
       </div>
       {notice && (
         <div className="notice-row">

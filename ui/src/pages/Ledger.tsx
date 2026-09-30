@@ -193,6 +193,7 @@ export function LedgerPage() {
   const [data, setData] = useState<Summary | null>(null);
   const topology = useStore((s) => s.topology);
   const counters = useStore((s) => s.counters);
+  const role = useStore((s) => s.me?.role);
 
   useEffect(() => {
     let alive = true;
@@ -338,8 +339,9 @@ export function LedgerPage() {
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', marginTop: 14 }}>
-        <CustomersCard window={win} />
-        <TagsCard window={win} />
+        {/* Spend by customer and tag spans every team: not shown to someone who sees only theirs. */}
+        {role !== 'member' && <CustomersCard window={win} />}
+        {role !== 'member' && <TagsCard window={win} />}
       </div>
     </div>
   );

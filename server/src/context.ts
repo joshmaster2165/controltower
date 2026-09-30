@@ -42,6 +42,8 @@ export interface AppContext {
   license: import('./ee/license.js').Licensing;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
+  /** Organisations, teams and who belongs to them (Enterprise). */
+  orgs?: import('./ee/orgs.js').Orgs;
   /** This instance's id (shared by name with the others on the database). */
   instanceId?: string;
   /** Agents authenticating with tokens from a trusted issuer (Enterprise). */

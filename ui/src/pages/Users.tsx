@@ -4,7 +4,7 @@ import { api, ApiError } from '../api';
 import { useStore } from '../store';
 import { SsoSettings } from '../ee/Sso';
 
-type Role = 'admin' | 'approver' | 'viewer';
+type Role = 'admin' | 'approver' | 'viewer' | 'member';
 interface User {
   id: string;
   email: string;
@@ -22,6 +22,7 @@ const ROLE_TEXT: Record<Role, string> = {
   admin: 'Changes anything: providers, keys, gates, people',
   approver: 'Sees everything; approves and denies held calls',
   viewer: 'Sees everything; changes nothing',
+  member: 'Sees only their teams (Enterprise); what they may change there, their teams decide',
 };
 
 /** A one-time password, shown once, with a way to copy it. */
@@ -98,6 +99,7 @@ export function UsersPage() {
         <div className="field" style={{ flex: '0 1 200px', margin: 0 }}>
           <label>Role</label>
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+            <option value="member">Member (their teams only)</option>
             <option value="viewer">Viewer</option>
             <option value="approver">Approver</option>
             <option value="admin">Admin</option>
@@ -134,6 +136,7 @@ export function UsersPage() {
                 </td>
                 <td>
                   <select className="input" style={{ width: 150 }} value={u.role} onChange={(e) => void run(() => api.patch(`/admin/api/users/${u.id}`, { role: e.target.value }))}>
+                    <option value="member">Member (their teams only)</option>
                     <option value="viewer">Viewer</option>
                     <option value="approver">Approver</option>
                     <option value="admin">Admin</option>

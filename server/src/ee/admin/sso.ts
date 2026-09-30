@@ -9,10 +9,11 @@ import { X509Certificate } from 'node:crypto';
 import { scimTokenRoutes } from '../scim.js';
 import { asRole, auditOrigin, createSession, requireAdmin, setCookie, ssoOnly } from '../../admin/auth.js';
 import { requireEnterprise } from './license.js';
+import { syncIdpTeams } from '../orgs.js';
 
 const STATE_COOKIE = 'ct_sso';
 const STATE_TTL_MS = 10 * 60_000;
-const ROLES: SsoRole[] = ['admin', 'approver', 'viewer'];
+const ROLES: SsoRole[] = ['admin', 'approver', 'viewer', 'member'];
 
 /** The address the IdP sends people back to. CT_PUBLIC_URL when set, else the address this request came in on. */
 function baseUrl(ctx: AppContext, req: FastifyRequest): string {
@@ -115,6 +116,8 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       await ctx.audit?.record({ action: 'users.update', outcome: 'success', actor: { type: 'system' }, status: 200, target: { type: 'users', id: person.id }, detail: { reason: 'groups changed at the identity provider', provider: p.name, from: role, to: result.role }, ...origin });
       role = result.role;
     }
+    // Teams from the IdP's groups (SCIM's groups decide for people it provisioned).
+    if (!scim && ctx.orgs && p.groupsClaim) await syncIdpTeams(w, ctx.orgs, person.id, result.groups);
     const s = await createSession(ctx, person.id, person.email, role);
     setCookie(ctx, reply, s);
     clearState(reply);
@@ -298,10 +301,10 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       }
       if (!partial || b.client_id !== undefined) if (!b.client_id?.trim()) return 'Enter the client ID from your identity provider.';
     }
-    if (b.default_role !== undefined && ![...ROLES, 'none'].includes(b.default_role)) return 'default_role must be admin, approver, viewer or none.';
+    if (b.default_role !== undefined && ![...ROLES, 'none'].includes(b.default_role)) return 'default_role must be admin, approver, viewer, member or none.';
     if (b.token_auth !== undefined && !['client_secret_basic', 'client_secret_post', 'none'].includes(b.token_auth)) return 'token_auth must be client_secret_basic, client_secret_post or none.';
     if (b.role_map !== undefined) {
-      if (typeof b.role_map !== 'object' || Object.keys(b.role_map).some((k) => !ROLES.includes(k as SsoRole) || !Array.isArray(b.role_map![k as SsoRole]))) return 'role_map maps admin, approver and viewer to lists of group names.';
+      if (typeof b.role_map !== 'object' || Object.keys(b.role_map).some((k) => !ROLES.includes(k as SsoRole) || !Array.isArray(b.role_map![k as SsoRole]))) return 'role_map maps admin, approver, viewer and member to lists of group names.';
     }
     if (b.allowed_domains !== undefined && (!Array.isArray(b.allowed_domains) || b.allowed_domains.some((d) => typeof d !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)))) return 'allowed_domains is a list of email domains, such as example.com.';
     return undefined;

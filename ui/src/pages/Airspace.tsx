@@ -34,6 +34,8 @@ type Popover =
   | { kind: 'agentlink'; from: AgentLinkEnd; to: AgentLinkEnd; x: number; y: number };
 
 export function AirspacePage() {
+  // Gates, zones and setup are admins' to change; everyone else looks at the map.
+  const isAdmin = useStore((st) => (st.me?.role ?? 'admin') === 'admin');
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirspaceScene | null>(null);
   const topology = useStore((s) => s.topology);
@@ -554,6 +556,7 @@ export function AirspacePage() {
             </div>
           </div>
           <div className="hud-actions">
+{isAdmin && (
             <div className="toolgroup" role="toolbar" aria-label="Map tools">
               <button className={gateMode ? 'on' : ''} onClick={toggleGate} title="Drag from an agent to a model, tool server or tool to put a gate on that path" aria-pressed={gateMode}>
                 <Icon name="shield" size={15} /> Add gate
@@ -562,6 +565,7 @@ export function AirspacePage() {
                 <Icon name="map" size={15} /> Draw zone
               </button>
             </div>
+            )}
             <div className="menu-wrap">
               <button className={`btn ${exportOpen ? 'active' : ''}`} onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} title="Export" aria-label="Export">
                 <Icon name="download" size={15} /> <span className="lbl">Export</span>
@@ -866,7 +870,7 @@ export function AirspacePage() {
         />
       )}
 
-      {topology && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
+      {topology && isAdmin && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
       <div className={`legend ${legendOpen ? '' : 'closed'}`}>
         <button className="legend-toggle" onClick={toggleLegend} aria-expanded={legendOpen} title={legendOpen ? 'Hide legend' : 'Show legend'}>
           Legend

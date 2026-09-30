@@ -6,6 +6,7 @@ import { requireAdmin } from './auth.js';
 import { ADMIN_KEY_ID } from './admin-key.js';
 import { PLAYGROUND_KEY_ID } from './playground.js';
 import { GUARDRAIL_KEY_ID } from '../guardrails/model-check.js';
+import { managesTeam, scopeOf } from './scope.js';
 
 /**
  * Agents come and go: a session spins up sub-agents, a pipeline mints a key per
@@ -117,7 +118,9 @@ export async function keyLifecycleRoutes(app: FastifyInstance, ctx: AppContext):
     const ids = Array.isArray(b.ids) ? b.ids.filter((x): x is string => typeof x === 'string') : [];
     if (b.action !== 'disable' && b.action !== 'delete') return reply.status(400).send({ error: { code: 'invalid', message: 'action must be disable or delete' } });
     if (ids.length === 0 || ids.length > 5000) return reply.status(400).send({ error: { code: 'invalid', message: 'ids must list 1 to 5000 keys' } });
-    const target = ids.filter((id) => !BUILT_IN_KEYS.has(id) && ctx.registry.keysById.has(id));
+    // Only keys in teams they manage (every key, for an admin).
+    const scope = scopeOf(req);
+    const target = ids.filter((id) => !BUILT_IN_KEYS.has(id) && ctx.registry.keysById.has(id) && managesTeam(scope, ctx.registry.keysById.get(id)!.team));
     if (target.length) {
       if (b.action === 'disable') {
         await ctx.db.write.updateTable('api_keys').set({ enabled: 0 }).where('id', 'in', target).execute();

@@ -1,3 +1,4 @@
+import { ADMIN_SCOPE, EMPTY_SCOPE, hasScopedRights, type Scope } from './scope.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
 import type { AppContext } from '../context.js';
@@ -10,7 +11,7 @@ export const SESSION_COOKIE = 'ct_session';
 const CSRF_HEADER = 'x-ct-csrf';
 
 /** Console roles: admins change anything; approvers see everything and decide approvals; viewers see everything. */
-export const ROLES = ['admin', 'approver', 'viewer'] as const;
+export const ROLES = ['admin', 'approver', 'viewer', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface AdminSession {
@@ -27,15 +28,76 @@ export interface AdminSession {
 const ROLE_MAY: Record<Exclude<Role, 'admin'>, Set<string>> = {
   approver: new Set(['POST /admin/api/approvals/:id/decide', 'POST /admin/api/me/password']),
   viewer: new Set(['POST /admin/api/me/password']),
+  member: new Set(['POST /admin/api/me/password']),
 };
-/** Reads only admins may make: people and their roles, the audit log, identity-provider settings. */
-const ADMIN_ONLY_READS = new Set(['GET /admin/api/users', 'GET /admin/api/audit', 'GET /admin/api/audit/export', 'GET /admin/api/audit/verify', 'GET /admin/api/identity-providers']);
+/** Reads only admins may make: people and their roles, the audit log, identity-provider and credential settings. */
+const ADMIN_ONLY_READS = new Set([
+  'GET /admin/api/users',
+  'GET /admin/api/audit',
+  'GET /admin/api/audit/export',
+  'GET /admin/api/audit/verify',
+  'GET /admin/api/identity-providers',
+  'GET /admin/api/token-issuers',
+  'GET /admin/api/secret-managers',
+]);
+/**
+ * What a member (who sees only their teams) may read: their agents' keys, calls, approvals, spend and map —
+ * each answered for their teams only — and the shared catalogue (models, tool servers, gates) keys refer to.
+ */
+const MEMBER_READS = new Set([
+  'GET /admin/api/me',
+  'GET /admin/api/status',
+  'GET /admin/api/license',
+  'GET /admin/api/keys',
+  'GET /admin/api/flights',
+  'GET /admin/api/flights/:id',
+  'GET /admin/api/approvals',
+  'GET /admin/api/approvals/:id',
+  'GET /admin/api/approval-windows',
+  'GET /admin/api/budgets',
+  'GET /admin/api/ledger/summary',
+  'GET /admin/api/topology',
+  'GET /admin/api/events/recent',
+  'GET /admin/api/replay',
+  'GET /admin/api/airspace/agent-link',
+  'GET /admin/api/airspace/views',
+  'GET /admin/api/airspace/layout',
+  'GET /admin/api/deployments',
+  'GET /admin/api/aliases',
+  'GET /admin/api/providers',
+  'GET /admin/api/mcp/servers',
+  'GET /admin/api/http/apis',
+  'GET /admin/api/a2a/agents',
+  'GET /admin/api/policy',
+  'GET /admin/api/teams',
+  'GET /admin/api/orgs',
+]);
+/** Changes anyone may reach with the right membership; the handler checks the team or organisation. */
+const SCOPED_WRITES = new Set([
+  'POST /admin/api/keys',
+  'PATCH /admin/api/keys/:id',
+  'DELETE /admin/api/keys/:id',
+  'POST /admin/api/keys/bulk',
+  'POST /admin/api/keys/:id/rotate',
+  'PUT /admin/api/keys/:id/rotation',
+  'POST /admin/api/keys/:id/rotate/end-overlap',
+  'POST /admin/api/approvals/:id/decide',
+  'PUT /admin/api/budgets/:type/:id',
+  'DELETE /admin/api/budgets/:type/:id',
+  'POST /admin/api/teams',
+  'PATCH /admin/api/teams/:id',
+  'DELETE /admin/api/teams/:id',
+  'PUT /admin/api/teams/:id/members',
+  'DELETE /admin/api/teams/:id/members/:personId',
+  'PUT /admin/api/orgs/:id/members',
+  'DELETE /admin/api/orgs/:id/members/:personId',
+]);
 
-export function roleMay(role: Role, method: string, route: string): boolean {
+export function roleMay(role: Role, method: string, route: string, scope: Scope = ADMIN_SCOPE): boolean {
   if (role === 'admin') return true;
   const k = `${method} ${route}`;
-  if (method === 'GET' || method === 'HEAD') return !ADMIN_ONLY_READS.has(k);
-  return ROLE_MAY[role].has(k);
+  if (method === 'GET' || method === 'HEAD') return role === 'member' ? MEMBER_READS.has(k) : !ADMIN_ONLY_READS.has(k);
+  return ROLE_MAY[role].has(k) || (SCOPED_WRITES.has(k) && hasScopedRights(scope));
 }
 
 export const asRole = (r: string | null | undefined): Role => ((ROLES as readonly string[]).includes(r ?? '') ? (r as Role) : 'admin');
@@ -151,6 +213,7 @@ export function requireAdmin(ctx: AppContext) {
     if (hasAdminKey(ctx, req)) {
       req.admin = { id: 'admin-key', adminId: 'admin-key', email: 'admin key', csrf: '', expiresAt: Number.MAX_SAFE_INTEGER, role: 'admin' };
       req.auditActor = { type: 'admin_key', role: 'admin' };
+      req.scope = ADMIN_SCOPE;
       return;
     }
     const s = await loadSession(ctx, req);
@@ -172,9 +235,10 @@ export function requireAdmin(ctx: AppContext) {
       req.auditRefused = 'password_change_required';
       return reply.status(403).send({ error: { code: 'password_change_required', message: 'Choose your own password first.' } });
     }
-    if (!roleMay(s.role, req.method, req.routeOptions.url ?? req.url)) {
+    req.scope = ctx.orgs ? ctx.orgs.scopeFor(s) : s.role === 'member' ? EMPTY_SCOPE : { ...ADMIN_SCOPE, manage: new Set(), orgAdmin: new Set(), approve: s.role === 'approver' ? 'all' : new Set() };
+    if (!roleMay(s.role, req.method, req.routeOptions.url ?? req.url, req.scope)) {
       req.auditRefused = 'forbidden';
-      return reply.status(403).send({ error: { code: 'forbidden', message: s.role === 'approver' ? 'Approvers can see everything and decide approvals, but not change settings. Ask an admin.' : `Your role (${s.role}) can see everything but not change it. Ask an admin.` } });
+      return reply.status(403).send({ error: { code: 'forbidden', message: s.role === 'member' ? "That isn't part of your teams. Ask an admin." : s.role === 'approver' ? 'Approvers can see everything and decide approvals, but not change settings. Ask an admin.' : `Your role (${s.role}) can see everything but not change it. Ask an admin.` } });
     }
     req.admin = s;
   };
@@ -276,7 +340,10 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const setup = await isSetupComplete(ctx);
     const s = await loadSession(ctx, req);
     if (!s) return reply.status(401).send({ setup_complete: setup, error: { code: 'unauthenticated', message: 'Sign in required.' } });
-    return reply.send({ setup_complete: setup, email: s.email, csrf: s.csrf, role: s.role, must_change_password: !!s.mustChangePassword });
+    // What they see and may change beyond their role (Enterprise organisations and teams), for the console.
+    const sc = ctx.orgs ? ctx.orgs.scopeFor(s) : undefined;
+    const list = (v: ReadonlySet<string> | 'all') => (v === 'all' ? 'all' : [...v].sort());
+    return reply.send({ setup_complete: setup, email: s.email, csrf: s.csrf, role: s.role, must_change_password: !!s.mustChangePassword, ...(sc ? { scope: { all: sc.all, teams: [...sc.teams].sort(), manage: list(sc.manage), approve: list(sc.approve), org_admin: list(sc.orgAdmin) } } : {}) });
   });
 
   // Everyone may change their own password; their other sessions end.

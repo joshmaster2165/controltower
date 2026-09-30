@@ -240,6 +240,38 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await shot(page, 'key-rotation', { clip: page.locator('table.table').first(), pad: 8 });
     vaultSrv.close();
 
+    // Organisations and teams: Acme Finance holds the finance team; a finance admin sees only finance.
+    const org = await api('POST', '/admin/api/orgs', { name: 'Acme Finance' });
+    const fin = await api('POST', '/admin/api/teams', { name: 'finance', org_id: org.id });
+    await api('POST', '/admin/api/teams', { name: 'platform' });
+    await api('PATCH', `/admin/api/teams/${fin.id}`, { idp_groups: { admin: ['Finance Leads'], member: ['Finance'] } });
+    await api('PUT', `/admin/api/orgs/${org.id}/members`, { email: 'priya@acme.com', role: 'admin' });
+    const ines = await api('PUT', `/admin/api/teams/${fin.id}/members`, { email: 'ines@acme.com', role: 'admin' });
+    await api('PUT', `/admin/api/teams/${fin.id}/members`, { email: 'marco@acme.com', role: 'member' });
+    await api('POST', '/admin/api/keys', { name: 'expense-checker', agent_id: 'expense-checker', team: 'finance' });
+    await api('PUT', '/admin/api/budgets/team/finance', { limit_usd: 2000, period: 'monthly' });
+    await page.goto(`${ct.url}/#/teams`);
+    await expect(page.locator('.members').getByText('ines@acme.com')).toBeVisible();
+    await shot(page, 'teams');
+    // Ines's own view: sign in, choose a password, and look around.
+    const inesLogin = async (pw: string) => {
+      const r = await fetch(`${ct.url}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'ines@acme.com', password: pw }) });
+      return { cookie: r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; '), csrf: ((await r.json()) as { csrf: string }).csrf };
+    };
+    const first = await inesLogin(ines.password);
+    await fetch(`${ct.url}/admin/api/me/password`, { method: 'POST', headers: { cookie: first.cookie, 'x-ct-csrf': first.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ current: ines.password, password: 'ines-password-123' }) });
+    const s2 = await inesLogin('ines-password-123');
+    const member = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    await member.addCookies(s2.cookie.split('; ').map((c) => ({ name: c.split('=')[0]!, value: c.slice(c.indexOf('=') + 1), url: ct.url })));
+    const mp = await member.newPage();
+    await mp.goto(`${ct.url}/#/keys`);
+    await expect(mp.getByText('You see your teams: finance')).toBeVisible();
+    await shot(mp, 'teams-member-keys');
+    await mp.goto(`${ct.url}/#/airspace`);
+    await mp.waitForTimeout(2500);
+    await shot(mp, 'teams-member-airspace');
+    await member.close();
+
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);
     await page.getByRole('button', { name: '24 hours' }).click();

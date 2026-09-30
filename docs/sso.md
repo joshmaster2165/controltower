@@ -31,7 +31,7 @@ People can sign in to the console through your identity provider, over OpenID Co
 | Client authentication | How Control Tower proves itself to the token endpoint: client secret in the `Authorization` header (basic, the default), in the form (post), or none for a public client (PKCE only) |
 | Email domains allowed | Only these email domains may sign in. Empty allows any address the provider vouches for |
 | Groups claim, and admin, approver and viewer groups | See below |
-| Anyone else | The role for someone in none of the groups: viewer, approver, admin, or **refused** |
+| Anyone else | The role for someone in none of the groups: member, viewer, approver, admin, or **refused** |
 | Create people on first sign-in | On: someone who passes the checks above is added with their role the first time they sign in. Off: only people an admin already [added](people.md#adding-people) by email get in |
 
 ## SAML
@@ -52,7 +52,7 @@ What a SAML sign-in must pass:
 
 ## Groups and roles
 
-Set **Groups claim** to the ID-token claim that lists someone's groups (usually `groups`). A list is read as it is; a single text value is one group, spaces and all ("Domain Admins"), unless it's comma-separated. Then list the groups for each role. Someone in several gets the highest role (admin, then approver, then viewer). Someone in none gets the **Anyone else** role, or is refused.
+Set **Groups claim** to the ID-token claim that lists someone's groups (usually `groups`). A list is read as it is; a single text value is one group, spaces and all ("Domain Admins"), unless it's comma-separated. Then list the groups for each role. Someone in several gets the highest role (admin, then approver, then viewer, then member). Groups can also make people admins or members of [teams](teams.md#from-your-identity-provider), set at each sign-in. Someone in none gets the **Anyone else** role, or is refused.
 
 With a groups claim set, the provider decides roles at every sign-in. Moving someone to another group changes their role the next time they sign in, and ends their other sessions. Leave the groups claim empty to manage roles in Control Tower instead: the **Anyone else** role applies when someone is first created, and an admin changes it from then on.
 
@@ -108,7 +108,7 @@ Admins only, except `GET /admin/api/sso`, which the sign-in page reads without s
 | Method | Path | |
 |---|---|---|
 | GET | `/admin/api/sso` | `{providers: [{id, name}], sso_only}`: what the sign-in page offers |
-| GET, POST | `/admin/api/identity-providers` | List, with each provider's redirect URL (OIDC), ACS URL and entity ID (SAML), `sso_only` and `admin_key_set`; add one. OIDC: `{name, issuer, client_id, client_secret, token_auth, …}`. SAML: `{kind: "saml", name, saml_entry_point, saml_idp_cert, saml_idp_issuer, email_attribute, …}`. Both: `allowed_domains, groups_claim, role_map: {admin: [...], approver: [...], viewer: [...]}, default_role, create_users` |
+| GET, POST | `/admin/api/identity-providers` | List, with each provider's redirect URL (OIDC), ACS URL and entity ID (SAML), `sso_only` and `admin_key_set`; add one. OIDC: `{name, issuer, client_id, client_secret, token_auth, …}`. SAML: `{kind: "saml", name, saml_entry_point, saml_idp_cert, saml_idp_issuer, email_attribute, …}`. Both: `allowed_domains, groups_claim, role_map: {admin: [...], approver: [...], viewer: [...], member: [...]}, default_role, create_users` |
 | PATCH, DELETE | `/admin/api/identity-providers/:id` | Change (also `enabled`) or remove. Removing unlinks the people who signed in with it |
 | POST | `/admin/api/identity-providers/:id/test` | OIDC: load the provider's discovery document. SAML: read the signing certificate and its expiry |
 | POST, DELETE | `/admin/api/identity-providers/:id/scim-token` | Issue (shown once) or revoke the provider's [SCIM](scim.md) token |

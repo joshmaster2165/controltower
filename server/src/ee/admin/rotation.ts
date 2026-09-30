@@ -4,11 +4,13 @@ import { requireAdmin } from '../../admin/auth.js';
 import { requireEnterprise } from './license.js';
 import { DEFAULT_OVERLAP_S, MAX_OVERLAP_S, RotationError, deliveryProblem, endOverlap, rotateKey } from '../rotation.js';
 import type { AuditActor } from '../audit.js';
+import { managesTeam, scopeOf } from '../../admin/scope.js';
 
 /** Key rotation: now, on a schedule, delivered to a secret manager; and ending an overlap early. Admins only; Enterprise. */
 export async function keyRotationRoutes(app: FastifyInstance, ctx: AppContext, instance: string): Promise<void> {
   const guard = [requireAdmin(ctx), requireEnterprise(ctx, 'secret_managers')];
   const bad = (reply: FastifyReply, message: string) => reply.status(400).send({ error: { code: 'invalid', message } });
+  const notYours = (reply: FastifyReply) => reply.status(403).send({ error: { code: 'forbidden', message: "That key isn't in one of your teams." } });
   const actor = (req: FastifyRequest): AuditActor => req.auditActor ?? { type: 'admin_key' };
   const overlapOf = (v: unknown, fallback: number): number | string => {
     if (v === undefined || v === null) return fallback;
@@ -21,6 +23,7 @@ export async function keyRotationRoutes(app: FastifyInstance, ctx: AppContext, i
     const id = (req.params as { id: string }).id;
     const k = ctx.registry.keysById.get(id);
     if (!k) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    if (!managesTeam(scopeOf(req), k.team)) return notYours(reply);
     const b = (req.body ?? {}) as { overlap_s?: number; deliver_to?: string | null };
     const overlap = overlapOf(b.overlap_s, k.rotation.overlapS ?? DEFAULT_OVERLAP_S);
     if (typeof overlap === 'string') return bad(reply, overlap);
@@ -39,6 +42,7 @@ export async function keyRotationRoutes(app: FastifyInstance, ctx: AppContext, i
     const id = (req.params as { id: string }).id;
     const k = ctx.registry.keysById.get(id);
     if (!k) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    if (!managesTeam(scopeOf(req), k.team)) return notYours(reply);
     const b = (req.body ?? {}) as { every_days?: number | null; overlap_s?: number | null; deliver_to?: string | null };
     const every = b.every_days === null || b.every_days === undefined ? null : Number(b.every_days);
     if (every !== null && !(Number.isInteger(every) && every >= 1 && every <= 365)) return bad(reply, 'every_days must be a whole number of days, 1 to 365');
@@ -59,7 +63,9 @@ export async function keyRotationRoutes(app: FastifyInstance, ctx: AppContext, i
   // Stop accepting the secret before the last rotation now.
   app.post('/admin/api/keys/:id/rotate/end-overlap', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    if (!ctx.registry.keysById.has(id)) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    const k = ctx.registry.keysById.get(id);
+    if (!k) return reply.status(404).send({ error: { code: 'not_found', message: 'key not found' } });
+    if (!managesTeam(scopeOf(req), k.team)) return notYours(reply);
     await endOverlap(ctx, id);
     return { ok: true };
   });

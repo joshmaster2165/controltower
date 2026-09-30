@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { requireAdmin } from './auth.js';
+import { inList, scopeOf } from './scope.js';
 
 const MAX = 50_000;
 
@@ -16,11 +17,13 @@ export async function replayRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const to = Number(q.to) || Date.now();
     const from = Number(q.from) || to - 3600_000;
     if (!(from < to)) return reply.status(400).send({ error: { code: 'invalid', message: 'from must be before to' } });
+    const scope = scopeOf(req);
     const rows = await ctx.db.read
       .selectFrom('flights')
       .select(['id', 'ts', 'key_id', 'key_name', 'kind', 'deployment_id', 'mcp_server_id', 'tool', 'status', 'duration_ms', 'rule_id'])
       .where('ts', '>=', from)
       .where('ts', '<', to)
+      .$if(!scope.all, (qb) => qb.where('team', 'in', inList([...scope.teams])))
       .orderBy('ts', 'asc')
       .limit(MAX + 1)
       .execute();

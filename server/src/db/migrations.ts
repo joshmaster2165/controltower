@@ -913,3 +913,36 @@ ALTER TABLE api_keys ADD COLUMN rotation_claim_until INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX api_keys_prev_hash ON api_keys (prev_key_hash);
 `,
 });
+
+migrations.push({
+  version: 32,
+  name: 'organisations_and_teams',
+  sqlite: `
+CREATE TABLE orgs (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX orgs_name ON orgs (name);
+CREATE TABLE teams (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  org_id      TEXT,
+  idp_groups  TEXT NOT NULL DEFAULT '{}',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX teams_name ON teams (name);
+CREATE TABLE memberships (
+  admin_id    TEXT NOT NULL,
+  scope_type  TEXT NOT NULL,
+  scope_id    TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'console',
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (admin_id, scope_type, scope_id)
+);
+CREATE INDEX memberships_scope ON memberships (scope_type, scope_id);
+`,
+});

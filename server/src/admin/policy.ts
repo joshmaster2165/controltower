@@ -9,6 +9,7 @@ import { inspectConfigError, limitsConfigError } from '../guardrails/validate.js
 import { simulate } from '../policy/simulate.js';
 import { applyPolicyImport, exportPolicy, planPolicyImport, policyYaml } from '../policy/yaml.js';
 import type { RuleRecord } from '../policy/policy.js';
+import { approvesTeam, inList, scopeOf, seesKey, visibleKeyIds } from './scope.js';
 
 const EFFECTS = ['allow', 'deny', 'require_approval', 'allow_with_limits', 'inspect'];
 
@@ -230,6 +231,9 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const limit = Math.min(200, Math.max(1, Number(q.limit ?? 50)));
     let qb = ctx.db.read.selectFrom('approvals').selectAll().orderBy('requested_at', 'desc').limit(limit);
     if (q.status && q.status !== 'all') qb = qb.where('status', '=', q.status);
+    // Someone who sees only their teams sees their agents' approvals.
+    const keyIds = visibleKeyIds(ctx, scopeOf(req));
+    if (keyIds) qb = qb.where('key_id', 'in', inList(keyIds));
     const rows = await qb.execute();
     return {
       approvals: rows.map((a) => ({
@@ -245,7 +249,8 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
 
   app.get('/admin/api/approvals/:id', { preHandler: guard }, async (req, reply) => {
     const a = await ctx.db.read.selectFrom('approvals').selectAll().where('id', '=', (req.params as { id: string }).id).executeTakeFirst();
-    if (!a) return reply.status(404).send({ error: { code: 'not_found', message: 'approval not found' } });
+    const scope = scopeOf(req);
+    if (!a || !(scope.all || seesKey(scope, ctx.registry.keysById.get(a.key_id)))) return reply.status(404).send({ error: { code: 'not_found', message: 'approval not found' } });
     return {
       approval: { ...a, target: JSON.parse(a.target) as unknown, args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null, demo: a.demo === 1 },
       server_time: Date.now(),
@@ -258,6 +263,9 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     if (b.action !== 'approve' && b.action !== 'deny') return reply.status(400).send({ error: { code: 'invalid', message: 'action must be approve or deny' } });
     const bad = windowError(b.window);
     if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
+    // A team's members decide its agents' held calls; approvers and admins decide any.
+    const held = await ctx.db.read.selectFrom('approvals').select('key_id').where('id', '=', id).executeTakeFirst();
+    if (held && !approvesTeam(scopeOf(req), ctx.registry.keysById.get(held.key_id)?.team)) return reply.status(403).send({ error: { code: 'forbidden', message: "That call isn't from one of your teams' agents." } });
     const r = await approvals.decide(id, req.admin?.email ?? 'admin', b.action, { ...(b.note ? { note: b.note } : {}), ...(b.window ? { window: b.window } : {}) });
     if (!r.ok) return reply.status(409).send({ error: { code: 'conflict', message: r.status } });
     return r;
@@ -269,8 +277,9 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
   });
 
   // Open approval windows: agents a human let through a gate for the next N calls.
-  app.get('/admin/api/approval-windows', { preHandler: guard }, async () => {
+  app.get('/admin/api/approval-windows', { preHandler: guard }, async (req) => {
     const now = Date.now();
+    const keyIds = visibleKeyIds(ctx, scopeOf(req));
     const rows = await ctx.db.read
       .selectFrom('grants')
       .innerJoin('approvals', 'approvals.id', 'grants.approval_id')
@@ -290,6 +299,7 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
         'approvals.args_preview as args_preview',
       ])
       .where('grants.is_window', '=', 1)
+      .$if(!!keyIds, (qb) => qb.where('approvals.key_id', 'in', inList(keyIds!)))
       .where('grants.revoked_at', 'is', null)
       .where('grants.expires_at', '>', now)
       .where((eb) => eb('grants.uses_consumed', '<', eb.ref('grants.uses_allowed')))

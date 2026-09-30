@@ -7,7 +7,7 @@ With SCIM 2.0, your identity provider manages who has access to the console:
 - it **changes** them (name, email);
 - it **deactivates** them when they're unassigned or suspended;
 - it **removes** them;
-- it **pushes groups** whose names decide each person's [role](people.md).
+- it **pushes groups** whose names decide each person's [role](people.md), and the [teams](teams.md#from-your-identity-provider) they belong to.
 
 It works with Microsoft Entra ID, Okta, OneLogin, JumpCloud, and any other SCIM 2.0 client. People sign in with [single sign-on](sso.md) through the same provider.
 

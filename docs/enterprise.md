@@ -12,7 +12,7 @@ Control Tower is free and open source, and everything else in these docs works w
 | [Audit log to your SIEM](siem.md): Splunk, Datadog, OpenTelemetry, S3 or a webhook, in order, with nothing lost while the SIEM is down | Available |
 | [Agent identity](agent-identity.md): agents authenticate with tokens from your identity provider (Kubernetes, GitHub Actions, Entra ID, Okta, Auth0, Google) instead of keys' secrets | Available |
 | [Secret managers](secret-managers.md) (AWS, Google, Azure, Vault) and [key rotation](key-rotation.md): credentials read by reference and followed when they rotate; agents' keys rotated on a schedule into your secret manager | Available |
-| Organisations and team admins | Coming |
+| [Organisations and team admins](teams.md): each team manages its own agents' keys, budgets, people and held calls, and members see only their teams, everywhere in the console | Available |
 | Multi-region control plane | Coming |
 | Self-hosted, air-gap available | Available: licenses are checked on your server, with no connection needed |
 | 24/7 support with SLAs, dedicated support and onboarding | See [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md) |

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api';
 import { EnterpriseNotice } from './LicensePage';
 
-type Role = 'admin' | 'approver' | 'viewer';
+type Role = 'admin' | 'approver' | 'viewer' | 'member';
 type Kind = 'oidc' | 'saml';
 interface Provider {
   id: string;
@@ -60,11 +60,12 @@ interface Draft {
   admin: string;
   approver: string;
   viewer: string;
+  member: string;
   default_role: Role | 'none';
   create_users: boolean;
   token_auth: Provider['token_auth'];
 }
-const EMPTY: Draft = { kind: 'oidc', name: '', issuer: '', client_id: '', client_secret: '', saml_entry_point: '', saml_idp_cert: '', saml_idp_issuer: '', email_attribute: '', allowed_domains: '', groups_claim: 'groups', admin: '', approver: '', viewer: '', default_role: 'viewer', create_users: true, token_auth: 'client_secret_basic' };
+const EMPTY: Draft = { kind: 'oidc', name: '', issuer: '', client_id: '', client_secret: '', saml_entry_point: '', saml_idp_cert: '', saml_idp_issuer: '', email_attribute: '', allowed_domains: '', groups_claim: 'groups', admin: '', approver: '', viewer: '', member: '', default_role: 'viewer', create_users: true, token_auth: 'client_secret_basic' };
 const draftOf = (p: Provider): Draft => ({
   kind: p.kind,
   name: p.name,
@@ -80,6 +81,7 @@ const draftOf = (p: Provider): Draft => ({
   admin: (p.role_map.admin ?? []).join(', '),
   approver: (p.role_map.approver ?? []).join(', '),
   viewer: (p.role_map.viewer ?? []).join(', '),
+  member: (p.role_map.member ?? []).join(', '),
   default_role: p.default_role,
   create_users: p.create_users,
   token_auth: p.token_auth,
@@ -171,10 +173,12 @@ function ProviderForm({ initial, existing, onSave, onCancel }: { initial: Draft;
       {field('Admin groups', 'admin', 'ct-admins')}
       {field('Approver groups', 'approver', 'ct-approvers')}
       {field('Viewer groups', 'viewer', 'engineering')}
+      {field('Member groups (their teams only)', 'member', 'all-staff')}
       <div className="field" style={{ margin: 0 }}>
         <label htmlFor={id('default_role')}>Anyone else</label>
         <select id={id('default_role')} className="input" value={d.default_role} onChange={(e) => set('default_role', e.target.value as Draft['default_role'])}>
           <option value="none">Refused</option>
+          <option value="member">Member (their teams only)</option>
           <option value="viewer">Viewer</option>
           <option value="approver">Approver</option>
           <option value="admin">Admin</option>
@@ -281,7 +285,7 @@ export function SsoSettings() {
       : { saml_entry_point: d.saml_entry_point, ...(d.saml_idp_cert ? { saml_idp_cert: d.saml_idp_cert } : {}), saml_idp_issuer: d.saml_idp_issuer || null, email_attribute: d.email_attribute || null }),
     allowed_domains: list(d.allowed_domains),
     groups_claim: d.groups_claim || null,
-    role_map: { admin: list(d.admin), approver: list(d.approver), viewer: list(d.viewer) },
+    role_map: { admin: list(d.admin), approver: list(d.approver), viewer: list(d.viewer), member: list(d.member) },
     default_role: d.default_role,
     create_users: d.create_users,
   });

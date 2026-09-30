@@ -20,6 +20,7 @@ import { UsersPage, ChangePassword } from './pages/Users';
 import { AuditPage } from './ee/Audit';
 import { AgentIdentityPage } from './ee/AgentIdentity';
 import { SecretManagersPage } from './ee/SecretManagers';
+import { TeamsPage } from './ee/Teams';
 import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -57,6 +58,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'secret-managers', label: 'Secret managers', icon: 'key', hint: 'Credentials kept in Vault, AWS, Google or Azure' },
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
       { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
+      { id: 'teams', label: 'Teams', icon: 'agents', hint: 'Organisations, teams and their admins' },
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
       { id: 'license', label: 'License', icon: 'shield', hint: 'Control Tower Enterprise' },
     ],
@@ -111,6 +113,12 @@ export function App() {
   if (!me?.email) return <LoginPage />;
   if (me.must_change_password) return <ChangePassword forced onDone={() => void useStore.getState().boot()} />;
   const role = me.role ?? 'admin';
+  // Someone scoped to teams (a member) sees their teams' agents: the pages that show them, and Teams.
+  const MEMBER_PAGES = new Set(['airspace', 'tower', 'flights', 'ledger', 'keys', 'teams']);
+  const hasTeams = !!me.scope && (me.scope.teams.length > 0 || me.scope.manage === 'all' || me.scope.manage.length > 0 || me.scope.org_admin === 'all' || me.scope.org_admin.length > 0);
+  const navShows = (id: string) =>
+    role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
+  const manages = me.scope && me.scope.manage !== 'all' ? me.scope.manage : [];
 
   const logout = async () => {
     await api.post('/admin/api/logout');
@@ -138,10 +146,10 @@ export function App() {
           </span>
         </div>
         <nav className="side-nav" aria-label="Main">
-          {NAV.map((g) => (
+          {NAV.filter((g) => g.items.some((n) => navShows(n.id))).map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-label">{g.group}</div>
-              {g.items.filter((n) => !['users', 'audit', 'agent-identity', 'secret-managers'].includes(n.id) || role === 'admin').map((n) => {
+              {g.items.filter((n) => navShows(n.id)).map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
                 const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
@@ -245,8 +253,25 @@ export function App() {
         )}
         <LicenseBanner />
         {role !== 'admin' && route !== 'airspace' && (
-          <div className="role-banner">{role === 'approver' ? 'You can see everything and decide approvals in the Tower. Changing settings needs an admin.' : 'You can see everything here. Changing anything needs an admin.'}</div>
+          <div className="role-banner">
+            {role === 'member'
+              ? me.scope?.teams.length
+                ? `You see your teams: ${me.scope.teams.join(', ')}.${manages.length ? ` You manage ${manages.join(', ')}: their keys, budgets and people.` : ' You decide their agents\' held calls in the Tower.'}`
+                : 'You are not in a team yet. Ask an admin to add you to one.'
+              : role === 'approver'
+                ? 'You can see everything and decide approvals in the Tower. Changing settings needs an admin.'
+                : `You can see everything here.${manages.length ? ` You manage ${manages.join(', ')}: their keys, budgets and people.` : ' Changing anything needs an admin.'}`}
+          </div>
         )}
+        {role === 'member' && !MEMBER_PAGES.has(route) ? (
+          <div className="page">
+            <div className="card table-empty" style={{ padding: 28 }}>
+              <b>Not part of your teams</b>
+              This page covers all of Control Tower. Ask an admin if you need it.
+            </div>
+          </div>
+        ) : (
+          <>
         {route === 'airspace' && <AirspacePage />}
         {route === 'tower' && <TowerPage />}
         {route === 'flights' && <FlightsPage />}
@@ -265,9 +290,12 @@ export function App() {
         {route === 'audit' && role === 'admin' && <AuditPage />}
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
+        {route === 'teams' && navShows('teams') && <TeamsPage />}
         {route === 'license' && <LicensePage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}
+          </>
+        )}
       </main>
       <AlertToasts />
     </div>

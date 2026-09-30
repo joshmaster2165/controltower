@@ -59,6 +59,7 @@ import { AuditShipper } from './ee/siem.js';
 import { TokenAuth } from './ee/tokens.js';
 import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
+import { Orgs } from './ee/orgs.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -301,6 +302,9 @@ async function main(): Promise<void> {
   await tokens.reload();
   tokens.start();
   registry.tokens = tokens;
+  // Organisations and teams, and who belongs to them (Enterprise).
+  const orgs = new Orgs({ db: db.write, allowed: () => license.allows('orgs') });
+  await orgs.reload();
   const pricing = new PricingTable();
   const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
 
@@ -318,6 +322,7 @@ async function main(): Promise<void> {
     auditShipper,
     tokens,
     instanceId: cluster.id,
+    orgs,
     guardrails,
     license,
     audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
@@ -473,7 +478,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs, orgs });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);

@@ -6,11 +6,12 @@
 //   GET  /                plans, with a seat slider and live prices from Stripe
 //   POST /checkout        → Stripe Checkout (subscription: platform price + per-seat price)
 //   GET  /success         the key, once Checkout completes
-//   POST /trial           a 30-day trial key (5 seats), no card
+//   POST /trial           a 30-day trial (5 seats), no card: a link to the key, by email (Resend)
+//   GET  /trial/confirm   the link from that email: the trial key
 //   POST /refresh         {key} → a renewed key for an active subscription (Control Tower calls this daily)
 //   POST /portal          {key} → Stripe's customer portal (seats, card, cancel)
 //
-// Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, PUBLIC_URL, PORT.
+// Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
 import crypto from 'node:crypto';
 import http from 'node:http';
 
@@ -20,6 +21,12 @@ const STRIPE = process.env.STRIPE_API_BASE ?? 'https://api.stripe.com';
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY ?? '';
 const SIGNING = process.env.LICENSE_SIGNING_KEY ? crypto.createPrivateKey(process.env.LICENSE_SIGNING_KEY.replace(/\\n/g, '\n')) : undefined;
 const KID = process.env.LICENSE_KEY_ID ?? 'k1';
+/** Trial keys are sent by email (Resend), so a trial needs a mailbox that works. Without RESEND_API_KEY, keys are shown at once. */
+const RESEND_KEY = process.env.RESEND_API_KEY ?? '';
+const EMAIL_API = (process.env.EMAIL_API_BASE ?? 'https://api.resend.com').replace(/\/+$/, '');
+const EMAIL_FROM = process.env.EMAIL_FROM ?? 'Control Tower <trials@agentcontroltower.app>';
+/** How long the link in a trial email works. */
+const LINK_MS = 24 * 3600_000;
 const PUBLIC = SIGNING ? crypto.createPublicKey(SIGNING) : undefined;
 
 /** Stripe prices, found by lookup key (so no ids are configured here). */
@@ -31,13 +38,13 @@ const DAY = 86_400_000;
 
 // ---------- licenses ----------
 const b64u = (b) => Buffer.from(b).toString('base64url');
-export function sign(payload, key = SIGNING) {
-  const head = `ctl1.${b64u(JSON.stringify(payload))}`;
+export function sign(payload, key = SIGNING, kind = 'ctl1') {
+  const head = `${kind}.${b64u(JSON.stringify(payload))}`;
   return `${head}.${b64u(crypto.sign(null, Buffer.from(head), key))}`;
 }
-export function verify(token, pub = PUBLIC) {
+export function verify(token, pub = PUBLIC, kind = 'ctl1') {
   const [v, body, sig] = String(token ?? '').trim().split('.');
-  if (v !== 'ctl1' || !body || !sig) return undefined;
+  if (v !== kind || !body || !sig) return undefined;
   if (!crypto.verify(null, Buffer.from(`${v}.${body}`), pub, Buffer.from(sig, 'base64url'))) return undefined;
   try {
     return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
@@ -45,6 +52,33 @@ export function verify(token, pub = PUBLIC) {
     return undefined;
   }
 }
+/**
+ * A trial asked for: who, and when. Signed (kind "ctt1", never a license) and carried by the link in the email, so
+ * nothing is stored here. The key it opens is the same however many times the link is opened.
+ */
+const trialRequest = (company, email, now) => sign({ company, email, iat: now, exp: now + LINK_MS }, SIGNING, 'ctt1');
+function trialKey(r) {
+  const id = `lic_trial_${crypto.createHash('sha256').update(`${r.email}|${r.iat}`).digest('hex').slice(0, 12)}`;
+  return sign({ v: 1, kid: KID, id, customer: r.company, email: r.email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: r.iat, expires_at: r.iat + 30 * DAY, period_start: r.iat });
+}
+async function sendTrialEmail(to, company, link) {
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#0f1b2d">
+<div style="font-weight:600;font-size:17px">Control Tower</div>
+<p style="font:500 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#1f5eff;margin:28px 0 8px">TRIAL CLEARANCE</p>
+<h1 style="font-size:28px;font-weight:500;letter-spacing:-.02em;margin:0 0 12px">Your trial is ready for ${esc(company)}</h1>
+<p style="color:#5b6b82;line-height:1.6;margin:0 0 24px">30 days of Control Tower Enterprise, with ${INCLUDED_SEATS} seats and every feature. Open your key, paste it into <b>License</b> in Control Tower, and you're cleared.</p>
+<a href="${link}" style="display:inline-block;background:#1f5eff;color:#fff;text-decoration:none;font-weight:600;padding:13px 20px;border-radius:10px">Open my trial key</a>
+<p style="color:#8a98ad;font-size:13px;line-height:1.6;margin:24px 0 0">The link works for 24 hours. If you didn't ask for a trial, ignore this email: nothing happens.</p></div>`;
+  const text = `Your Control Tower Enterprise trial for ${company} is ready: 30 days, ${INCLUDED_SEATS} seats, every feature.\n\nOpen your key (the link works for 24 hours):\n${link}\n\nIf you didn't ask for a trial, ignore this email.`;
+  const r = await fetch(`${EMAIL_API}/emails`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject: 'Your Control Tower Enterprise trial key', html, text }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!r.ok) throw new Error(`the email service answered ${r.status}`);
+}
+
 function licenseFor(sub, customer) {
   const seatItem = sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'));
   const end = (sub.items.data[0]?.current_period_end ?? sub.current_period_end) * 1000;
@@ -370,7 +404,7 @@ async function plansPage() {
 <h1 class="rise" style="--d:60ms">You’re cleared <span class="accent">for the whole fleet</span></h1>
 <p class="lede rise" style="--d:140ms">Single sign-on, a tamper-evident audit log, agent identity, secret managers, teams and every region on one control plane — switched on by a license key your own server checks, with no connection needed.</p>
 <div class="cta rise" style="--d:220ms"><a class="btn primary lg" href="#trial">Start a 30-day trial ${ARROW}</a><a class="btn alt lg" href="#buy">See the price</a></div>
-<p class="note rise" style="--d:300ms">30 days · ${INCLUDED_SEATS} seats · no card · your key in seconds</p>
+<p class="note rise" style="--d:300ms">30 days · ${INCLUDED_SEATS} seats · no card · ${RESEND_KEY ? 'your key by email' : 'your key in seconds'}</p>
 </div>
 ${radar()}
 </div></div></section>
@@ -395,10 +429,10 @@ ${ticker}
 </div>
 <div class="trial" id="trial"><div class="scanline" aria-hidden="true"></div>
 <span class="eyebrow">Free trial</span><h3 style="margin-top:12px">30 days of everything</h3>
-<p>${INCLUDED_SEATS} seats, every feature, no card. Your key appears on the next page — paste it into <b>License</b> in Control Tower and you’re cleared.</p>
+<p>${INCLUDED_SEATS} seats, every feature, no card. ${RESEND_KEY ? 'We email you a link to your key' : 'Your key appears on the next page'} — paste it into <b>License</b> in Control Tower and you’re cleared.</p>
 <form method="post" action="/trial"><div class="field"><label for="company">Company</label><input id="company" type="text" name="company" placeholder="Acme Corp" required maxlength="100" autocomplete="organization"></div>
 <div class="field"><label for="email">Work email</label><input id="email" type="email" name="email" placeholder="you@acme.com" required maxlength="200" autocomplete="email"></div>
-<button class="btn primary lg full" style="margin-top:6px">Get my trial key ${ARROW}</button></form>
+<button class="btn primary lg full" style="margin-top:6px">${RESEND_KEY ? 'Email me my trial key' : 'Get my trial key'} ${ARROW}</button></form>
 <p class="fine">Ends on its own after 30 days. Nothing is charged, and your gateway keeps working.</p>
 </div>
 </div></div></section>
@@ -413,6 +447,21 @@ function total(pl,se,n){let c=pl?pl.unit_amount:0,x=Math.max(0,n-${INCLUDED_SEAT
 function draw(){const n=+s.value,p=P[interval];lab.textContent=n+(n===1?' person':' people');document.getElementById('seatsField').value=n;document.getElementById('intervalField').value=interval;if(!p.platform)return;out.innerHTML='$'+Math.round(total(p.platform,p.seat,n)/100).toLocaleString('en-US')+' <small>/ '+interval+'</small>';per.textContent=n+' seats · '+(interval==='year'?'billed yearly':'billed monthly')}
 s.oninput=draw;y.onclick=()=>{interval='year';y.className='on';m.className='';draw()};m.onclick=()=>{interval='month';m.className='on';y.className='';draw()};draw();
 </script>`,
+  );
+}
+
+/** After asking for a trial: the link is on its way. */
+function inboxPage(email) {
+  return page(
+    'Check your inbox',
+    `<section class="clear" style="min-height:calc(100vh - 230px)"><div class="frame pad">
+<svg class="tower-sm rise" viewBox="0 0 120 180" aria-hidden="true">${TOWER('t3')}</svg>
+<div class="eyebrow rise" style="--d:80ms;margin-top:14px">Awaiting clearance</div>
+<h1 class="rise" style="--d:120ms">Check your inbox</h1>
+<p class="lede rise" style="--d:180ms">We sent a link to <b style="color:#fff">${esc(email)}</b>. Open it within 24 hours and your trial key is there, ready to paste into Control Tower.</p>
+<div class="pill rise" style="--d:260ms"><span><i></i>LINK TRANSMITTED</span></div>
+<p class="note rise" style="--d:320ms;color:#7d8fb1">Nothing there? Check spam, or ask again in a few minutes.</p>
+</div></section>`,
   );
 }
 
@@ -483,7 +532,8 @@ const redirect = (res, url) => send(res, 303, 'text/plain', '', { location: url 
 export function createServer() {
   return http.createServer(async (req, res) => {
     const u = new URL(req.url ?? '/', PUBLIC_URL);
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    // The caller's address, as Railway's edge sets it in X-Real-IP. X-Forwarded-For is ignored: a client can write it.
+    const ip = String(req.headers['x-real-ip'] ?? req.socket.remoteAddress ?? '').trim();
     try {
       if (req.method === 'GET' && u.pathname === '/healthz') return json(res, 200, { ok: true, signing: !!SIGNING, stripe: !!STRIPE_KEY });
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, await plansPage());
@@ -525,10 +575,29 @@ export function createServer() {
         const company = String(b.company ?? '').trim().slice(0, 100);
         const email = String(b.email ?? '').trim().toLowerCase().slice(0, 200);
         if (!company || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return html(res, 400, note('Check the form', 'RETURNED · 400', 'Enter your company and a work email.'));
+        if (limited(email, 'trial-email', 2, 24 * 3600_000)) return html(res, 429, note('Trial limit reached', 'HOLD · 429', 'We’ve already sent a trial link to that address today. Check your inbox, or contact sales for a longer trial.'));
         const now = Date.now();
-        const key = sign({ v: 1, kid: KID, id: `lic_trial_${crypto.randomBytes(6).toString('hex')}`, customer: company, email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: now, expires_at: now + 30 * DAY, period_start: now });
-        console.log(JSON.stringify({ event: 'trial', company, email, at: new Date(now).toISOString() }));
-        return html(res, 200, keyPage('You’re cleared for 30 days', key, `30 days of Control Tower Enterprise for ${company}, with ${INCLUDED_SEATS} seats.`));
+        if (!RESEND_KEY) {
+          console.log(JSON.stringify({ event: 'trial', company, email, verified: false, at: new Date(now).toISOString() }));
+          return html(res, 200, keyPage('You’re cleared for 30 days', trialKey({ company, email, iat: now }), `30 days of Control Tower Enterprise for ${company}, with ${INCLUDED_SEATS} seats.`));
+        }
+        const link = `${PUBLIC_URL}/trial/confirm?t=${encodeURIComponent(trialRequest(company, email, now))}`;
+        try {
+          await sendTrialEmail(email, company, link);
+        } catch (err) {
+          console.error(JSON.stringify({ error: `trial email not sent: ${err.message}`, email }));
+          return html(res, 502, note('We couldn’t send the email', 'NO CONTACT · 502', 'Try again in a minute, or contact sales.'));
+        }
+        console.log(JSON.stringify({ event: 'trial_requested', company, email, at: new Date(now).toISOString() }));
+        return html(res, 200, inboxPage(email));
+      }
+
+      if (req.method === 'GET' && u.pathname === '/trial/confirm') {
+        const r = verify(u.searchParams.get('t') ?? '', PUBLIC, 'ctt1');
+        if (!r?.email || !r.company || !Number.isFinite(r.iat)) return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Open the link from your email as it is, or start a trial again.'));
+        if (Date.now() > r.exp) return html(res, 410, note('That link has expired', 'EXPIRED · 410', 'Trial links work for 24 hours. Start a trial again for a new one.'));
+        console.log(JSON.stringify({ event: 'trial', company: r.company, email: r.email, verified: true, at: new Date().toISOString() }));
+        return html(res, 200, keyPage('You’re cleared for 30 days', trialKey(r), `30 days of Control Tower Enterprise for ${r.company}, with ${INCLUDED_SEATS} seats.`));
       }
 
       if (req.method === 'POST' && u.pathname === '/refresh') {

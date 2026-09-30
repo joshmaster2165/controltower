@@ -1,5 +1,6 @@
 // The license service against a stand-in for Stripe, for working on its pages: node ee/license-service/preview.mjs
-// Plans at http://127.0.0.1:4810, a paid key at /success?session_id=cs_preview. Keys it shows are signed with a
+// Plans at http://127.0.0.1:4810, a paid key at /success?session_id=cs_preview; a trial's email link is printed to the
+// console. Keys it shows are signed with a
 // throwaway key: no Control Tower accepts them.
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -20,11 +21,23 @@ const fake = http.createServer((req, res) => {
   if (u.pathname === '/v1/prices') return j({ data: PRICES });
   if (u.pathname.startsWith('/v1/checkout/sessions/')) return j({ id: 'cs_preview', status: 'complete', customer_details: { name: 'Acme Corp', email: 'it@acme.com' }, subscription: sub });
   if (u.pathname === '/v1/checkout/sessions') return j({ id: 'cs_preview', url: `http://127.0.0.1:${PORT}/success?session_id=cs_preview` });
+  // The email service: the trial link is printed instead of sent.
+  if (u.pathname === '/emails') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      console.log(`trial email to ${JSON.parse(body).to}: ${/http[^\s"]+\/trial\/confirm\?t=[^\s"]+/.exec(JSON.parse(body).text)?.[0]}`);
+      j({ id: 'em_preview' });
+    });
+    return;
+  }
   res.writeHead(404).end('{}');
 });
 await new Promise((r) => fake.listen(0, '127.0.0.1', r));
 process.env.STRIPE_API_BASE = `http://127.0.0.1:${fake.address().port}`;
 process.env.STRIPE_SECRET_KEY = 'sk_test_preview';
+process.env.RESEND_API_KEY = 're_preview';
+process.env.EMAIL_API_BASE = process.env.STRIPE_API_BASE;
 process.env.LICENSE_SIGNING_KEY = crypto.generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' });
 process.env.PUBLIC_URL = `http://127.0.0.1:${PORT}`;
 const { createServer } = await import('./server.mjs');

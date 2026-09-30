@@ -65,7 +65,7 @@ Without a license, each Enterprise feature says so where it would be:
 
 ## Buying and trying
 
-- **Free trial:** 30 days, 5 seats, no card. It ends on its own on its end date, on a running server as on one restarted, with no grace period; nothing is charged.
+- **Free trial:** 30 days, 5 seats, no card. The key is emailed to the address you give, as a link that works for 24 hours. It ends on its own on its end date, on a running server as on one restarted, with no grace period; nothing is charged.
 - **Enterprise:** a yearly subscription per deployment. The base plan includes 5 single sign-on seats and 100 million requests a year. Add seats as you grow: seats 6–25 and seats 26–100 each have their own price, and the per-seat price drops for the larger block. Monthly billing is available at a higher rate.
 - **More than 100 seats, or over a billion requests a year:** contact sales for volume pricing.
 

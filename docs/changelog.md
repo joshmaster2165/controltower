@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Trial keys are emailed.** A trial asks for a work email and sends a link to the key there (the link works for 24 hours; opening it again shows the same key), so a trial needs a real mailbox. At most two trial emails a day go to one address. The license service reads the caller's address from Railway's `X-Real-IP`, not from `X-Forwarded-For`, which a client can write.
+
 ## 0.2.2 — 30 September 2026
 
 - **Security: license keys signed with someone else's key are refused by every release build.** Until now, a server started with `NODE_ENV` set to anything but `production` also trusted a signing key named by `CT_LICENSE_PUBLIC_KEY` (meant for tests), so a self-signed key could turn Enterprise on. Release builds (the image and the npm package) no longer contain that path at all, and CI checks each image refuses a forged key. Upgrade from 0.2.0 and 0.2.1.

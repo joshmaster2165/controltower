@@ -42,6 +42,8 @@ export interface AppContext {
   license: import('./ee/license.js').Licensing;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
+  /** This instance's id (shared by name with the others on the database). */
+  instanceId?: string;
   /** Agents authenticating with tokens from a trusted issuer (Enterprise). */
   tokens?: import('./ee/tokens.js').TokenAuth;
   /** The audit log to SIEMs (Enterprise). */

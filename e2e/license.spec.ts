@@ -53,7 +53,7 @@ test.afterAll(async () => {
 
 test('without a license, Enterprise features are off and say so; the rest works', async () => {
   expect((await ak('GET', '/admin/api/license')).body).toMatchObject({ status: 'none', editable: true });
-  for (const [method, p] of [['GET', '/admin/api/audit'], ['GET', '/admin/api/identity-providers'], ['POST', '/admin/api/identity-providers'], ['PUT', '/admin/api/sso/settings'], ['GET', '/admin/api/token-issuers'], ['POST', '/admin/api/token-issuers']] as const) {
+  for (const [method, p] of [['GET', '/admin/api/audit'], ['GET', '/admin/api/identity-providers'], ['POST', '/admin/api/identity-providers'], ['PUT', '/admin/api/sso/settings'], ['GET', '/admin/api/token-issuers'], ['POST', '/admin/api/token-issuers'], ['GET', '/admin/api/secret-managers'], ['POST', '/admin/api/keys/x/rotate'], ['PUT', '/admin/api/keys/x/rotation']] as const) {
     const r = await ak(method, p, method === 'GET' ? undefined : {});
     expect([r.status, r.body.error?.code], `${method} ${p}`).toEqual([402, 'enterprise_required']);
   }

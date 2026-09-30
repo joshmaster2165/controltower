@@ -277,8 +277,11 @@ export async function alertRoutes(app: FastifyInstance, ctx: AppContext): Promis
 
   app.patch('/admin/api/alert-channels/:id', { preHandler: guard }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const cur = alerts.channelConfig(id);
-    if (!cur) return notFound(reply, 'channel');
+    const live = alerts.channelConfig(id);
+    if (!live) return notFound(reply, 'channel');
+    // Changes merge into what is stored (secret references stay references), not the values in use.
+    const row = await ctx.db.read.selectFrom('alert_channels').select('config_enc').where('id', '=', id).executeTakeFirstOrThrow();
+    const cur = JSON.parse(ctx.secrets.decrypt(row.config_enc, `alert_channels.config_enc.${id}`)) as typeof live;
     const b = (req.body ?? {}) as { name?: string; url?: string; secret?: string | null; enabled?: boolean; to?: unknown; smtp?: unknown };
     const patch: Record<string, unknown> = { updated_at: Date.now() };
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 120);

@@ -39,7 +39,7 @@ Gates run on the prompt before it leaves and, just as important for agents, on *
 Protections that are always on:
 - Prompts and answers are never stored.
 - Flight events, [exports](exports.md) and the [audit log](audit.md) carry metadata only, with secrets redacted.
-- Provider and tool-server credentials are encrypted at rest (AES-256-GCM).
+- Provider and tool-server credentials are encrypted at rest (AES-256-GCM), or kept in your [secret manager](secret-managers.md) and held only in memory (Enterprise).
 - API keys and sessions are stored only as hashes.
 
 **Turn it on:** an inspect gate with the PII and secret detectors, direction *both*, action *mask*.

@@ -8,6 +8,7 @@ import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import type { Versioned } from '../util/versioned.js';
 import { sendEmail, type SmtpConfig } from './email.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 /**
  * Alerting. An alert rule watches one kind of thing and fires when it has seen
@@ -322,7 +323,7 @@ export class AlertService {
     const next = new Map<string, ChannelRecord>();
     for (const c of channels) {
       try {
-        const config = JSON.parse(this.secrets.decrypt(c.config_enc, `alert_channels.config_enc.${c.id}`)) as ChannelConfig;
+        const config = secretRefs.apply(JSON.parse(this.secrets.decrypt(c.config_enc, `alert_channels.config_enc.${c.id}`)) as ChannelConfig, `alert channel ${c.name}`);
         next.set(c.id, { id: c.id, name: c.name, kind: c.kind as ChannelKind, config, enabled: c.enabled === 1 });
       } catch (err) {
         this.opts.log().warn({ err, channel: c.id }, 'alert channel config could not be decrypted');

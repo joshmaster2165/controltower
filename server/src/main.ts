@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/index.js';
 import { copySqliteToPostgres } from './db/copy.js';
+import { rotateMasterKey } from './db/rotate-master-key.js';
+import crypto from 'node:crypto';
 import { PgSink } from './events/pg-sink.js';
 import type { EventSink } from './context.js';
 import { decodeKey, keyId, loadOrCreateMasterKey, SecretBox } from './crypto/secrets.js';
@@ -55,6 +57,8 @@ import { supportBundle } from './support/bundle.js';
 import { AuditLog } from './ee/audit.js';
 import { AuditShipper } from './ee/siem.js';
 import { TokenAuth } from './ee/tokens.js';
+import { secretRefs } from './ee/secret-managers/index.js';
+import { KeyRotator } from './ee/rotation.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -73,10 +77,15 @@ Usage: controltower [options]            (docker: pass the same options after th
   --support-bundle [file]  write a report for whoever helps you with a problem — version, settings
                         by name, database, health and error counts; no keys, prompts or names —
                         to the file, or print it; then exit
+  --rotate-master-key   re-encrypt every stored credential under a new master key (CT_NEW_MASTER_KEY,
+                        or a new one generated into CT_DATA_DIR/master.key); stop every instance first
   --detailed_debug      verbose logs (also --debug)
   --version             print the version
 
 Environment: CT_ADMIN_KEY sets the admin key. Every setting:\nhttps://github.com/joshmaster2165/controltower/blob/main/docs/configuration.md`;
+
+/** A mistake in how a command was run: said in a sentence, without a stack trace. */
+class CliError extends Error {}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -97,6 +106,32 @@ async function main(): Promise<void> {
     const counts = await copySqliteToPostgres(config.dataDir, url, (l) => process.stdout.write(`${l}\n`));
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     process.stdout.write(`Done: ${total.toLocaleString()} rows in ${Object.keys(counts).length} tables. Start every instance with CT_DATABASE_URL set to it and this install's CT_MASTER_KEY.\n`);
+    process.exit(0);
+  }
+  if (argv.includes('--rotate-master-key')) {
+    const file = path.join(config.dataDir, 'master.key');
+    const oldRaw = config.masterKeyEnv ?? (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : undefined);
+    if (!oldRaw) throw new CliError(`no master key: set CT_MASTER_KEY, or run where ${file} is`);
+    const oldKey = decodeKey(oldRaw, config.masterKeyEnv ? 'CT_MASTER_KEY' : file);
+    const newRaw = process.env.CT_NEW_MASTER_KEY;
+    if (config.masterKeyEnv && !newRaw) throw new CliError('the master key comes from CT_MASTER_KEY: set CT_NEW_MASTER_KEY to the new one (e.g. openssl rand -base64 32), run this again, then set CT_MASTER_KEY to it on every instance');
+    const newKey = newRaw ? decodeKey(newRaw, 'CT_NEW_MASTER_KEY') : crypto.randomBytes(32);
+    const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl });
+    // Instances still running would go on with the old key: every one must be stopped first.
+    const live = await db.read.selectFrom('instances').select(['id', 'host']).where('last_seen', '>', Date.now() - 90_000).execute().catch(() => []);
+    if (live.length && !argv.includes('--force')) {
+      await db.close();
+      throw new CliError(`instances are still running on this database (${live.map((i) => i.host ?? i.id).join(', ')}): stop every one, then run this again (or add --force if they have stopped)`);
+    }
+    const counts = await rotateMasterKey(db, new SecretBox({ id: keyId(oldKey), key: oldKey, source: 'env' }), new SecretBox({ id: keyId(newKey), key: newKey, source: 'env' }));
+    await db.close();
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (!config.masterKeyEnv) {
+      fs.copyFileSync(file, `${file}.previous`);
+      fs.chmodSync(`${file}.previous`, 0o600);
+      fs.writeFileSync(file, `${newKey.toString('base64')}\n`, { mode: 0o600 });
+      process.stdout.write(`Re-encrypted ${total} secret(s) under master key ${keyId(newKey)} (was ${keyId(oldKey)}). The new key is in ${file}; the old one in ${file}.previous — back up the new one, then delete the old.\n`);
+    } else process.stdout.write(`Re-encrypted ${total} secret(s) under master key ${keyId(newKey)} (was ${keyId(oldKey)}). Set CT_MASTER_KEY to the value of CT_NEW_MASTER_KEY on every instance, then start them.\n`);
     process.exit(0);
   }
   if (argv.includes('--support-bundle')) {
@@ -145,6 +180,10 @@ async function main(): Promise<void> {
 
   await ensurePlaygroundKey(db.write);
   await ensureGuardrailKey(db.write);
+  let logRef: import('fastify').FastifyBaseLogger | undefined;
+  // Credentials kept in a secret manager, by reference (Enterprise): read before anything that uses them loads.
+  secretRefs.configure({ db: db.write, secrets, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
+  await secretRefs.reload();
   const registry = new Registry(db.read, secrets);
   await registry.reload();
 
@@ -168,7 +207,6 @@ async function main(): Promise<void> {
   const policy = new PolicyService(db.read, () => config.mode === 'on');
   await policy.reload();
   const approvalsVersion = new Versioned();
-  let logRef: import('fastify').FastifyBaseLogger | undefined;
   const approvals = new ApprovalService(db.write, bus, approvalsVersion, () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger), {
     holdBudgetMs: config.holdBudgetMs,
     maxHeld: config.maxHeld,
@@ -208,6 +246,12 @@ async function main(): Promise<void> {
     log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger),
   });
   await alerts.reload();
+  // A referenced secret read for the first time, or changed in its manager (rotated): reload what holds credentials.
+  secretRefs.onChange(async () => {
+    await Promise.all([registry.reload(), mcp.reload(), http.reload(), a2a.reload(), exporter.reload(), guardrails.reload(), alerts.reload()]);
+  });
+  await secretRefs.settle();
+  secretRefs.start();
   bus.subscribe(alerts.push);
 
   const spend = new SpendTracker();
@@ -273,6 +317,7 @@ async function main(): Promise<void> {
     exporter,
     auditShipper,
     tokens,
+    instanceId: cluster.id,
     guardrails,
     license,
     audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
@@ -305,6 +350,9 @@ async function main(): Promise<void> {
   const app = await buildApp(ctx, { uiDir });
   const full = ctx as AppContext;
   logRef = app.log;
+  // Keys whose rotation schedule is due get a new secret, delivered to the secret manager (Enterprise).
+  const rotator = new KeyRotator(() => full, { instance: cluster.id, allowed: () => license.allows('secret_managers'), log: () => app.log });
+  rotator.start();
   // Renewals: daily, from the license service, unless CT_LICENSE_SERVER=off (air-gapped).
   license.startRefresh(config.licenseServer === 'off' ? undefined : (config.licenseServer ?? LICENSE_STORE ?? undefined), app.log);
   // The config file (--config / --model), then the admin key it or the environment sets.
@@ -425,7 +473,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);
@@ -447,6 +495,8 @@ async function main(): Promise<void> {
     modelHealth.stop();
     await exporter.stop();
     await auditShipper.stop();
+    secretRefs.stop();
+    rotator.stop();
     await tokens.stop();
     clearInterval(guardrailSaver);
     await guardrails.save();
@@ -476,6 +526,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[controltower] fatal:', err);
+  if (err instanceof CliError) console.error(`[controltower] ${err.message}`);
+  else console.error('[controltower] fatal:', err);
   process.exit(1);
 });

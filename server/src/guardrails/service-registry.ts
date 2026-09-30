@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import { checkService, type CheckContext, type GuardrailConfig, type GuardrailKind, type ServiceResult } from './services.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 /** The guardrail services configured, decrypted in memory; reloaded when one changes. */
 export interface GuardrailService {
@@ -27,7 +28,7 @@ export class GuardrailServices {
     const next = new Map<string, GuardrailService>();
     for (const r of rows) {
       try {
-        next.set(r.id, { id: r.id, name: r.name, kind: r.kind as GuardrailKind, config: JSON.parse(this.secrets.decrypt(r.config_enc, `guardrail_services.config_enc.${r.id}`)) as GuardrailConfig, enabled: r.enabled === 1 });
+        next.set(r.id, { id: r.id, name: r.name, kind: r.kind as GuardrailKind, config: secretRefs.apply(JSON.parse(this.secrets.decrypt(r.config_enc, `guardrail_services.config_enc.${r.id}`)) as GuardrailConfig, `guardrail ${r.name}`), enabled: r.enabled === 1 });
       } catch (err) {
         console.error(`[guardrails] cannot decrypt service ${r.id}:`, (err as Error).message);
       }

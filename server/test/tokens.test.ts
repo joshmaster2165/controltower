@@ -8,7 +8,7 @@ import type { KeyRecord } from '../src/registry.js';
 
 const ISS = 'https://idp.example.com';
 const AUD = 'controltower';
-const key = (id: string): KeyRecord => ({ id, name: id, hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly: false, regions: [], tokensOnly: false });
+const key = (id: string): KeyRecord => ({ id, name: id, hash: '', prefix: '', last4: '', agentId: id, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'], limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly: false, regions: [], tokensOnly: false, prevHash: undefined, prevExpiresAt: undefined, rotation: { everyDays: undefined, overlapS: undefined, deliverTo: undefined, lastRotatedAt: undefined, error: undefined } });
 const keys = new Map([['k_invoice', key('k_invoice')], ['k_ci', key('k_ci')], ['k_ops', key('k_ops')]]);
 
 let signer: CryptoKey;

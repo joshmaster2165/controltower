@@ -81,7 +81,9 @@ export async function guardrailServiceRoutes(app: FastifyInstance, ctx: AppConte
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 120);
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (b.config) {
-      const merged = { ...cur.config, ...Object.fromEntries(Object.entries(b.config).filter(([k, v]) => !((GUARDRAIL_SECRET_FIELDS as readonly string[]).includes(k) && (v === '' || v === undefined)))) } as GuardrailConfig;
+      // From what is stored: secret references stay references.
+      const stored = await ctx.db.read.selectFrom('guardrail_services').select('config_enc').where('id', '=', id).executeTakeFirstOrThrow();
+      const merged = { ...(JSON.parse(ctx.secrets.decrypt(stored.config_enc, `guardrail_services.config_enc.${id}`)) as GuardrailConfig), ...Object.fromEntries(Object.entries(b.config).filter(([k, v]) => !((GUARDRAIL_SECRET_FIELDS as readonly string[]).includes(k) && (v === '' || v === undefined)))) } as GuardrailConfig;
       const problem = configProblem(cur.kind, merged);
       if (problem) return bad(reply, problem);
       patch.config_enc = svcs.encryptConfig(id, merged);

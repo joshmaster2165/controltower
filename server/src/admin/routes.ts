@@ -10,6 +10,7 @@ import { DemoConflict, startDemo, stopDemo } from '../demo/control.js';
 import { loadViews } from './views.js';
 import { recentMethods } from './a2a.js';
 import { BUILT_IN_KEYS, lastUseByKey } from './key-lifecycle.js';
+import { nextRotation } from '../ee/rotation.js';
 import { asInt, jsonAt } from '../db/sqlfn.js';
 
 /** The start of the hour a time falls in: the hourly traffic summary's buckets. */
@@ -282,6 +283,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           delegated_only: k.delegatedOnly,
           regions: k.regions,
           tokens_only: k.tokensOnly,
+          ...(k.rotation.everyDays || k.rotation.deliverTo || k.rotation.lastRotatedAt || k.rotation.error
+            ? { rotation: { every_days: k.rotation.everyDays ?? null, overlap_s: k.rotation.overlapS ?? null, deliver_to: k.rotation.deliverTo ?? null, last_rotated_at: k.rotation.lastRotatedAt ?? null, next_at: nextRotation(k) ?? null, error: k.rotation.error ?? null } }
+            : {}),
+          ...(k.prevExpiresAt && k.prevExpiresAt > Date.now() ? { old_secret_valid_until: k.prevExpiresAt } : {}),
           ...(ctx.tokens ? { token_issuers: ctx.tokens.issuersFor(k.id) } : {}),
           created_at: k.createdAt,
           last_used_at: used.get(k.id) ?? k.lastUsedAt ?? null,

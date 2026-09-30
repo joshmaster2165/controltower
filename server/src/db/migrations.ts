@@ -878,3 +878,38 @@ ALTER TABLE api_keys ADD COLUMN tokens_only INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE flights ADD COLUMN principal TEXT;
 `,
 });
+
+migrations.push({
+  version: 30,
+  name: 'secret_managers',
+  sqlite: `
+CREATE TABLE secret_managers (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  config_enc  TEXT NOT NULL,
+  target_hint TEXT NOT NULL,
+  refresh_s   INTEGER NOT NULL DEFAULT 300,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX secret_managers_name ON secret_managers (name);
+`,
+});
+
+migrations.push({
+  version: 31,
+  name: 'key_rotation',
+  sqlite: `
+ALTER TABLE api_keys ADD COLUMN prev_key_hash TEXT;
+ALTER TABLE api_keys ADD COLUMN prev_expires_at INTEGER;
+ALTER TABLE api_keys ADD COLUMN rotate_every_days INTEGER;
+ALTER TABLE api_keys ADD COLUMN rotate_overlap_s INTEGER;
+ALTER TABLE api_keys ADD COLUMN deliver_to TEXT;
+ALTER TABLE api_keys ADD COLUMN last_rotated_at INTEGER;
+ALTER TABLE api_keys ADD COLUMN rotation_error TEXT;
+ALTER TABLE api_keys ADD COLUMN rotation_claim TEXT;
+ALTER TABLE api_keys ADD COLUMN rotation_claim_until INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX api_keys_prev_hash ON api_keys (prev_key_hash);
+`,
+});

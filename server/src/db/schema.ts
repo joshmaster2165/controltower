@@ -124,6 +124,18 @@ export interface ApiKeysTable {
   delegated_only: Generated<number>;
   /** Only tokens from a trusted issuer are accepted, not the secret (while the license includes it). */
   tokens_only: Generated<number>;
+  /** The secret before the last rotation, still accepted until prev_expires_at (the overlap). */
+  prev_key_hash: string | null;
+  prev_expires_at: number | null;
+  /** Scheduled rotation (Enterprise): every N days, the old secret kept for the overlap, the new one written to deliver_to. */
+  rotate_every_days: number | null;
+  rotate_overlap_s: number | null;
+  deliver_to: string | null;
+  last_rotated_at: number | null;
+  rotation_error: string | null;
+  /** The instance rotating it now, until when (so two instances never rotate the same key at once). */
+  rotation_claim: string | null;
+  rotation_claim_until: Generated<number>;
   created_at: number;
   last_used_at: number | null;
 }
@@ -536,6 +548,7 @@ export interface Database {
   audit_events: AuditEventsTable;
   audit_exports: AuditExportsTable;
   token_issuers: TokenIssuersTable;
+  secret_managers: SecretManagersTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -723,6 +736,21 @@ export interface TokenIssuersTable {
   last_refusal: string | null;
   last_refusal_at: number | null;
   last_used_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Secret managers credentials are read from, by `secret://<name>/<path>#<field>` references (Enterprise). */
+export interface SecretManagersTable {
+  id: string;
+  /** What references call it: secret://<name>/…. */
+  name: string;
+  kind: string;
+  /** Encrypted JSON settings, credentials included (AAD: secret_managers.config_enc.<id>). */
+  config_enc: string;
+  target_hint: string;
+  /** How often values are read again, so a rotation in the manager reaches Control Tower. */
+  refresh_s: number;
   created_at: number;
   updated_at: number;
 }

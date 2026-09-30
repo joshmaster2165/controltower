@@ -30,6 +30,14 @@ describe('audit log', () => {
     expect(await log.verify()).toMatchObject({ ok: true, events: 30, first_seq: 11 });
   });
 
+  it('never stores a private key, whatever the field is called', () => {
+    const pem = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----\n';
+    const r = JSON.stringify(redact({ kind: 'gcp', config: { project: 'acme-prod', service_account_json: JSON.stringify({ client_email: 'ct@acme.iam.gserviceaccount.com', private_key: pem }) }, notes: `pasted by mistake: ${pem}`, truncated: '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA' }));
+    expect(r).not.toContain('MIIE');
+    expect(r).toContain('acme-prod');
+    expect(r).toContain('[private key]');
+  });
+
   it('never stores secrets from a request', () => {
     const r = JSON.stringify(
       redact({

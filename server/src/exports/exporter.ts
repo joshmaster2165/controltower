@@ -4,6 +4,7 @@ import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import { Assembler, type FlightRecord } from './record.js';
 import { deliver, type ExportConfig, type ExportKind } from './destinations.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 /**
  * Sends every flight, as it completes, to the destinations configured: batched (up to 500 records, every two
@@ -74,7 +75,7 @@ export class Exporter {
     for (const r of rows) {
       let config: ExportConfig;
       try {
-        config = JSON.parse(this.deps.secrets.decrypt(r.config_enc, `export_destinations.config_enc.${r.id}`)) as ExportConfig;
+        config = secretRefs.apply(JSON.parse(this.deps.secrets.decrypt(r.config_enc, `export_destinations.config_enc.${r.id}`)) as ExportConfig, `export ${r.name}`);
       } catch (err) {
         this.deps.log().warn({ destination: r.id, err: (err as Error).message }, 'export destination config could not be decrypted');
         continue;

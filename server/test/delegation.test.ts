@@ -5,7 +5,7 @@ import type { KeyRecord } from '../src/registry.js';
 
 const key = (agentId: string, delegatedOnly = false): KeyRecord => ({
   id: `key_${agentId}`, name: agentId, hash: '', prefix: '', last4: '', agentId, team: undefined, project: undefined, tags: [], allowedModels: ['*'], allowedMcp: ['*'],
-  limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly, regions: [], tokensOnly: false,
+  limits: {}, enabled: true, expiresAt: undefined, demo: false, createdAt: 0, lastUsedAt: undefined, delegatedOnly, regions: [], tokensOnly: false, prevHash: undefined, prevExpiresAt: undefined, rotation: { everyDays: undefined, overlapS: undefined, deliverTo: undefined, lastRotatedAt: undefined, error: undefined },
 });
 
 describe('delegation tokens', () => {

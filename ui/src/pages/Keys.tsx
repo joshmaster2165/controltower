@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError, type KeyRow } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
@@ -6,6 +6,7 @@ import { Icon } from '../components/Icon';
 import { ConnectAgent } from '../components/ConnectAgent';
 import { ago, globList } from '../format';
 import { agentColor, hex } from '../airspace/colors';
+import { KeyRotationPanel, rotationSummary } from '../ee/KeyRotation';
 
 const DAY = 86_400_000;
 type KeyFilter = 'all' | 'today' | 'idle' | 'never' | 'expired';
@@ -53,6 +54,7 @@ export function KeysPage() {
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ id: string; name: string; key: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
@@ -324,7 +326,8 @@ export function KeysPage() {
           </thead>
           <tbody>
             {shown.map((k) => (
-              <tr key={k.id}>
+              <Fragment key={k.id}>
+              <tr>
                 <td>
                   <div className="agent-cell">
                     <i className="agent-dot" style={{ background: hex(agentColor(k.agent_id ?? k.id)) }} />
@@ -351,6 +354,15 @@ export function KeysPage() {
                       </button>
                     </span>
                   ) : null}
+                  {!k.built_in && (
+                    <span className="sub key-tokens">
+                      {rotationSummary(k) ? `${rotationSummary(k)} · ` : ''}
+                      <button className="link-btn" onClick={() => setRotating(rotating === k.id ? null : k.id)}>
+                        rotation…
+                      </button>
+                    </span>
+                  )}
+                  {k.rotation?.error && <span className="sub" style={{ color: 'var(--danger)', whiteSpace: 'normal' }}>rotation failed: {k.rotation.error.slice(0, 120)}</span>}
                 </td>
                 <td>
                   {globList(k.allowed_models)}
@@ -378,6 +390,14 @@ export function KeysPage() {
                   </div>
                 </td>
               </tr>
+              {rotating === k.id && (
+                <tr className="rotation-tr">
+                  <td colSpan={7}>
+                    <KeyRotationPanel k={k} onChange={() => void load()} onClose={() => setRotating(null)} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {keys.length > 0 && shown.length === 0 && (
               <tr>

@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import { McpUpstream, type McpAuth, type McpTool } from './upstream.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 export interface McpServerRecord {
   id: string;
@@ -81,7 +82,7 @@ export class McpRegistry {
       let auth: McpAuth = { type: 'none' };
       if (r.auth_enc) {
         try {
-          auth = JSON.parse(this.secrets.decrypt(r.auth_enc, `mcp_servers.auth_enc.${r.id}`)) as McpAuth;
+          auth = secretRefs.apply(JSON.parse(this.secrets.decrypt(r.auth_enc, `mcp_servers.auth_enc.${r.id}`)) as McpAuth, `MCP server ${r.name}`);
         } catch (err) {
           console.error(`[mcp] cannot decrypt auth for ${r.slug}:`, (err as Error).message);
         }

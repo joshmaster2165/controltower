@@ -191,6 +191,11 @@ export function ProvidersPage() {
               <input className="input mono" type={f.secret ? 'password' : 'text'} placeholder={f.placeholder} value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} required={f.required} autoComplete="off" />
             </div>
           ))}
+          {adding.fields.some((f) => f.secret) && (
+            <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 8 }}>
+              A secret can also be a reference to your secret manager, e.g. <code>secret://vault/ai/openai#api_key</code> (Enterprise: see Secret managers).
+            </div>
+          )}
           {adding.docs && (
             <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 12 }}>
               Get a key: <a href={adding.docs} target="_blank" rel="noreferrer">{adding.docs}</a>

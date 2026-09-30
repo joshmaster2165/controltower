@@ -105,8 +105,9 @@ export async function exportDestinationRoutes(app: FastifyInstance, ctx: AppCont
       await shipper.begin(id, b.audit_from === 'start' ? 'start' : 'now');
     }
     if (b.config) {
-      // Secrets left out keep their stored values.
-      const merged = { ...cur.config, ...Object.fromEntries(Object.entries(b.config).filter(([k, v]) => !((SECRET_FIELDS as readonly string[]).includes(k) && (v === '' || v === undefined)))) } as ExportConfig;
+      // Secrets left out keep their stored values (secret references stay references).
+      const stored = await ctx.db.read.selectFrom('export_destinations').select('config_enc').where('id', '=', id).executeTakeFirstOrThrow();
+      const merged = { ...(JSON.parse(ctx.secrets.decrypt(stored.config_enc, `export_destinations.config_enc.${id}`)) as ExportConfig), ...Object.fromEntries(Object.entries(b.config).filter(([k, v]) => !((SECRET_FIELDS as readonly string[]).includes(k) && (v === '' || v === undefined)))) } as ExportConfig;
       const problem = configProblem(row.kind as ExportKind, merged);
       if (problem) return bad(reply, problem);
       patch.config_enc = exporter.encryptConfig(id, merged);

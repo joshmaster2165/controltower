@@ -5,6 +5,7 @@ import type { SecretBox } from '../crypto/secrets.js';
 import type { HttpApiAuth } from '../http/route.js';
 import { cardCandidates, jsonRpcEndpoint } from './card.js';
 import { readCapped } from '../util/body.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 const MAX_CARD = 1024 * 1024;
 
@@ -67,7 +68,7 @@ export class A2aRegistry {
       let auth: HttpApiAuth = { type: 'none' };
       if (r.auth_enc) {
         try {
-          auth = JSON.parse(this.secrets.decrypt(r.auth_enc, `a2a_agents.auth_enc.${r.id}`)) as HttpApiAuth;
+          auth = secretRefs.apply(JSON.parse(this.secrets.decrypt(r.auth_enc, `a2a_agents.auth_enc.${r.id}`)) as HttpApiAuth, `A2A agent ${r.name}`);
         } catch {
           auth = { type: 'none' };
         }

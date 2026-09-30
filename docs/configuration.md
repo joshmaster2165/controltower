@@ -68,7 +68,7 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 | `CT_INSTANCE_ID` | generated | This instance's name when several share a database |
 | `CT_INSTANCE_TIMEOUT_MS` | `90000` | How long an instance may go without saying it is alive before the others treat it as stopped and close out its unfinished calls |
 | `CT_DB_POOL` | `20` | Postgres connections per instance |
-| `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting stored credentials. If unset, generated into `CT_DATA_DIR/master.key` — back it up |
+| `CT_MASTER_KEY` | generated | Base64 32-byte key encrypting stored credentials. If unset, generated into `CT_DATA_DIR/master.key` — back it up. Replace it with `--rotate-master-key` (see [Key rotation](key-rotation.md#the-master-key)) |
 | `CT_ADMIN_KEY` | — | [Admin key](#admin-key) |
 | `UI_USERNAME`, `UI_PASSWORD` | `admin`, the admin key | Console sign-in created from the admin key |
 | `CT_SETUP_TOKEN` | derived from the master key | The [setup code](#first-run-setup) the first-run page asks for |

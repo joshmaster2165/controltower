@@ -96,8 +96,9 @@ export async function providerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     if (b.base_url !== undefined) patch.base_url = b.base_url || null;
     if (b.extra) patch.extra = JSON.stringify({ ...p.extra, ...b.extra });
     if (b.credentials) {
-      // Merge: empty string keeps the existing secret.
-      const merged = { ...p.creds };
+      // Merge: empty string keeps the existing secret. From what is stored (secret references as references), not the values in use.
+      const row = await ctx.db.read.selectFrom('providers').select('creds_enc').where('id', '=', id).executeTakeFirst();
+      const merged = row?.creds_enc ? (JSON.parse(ctx.secrets.decrypt(row.creds_enc, `providers.creds_enc.${id}`)) as Record<string, string>) : {};
       for (const [k, v] of Object.entries(b.credentials)) if (v !== '') merged[k] = v;
       patch.creds_enc = Object.keys(merged).length ? ctx.secrets.encrypt(JSON.stringify(merged), `providers.creds_enc.${id}`) : null;
     }

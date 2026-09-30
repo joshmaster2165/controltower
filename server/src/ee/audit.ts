@@ -41,12 +41,14 @@ const PG_LOCK = 7_240_001;
 const MAX_DETAIL = 8 * 1024;
 
 /** Field names whose values are never recorded. */
-const SECRET_FIELD = /(pass(word|wd)?|secret|token|api[_-]?key|credential|private|auth|cookie|webhook|signature|session|^current$|^key$)/i;
+const SECRET_FIELD = /(pass(word|wd)?|secret|token|api[_-]?key|credential|private|auth|cookie|webhook|signature|session|service[_-]?account|^current$|^key$)/i;
+/** A PEM private key anywhere in a value (a service account key pasted as JSON, say). */
+const PEM_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 
 /** A request body as it may be recorded: secret fields replaced, secrets inside strings scrubbed, bounded. */
 export function redact(v: unknown, depth = 0): unknown {
   if (depth > 6) return '…';
-  if (typeof v === 'string') return scrub(v.replace(/(\w+:\/\/)[^\s/@]+@/g, '$1***@')).slice(0, 500);
+  if (typeof v === 'string') return scrub(v.replace(PEM_KEY, '[private key]').replace(/(\w+:\/\/)[^\s/@]+@/g, '$1***@')).slice(0, 500);
   if (Array.isArray(v)) return v.slice(0, 50).map((x) => redact(x, depth + 1));
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {};

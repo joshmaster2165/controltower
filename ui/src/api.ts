@@ -276,6 +276,10 @@ export interface KeyRow {
   tokens_only?: boolean;
   /** Token issuers with a rule naming this key (Enterprise). */
   token_issuers?: string[];
+  /** Rotation (Enterprise): its schedule, last rotation and any failure. */
+  rotation?: { every_days: number | null; overlap_s: number | null; deliver_to: string | null; last_rotated_at: number | null; next_at: number | null; error: string | null };
+  /** Until when the secret before the last rotation still works. */
+  old_secret_valid_until?: number;
 }
 
 export interface Zone {

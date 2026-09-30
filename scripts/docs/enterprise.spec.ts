@@ -201,6 +201,45 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await expect(page.getByText('tokens only from EKS prod cluster')).toBeVisible();
     await shot(page, 'keys-tokens', { clip: page.locator('table.table').first(), pad: 8 });
 
+    // Secret managers: a stand-in Vault holding the OpenAI key; a provider reads it by reference; a key rotates into it.
+    const kv = new Map<string, Record<string, unknown>>([['ai/openai', { api_key: 'sk-proj-example-not-real' }]]);
+    const vaultSrv = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const json = (st: number, o: unknown) => (res.writeHead(st, { 'content-type': 'application/json' }), res.end(JSON.stringify(o)));
+        if (req.url === '/v1/auth/token/lookup-self') return json(200, { data: { display_name: 'token-controltower', policies: ['controltower'] } });
+        const m = /^\/v1\/secret\/data\/(.+)$/.exec(req.url ?? '');
+        if (!m) return json(404, { errors: [] });
+        if (req.method === 'POST') return (kv.set(m[1]!, (JSON.parse(Buffer.concat(chunks).toString()) as { data: Record<string, unknown> }).data), json(200, {}));
+        return kv.has(m[1]!) ? json(200, { data: { data: kv.get(m[1]!) } }) : json(404, { errors: [] });
+      });
+    });
+    await new Promise<void>((r) => vaultSrv.listen(8200, '127.0.0.1', () => r()));
+    await api('POST', '/admin/api/secret-managers', { name: 'vault', kind: 'vault', config: { address: 'http://127.0.0.1:8200', token: 'hvs.example-not-real' }, refresh_s: 300 });
+    const oai = await api('POST', '/admin/api/providers', { catalog_id: 'openai', name: 'OpenAI', credentials: { api_key: 'secret://vault/ai/openai#api_key' } });
+    void oai;
+    await api('PUT', `/admin/api/keys/${invoice.id}/rotation`, { every_days: 30, overlap_s: 3600, deliver_to: 'secret://vault/agents/invoice-bot#api_key' });
+    await api('POST', `/admin/api/keys/${invoice.id}/rotate`, {});
+    await api('POST', '/admin/api/secret-managers/refresh');
+    await page.goto(`${ct.url}/#/secret-managers`);
+    await expect(page.getByText('provider OpenAI')).toBeVisible();
+    await shot(page, 'secret-managers');
+    await page.getByRole('button', { name: '+ HashiCorp Vault' }).click();
+    const smForm = page.locator('form.card');
+    await smForm.getByLabel('Name (references use it)').fill('vault-prod');
+    await smForm.getByLabel('Address').fill('https://vault.acme.internal:8200');
+    await smForm.getByLabel('KV v2 mount').fill('ai');
+    await smForm.getByLabel('Sign in with').selectOption('kubernetes');
+    await smForm.getByLabel('Vault role').fill('controltower');
+    await shot(page, 'secret-managers-form', { clip: smForm, pad: 8 });
+    await smForm.getByRole('button', { name: 'Cancel' }).click();
+    await nav(page, 'Keys');
+    await page.locator('tr', { hasText: 'invoice-bot' }).getByRole('button', { name: 'rotation…' }).click();
+    await expect(page.locator('.rotation-panel')).toBeVisible();
+    await shot(page, 'key-rotation', { clip: page.locator('table.table').first(), pad: 8 });
+    vaultSrv.close();
+
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);
     await page.getByRole('button', { name: '24 hours' }).click();

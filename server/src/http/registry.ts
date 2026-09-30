@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
 import type { SecretBox } from '../crypto/secrets.js';
 import { upstreamHeaders, type HttpApiAuth } from './route.js';
+import { secretRefs } from '../ee/secret-managers/index.js';
 
 export interface HttpApiRecord {
   id: string;
@@ -46,7 +47,7 @@ export class HttpApiRegistry {
       let auth: HttpApiAuth = { type: 'none' };
       if (r.auth_enc) {
         try {
-          auth = JSON.parse(this.secrets.decrypt(r.auth_enc, `http_apis.auth_enc.${r.id}`)) as HttpApiAuth;
+          auth = secretRefs.apply(JSON.parse(this.secrets.decrypt(r.auth_enc, `http_apis.auth_enc.${r.id}`)) as HttpApiAuth, `HTTP API ${r.name}`);
         } catch (err) {
           console.error(`[http] cannot decrypt auth for ${r.slug}:`, (err as Error).message);
         }

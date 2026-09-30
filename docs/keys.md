@@ -121,7 +121,7 @@ With [Enterprise](enterprise.md), an agent can present a token from your identit
 
 - **Disable** stops a key immediately (`401 key_disabled`) and keeps its history; **Enable** restores it.
 - **Delete** removes it; agents using it get `401` at once.
-- To rotate, create a new key for the agent, switch the agent over, then delete the old one — or `POST /key/regenerate` to issue a new secret for the same key record.
+- To rotate, create a new key for the agent, switch the agent over, then delete the old one — or `POST /key/regenerate` to issue a new secret for the same key record. With [Enterprise](enterprise.md), **rotation…** gives a key a new secret while the old one keeps working for an overlap, and can rotate it on a schedule into your secret manager: see [Key rotation](key-rotation.md).
 
 A blocked or expired key is refused everywhere: model calls, MCP, HTTP APIs, model listing and token counting.
 

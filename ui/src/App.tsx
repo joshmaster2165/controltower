@@ -19,6 +19,7 @@ import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
 import { AuditPage } from './ee/Audit';
 import { AgentIdentityPage } from './ee/AgentIdentity';
+import { SecretManagersPage } from './ee/SecretManagers';
 import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -53,6 +54,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
+      { id: 'secret-managers', label: 'Secret managers', icon: 'key', hint: 'Credentials kept in Vault, AWS, Google or Azure' },
       { id: 'guardrails', label: 'Guardrails', icon: 'shield', hint: 'Presidio, Lakera, Bedrock, Azure and your own checks, for inspect gates' },
       { id: 'users', label: 'People', icon: 'agents', hint: 'Who signs in, and what each may do' },
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
@@ -139,7 +141,7 @@ export function App() {
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-label">{g.group}</div>
-              {g.items.filter((n) => !['users', 'audit', 'agent-identity'].includes(n.id) || role === 'admin').map((n) => {
+              {g.items.filter((n) => !['users', 'audit', 'agent-identity', 'secret-managers'].includes(n.id) || role === 'admin').map((n) => {
                 const count = n.id === 'tower' ? pending : n.id === 'alerts' && route !== 'alerts' ? unreadAlerts : 0;
                 const inView = n.id === 'airspace' && route === 'airspace' && !!routeParam && routeParam !== 'new';
                 return (
@@ -262,6 +264,7 @@ export function App() {
         {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'audit' && role === 'admin' && <AuditPage />}
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
+        {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
         {route === 'license' && <LicensePage />}
         {route === 'alerts' && <AlertsPage />}
         {route === 'report' && <ReportPage />}

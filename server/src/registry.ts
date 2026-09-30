@@ -4,6 +4,7 @@ import type { Database } from './db/schema.js';
 import type { SecretBox } from './crypto/secrets.js';
 import { hashApiKey } from './crypto/apikeys.js';
 import { looksLikeJwt } from './ee/tokens.js';
+import { secretRefs } from './ee/secret-managers/index.js';
 
 /**
  * Everything the hot path needs lives in memory and is reloaded on admin
@@ -40,6 +41,11 @@ export interface KeyRecord {
   regions: string[];
   /** Only tokens from a trusted issuer are accepted, not the secret (while JWT authentication is licensed). */
   tokensOnly: boolean;
+  /** The secret before the last rotation, accepted until prevExpiresAt. */
+  prevHash: string | undefined;
+  prevExpiresAt: number | undefined;
+  /** Scheduled rotation (Enterprise). */
+  rotation: { everyDays: number | undefined; overlapS: number | undefined; deliverTo: string | undefined; lastRotatedAt: number | undefined; error: string | undefined };
 }
 
 export interface CustomerRecord {
@@ -127,6 +133,8 @@ function escapeRe(s: string): string {
 
 export class Registry {
   keysByHash = new Map<string, KeyRecord>();
+  /** Keys by the secret they had before their last rotation, during the overlap. */
+  prevByHash = new Map<string, KeyRecord>();
   keysById = new Map<string, KeyRecord>();
   agentTeams = new Map<string, Set<string>>();
   providers = new Map<string, ProviderRecord>();
@@ -162,6 +170,7 @@ export class Registry {
 
     const keysByHash = new Map<string, KeyRecord>();
     const keysById = new Map<string, KeyRecord>();
+    const prevByHash = new Map<string, KeyRecord>();
     for (const k of keys) {
       const rec: KeyRecord = {
         id: k.id,
@@ -184,8 +193,13 @@ export class Registry {
         delegatedOnly: k.delegated_only === 1,
         regions: parseJson<string[]>(k.regions, []),
         tokensOnly: k.tokens_only === 1,
+        prevHash: k.prev_key_hash ?? undefined,
+        prevExpiresAt: k.prev_expires_at ?? undefined,
+        rotation: { everyDays: k.rotate_every_days ?? undefined, overlapS: k.rotate_overlap_s ?? undefined, deliverTo: k.deliver_to ?? undefined, lastRotatedAt: k.last_rotated_at ?? undefined, error: k.rotation_error ?? undefined },
       };
       keysByHash.set(rec.hash, rec);
+      // The secret before a rotation keeps working during the overlap.
+      if (rec.prevHash && (rec.prevExpiresAt ?? 0) > Date.now()) prevByHash.set(rec.prevHash, rec);
       keysById.set(rec.id, rec);
     }
 
@@ -199,6 +213,7 @@ export class Registry {
             string,
             string
           >;
+          creds = secretRefs.apply(creds, `provider ${p.name}`);
         } catch (err) {
           console.error(`[registry] cannot decrypt credentials for provider ${p.slug}:`, (err as Error).message);
         }
@@ -267,6 +282,7 @@ export class Registry {
     }
 
     this.keysByHash = keysByHash;
+    this.prevByHash = prevByHash;
     this.keysById = keysById;
     // An agent's teams (by agent id, or key id for a key without one), for "on behalf of team X" gates.
     const agentTeams = new Map<string, Set<string>>();
@@ -302,7 +318,12 @@ export class Registry {
     // A token from a trusted issuer (Enterprise), verified when the request arrived.
     if (looksLikeJwt(plaintext)) return this.tokens?.keyFor(plaintext);
     if (plaintext.length < 16 || plaintext.length > 512) return undefined;
-    const key = this.keysByHash.get(hashApiKey(plaintext));
+    const hash = hashApiKey(plaintext);
+    let key = this.keysByHash.get(hash);
+    if (!key) {
+      const prev = this.prevByHash.get(hash);
+      if (prev && (prev.prevExpiresAt ?? 0) > Date.now() && prev.prevHash === hash) key = prev;
+    }
     // A key that takes only tokens refuses its secret, while tokens can be used (so nobody is locked out after a license ends).
     if (key?.tokensOnly && this.tokens?.enforced()) return undefined;
     return key;
@@ -319,7 +340,7 @@ export class Registry {
   async findStored(plaintext: string): Promise<KeyRecord | undefined> {
     if (plaintext.length < 16 || plaintext.length > 512) return undefined;
     const hash = hashApiKey(plaintext);
-    const known = this.keysByHash.get(hash);
+    const known = this.keysByHash.get(hash) ?? this.prevByHash.get(hash);
     if (known) return known;
     if ((this.missing.get(hash) ?? 0) > Date.now()) return undefined;
     const row = await this.db.selectFrom('api_keys').select('id').where('key_hash', '=', hash).executeTakeFirst();

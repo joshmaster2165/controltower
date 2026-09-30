@@ -3,8 +3,8 @@ name: controltower
 description: Control Tower — a self-hosted AI gateway with a live map of agent traffic, gates and human approvals.
 type: application
 # The chart is released with the app: both carry the same version.
-version: 0.2.2
-appVersion: "0.2.2"
+version: 0.2.3
+appVersion: "0.2.3"
 home: https://github.com/joshmaster2165/controltower
 sources:
   - https://github.com/joshmaster2165/controltower

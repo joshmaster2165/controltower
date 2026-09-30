@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.3 — 30 September 2026
 
 - **A clock set back is noticed (Enterprise licensing).** Each server remembers the latest time it has seen; a clock more than two days behind it is shown to admins in the console, recorded once in the audit log and reported with the next online renewal. It's never acted on: licenses keep working. An admin who knows the clock is right says so from the warning. See [Enterprise](enterprise.md).
 - **Trial keys are emailed.** A trial asks for a work email and sends a link to the key there (the link works for 24 hours; opening it again shows the same key), so a trial needs a real mailbox. At most two trial emails a day go to one address. The license service reads the caller's address from Railway's `X-Real-IP`, not from `X-Forwarded-For`, which a client can write.

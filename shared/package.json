@@ -1,6 +1,6 @@
 {
   "name": "@controltower/shared",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Schemas and types shared by the Control Tower server and UI.",

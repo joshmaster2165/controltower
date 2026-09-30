@@ -7,7 +7,7 @@ The Helm chart runs Control Tower the way the image is meant to run: as an unpri
 The default: one pod, with its data on a persistent volume.
 
 ```bash
-helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.1.8
+helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.2.0
 ```
 
 Then open the console. With no ingress, port-forward:
@@ -52,7 +52,7 @@ kubectl create secret generic controltower \
   --from-literal=CT_MASTER_KEY="$(openssl rand -base64 32)" \
   --from-literal=CT_ADMIN_KEY="sk-$(openssl rand -hex 32)" \
   --from-literal=CT_DATABASE_URL='postgres://controltower:…@postgres:5432/controltower'
-helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.1.8 -f values.yaml
+helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.2.0 -f values.yaml
 ```
 
 With Postgres, pods roll one at a time and a PodDisruptionBudget keeps one serving during node drains. The chart refuses settings that would lose data or never work:
@@ -68,7 +68,7 @@ With Postgres, pods roll one at a time and a PodDisruptionBudget keeps one servi
 
 | Value | Default | |
 |---|---|---|
-| `image.tag` | the chart's version | Pin a digest in production: `0.1.8@sha256:…` |
+| `image.tag` | the chart's version | Pin a digest in production: `0.2.0@sha256:…` |
 | `publicUrl` | the ingress host | Sets `CT_PUBLIC_URL`: links in alerts and approval messages, and `Secure` cookies over https |
 | `secrets.masterKey`, `adminKey`, `setupToken`, `metricsToken` | empty | `CT_MASTER_KEY`, `CT_ADMIN_KEY`, `CT_SETUP_TOKEN`, `CT_METRICS_TOKEN`. The chart keeps them in a Secret |
 | `secrets.existingSecret` | empty | Your own Secret with any of those keys, plus `CT_DATABASE_URL` and `CT_REDIS_URL` |

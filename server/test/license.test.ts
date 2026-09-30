@@ -1,4 +1,8 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { GRACE_MS, WARN_MS, parseLicense, signLicense, stateOf, type LicensePayload } from '../src/ee/license.js';
 
@@ -35,13 +39,31 @@ describe('license keys', () => {
     delete process.env.CT_LICENSE_PUBLIC_KEY;
   });
 
-  it('the published build trusts only the licensor key', () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+  it('a trial ends on its end date: no grace period, since nothing renews it', () => {
     process.env.CT_LICENSE_PUBLIC_KEY = keys.t;
-    expect(stateOf(signLicense({ ...base, kid: 'test' }, privateKey), 'env').status).toBe('invalid');
-    process.env.NODE_ENV = prev;
+    const trial = signLicense({ ...base, kid: 'test', plan: 'trial' }, privateKey);
+    expect(stateOf(trial, 'env', base.expires_at - 1).status).toBe('expiring');
+    expect(stateOf(trial, 'env', base.expires_at + 1).status).toBe('expired');
     delete process.env.CT_LICENSE_PUBLIC_KEY;
+  });
+
+  it('a release build trusts only the licensor key, whatever the environment says; a test build also trusts the test key', async () => {
+    const forged = signLicense({ ...base, kid: 'test' }, privateKey);
+    const bundle = async (testKeys: boolean) => {
+      const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ct-license-build-')), 'license.mjs');
+      await build({ entryPoints: [path.resolve(__dirname, '../src/ee/license.ts')], bundle: true, platform: 'node', format: 'esm', outfile: out, logLevel: 'silent', define: { __CT_TEST_LICENSE_KEYS__: String(testKeys) } });
+      return (await import(out)) as typeof import('../src/ee/license.js');
+    };
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    process.env.CT_LICENSE_PUBLIC_KEY = keys.t;
+    try {
+      expect((await bundle(false)).stateOf(forged, 'env').status).toBe('invalid');
+      expect((await bundle(true)).stateOf(forged, 'env').status).toBe('valid');
+    } finally {
+      process.env.NODE_ENV = prev;
+      delete process.env.CT_LICENSE_PUBLIC_KEY;
+    }
   });
 });
 

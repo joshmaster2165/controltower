@@ -122,8 +122,12 @@ export function LicenseBanner() {
   }
   if (l.status !== 'expiring' && l.status !== 'grace' && l.status !== 'expired') return null;
   const end = l.license.expires_at;
-  const text =
-    l.status === 'expiring'
+  const trial = l.license.plan === 'trial';
+  const text = trial
+    ? l.status === 'expiring'
+      ? `Your Control Tower Enterprise trial ends on ${date(end)} (${days(end)} days). Buy a license to keep single sign-on, the audit log and the other Enterprise features.`
+      : `Your Enterprise trial ended on ${date(end)}. Enterprise features are off; everything else, including gateway traffic, is unaffected.`
+    : l.status === 'expiring'
       ? `Your Control Tower Enterprise license ends on ${date(end)} (${days(end)} days). Renew to keep single sign-on, the audit log and the other Enterprise features.`
       : l.status === 'grace'
         ? `Your Enterprise license ended on ${date(end)}. Enterprise features stay on for ${days(end + 14 * 86_400_000)} more days while it renews.`

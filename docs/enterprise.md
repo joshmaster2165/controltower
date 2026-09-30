@@ -54,7 +54,7 @@ A license includes a number of requests a year, and **License** shows how many h
 | When | What happens |
 |---|---|
 | 30 days before the end date | A banner in the console says when it ends |
-| After the end date | A **14-day grace period**: everything keeps working, with a banner, while it renews |
+| After the end date | A **14-day grace period**: everything keeps working, with a banner, while it renews. A trial has none: it ends on its end date |
 | After the grace period | Enterprise features stop. Single sign-on is no longer offered, and **passwords work again** even if you'd turned them off, so nobody is locked out. The audit log stops recording, and you can read it again once a license is added. Gateway traffic, gates, approvals and everything open source carry on as before |
 
 Adding a renewed key brings everything back, with the audit log's history and single sign-on settings as they were.
@@ -65,9 +65,11 @@ Without a license, each Enterprise feature says so where it would be:
 
 ## Buying and trying
 
-- **Free trial:** 30 days, 5 seats, no card.
+- **Free trial:** 30 days, 5 seats, no card. It ends on its own on its end date, on a running server as on one restarted, with no grace period; nothing is charged.
 - **Enterprise:** a yearly subscription per deployment. The base plan includes 5 single sign-on seats and 100 million requests a year. Add seats as you grow: seats 6–25 and seats 26–100 each have their own price, and the per-seat price drops for the larger block. Monthly billing is available at a higher rate.
 - **More than 100 seats, or over a billion requests a year:** contact sales for volume pricing.
+
+**License keys can't be forged.** A key is signed with Control Tower's private key and checked on your server against the public key built into each release; the published image and npm package trust no other key, whatever their environment says.
 
 Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
 

@@ -123,6 +123,50 @@ test('an ended license: grace keeps Enterprise on; after it, features stop and p
   expect((await ak('DELETE', '/admin/api/license')).body.status).toBe('none');
 });
 
+test('a trial ends on its own: at its end, on a running server, Enterprise stops; traffic and passwords carry on', async () => {
+  test.setTimeout(60_000);
+  const pw = await ak('POST', '/admin/api/users', { email: 'trial-pw@example.com', role: 'viewer' });
+  const login = () => fetch(`${BASE}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'trial-pw@example.com', password: pw.body.password }) }).then((r) => r.status);
+  const agent = (await ak('POST', '/admin/api/keys', { name: 'trial-agent' })).body;
+  const traffic = () => fetch(`${BASE}/v1/models`, { headers: { authorization: `Bearer ${agent.key}` } }).then((r) => r.status);
+  const ENTERPRISE = ['/admin/api/audit', '/admin/api/token-issuers', '/admin/api/teams', '/admin/api/regions', '/admin/api/secret-managers'];
+
+  // A trial that ends in 8 seconds.
+  const endsAt = Date.now() + 8_000;
+  await ak('PUT', '/admin/api/license', { key: testLicense({ plan: 'trial', id: 'lic_trial_e2e', seats: 50, expires_at: endsAt }) });
+  expect((await ak('GET', '/admin/api/license')).body.status).toBe('expiring');
+  const idpId = (await ak('GET', '/admin/api/identity-providers')).body.providers[0].id;
+  for (const p of ENTERPRISE) expect((await ak('GET', p)).status, `${p} during the trial`).toBe(200);
+  const scimToken = (await ak('POST', `/admin/api/identity-providers/${idpId}/scim-token`)).body.token;
+  const scim = () => fetch(`${BASE}/scim/v2/Users`, { headers: { authorization: `Bearer ${scimToken}` } }).then((r) => r.status);
+  expect(await scim()).toBe(200);
+  expect((await ak('PUT', '/admin/api/sso/settings', { sso_only: true })).status).toBe(200);
+  expect(await login()).toBe(403); // single sign-on only
+  idp.user = { sub: 'trial-1', email: 'trial-1@example.com' };
+  expect((await ssoSignIn(idpId)).cookie).toBeTruthy();
+  expect(await traffic()).toBe(200);
+  await ak('POST', '/admin/api/keys', { name: 'made-during-trial' });
+
+  // It ends. Nothing restarts or reloads the server.
+  await new Promise((r) => setTimeout(r, Math.max(0, endsAt - Date.now()) + 1_000));
+  expect((await ak('GET', '/admin/api/license')).body.status).toBe('expired'); // no grace period for a trial
+  for (const p of ENTERPRISE) expect((await ak('GET', p)).status, `${p} after the trial`).toBe(402);
+  expect(await scim()).toBe(403);
+  idp.user = { sub: 'trial-2', email: 'trial-2@example.com' };
+  expect((await ssoSignIn(idpId)).error).toContain('needs a Control Tower Enterprise license');
+  expect(await login()).toBe(200); // passwords work again: nobody is locked out
+  expect(await traffic()).toBe(200); // agents are never cut off
+  await ak('POST', '/admin/api/keys', { name: 'made-after-trial' });
+
+  // Licensed again, the audit log has what happened during the trial and nothing from after it.
+  await ak('PUT', '/admin/api/license', { key: testLicense() });
+  const audit = JSON.stringify((await ak('GET', '/admin/api/audit?limit=500')).body);
+  expect(audit).toContain('made-during-trial');
+  expect(audit).not.toContain('made-after-trial');
+  await ak('PUT', '/admin/api/sso/settings', { sso_only: false });
+  expect((await ak('DELETE', '/admin/api/license')).body.status).toBe('none');
+});
+
 test('the console shows the license, and Enterprise notices where features are off', async ({ page }) => {
   await page.goto(BASE);
   await page.getByLabel('Email or username').fill('admin');

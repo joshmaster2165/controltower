@@ -23,8 +23,14 @@ export const LICENSE_STORE: string | null = 'https://license.agentcontroltower.a
 export const FEATURES = ['sso', 'scim', 'audit', 'jwt_auth', 'secret_managers', 'orgs', 'multi_region', 'siem_export'] as const;
 export type Feature = (typeof FEATURES)[number];
 
-/** Enterprise features keep working this long after a license's end date, while it renews. */
+/** Enterprise features keep working this long after a license's end date, while it renews. Trials have none: nothing renews them. */
 export const GRACE_MS = 14 * 24 * 3600_000;
+export const graceOf = (l: Pick<LicensePayload, 'plan'>): number => (l.plan === 'trial' ? 0 : GRACE_MS);
+
+/** A license's status at a moment: valid, then expiring (30 days before its end), grace (after it), expired. */
+export function statusAt(l: LicensePayload, now: number): Exclude<LicenseStatus, 'none' | 'invalid'> {
+  return now > l.expires_at + graceOf(l) ? 'expired' : now > l.expires_at ? 'grace' : now > l.expires_at - WARN_MS ? 'expiring' : 'valid';
+}
 /** The console starts saying a license is ending this long before. */
 export const WARN_MS = 30 * 24 * 3600_000;
 
@@ -88,22 +94,25 @@ export function signLicense(payload: LicensePayload, privateKey: crypto.KeyObjec
   return `${head}.${b64u(crypto.sign(null, Buffer.from(head), privateKey))}`;
 }
 
+/** Set when the server is bundled (server/build.mjs): true only in test builds. Undefined when run from source. */
+declare const __CT_TEST_LICENSE_KEYS__: boolean | undefined;
+const TEST_KEYS = typeof __CT_TEST_LICENSE_KEYS__ === 'undefined' ? true : __CT_TEST_LICENSE_KEYS__;
+
 /**
- * The keys this build trusts. Development builds (not NODE_ENV=production) also trust CT_LICENSE_PUBLIC_KEY, so
- * tests can sign licenses of their own; the published image never does.
+ * The keys this build trusts. Test builds, and the server run from source, also trust CT_LICENSE_PUBLIC_KEY, so
+ * tests can sign licenses of their own. Release builds never do, whatever the environment says: the image and the
+ * npm package are bundled without that code.
  */
 function publicKeys(): Record<string, string> {
-  const extra = process.env.NODE_ENV !== 'production' && process.env.CT_LICENSE_PUBLIC_KEY ? { test: process.env.CT_LICENSE_PUBLIC_KEY } : {};
-  return { ...PUBLIC_KEYS, ...extra };
+  if (!TEST_KEYS || !process.env.CT_LICENSE_PUBLIC_KEY) return PUBLIC_KEYS;
+  return { ...PUBLIC_KEYS, test: process.env.CT_LICENSE_PUBLIC_KEY };
 }
 
 export function stateOf(key: string | undefined, source: LicenseState['source'], now = Date.now()): LicenseState {
   if (!key) return { status: 'none' };
   const p = parseLicense(key);
   if (!p.ok) return { status: 'invalid', reason: p.reason, ...(source ? { source } : {}) };
-  const l = p.license;
-  const status: LicenseStatus = now > l.expires_at + GRACE_MS ? 'expired' : now > l.expires_at ? 'grace' : now > l.expires_at - WARN_MS ? 'expiring' : 'valid';
-  return { status, license: l, ...(source ? { source } : {}) };
+  return { status: statusAt(p.license, now), license: p.license, ...(source ? { source } : {}) };
 }
 
 /** The license in force: CT_LICENSE_KEY, else the key an admin entered in the console. */
@@ -219,8 +228,5 @@ export class Licensing {
 }
 
 function recompute(s: LicenseState): Partial<LicenseState> {
-  if (!s.license) return {};
-  const now = Date.now();
-  const l = s.license;
-  return { status: now > l.expires_at + GRACE_MS ? 'expired' : now > l.expires_at ? 'grace' : now > l.expires_at - WARN_MS ? 'expiring' : 'valid' };
+  return s.license ? { status: statusAt(s.license, Date.now()) } : {};
 }

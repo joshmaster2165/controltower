@@ -2,6 +2,12 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## 0.2.2 — 30 September 2026
+
+- **Security: license keys signed with someone else's key are refused by every release build.** Until now, a server started with `NODE_ENV` set to anything but `production` also trusted a signing key named by `CT_LICENSE_PUBLIC_KEY` (meant for tests), so a self-signed key could turn Enterprise on. Release builds (the image and the npm package) no longer contain that path at all, and CI checks each image refuses a forged key. Upgrade from 0.2.0 and 0.2.1.
+- **Trials end on their end date.** The 14-day grace period is for paid licenses while they renew; a trial now has none. Tested on a running server: at a trial's end, every Enterprise feature stops without a restart, passwords work again, and agents' traffic carries on.
+- The Enterprise license files name Agent Control Tower as the licensor.
+
 ## 0.2.1 — 30 September 2026
 
 - **A home of its own:** the website is now [agentcontroltower.app](https://agentcontroltower.app), and plans, checkout and trial keys are at [license.agentcontroltower.app](https://license.agentcontroltower.app). Servers renew their license from the new address. The old address keeps working, so 0.2.0 servers renew as before.

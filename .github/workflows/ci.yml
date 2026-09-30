@@ -21,7 +21,7 @@ jobs:
       - run: pnpm docs:build
       - run: pnpm test
       - run: node --test ee/license-service/test.mjs
-      - run: pnpm build
+      - run: CT_TEST_LICENSE_KEYS=1 pnpm build  # test builds trust licenses the tests sign; releases never do
       - run: npx playwright install --with-deps chromium
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v7
@@ -54,7 +54,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: CT_TEST_LICENSE_KEYS=1 pnpm build  # test builds trust licenses the tests sign; releases never do
       - run: npx playwright install --with-deps chromium
       - run: for db in e2e cluster copytest regions; do PGPASSWORD=ci psql -h localhost -U postgres -c "CREATE DATABASE $db"; done
       - run: pnpm test:e2e
@@ -125,6 +125,12 @@ jobs:
           done
           ready 4102 ct-pg-1 && ready 4103 ct-pg-2
           docker logs ct-pg-1 2>&1 | grep -q "sharing Postgres and Redis"
+          # A license signed with someone else's key is refused, whatever the environment says.
+          node -e "const c=require('crypto');const k=c.generateKeyPairSync('ed25519');const now=Date.now();const h='ctl1.'+Buffer.from(JSON.stringify({v:1,kid:'test',id:'lic_forged',customer:'Forged',email:'f@f.test',plan:'enterprise',seats:1000,requests_per_year:0,features:['*'],issued_at:now,expires_at:now+864e8})).toString('base64url');console.log('CT_LICENSE_PUBLIC_KEY='+k.publicKey.export({format:'jwk'}).x+'\\nCT_LICENSE_KEY='+h+'.'+c.sign(null,Buffer.from(h),k.privateKey).toString('base64url'))" > forged.env
+          docker run -d --name ct-forged -p 4104:4000 --env-file forged.env -e NODE_ENV=development -e CT_LICENSE_SERVER=off -e CT_ADMIN_KEY=smoke-admin-key-0123456789 ct-smoke
+          ready 4104 ct-forged
+          status=$(curl -fsS -H 'authorization: Bearer smoke-admin-key-0123456789' http://127.0.0.1:4104/admin/api/license | node -pe 'JSON.parse(require("fs").readFileSync(0)).status')
+          echo "forged license: $status"; test "$status" = invalid
       - id: meta
         uses: docker/metadata-action@v6
         with:

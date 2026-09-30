@@ -44,6 +44,8 @@ export interface AppContext {
   exporter?: import('./exports/exporter.js').Exporter;
   /** Requests against the license's yearly allowance (Enterprise; warns, never limits). */
   metering?: import('./ee/metering.js').Metering;
+  /** Whether the server's clock has been set back (licenses are checked against it). */
+  clock?: import('./ee/clock.js').ClockWatch;
   /** The control plane of a multi-region deployment: sends regions their configuration (Enterprise). */
   controlPlane?: import('./ee/multi-region/control-plane.js').ControlPlane;
   /** Rate limits that count other regions' traffic too (multi-region, Enterprise). */

@@ -155,7 +155,10 @@ export class Licensing {
       // With the key goes this license year's request count (a number, nothing else), for renewals and capacity.
       const u = await this.usage?.().catch(() => undefined);
       const usage = u ? { requests: u.used, period_start: u.period_start, period_end: u.period_end } : undefined;
-      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}) }), signal: AbortSignal.timeout(15_000) });
+      // And whether the clock was found set back (the latest time seen, how far behind): nothing else about the server.
+      const c = this.clock?.();
+      const clock = c?.behind ? { behind_ms: c.behind_ms, latest_seen: c.high_water } : undefined;
+      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}), ...(clock ? { clock } : {}) }), signal: AbortSignal.timeout(15_000) });
       const j = (await r.json()) as { status?: string; key?: string };
       if (j.status === 'renewed' && j.key) {
         const next = parseLicense(j.key);
@@ -173,6 +176,9 @@ export class Licensing {
       return 'failed';
     }
   }
+
+  /** Whether the clock has been set back, sent with renewals (set by the clock watch). */
+  clock: (() => { behind: boolean; behind_ms: number; high_water: number | null }) | undefined;
 
   /** This license year's request count, sent with renewals (set by the metering service). */
   usage: (() => Promise<{ used: number; period_start: number; period_end: number } | undefined>) | undefined;

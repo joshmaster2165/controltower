@@ -12,6 +12,28 @@ export interface LicenseInfo {
   /** Requests this license year against the allowance (warns; never limits). */
   usage?: { allowance: number; used: number; share: number; period_start: number; period_end: number; projected: number | null; level: 'ok' | 'warn' | 'over'; by_month: Array<{ month: string; requests: number }> };
   license?: { id: string; customer: string; email: string; plan: 'enterprise' | 'trial'; seats: number; requests_per_year: number; features: string[]; issued_at: number; expires_at: number };
+  /** Whether the server's clock reads more than two days before the latest time it has seen (reported, never acted on). */
+  clock?: { behind: boolean; high_water: number | null; behind_ms: number };
+}
+
+/** The clock was set back: said at the top, with a way to say it's right. */
+function ClockBanner({ clock, onAccepted }: { clock: NonNullable<LicenseInfo['clock']>; onAccepted: () => void }) {
+  const [err, setErr] = useState('');
+  const accept = () =>
+    api
+      .post('/admin/api/license/clock', {})
+      .then(onAccepted)
+      .catch((e: unknown) => setErr(e instanceof ApiError && e.status === 403 ? 'Only an admin can do this.' : 'That didn’t work; try again.'));
+  const days = Math.max(1, Math.round(clock.behind_ms / 86_400_000));
+  return (
+    <div className="role-banner warn" role="alert">
+      This server’s clock is {days} day{days === 1 ? '' : 's'} behind the latest time Control Tower has seen ({date(clock.high_water ?? Date.now())}). License dates are checked against it, so set the clock right. If it is right,{' '}
+      <button type="button" className="linklike" onClick={() => void accept()}>
+        say so
+      </button>
+      .{err ? ` ${err}` : ''}
+    </div>
+  );
 }
 
 /** [feature, label, available yet]. Features still being built are shown as coming, never as on. */
@@ -112,6 +134,7 @@ export function LicenseBanner() {
     void api.get<LicenseInfo>('/admin/api/license').then(setL).catch(() => undefined);
   }, []);
   if (!l?.license) return null;
+  if (l.clock?.behind) return <ClockBanner clock={l.clock} onAccepted={() => setL({ ...l, clock: { behind: false, high_water: Date.now(), behind_ms: 0 } })} />;
   // Past 80% of the year's requests: said once at the top, never enforced.
   if (l.status === 'valid' && l.usage && l.usage.level !== 'ok') {
     return (

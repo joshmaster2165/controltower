@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from './support/license';
 import { testIdp, type TestIdp } from './support/oidc-idp';
+import { createRequire } from 'node:module';
 
 /**
  * Control Tower Enterprise: without a license the Enterprise features are off and everything else works; a
@@ -18,6 +19,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const AK = 'license-admin-key-0123456789';
 const DAY = 86_400_000;
 let server: ChildProcess;
+let dataDir = '';
 let idp: TestIdp;
 
 const ak = (method: string, p: string, body?: unknown) =>
@@ -38,6 +40,7 @@ async function ssoSignIn(id: string): Promise<{ cookie?: string; error?: string 
 test.beforeAll(async () => {
   idp = await testIdp();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-license-'));
+  dataDir = dir;
   server = spawn('node', ['server/dist/server.mjs', '--port', String(PORT)], {
     env: { ...process.env, CT_DATA_DIR: dir, CT_UI_DIR: path.resolve('ui/dist'), CT_LOG_LEVEL: 'warn', CT_ADMIN_KEY: AK, CT_MODEL_HEALTH_INTERVAL_S: '0', CT_LOGIN_RPM: '1000', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_LICENSE_KEY: '' },
     stdio: 'ignore',
@@ -165,6 +168,33 @@ test('a trial ends on its own: at its end, on a running server, Enterprise stops
   expect(audit).not.toContain('made-after-trial');
   await ak('PUT', '/admin/api/sso/settings', { sso_only: false });
   expect((await ak('DELETE', '/admin/api/license')).body.status).toBe('none');
+});
+
+test('a clock set back is noticed and reported, never acted on; an admin can say it is right', async ({ page }) => {
+  await ak('PUT', '/admin/api/license', { key: testLicense() });
+  expect((await ak('GET', '/admin/api/license')).body.clock).toMatchObject({ behind: false });
+  // As if this server had once run 40 days from now: its clock now reads 40 days behind the latest time seen.
+  const Database = createRequire(path.resolve('server/package.json'))('better-sqlite3');
+  const db = new Database(path.join(dataDir, 'controltower.db'));
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'clock_high_water'").run(String(Date.now() + 40 * DAY));
+  db.close();
+  const lic = (await ak('GET', '/admin/api/license')).body;
+  expect(lic.clock).toMatchObject({ behind: true });
+  expect(lic.status).toBe('valid'); // never acted on
+  const audit = JSON.stringify((await ak('GET', '/admin/api/audit?limit=50')).body);
+  expect(audit).toContain('license.clock_behind');
+
+  // The console says so, and an admin says the clock is right.
+  await page.goto(BASE);
+  await page.getByLabel('Email or username').fill('admin');
+  await page.getByLabel('Password').fill(AK);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'behind the latest time' })).toContainText('40 days behind');
+  await page.getByRole('button', { name: 'say so' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'behind the latest time' })).toHaveCount(0);
+  expect((await ak('GET', '/admin/api/license')).body.clock).toMatchObject({ behind: false });
+  expect(JSON.stringify((await ak('GET', '/admin/api/audit?limit=50')).body)).toContain('license.clock_accepted');
+  await ak('DELETE', '/admin/api/license');
 });
 
 test('the console shows the license, and Enterprise notices where features are off', async ({ page }) => {

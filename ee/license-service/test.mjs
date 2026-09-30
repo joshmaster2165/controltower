@@ -173,6 +173,16 @@ test('trials: the key goes by email, behind a link that works for a day; 30 days
   assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '203.0.113.9' }, body: new URLSearchParams({ company: 'Tryco', email: 'dev@tryco.io' }) })).status, 429);
 });
 
+test('refresh: a server whose clock was set back says so, and it is kept on the subscription', async () => {
+  const page = await (await fetch(`${base}/success?session_id=cs_test_1`)).text();
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(page)[1];
+  stripe.metadata.length = 0;
+  const r = await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, clock: { behind_ms: 40 * 86_400_000, latest_seen: Date.now() } }) });
+  assert.equal(r.status, 200);
+  const m = stripe.metadata.find((x) => x['metadata[clock_behind_days]']);
+  assert.equal(m?.['metadata[clock_behind_days]'], '40');
+});
+
 test('without an email service, the trial key is shown at once', async () => {
   const saved = process.env.RESEND_API_KEY;
   delete process.env.RESEND_API_KEY;

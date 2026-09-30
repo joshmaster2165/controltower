@@ -66,6 +66,7 @@ const NAMED: Record<string, string> = {
   'POST /admin/api/me/password': 'me.password.change',
   'POST /admin/api/demo': 'demo.start',
   'DELETE /admin/api/demo': 'demo.stop',
+  'POST /admin/api/license/clock': 'license.clock_accepted',
 };
 /**
  * A readable action for an admin route: `POST /admin/api/keys` → keys.create,

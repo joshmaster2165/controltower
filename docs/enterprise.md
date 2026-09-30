@@ -71,13 +71,21 @@ Without a license, each Enterprise feature says so where it would be:
 
 **License keys can't be forged.** A key is signed with Control Tower's private key and checked on your server against the public key built into each release; the published image and npm package trust no other key, whatever their environment says.
 
+**A clock set back is noticed, not acted on.** Keys are checked against the server's own clock, so they work air-gapped. Each server remembers the latest time it has seen. If its clock reads more than two days before that:
+- the console tells admins;
+- the audit log records it once (`license.clock_behind`);
+- the next online renewal reports it.
+
+The license keeps working, so a clock that was simply wrong never switches anything off. If the clock is right (it was once set ahead by mistake), an admin says so from the console's warning, and the latest time seen starts again from now (`license.clock_accepted`).
+
 Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
 
 ## API
 
 | Method | Path | |
 |---|---|---|
-| GET | `/admin/api/license` | The license in force: `status` (`none`, `valid`, `expiring`, `grace`, `expired`, `invalid`), who it's for, seats and seats used, requests a year, features, end date. Never the key itself |
+| GET | `/admin/api/license` | The license in force: `status` (`none`, `valid`, `expiring`, `grace`, `expired`, `invalid`), who it's for, seats and seats used, requests a year, features, end date, and (for those who see the whole install) `clock`: `behind`, `high_water`, `behind_ms`. Never the key itself |
+| POST | `/admin/api/license/clock` | The clock is right: the latest time seen starts again from now (admins) |
 | PUT | `/admin/api/license` | `{key}`: add or replace the key (admins). Refused with a reason if it isn't valid |
 | DELETE | `/admin/api/license` | Remove the key added in the console |
 

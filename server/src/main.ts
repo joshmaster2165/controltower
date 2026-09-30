@@ -61,6 +61,7 @@ import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
 import { Metering } from './ee/metering.js';
+import { ClockWatch } from './ee/clock.js';
 import { RegionSync } from './ee/multi-region/region.js';
 import { RegionHub } from './ee/multi-region/hub.js';
 import { RegionLink } from './ee/multi-region/link.js';
@@ -381,6 +382,18 @@ async function main(): Promise<void> {
   full.metering = metering;
   license.usage = () => metering.usage();
   if (!region) metering.start();
+  // A clock set back would keep an ended license going: noticed, reported, never acted on.
+  const clock = new ClockWatch({
+    db: db.write,
+    onBehind: async (s) => {
+      const days = Math.round(s.behind_ms / 86_400_000);
+      app.log.warn({ latest_seen: new Date(s.high_water ?? 0).toISOString(), days_behind: days }, 'license: this server\'s clock is behind the latest time it has seen');
+      await full.audit?.record({ action: 'license.clock_behind', outcome: 'failure', actor: { type: 'system', id: 'clock' }, detail: { latest_seen: new Date(s.high_water ?? 0).toISOString(), clock: new Date(Date.now()).toISOString(), days_behind: days } });
+    },
+  });
+  full.clock = clock;
+  clock.start();
+  license.clock = () => clock.current;
   // Keys whose rotation schedule is due get a new secret, delivered to the secret manager (Enterprise).
   const rotator = new KeyRotator(() => full, { instance: cluster.id, allowed: () => license.allows('secret_managers'), log: () => app.log });
   if (!region) rotator.start();
@@ -590,6 +603,7 @@ async function main(): Promise<void> {
     regionSync?.stop();
     regionLink?.stop();
     metering.stop();
+    clock.stop();
     await tokens.stop();
     clearInterval(guardrailSaver);
     await guardrails.save();

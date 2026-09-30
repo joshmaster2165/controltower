@@ -613,6 +613,13 @@ export function createServer() {
           console.log(JSON.stringify({ event: 'usage', license: lic.id, customer: lic.customer, requests: Math.round(u.requests), allowance: lic.requests_per_year, period_start: new Date(u.period_start).toISOString() }));
           await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { requests_this_year: String(Math.round(u.requests)), requests_allowance: String(lic.requests_per_year), requests_period_start: new Date(u.period_start).toISOString().slice(0, 10), usage_reported_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `usage not recorded: ${err.message}`, license: lic.id })));
         }
+        // A server whose clock was found set back says so (how far, and the latest time it had seen): kept on the subscription.
+        const c = b.clock;
+        if (c && Number.isFinite(c.behind_ms) && c.behind_ms > 0) {
+          const days = Math.round(c.behind_ms / DAY);
+          console.log(JSON.stringify({ event: 'clock_behind', license: lic.id, customer: lic.customer, days_behind: days, latest_seen: Number.isFinite(c.latest_seen) ? new Date(c.latest_seen).toISOString() : null }));
+          await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { clock_behind_days: String(days), clock_reported_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `clock report not recorded: ${err.message}`, license: lic.id })));
+        }
         if (!['active', 'trialing', 'past_due'].includes(sub.status)) return json(res, 200, { status: 'ended', subscription: sub.status });
         const next = licenseFor(sub, { name: sub.customer?.name ?? lic.customer, email: sub.customer?.email ?? lic.email });
         if (next.expires_at === lic.expires_at && next.seats === lic.seats && next.period_start === lic.period_start) return json(res, 200, { status: 'unchanged' });

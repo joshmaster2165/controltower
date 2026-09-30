@@ -63,7 +63,15 @@ export async function licenseRoutes(app: FastifyInstance, ctx: AppContext): Prom
   app.get('/admin/api/license', { preHandler: guard }, async (req) => {
     // Requests this license year, against the allowance: the whole install's, so not for those who see only their teams.
     const usage = scopeOf(req).all ? await licenseUsage(ctx) : undefined;
-    return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read), ...(usage ? { usage } : {}) };
+    const clock = scopeOf(req).all && ctx.clock ? await ctx.clock.check() : undefined;
+    return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read), ...(usage ? { usage } : {}), ...(clock ? { clock } : {}) };
+  });
+
+  // The clock is right (it was once set ahead, say): the latest time seen starts again from now.
+  app.post('/admin/api/license/clock', { preHandler: guard }, async (req, reply) => {
+    if (!ctx.clock) return reply.status(404).send({ error: { code: 'not_found', message: 'no clock watch here' } });
+    // Recorded in the audit log like every change made here.
+    return { clock: await ctx.clock.accept() };
   });
 
   app.put('/admin/api/license', { preHandler: guard }, async (req, reply) => {

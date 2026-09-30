@@ -553,6 +553,7 @@ export interface Database {
   teams: TeamsTable;
   memberships: MembershipsTable;
   regions: RegionsTable;
+  region_usage_daily: RegionUsageDailyTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -809,4 +810,13 @@ export interface RegionsTable {
   applied_etag: string | null;
   applied_at: number | null;
   last_error: string | null;
+}
+
+/** Each region's requests per day, as it last reported them (the license's yearly count covers every region). */
+export interface RegionUsageDailyTable {
+  region: string;
+  /** YYYY-MM-DD (UTC). */
+  bucket: string;
+  requests: number;
+  updated_at: number;
 }

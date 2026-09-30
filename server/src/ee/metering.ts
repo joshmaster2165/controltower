@@ -105,9 +105,18 @@ export class Metering {
       .where('bucket', '>=', day(start))
       .groupBy('bucket')
       .execute();
+    // Regions' requests too (multi-region): each region reports its days to the control plane.
+    const regional = await this.deps.db.read
+      .selectFrom('region_usage_daily')
+      .select(['bucket'])
+      .select((eb) => eb.fn.sum<number>('requests').as('requests'))
+      .where('bucket', '>=', day(start))
+      .groupBy('bucket')
+      .execute()
+      .catch(() => []);
     const months = new Map<string, number>();
     let used = 0;
-    for (const r of rows) {
+    for (const r of [...rows, ...regional]) {
       const n = Number(r.requests ?? 0);
       used += n;
       const m = String(r.bucket).slice(0, 7);

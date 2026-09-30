@@ -6,9 +6,10 @@
 - one control plane configures every region;
 - regions keep serving through a control-plane outage;
 - calls stay in their region;
-- one console shows every region's calls, spend, map and held calls.
+- one console shows every region's calls, spend, map and held calls;
+- rate limits, budgets and the yearly request count are global.
 
-Still to come: budgets, rate limits and the yearly request count shared across regions. [What that means today](#what-isnt-there-yet).
+Still to come: a tested deployment across cloud regions, with failure drills.
 
 Run Control Tower close to your agents, in as many regions as you need, and configure it in one place:
 
@@ -99,11 +100,29 @@ Changes made on the control plane meanwhile arrive when it's reachable again. Re
 
 A region that has never received any configuration serves nothing until it does.
 
+## Limits and budgets across regions
+
+An agent's limits are the same wherever it calls from:
+
+- **Rate limits are global.** A key allowed 60 requests a minute gets 60 across every region together, not 60 in each. The same goes for a model's limits (its provider's quota) and a gate's limits.
+- **Budgets are one total.** Spend in any region counts against the same budget, and a hard budget spent in one region stops the agent in all of them. **Budgets** on the control plane shows the total; each region shows it too.
+- **The license's yearly request count includes every region.** Each region reports its requests per day; **License** on the control plane adds them up.
+
+Every 2 seconds, each region tells the control plane what it let through and spent, and hears back what the other regions did. Two things follow:
+
+- **A limit can be passed by a little.** The regions don't hear about each other's calls until the next exchange, so for a couple of seconds each region can let through what's left. The overshoot is at most about 2 seconds of traffic from each other region.
+- **Calls at once (`max_parallel`) is counted per region.** A key allowed 5 calls at once can have 5 in each region.
+
+**When the control plane is out of reach**, each region keeps limiting on its own and remembers what it spent. When the control plane is back, the region reports it and the totals catch up. If a region restarts during the outage, the spend it hadn't reported yet is lost from the total. That's at most the spend since the control plane went away.
+
+Occasionally, a report that the control plane received but whose answer was lost is sent again. Spend is then counted twice, never missed.
+
+**A new budget** starts from the spend the control plane can see in its own records. Calls made in regions before the budget was set aren't counted.
+
 ## What isn't there yet
 
 Each of these is the next step, not a design choice. Until then:
 
-- **Budgets and rate limits are counted per region.** A key's budget applies in each region separately. The yearly request count on **License** counts the control plane's own calls.
 - **Only in each region's own console:**
   - the details panel of an agent-to-agent link on the map;
   - spend by customer and by tag;
@@ -134,6 +153,10 @@ On the control plane, for admins:
 | POST | `/admin/api/regions/:id/token` | A new token (the old one stops at once) |
 | DELETE | `/admin/api/regions/:id` | |
 
-Regions call `GET /cp/v1/config` with their token. It answers `304` when nothing changed, or a signed snapshot. They also hold `GET /cp/v1/link/next` open for the console's questions, answer on `POST /cp/v1/link/res`, and send live frames to `POST /cp/v1/link/live`.
+Regions call `GET /cp/v1/config` with their token. It answers `304` when nothing changed, or a signed snapshot. They also:
+
+- hold `GET /cp/v1/link/next` open for the console's questions, and answer on `POST /cp/v1/link/res`;
+- send live frames to `POST /cp/v1/link/live`;
+- every 2 seconds, send what they let through, what they spent and their requests per day to `POST /cp/v1/link/usage`. The answer is what the other regions let through, and each budget's total.
 
 The console's own APIs (`/admin/api/flights`, `…/approvals`, `…/ledger/summary`, `…/topology`, `…/replay`, `…/events/recent`, `…/keys`) include regions. Each answer has `regions: {<name>: "ok" | "unreachable" | "error"}`, and each flight and approval has its `region` (`null` for the control plane's own). `GET /admin/api/flights?region=<name>` (or `here`) shows one. On a region, `GET /admin/api/status` includes `region`: its name, its control plane, the configuration applied and when, the last contact, and any error.

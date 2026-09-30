@@ -40,6 +40,14 @@ if nt < now then nt = now end
 redis.call('SET', KEYS[1], tostring(nt), 'PX', 120000)
 return 1`;
 
+const CHARGE = `
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local tat = tonumber(redis.call('GET', KEYS[1]) or now)
+if tat < now then tat = now end
+redis.call('SET', KEYS[1], tostring(tat + tonumber(ARGV[1]) * (60000 / tonumber(ARGV[2]))), 'PX', 120000)
+return 1`;
+
 export class RedisLimiter implements Limiter {
   private local = new MemoryLimiter();
   private warned = 0;
@@ -71,6 +79,16 @@ export class RedisLimiter implements Limiter {
   reconcile(scope: string, deltaTokens: number, limits: Limits): void {
     if (!limits.tpm || limits.tpm <= 0 || deltaTokens === 0) return;
     this.redis.eval(RECONCILE, 1, `ct:rl:tpm:${scope}`, deltaTokens, limits.tpm).catch((err: unknown) => this.fallback(err));
+  }
+
+  async charge(scope: string, requests: number, tokens: number, limits: Limits): Promise<void> {
+    try {
+      if (limits.rpm && limits.rpm > 0 && requests > 0) await this.redis.eval(CHARGE, 1, `ct:rl:rpm:${scope}`, requests, limits.rpm);
+      if (limits.tpm && limits.tpm > 0 && tokens > 0) await this.redis.eval(CHARGE, 1, `ct:rl:tpm:${scope}`, tokens, limits.tpm);
+    } catch (err) {
+      this.fallback(err);
+      this.local.charge(scope, requests, tokens, limits);
+    }
   }
 
   async acquireSlot(scope: string, max: number): Promise<(() => void) | null> {

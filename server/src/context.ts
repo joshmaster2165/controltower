@@ -46,6 +46,10 @@ export interface AppContext {
   metering?: import('./ee/metering.js').Metering;
   /** The control plane of a multi-region deployment: sends regions their configuration (Enterprise). */
   controlPlane?: import('./ee/multi-region/control-plane.js').ControlPlane;
+  /** Rate limits that count other regions' traffic too (multi-region, Enterprise). */
+  sharedLimiter?: import('./ee/multi-region/shared-limits.js').SharedLimiter;
+  /** On the control plane: what each region hasn't heard yet about the others' traffic. */
+  limitExchange?: import('./ee/multi-region/shared-limits.js').LimitExchange;
   /** On the control plane: how the console reaches into regions (Enterprise). */
   regionHub?: import('./ee/multi-region/hub.js').RegionHub;
   /** On a control plane shared by several instances: pass a region's live frame to the others too. */

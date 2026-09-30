@@ -1,8 +1,9 @@
 /**
- * Multi-region, phase 1, on this machine: a control plane and two regions — eu-west (one instance, SQLite) and
+ * Multi-region, on this machine: a control plane and two regions — eu-west (one instance, SQLite) and
  * us-east (two instances sharing Postgres and Redis). Configuration made on the control plane is served in every
  * region; calls stay in their region; a region keeps serving on its last configuration when the control plane is
- * down, even across a restart, and catches up when it's back. Needs PG_URL (an empty database) and REDIS_URL.
+ * down, even across a restart, and catches up when it's back. One console shows every region; rate limits, budgets
+ * and the license's request count are global. Needs PG_URL (an empty database) and REDIS_URL.
  * Writes regions-results.json.
  */
 import fs from 'node:fs';
@@ -194,6 +195,36 @@ try {
   await cp('DELETE', `/admin/api/rules/${hold.id}`);
   await until(async () => [await chat(EU.url, key.key), await chat(US1.url, key.key), await chat(US2.url, key.key)], (v) => v.every((x) => x === 200));
 
+  // ---- Phase 3: limits and budgets are global.
+  const synced = async () => {
+    const was = (await cp('GET', '/admin/api/regions')).body.config_etag;
+    return until(async () => (await cp('GET', '/admin/api/regions')).body, (b: any) => b.config_etag === was && b.regions.every((r: any) => r.status === 'in_sync'));
+  };
+  // Two requests a minute for this agent, in every region together: one in eu-west and one in us-east use it up.
+  const limited = (await cp('POST', '/admin/api/keys', { name: 'limited-agent', team: 'eu', limits: { rpm: 2 } })).body;
+  await synced();
+  await until(async () => [await api(EU.url, RAK)('GET', '/admin/api/keys'), await api(US1.url, RAK)('GET', '/admin/api/keys')], (v) => v.every((r) => (r.body.keys ?? []).some((k: any) => k.id === limited.id)));
+  const spent = [await chat(EU.url, limited.key), await chat(US1.url, limited.key)];
+  await sleep(5000); // regions swap what they let through every two seconds
+  const refused = [await chat(EU.url, limited.key), await chat(US2.url, limited.key)];
+  c("an agent's rate limit is global: what one region lets through counts in the others", spent.every((x) => x === 200) && refused.every((x) => x === 429), `eu-west + us-east ${spent.join(' ')}, then eu-west and us-east again ${refused.join(' ')} (each region alone had room)`);
+
+  // A hard budget is one total: spend in eu-west stops the agent in us-east.
+  const budgeted = (await cp('POST', '/admin/api/keys', { name: 'budgeted-agent', team: 'eu' })).body;
+  await cp('PUT', `/admin/api/budgets/key/${budgeted.id}`, { limit_usd: 1, period: 'total', hard: true });
+  await synced();
+  await until(async () => (await api(EU.url, RAK)('GET', '/admin/api/budgets')).body.budgets as any[], (b) => (b ?? []).some((x: any) => x.scope_id === budgeted.id));
+  for (let i = 0; i < 6; i++) await chat(EU.url, budgeted.key);
+  const euSpend = Number((await until(async () => (await api(EU.url, RAK)('GET', `/admin/api/flights?key_id=${budgeted.id}`)).body.flights as any[], (f) => (f ?? []).length >= 6)).reduce((a: number, f: any) => a + Number(f.cost_nanousd ?? 0), 0));
+  const onCp = await until(async () => ((await cp('GET', '/admin/api/budgets')).body.budgets as any[]).find((x) => x.scope_id === budgeted.id), (b) => Math.round(b?.spent_usd * 1e9) >= euSpend && euSpend > 0);
+  const onUs = await until(async () => ((await api(US1.url, RAK)('GET', '/admin/api/budgets')).body.budgets as any[]).find((x) => x.scope_id === budgeted.id), (b) => Math.round(b?.spent_usd * 1e9) >= euSpend);
+  c("a budget's spend is one total: eu-west's spend shows on the control plane and in us-east", euSpend > 0 && Math.round(onCp?.spent_usd * 1e9) >= euSpend && Math.round(onUs?.spent_usd * 1e9) >= euSpend, `eu-west spent ${euSpend} nano-USD; the control plane counts ${Math.round(onCp?.spent_usd * 1e9)}, us-east ${Math.round(onUs?.spent_usd * 1e9)}`);
+  // Half of what eu-west spent: us-east alone has spent nothing, but the agent is over its budget everywhere.
+  await cp('PUT', `/admin/api/budgets/key/${budgeted.id}`, { limit_usd: euSpend / 2 / 1e9, period: 'total', hard: true });
+  await synced();
+  const over = await until(async () => [await chat(US1.url, budgeted.key), await chat(US2.url, budgeted.key)], (v) => v.every((x) => x === 429));
+  c('a hard budget spent in one region stops the agent in the others', over.every((x) => x === 429), `us-east ${over.join(' ')}`);
+
   // A region's configuration is changed on the control plane only.
   const w = await api(EU.url, RAK)('POST', '/admin/api/keys', { name: 'sneaky' });
   c("a region refuses changes to its configuration (they're the control plane's)", w.status === 409 && w.body.error?.code === 'managed_by_control_plane', `${w.status} ${w.body.error?.message ?? ''}`);
@@ -227,6 +258,10 @@ try {
   const caught = await until(async () => [await chat(EU2.url, key.key)], (v) => v.every((s) => s === 401), 15_000);
   const stAfter = (await api(EU2.url, RAK)('GET', '/admin/api/status')).body.region;
   c('the control plane back: regions catch up, and report no error', caught.every((s) => s === 401) && !stAfter?.error, `${caught.join(' ')}; eu-west error: ${stAfter?.error ?? 'none'}`);
+  // The license counts every region's requests (a region's calls are recorded there, and its totals reported here).
+  const lic = (await api(CP.url, AK)('GET', '/admin/api/license')).body;
+  const cpOwn = (await api(CP.url, AK)('GET', '/admin/api/flights?region=here&limit=500')).body.flights?.length ?? 0;
+  c("the license's yearly request count includes every region's requests", cpOwn === 0 && lic.usage?.used >= 20, `${lic.usage?.used} requests counted; the control plane itself made ${cpOwn}`);
 } finally {
   for (const p of procs.reverse()) await stop(p).catch(() => undefined);
   await oai.close();

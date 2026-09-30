@@ -10,6 +10,14 @@ import { NANO_PER_USD } from '@controltower/shared';
  * to the stored total), and what comes back is the total — so several instances sharing a database meter
  * one budget together. A period that rolls over is reset once, by whichever instance gets there first.
  */
+/** A region's spend on one budget since it last told the control plane. */
+export interface BudgetDelta {
+  scope: string;
+  delta: number;
+  prev_resets_at: number | null;
+  resets_at: number | null;
+}
+
 export class Budgets {
   private timer: NodeJS.Timeout | undefined;
   /** Per scope: the stored total and period this instance last saw. Spend above it is not written yet. */
@@ -100,7 +108,77 @@ export class Budgets {
     this.timer.unref?.();
   }
 
+  /**
+   * A region (multi-region, Enterprise): the control plane keeps every budget's total across regions, so this
+   * install sends it what it spent (remoteItems) and takes the total back (settleRemote). Its own database keeps a
+   * copy of the total, to start from after a restart.
+   */
+  regional = false;
+
+  /** Spend since the last word with the control plane, per budget (and whether the period rolled over here). */
+  remoteItems(): { items: BudgetDelta[]; base: Map<string, { prevSpent: number; delta: number }> } {
+    const items: BudgetDelta[] = [];
+    const base = new Map<string, { prevSpent: number; delta: number }>();
+    for (const s of this.snapshot()) {
+      const b = this.tracker.get(s.scope);
+      if (!b) continue;
+      const prev = this.synced.get(s.scope) ?? { spent: b.spent, resetsAt: b.resetsAt };
+      const rolled = b.resetsAt !== prev.resetsAt;
+      const prevSpent = rolled ? 0 : prev.spent;
+      const delta = Math.round(b.spent - prevSpent);
+      items.push({ scope: s.scope, delta, prev_resets_at: prev.resetsAt ?? null, resets_at: b.resetsAt ?? null });
+      base.set(s.scope, { prevSpent, delta });
+    }
+    return { items, base };
+  }
+
+  /** The totals the control plane answered: this install meters from them (plus what it spent meanwhile). */
+  async settleRemote(totals: Array<{ scope: string; spent: number; resets_at: number | null }>, base: Map<string, { prevSpent: number; delta: number }>): Promise<void> {
+    for (const t of totals) {
+      const b = this.tracker.get(t.scope);
+      const sent = base.get(t.scope);
+      if (!b || !sent) continue;
+      const extra = b.spent - sent.prevSpent - sent.delta;
+      if (t.resets_at != null && (b.resetsAt == null || t.resets_at > b.resetsAt)) b.resetsAt = t.resets_at;
+      b.spent = t.spent + extra;
+      this.synced.set(t.scope, { spent: t.spent, resetsAt: b.resetsAt });
+      const [scopeType, ...rest] = t.scope.split(':');
+      await this.db.updateTable('budgets').set({ spent_nanousd: Math.round(t.spent), resets_at: b.resetsAt ?? null }).where('scope_type', '=', scopeType!).where('scope_id', '=', rest.join(':')).execute().catch(() => undefined);
+    }
+  }
+
+  /** On the control plane: a region's spend added to each budget's total, as one of its own instances would. */
+  async applyRemote(items: BudgetDelta[]): Promise<Array<{ scope: string; spent: number; resets_at: number | null }>> {
+    const out: Array<{ scope: string; spent: number; resets_at: number | null }> = [];
+    for (const it of items) {
+      const [scopeType, ...rest] = String(it.scope).split(':');
+      const scopeId = rest.join(':');
+      const where = <Q extends { where: (...a: any[]) => Q }>(q: Q): Q => q.where('scope_type', '=', scopeType!).where('scope_id', '=', scopeId);
+      if (it.resets_at !== it.prev_resets_at && it.resets_at != null) {
+        await where(this.db.updateTable('budgets').set({ spent_nanousd: 0, resets_at: it.resets_at }))
+          .where((eb) => (it.prev_resets_at == null ? eb('resets_at', 'is', null) : eb('resets_at', '=', it.prev_resets_at)))
+          .execute();
+      }
+      const delta = Math.round(Number(it.delta) || 0);
+      if (delta > 0) {
+        await where(this.db.updateTable('budgets').set((eb) => ({ spent_nanousd: eb('spent_nanousd', '+', delta) }))).execute();
+        // Counted here at once too (not at this install's next write), as spend already stored.
+        const b = this.tracker.get(it.scope);
+        const seen = this.synced.get(it.scope);
+        if (b && seen && seen.resetsAt === b.resetsAt) {
+          b.spent += delta;
+          seen.spent += delta;
+        }
+      }
+      const row = await where(this.db.selectFrom('budgets').select(['spent_nanousd', 'resets_at'])).executeTakeFirst();
+      if (row) out.push({ scope: it.scope, spent: Number(row.spent_nanousd), resets_at: row.resets_at == null ? null : Number(row.resets_at) });
+    }
+    return out;
+  }
+
   async persist(): Promise<void> {
+    // A region's totals come from the control plane (see remoteItems / settleRemote).
+    if (this.regional) return;
     for (const s of this.snapshot()) {
       const [scopeType, ...rest] = s.scope.split(':');
       const scopeId = rest.join(':');

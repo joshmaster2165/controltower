@@ -969,3 +969,17 @@ CREATE UNIQUE INDEX regions_name ON regions (name);
 CREATE UNIQUE INDEX regions_token ON regions (token_hash);
 `,
 });
+
+migrations.push({
+  version: 34,
+  name: 'region_usage_daily',
+  sqlite: `
+CREATE TABLE region_usage_daily (
+  region     TEXT NOT NULL,
+  bucket     TEXT NOT NULL,
+  requests   INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (region, bucket)
+);
+`,
+});

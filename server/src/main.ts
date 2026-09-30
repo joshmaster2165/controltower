@@ -64,6 +64,8 @@ import { Metering } from './ee/metering.js';
 import { RegionSync } from './ee/multi-region/region.js';
 import { RegionHub } from './ee/multi-region/hub.js';
 import { RegionLink } from './ee/multi-region/link.js';
+import { LimitExchange, SharedLimiter } from './ee/multi-region/shared-limits.js';
+import { UsageSync } from './ee/multi-region/usage-sync.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -268,8 +270,13 @@ async function main(): Promise<void> {
   const spend = new SpendTracker();
   const budgets = new Budgets(db.write, spend);
   await budgets.reload();
-  // With a shared database, spend is exchanged more often so every instance meters the same budget.
-  budgets.startPersisting(db.dialect === 'postgres' ? 3_000 : 10_000);
+  // With a shared database, spend is exchanged more often so every instance meters the same budget. A region
+  // exchanges it with the control plane instead (UsageSync, below).
+  budgets.regional = !!region;
+  if (!region) budgets.startPersisting(db.dialect === 'postgres' ? 3_000 : 10_000);
+  // Rate limits shared across regions (Enterprise): what this install lets through is told to the others.
+  const sharedLimiter = new SharedLimiter(cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter());
+  const limitExchange = region ? undefined : new LimitExchange(cluster.redis);
 
   const startedAt = Date.now();
   const metrics = new Metrics({
@@ -326,7 +333,9 @@ async function main(): Promise<void> {
     adapters,
     autoModels,
     pricing,
-    limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
+    limiter: sharedLimiter,
+    sharedLimiter,
+    ...(limitExchange ? { limitExchange } : {}),
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
     auditShipper,
@@ -420,6 +429,22 @@ async function main(): Promise<void> {
   // can't be reached), then every few seconds.
   let regionSync: RegionSync | undefined;
   let regionLink: RegionLink | undefined;
+  let usageSync: UsageSync | undefined;
+  let usageOffer: NodeJS.Timeout | undefined;
+  if (!region && limitExchange) {
+    // The control plane's own traffic counts against global limits too: offered to every region.
+    usageOffer = setInterval(() => {
+      const mine = sharedLimiter.take();
+      if (!mine.length) return;
+      void db.read
+        .selectFrom('regions')
+        .select('name')
+        .execute()
+        .then((rows) => (rows.length && license.allows('multi_region') ? limitExchange.offer('', rows.map((r) => r.name), mine) : undefined))
+        .catch(() => undefined);
+    }, 2_000);
+    usageOffer.unref?.();
+  }
   if (region) {
     regionSync = new RegionSync({
       db,
@@ -450,6 +475,8 @@ async function main(): Promise<void> {
     if (first === 'failed') app.log.warn(regionSync.status().applied_etag ? 'region: serving on the configuration last received from the control plane' : 'region: no configuration from the control plane yet: nothing to serve until it arrives');
     regionSync.start();
     regionLink?.start();
+    usageSync = new UsageSync({ db, region, instanceId: cluster.id, limiter: sharedLimiter, budgets, log: () => app.log });
+    usageSync.start();
   }
 
   if (mk.source === 'generated') {
@@ -578,6 +605,8 @@ async function main(): Promise<void> {
     if (cut) app.log.info({ calls: cut }, 'shutdown: calls still in flight recorded as stopped');
     await dbSink.flush();
     await paths.stop();
+    if (usageOffer) clearInterval(usageOffer);
+    await usageSync?.stop();
     await budgets.stop();
     clearInterval(checkpoint);
     stopRetention();

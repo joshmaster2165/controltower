@@ -113,6 +113,28 @@ export class ControlPlane {
         hub.answer(((req.body as { responses?: unknown[] } | undefined)?.responses ?? []) as import('./hub.js').RpcResponse[]);
         return { ok: true };
       });
+      // Every two seconds, what a region let through and spent: counted against global limits and budgets, and
+      // answered with what the other regions did, and each budget's total. Its requests per day, for the license.
+      app.post('/cp/v1/link/usage', { bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
+        const r = await regionOf(req, reply);
+        if (!r) return reply;
+        const b = (req.body ?? {}) as { limits?: import('./shared-limits.js').LimitUsage[]; budgets?: import('../../limits/budgets.js').BudgetDelta[]; daily?: Record<string, number> };
+        const names = (await ctx.db.read.selectFrom('regions').select('name').execute()).map((x) => x.name);
+        const limits = Array.isArray(b.limits) ? b.limits.filter((u) => typeof u?.scope === 'string') : [];
+        if (ctx.limitExchange && limits.length) await ctx.limitExchange.offer(r.name, names, limits);
+        if (ctx.sharedLimiter && limits.length) await ctx.sharedLimiter.apply(limits);
+        const now = Date.now();
+        for (const [bucket, n] of Object.entries(b.daily ?? {})) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(bucket) || !Number.isFinite(n)) continue;
+          const requests = Math.max(0, Math.round(n));
+          await ctx.db.write.insertInto('region_usage_daily').values({ region: r.name, bucket, requests, updated_at: now }).onConflict((oc) => oc.columns(['region', 'bucket']).doUpdateSet({ requests, updated_at: now })).execute();
+        }
+        return {
+          limits: ctx.limitExchange ? await ctx.limitExchange.drain(r.name) : [],
+          budgets: Array.isArray(b.budgets) ? await ctx.budgets.applyRemote(b.budgets) : [],
+        };
+      });
+
       // …and its live traffic, every second: shown on the control plane's live map like its own.
       app.post('/cp/v1/link/live', { bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
         const r = await regionOf(req, reply);

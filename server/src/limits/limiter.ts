@@ -22,6 +22,8 @@ export interface Limiter {
   /** Charge (actual − estimated) tokens after completion; may be negative. */
   reconcile(scope: string, deltaTokens: number, limits: Limits, now?: number): void;
   acquireSlot(scope: string, max: number): (() => void) | null | Promise<(() => void) | null>;
+  /** Count requests and tokens made elsewhere (another region), without checking: the next admit sees them. */
+  charge(scope: string, requests: number, tokens: number, limits: Limits, now?: number): void | Promise<void>;
 }
 
 interface Gcra {
@@ -85,6 +87,16 @@ export class MemoryLimiter implements Limiter {
     const emission = 60_000 / limits.tpm;
     st.tat = Math.max(now, st.tat + deltaTokens * emission);
     st.touched = now;
+  }
+
+  charge(scope: string, requests: number, tokens: number, limits: Limits, now = Date.now()): void {
+    const push = (m: Map<string, Gcra>, perMinute: number | undefined, cost: number) => {
+      if (!perMinute || perMinute <= 0 || cost <= 0) return;
+      const st = m.get(scope);
+      m.set(scope, { tat: Math.max(now, st?.tat ?? now) + cost * (60_000 / perMinute), touched: now });
+    };
+    push(this.rpm, limits.rpm, requests);
+    push(this.tpm, limits.tpm, tokens);
   }
 
   acquireSlot(scope: string, max: number): (() => void) | null {

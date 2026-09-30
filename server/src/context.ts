@@ -42,6 +42,8 @@ export interface AppContext {
   license: import('./ee/license.js').Licensing;
   /** Flight records sent to customers' own monitoring. */
   exporter?: import('./exports/exporter.js').Exporter;
+  /** The audit log to SIEMs (Enterprise). */
+  auditShipper?: import('./ee/siem.js').AuditShipper;
   /** Cached answers, for models that opt in. */
   cache?: import('./cache/response-cache.js').CacheStore;
   /** Background health checks of models. */

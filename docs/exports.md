@@ -8,7 +8,11 @@
 
 Control Tower never records prompts or answers, so no destination ever receives one.
 
-![Exports: Datadog and an OpenTelemetry collector](images/exports.png)
+![Exports: Datadog receives calls and the audit log; an OpenTelemetry collector receives calls](images/exports.png)
+
+## What to send
+
+Each destination receives **calls** (the records on this page), **the audit log**, or both. The audit log is every change made in Control Tower and every refused attempt, sent in order and without gaps, for your SIEM. It needs [Enterprise](enterprise.md): see [Audit log to your SIEM](siem.md).
 
 ## Destinations
 
@@ -59,15 +63,28 @@ A blocked call carries the gate's `decision` (`deny`, with its `rule_id` and rea
 - **Pausing and stopping:** **Pause** stops sending to a destination; nothing is kept for it while paused. On shutdown, what is waiting is sent within a few seconds.
 - **Several instances:** with [several instances](scaling.md), each sends the calls it served.
 
-Destinations can also be managed through the API: `GET`/`POST /admin/api/exports`, `PATCH`/`DELETE /admin/api/exports/:id`, `POST /admin/api/exports/test`, and `POST /admin/api/exports/:id/flush` to send what is waiting now.
+The audit log is delivered differently: from the log itself, so nothing waits in memory, nothing is dropped while a SIEM is down, and a restart loses nothing. See [delivery of the audit log](siem.md#delivery).
 
-`POST /admin/api/exports` takes `{name, kind, config}`. What `config` holds for each kind:
+## API
+
+Admins only.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/admin/api/exports` | Destinations, with their settings (secrets only as `secrets_set`), what they send, and delivery state |
+| POST | `/admin/api/exports` | `{name, kind, config, send_flights, send_audit, audit_from}`. `send_flights` is `true` unless set; `send_audit` and `audit_from` are for [the audit log](siem.md#api) |
+| PATCH | `/admin/api/exports/:id` | Any of `name`, `enabled`, `config` (secrets left out keep their stored values), `send_flights`, `send_audit` |
+| DELETE | `/admin/api/exports/:id` | |
+| POST | `/admin/api/exports/test` | `{id}` for a saved destination, or `{kind, config}` for settings not saved yet; `"stream": "audit"` sends an example audit event instead of a call. Answers `{ok}` or `{ok: false, error}` |
+| POST | `/admin/api/exports/:id/flush` | Send what is waiting now |
+
+What `config` holds for each kind:
 
 | `kind` | `config` |
 |---|---|
 | `otlp` | `endpoint` (required, e.g. `http://otel-collector:4318`), `signal` (`traces` or `logs`, default `traces`), `headers` |
 | `datadog` | `api_key` (required), `site` (`datadoghq.com`), `service` (`controltower`), `ddtags`, `endpoint` (to send through a proxy) |
-| `splunk` | `url` (required: the HEC base URL), `token` (required), `index`, `sourcetype` (`controltower:flight`) |
+| `splunk` | `url` (required: the HEC base URL), `token` (required), `index`, `sourcetype` (`controltower:flight`), `audit_index` (for the audit log; default `index`) |
 | `s3` | `bucket`, `access_key_id`, `secret_access_key` (required), `region` (`us-east-1`), `prefix` (`controltower/`), `session_token`, `endpoint` (S3-compatible stores) |
 | `webhook` | `url` (required), `secret`, `headers` |
 

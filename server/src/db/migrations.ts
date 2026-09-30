@@ -827,3 +827,23 @@ CREATE TABLE sso_used (
 );
 `,
 });
+
+migrations.push({
+  version: 28,
+  name: 'audit_log_exports',
+  sqlite: `
+ALTER TABLE export_destinations ADD COLUMN send_flights INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE export_destinations ADD COLUMN send_audit INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE audit_exports (
+  destination_id TEXT PRIMARY KEY,
+  last_seq       INTEGER NOT NULL DEFAULT 0,
+  sent_count     INTEGER NOT NULL DEFAULT 0,
+  skipped_count  INTEGER NOT NULL DEFAULT 0,
+  last_status    TEXT,
+  last_error     TEXT,
+  last_sent_at   INTEGER,
+  lease_owner    TEXT,
+  lease_until    INTEGER NOT NULL DEFAULT 0
+);
+`,
+});

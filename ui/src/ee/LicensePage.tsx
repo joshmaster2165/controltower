@@ -16,6 +16,7 @@ export interface LicenseInfo {
 const FEATURES: Array<[string, string, boolean]> = [
   ['sso', 'Single sign-on (OIDC and SAML) and SCIM provisioning', true],
   ['audit', 'Tamper-evident audit log, with export', true],
+  ['siem_export', 'The audit log sent to your SIEM', true],
   ['jwt_auth', 'Agents authenticate with your IdP’s JWTs', false],
   ['secret_managers', 'Secret managers and key rotation', false],
   ['orgs', 'Organisations and team admins', false],

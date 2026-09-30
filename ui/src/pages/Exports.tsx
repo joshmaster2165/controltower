@@ -9,6 +9,9 @@ interface Destination {
   name: string;
   kind: Kind;
   enabled: boolean;
+  send_flights: boolean;
+  send_audit: boolean;
+  audit?: { last_seq: number; behind: number; sent: number; skipped: number; last_status: string | null; last_error: string | null; last_sent_at: number | null } | null;
   target_hint: string;
   config: Record<string, unknown>;
   secrets_set: string[];
@@ -21,7 +24,7 @@ interface Destination {
 }
 
 /** The fields each destination asks for; `secret` fields are stored encrypted and never shown again. */
-const FIELDS: Record<Kind, Array<{ key: string; label: string; placeholder?: string; secret?: boolean; required?: boolean; options?: string[] }>> = {
+const FIELDS: Record<Kind, Array<{ key: string; label: string; placeholder?: string; secret?: boolean; required?: boolean; options?: string[]; auditOnly?: boolean }>> = {
   otlp: [
     { key: 'endpoint', label: 'OTLP/HTTP endpoint', placeholder: 'http://otel-collector:4318', required: true },
     { key: 'signal', label: 'Send as', options: ['traces', 'logs'] },
@@ -37,7 +40,8 @@ const FIELDS: Record<Kind, Array<{ key: string; label: string; placeholder?: str
     { key: 'url', label: 'HTTP Event Collector URL', placeholder: 'https://splunk.example.com:8088', required: true },
     { key: 'token', label: 'HEC token', secret: true, required: true },
     { key: 'index', label: 'Index (optional)' },
-    { key: 'sourcetype', label: 'Source type', placeholder: 'controltower:flight' },
+    { key: 'sourcetype', label: 'Source type for calls', placeholder: 'controltower:flight' },
+    { key: 'audit_index', label: 'Index for the audit log (optional)', placeholder: 'the same as calls', auditOnly: true },
   ],
   s3: [
     { key: 'bucket', label: 'Bucket', required: true },
@@ -78,8 +82,19 @@ export function ExportsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sendFlights, setSendFlights] = useState(true);
+  const [sendAudit, setSendAudit] = useState(false);
+  const [auditFrom, setAuditFrom] = useState<'now' | 'start'>('now');
+  const [auditAvailable, setAuditAvailable] = useState(false);
 
-  const load = useCallback(() => void api.get<{ destinations: Destination[] }>('/admin/api/exports').then((d) => setRows(d.destinations)), []);
+  const load = useCallback(
+    () =>
+      void api.get<{ destinations: Destination[]; audit_available?: boolean }>('/admin/api/exports').then((d) => {
+        setRows(d.destinations);
+        setAuditAvailable(!!d.audit_available);
+      }),
+    [],
+  );
   useEffect(() => {
     load();
     const t = setInterval(load, 5000);
@@ -111,11 +126,15 @@ export function ExportsPage() {
     e.preventDefault();
     if (!kind) return;
     void run(async () => {
-      await api.post('/admin/api/exports', { name: name || KIND_LABEL[kind], kind, config: toConfig(kind, values) });
+      await api.post('/admin/api/exports', { name: name || KIND_LABEL[kind], kind, config: toConfig(kind, values), send_flights: sendFlights, send_audit: sendAudit, ...(sendAudit ? { audit_from: auditFrom } : {}) });
       setKind(null);
       setValues({});
       setName('');
-      setNotice('Saved. Calls from now on are sent to it.');
+      setNotice(
+        sendAudit
+          ? `Saved. ${sendFlights ? 'Calls and the audit log' : 'The audit log'} ${auditFrom === 'start' ? '(every event still kept, then each new one)' : 'from now on'} ${sendFlights ? 'are' : 'is'} sent to it.`
+          : 'Saved. Calls from now on are sent to it.',
+      );
     });
   };
 
@@ -123,11 +142,11 @@ export function ExportsPage() {
     <div className="page">
       <PageHeader
         title="Exports"
-        description="Every call, sent as it completes to your own tracing, logs, SIEM or archive: who called what, what the gates decided, what it cost and how long it took. Never a prompt or an answer."
+        description="Every call, sent as it completes to your own tracing, logs, SIEM or archive: who called what, what the gates decided, what it cost and how long it took. Never a prompt or an answer. With Enterprise, the audit log too."
         actions={
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {(Object.keys(KIND_LABEL) as Kind[]).map((k) => (
-              <button key={k} className={`btn sm ${kind === k ? 'primary' : ''}`} onClick={() => (setKind(kind === k ? null : k), setValues(k === 'otlp' ? { signal: 'traces' } : {}), setErr(null))}>
+              <button key={k} className={`btn sm ${kind === k ? 'primary' : ''}`} onClick={() => (setKind(kind === k ? null : k), setValues(k === 'otlp' ? { signal: 'traces' } : {}), setSendFlights(true), setSendAudit(false), setAuditFrom('now'), setErr(null))}>
                 + {KIND_LABEL[k]}
               </button>
             ))}
@@ -152,7 +171,7 @@ export function ExportsPage() {
               Name
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={KIND_LABEL[kind]} />
             </label>
-            {FIELDS[kind].map((f) => (
+            {FIELDS[kind].filter((f) => !f.auditOnly || sendAudit).map((f) => (
               <label key={f.key}>
                 {f.label}
                 {f.options ? (
@@ -169,12 +188,44 @@ export function ExportsPage() {
               </label>
             ))}
           </fieldset>
+          <fieldset className="stack">
+            <legend>What to send</legend>
+            <label className="check-row">
+              <input type="checkbox" checked={sendFlights} onChange={(e) => setSendFlights(e.target.checked)} />
+              <span>
+                <b>Calls</b>
+                <span className="muted">Every call as it completes: who called what, what the gates decided, cost and timings.</span>
+              </span>
+            </label>
+            <label className="check-row" style={{ cursor: auditAvailable ? 'pointer' : 'default' }}>
+              <input type="checkbox" checked={sendAudit} disabled={!auditAvailable} onChange={(e) => setSendAudit(e.target.checked)} />
+              <span>
+                <b>
+                  The audit log <span className="tag">Enterprise</span>
+                </b>
+                <span className="muted">
+                  {auditAvailable
+                    ? 'Every change and refused attempt, in order, with its chain hash, for your SIEM. Nothing is lost while it is down: sending picks up where it stopped.'
+                    : 'Sending the audit log to a SIEM needs an Enterprise license (see License).'}
+                </span>
+              </span>
+            </label>
+            {sendAudit && (
+              <label>
+                Start from
+                <select className="input" value={auditFrom} onChange={(e) => setAuditFrom(e.target.value as 'now' | 'start')}>
+                  <option value="now">New events, from now on</option>
+                  <option value="start">Every event still kept, then each new one</option>
+                </select>
+              </label>
+            )}
+          </fieldset>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn primary sm" type="submit" disabled={busy}>
+            <button className="btn primary sm" type="submit" disabled={busy || (!sendFlights && !sendAudit)}>
               Save
             </button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => void test({ kind, config: toConfig(kind, values) })}>
-              Send a test record
+            <button className="btn sm" type="button" disabled={busy} onClick={() => void test({ kind, config: toConfig(kind, values), ...(sendFlights ? {} : { stream: 'audit' }) })}>
+              Send a test {sendFlights ? 'record' : 'event'}
             </button>
             <button className="btn ghost sm" type="button" onClick={() => setKind(null)}>
               Cancel
@@ -189,6 +240,7 @@ export function ExportsPage() {
             <tr>
               <th>Destination</th>
               <th>Sends to</th>
+              <th>Sends</th>
               <th className="num">Sent</th>
               <th className="num">Waiting</th>
               <th className="num">Dropped</th>
@@ -207,6 +259,16 @@ export function ExportsPage() {
                   {d.target_hint}
                   {d.secrets_set.length > 0 && <span className="sub">{d.secrets_set.join(', ')} set</span>}
                 </td>
+                <td>
+                  <div className="sends">
+                    <label title="Calls, as they complete">
+                      <input type="checkbox" checked={d.send_flights} disabled={busy || (d.send_flights && !d.send_audit)} onChange={(e) => void run(() => api.patch(`/admin/api/exports/${d.id}`, { send_flights: e.target.checked }))} /> Calls
+                    </label>
+                    <label title={auditAvailable || d.send_audit ? 'The audit log, in order' : 'Needs an Enterprise license'}>
+                      <input type="checkbox" checked={d.send_audit} disabled={busy || (!auditAvailable && !d.send_audit) || (d.send_audit && !d.send_flights)} onChange={(e) => void run(() => api.patch(`/admin/api/exports/${d.id}`, { send_audit: e.target.checked }))} /> Audit log
+                    </label>
+                  </div>
+                </td>
                 <td className="num mono">{d.sent.toLocaleString()}</td>
                 <td className="num mono">{d.queued.toLocaleString()}</td>
                 <td className={`num mono ${d.dropped ? '' : 'muted'}`}>{d.dropped.toLocaleString()}</td>
@@ -223,10 +285,11 @@ export function ExportsPage() {
                     <span className="status">waiting for calls</span>
                   )}
                   {d.last_status === 'error' && d.last_error && <span className="sub">{d.last_error.slice(0, 80)}</span>}
+                  {d.send_audit && d.audit && <AuditStatus a={d.audit} />}
                 </td>
                 <td>
                   <div className="row-actions">
-                    <button className="btn sm" disabled={busy} onClick={() => void test({ id: d.id })}>
+                    <button className="btn sm" disabled={busy} onClick={() => void test({ id: d.id, ...(d.send_flights ? {} : { stream: 'audit' }) })}>
                       Test
                     </button>
                     <button className="btn sm" onClick={() => void run(() => api.patch(`/admin/api/exports/${d.id}`, { enabled: !d.enabled }))}>
@@ -241,7 +304,7 @@ export function ExportsPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="table-empty">
+                <td colSpan={8} className="table-empty">
                   <b>Nothing exported yet</b>
                   Add a destination above: an OpenTelemetry collector, Datadog, Splunk, an S3 bucket, or any webhook.
                 </td>
@@ -251,5 +314,18 @@ export function ExportsPage() {
         </table>
       </div>
     </div>
+  );
+}
+
+/** Where a destination has got to in the audit log. */
+function AuditStatus({ a }: { a: NonNullable<Destination['audit']> }) {
+  const failing = a.last_status === 'error';
+  return (
+    <span className="sub" style={{ whiteSpace: 'normal' }} title={a.last_error ?? undefined}>
+      Audit log: {failing ? <b className="bad">failing, {a.behind.toLocaleString()} waiting</b> : a.behind ? `${a.behind.toLocaleString()} to send` : 'up to date'}
+      {a.sent ? ` · ${a.sent.toLocaleString()} sent` : ''}
+      {a.skipped ? ` · ${a.skipped.toLocaleString()} removed by retention before sending` : ''}
+      {failing && a.last_error ? ` · ${a.last_error.slice(0, 80)}` : ''}
+    </span>
   );
 }

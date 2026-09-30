@@ -530,6 +530,7 @@ export interface Database {
   guardrail_services: GuardrailServicesTable;
   schema_migrations: SchemaMigrationsTable;
   audit_events: AuditEventsTable;
+  audit_exports: AuditExportsTable;
   identity_providers: IdentityProvidersTable;
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
@@ -650,8 +651,29 @@ export interface ExportDestinationsTable {
   last_sent_at: number | null;
   sent_count: number;
   dropped_count: number;
+  /** What goes to it: calls (flight records), the audit log (Enterprise), or both. */
+  send_flights: Bool;
+  send_audit: Bool;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * How far each destination has got through the audit log. Shipping reads from the log itself, so it survives
+ * restarts and outages; with several instances, the one holding the lease sends.
+ */
+export interface AuditExportsTable {
+  destination_id: string;
+  /** The last event delivered. */
+  last_seq: number;
+  sent_count: number;
+  /** Events retention removed before they could be sent. */
+  skipped_count: number;
+  last_status: string | null;
+  last_error: string | null;
+  last_sent_at: number | null;
+  lease_owner: string | null;
+  lease_until: number;
 }
 
 /** End customers agents serve: named, blocked, budgeted (spend comes from flights). */

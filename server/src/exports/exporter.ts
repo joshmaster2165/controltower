@@ -21,6 +21,8 @@ interface Dest {
   kind: ExportKind;
   config: ExportConfig;
   enabled: boolean;
+  sendFlights: boolean;
+  sendAudit: boolean;
   queue: FlightRecord[];
   sending: boolean;
   sent: number;
@@ -55,7 +57,7 @@ export class Exporter {
     const r = this.asm.push(e);
     if (!r) return;
     for (const d of this.dests.values()) {
-      if (!d.enabled) continue;
+      if (!d.enabled || !d.sendFlights) continue;
       d.queue.push(r);
       if (d.queue.length > QUEUE_CAP) {
         d.queue.splice(0, d.queue.length - QUEUE_CAP);
@@ -84,7 +86,9 @@ export class Exporter {
         kind: r.kind as ExportKind,
         config,
         enabled: r.enabled === 1,
-        queue: old?.queue ?? [],
+        sendFlights: r.send_flights === 1,
+        sendAudit: r.send_audit === 1,
+        queue: r.send_flights === 1 ? (old?.queue ?? []) : [],
         sending: old?.sending ?? false,
         sent: old?.sent ?? r.sent_count,
         dropped: old?.dropped ?? r.dropped_count,
@@ -181,6 +185,11 @@ export class Exporter {
 
   encryptConfig(id: string, config: ExportConfig): string {
     return this.deps.secrets.encrypt(JSON.stringify(config), `export_destinations.config_enc.${id}`);
+  }
+
+  /** Destinations the audit log goes to (running, and set to receive it). */
+  auditDestinations(): Array<{ id: string; name: string; kind: ExportKind; config: ExportConfig }> {
+    return [...this.dests.values()].filter((d) => d.enabled && d.sendAudit).map((d) => ({ id: d.id, name: d.name, kind: d.kind, config: d.config }));
   }
 
   configOf(id: string): { kind: ExportKind; config: ExportConfig } | undefined {

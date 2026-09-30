@@ -33,6 +33,8 @@ export interface ExportConfig {
   token?: string;
   index?: string;
   sourcetype?: string;
+  /** The index for audit events, when not the same as calls'. */
+  audit_index?: string;
   // s3
   bucket?: string;
   region?: string;
@@ -106,21 +108,24 @@ export async function deliver(kind: ExportKind, c: ExportConfig, records: Flight
       return post(`${c.url!.replace(/\/+$/, '')}/services/collector/event`, { 'content-type': 'application/json', authorization: `Splunk ${c.token}` }, body);
     }
     case 's3':
-      return putS3(c, records);
-    case 'webhook': {
-      const body = JSON.stringify({ type: 'controltower.flights', count: records.length, records });
-      const h: Record<string, string> = { 'content-type': 'application/json', ...(c.headers ?? {}) };
-      if (c.secret) {
-        const ts = Math.floor(Date.now() / 1000);
-        h['x-ct-signature'] = `t=${ts},v1=${crypto.createHmac('sha256', c.secret).update(`${ts}.${body}`).digest('hex')}`;
-      }
-      return post(c.url!, h, body);
-    }
+      return putS3(c, records.map((r) => JSON.stringify(r)));
+    case 'webhook':
+      return postSigned(c, JSON.stringify({ type: 'controltower.flights', count: records.length, records }));
   }
 }
 
+/** POST to a webhook, signed (`x-ct-signature: t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<body>">`) when it has a secret. */
+export function postSigned(c: ExportConfig, body: string): Promise<void> {
+  const h: Record<string, string> = { 'content-type': 'application/json', ...(c.headers ?? {}) };
+  if (c.secret) {
+    const ts = Math.floor(Date.now() / 1000);
+    h['x-ct-signature'] = `t=${ts},v1=${crypto.createHmac('sha256', c.secret).update(`${ts}.${body}`).digest('hex')}`;
+  }
+  return post(c.url!, h, body);
+}
+
 /** POST, and throw unless it was accepted. `override` replaces the URL's origin (tests and private intakes). */
-async function post(url: string, headers: Record<string, string>, body: string | Buffer, override?: string): Promise<void> {
+export async function post(url: string, headers: Record<string, string>, body: string | Buffer, override?: string): Promise<void> {
   const target = override ? `${override.replace(/\/+$/, '')}${new URL(url).pathname}` : url;
   const r = await sendUpstream('export', { url: target, method: 'POST', headers, body }, AbortSignal.timeout(20_000), { headersTimeoutMs: 20_000 });
   if (!r.ok) throw new Error(r.err.message);
@@ -138,12 +143,12 @@ function summary(r: FlightRecord): string {
 type AnyValue = { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean } | { arrayValue: { values: AnyValue[] } };
 const av = (v: string | number | boolean | string[]): AnyValue =>
   Array.isArray(v) ? { arrayValue: { values: v.map((x) => ({ stringValue: x })) } } : typeof v === 'boolean' ? { boolValue: v } : typeof v === 'number' ? (Number.isInteger(v) ? { intValue: String(v) } : { doubleValue: v }) : { stringValue: v };
-function attrs(o: Record<string, string | number | boolean | string[] | undefined | null>): Array<{ key: string; value: AnyValue }> {
+export function attrs(o: Record<string, string | number | boolean | string[] | undefined | null>): Array<{ key: string; value: AnyValue }> {
   return Object.entries(o)
     .filter(([, v]) => v !== undefined && v !== null && !(Array.isArray(v) && !v.length))
     .map(([key, v]) => ({ key, value: av(v as string | number | boolean | string[]) }));
 }
-const nanos = (ms: number) => (BigInt(Math.round(ms)) * 1_000_000n).toString();
+export const nanos = (ms: number) => (BigInt(Math.round(ms)) * 1_000_000n).toString();
 const hex = (s: string, n: number) => crypto.createHash('sha256').update(s).digest('hex').slice(0, n);
 
 const GEN_AI_OP: Record<string, string> = { chat: 'chat', messages: 'chat', responses: 'chat', embeddings: 'embeddings', completions: 'text_completion', 'mcp.tool': 'execute_tool', 'http.request': 'execute_tool', 'a2a.call': 'invoke_agent' };
@@ -189,7 +194,7 @@ function flightAttrs(r: FlightRecord) {
   });
 }
 
-const resource = (meta: { version: string }, instance?: string) => ({ attributes: attrs({ 'service.name': 'controltower', 'service.version': meta.version, 'service.instance.id': instance }) });
+export const resource = (meta: { version: string }, instance?: string) => ({ attributes: attrs({ 'service.name': 'controltower', 'service.version': meta.version, 'service.instance.id': instance }) });
 
 export function otlpTraces(records: FlightRecord[], meta: { version: string }) {
   return {
@@ -246,14 +251,15 @@ export function otlpLogs(records: FlightRecord[], meta: { version: string }) {
 
 // ---------------------------------------------------------------- S3
 
-async function putS3(c: ExportConfig, records: FlightRecord[]): Promise<void> {
+/** Write one gzipped JSON Lines file under `<prefix><under>YYYY/MM/DD/HH/`. */
+export async function putS3(c: ExportConfig, lines: string[], under = ''): Promise<void> {
   const region = c.region || 'us-east-1';
   const now = new Date();
   const p2 = (n: number) => String(n).padStart(2, '0');
   const stamp = `${now.getUTCFullYear()}${p2(now.getUTCMonth() + 1)}${p2(now.getUTCDate())}T${p2(now.getUTCHours())}${p2(now.getUTCMinutes())}${p2(now.getUTCSeconds())}Z`;
   const prefix = (c.prefix ?? 'controltower/').replace(/^\/+/, '');
-  const key = `${prefix}${now.getUTCFullYear()}/${p2(now.getUTCMonth() + 1)}/${p2(now.getUTCDate())}/${p2(now.getUTCHours())}/${stamp}-${crypto.randomBytes(4).toString('hex')}.jsonl.gz`;
-  const body = gzipSync(Buffer.from(records.map((r) => JSON.stringify(r)).join('\n') + '\n'));
+  const key = `${prefix}${under}${now.getUTCFullYear()}/${p2(now.getUTCMonth() + 1)}/${p2(now.getUTCDate())}/${p2(now.getUTCHours())}/${stamp}-${crypto.randomBytes(4).toString('hex')}.jsonl.gz`;
+  const body = gzipSync(Buffer.from(lines.join('\n') + '\n'));
   const base = c.endpoint ? c.endpoint.replace(/\/+$/, '') : `https://s3.${region}.amazonaws.com`;
   // Path-style (bucket in the path) works for AWS and every S3-compatible store.
   const u = new URL(`${base}/${c.bucket}/${key}`);

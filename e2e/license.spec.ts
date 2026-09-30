@@ -58,6 +58,10 @@ test('without a license, Enterprise features are off and say so; the rest works'
     expect([r.status, r.body.error?.code], `${method} ${p}`).toEqual([402, 'enterprise_required']);
   }
   expect(await (await fetch(`${BASE}/admin/api/sso`)).json()).toEqual({ providers: [], sso_only: false });
+  // Flights still export; the audit log to a SIEM needs Enterprise.
+  const siem = await ak('POST', '/admin/api/exports', { kind: 'webhook', config: { url: 'http://127.0.0.1:9/siem' }, send_audit: true });
+  expect([siem.status, siem.body.error?.code, siem.body.error?.feature]).toEqual([402, 'enterprise_required', 'siem_export']);
+  expect((await ak('GET', '/admin/api/exports')).body.audit_available).toBe(false);
   expect((await ak('POST', '/admin/api/keys', { name: 'free-agent' })).status).toBe(201); // everything else works
 });
 

@@ -4,9 +4,12 @@
  * Writes cluster-results.json.
  */
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import { openAiUpstream } from '../../e2e/support/upstreams.ts';
+import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license.ts';
 
 const DIR = process.env.RESULTS_DIR ?? new URL('.', import.meta.url).pathname;
 const REPO = new URL('../..', import.meta.url).pathname;
@@ -16,13 +19,33 @@ const AK = 'cluster-test-admin-key-0123456789abc';
 const MASTER = Buffer.alloc(32, 7).toString('base64');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const logs: Record<string, string[]> = {};
+const LICENSE = testLicense();
+
+// A SIEM: the audit events it receives, by sequence number.
+const siemGot: number[] = [];
+const siem = http.createServer((req, res) => {
+  const chunks: Buffer[] = [];
+  req.on('data', (d: Buffer) => chunks.push(d));
+  req.on('end', () => {
+    for (const e of (JSON.parse(Buffer.concat(chunks).toString('utf8')).events ?? []) as Array<{ seq: number }>) siemGot.push(e.seq);
+    res.writeHead(200);
+    res.end('{}');
+  });
+});
+await new Promise<void>((r) => siem.listen(0, '127.0.0.1', () => r()));
+const siemUrl = `http://127.0.0.1:${(siem.address() as AddressInfo).port}/siem`;
+const newestSeq = async (x: ReturnType<typeof admin>) => Number(((await x('GET', '/admin/api/audit?limit=1')).body.events as Array<{ seq: number }>)[0]?.seq ?? 0);
+const siemHas = async (upTo: number, waitMs: number) => {
+  for (let t = 0; t < waitMs && !(siemGot.length && Math.max(...siemGot) >= upTo); t += 500) await sleep(500);
+  return siemGot.length > 0 && Math.max(...siemGot) >= upTo;
+};
 
 function start(name: string, port: number, extra: Record<string, string> = {}): { p: ChildProcess; url: string; ready: Promise<boolean> } {
   const url = `http://127.0.0.1:${port}`;
   logs[name] = [];
   const p = spawn(process.execPath, ['server/dist/server.mjs'], {
     cwd: REPO,
-    env: { ...process.env, CT_PORT: String(port), CT_DATA_DIR: `${process.env.SCRATCH ?? (process.env.TMPDIR ?? '/tmp')}/cluster-${name}`, CT_ADMIN_KEY: AK, CT_MASTER_KEY: MASTER, CT_DATABASE_URL: PG, CT_REDIS_URL: REDIS, CT_UI_DIR: 'ui/dist', CT_LOG_LEVEL: 'warn', CT_INSTANCE_ID: name, CT_INSTANCE_TIMEOUT_MS: '8000', CT_HOLD_BUDGET_MS: '30000', ...extra },
+    env: { ...process.env, CT_PORT: String(port), CT_DATA_DIR: `${process.env.SCRATCH ?? (process.env.TMPDIR ?? '/tmp')}/cluster-${name}`, CT_ADMIN_KEY: AK, CT_MASTER_KEY: MASTER, CT_DATABASE_URL: PG, CT_REDIS_URL: REDIS, CT_UI_DIR: 'ui/dist', CT_LOG_LEVEL: 'warn', CT_INSTANCE_ID: name, CT_INSTANCE_TIMEOUT_MS: '8000', CT_HOLD_BUDGET_MS: '30000', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_LICENSE_KEY: LICENSE, CT_LICENSE_SERVER: 'off', ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   for (const s of [p.stdout!, p.stderr!]) s.on('data', (d) => logs[name]!.push(String(d)));
@@ -150,6 +173,18 @@ try {
   const topo = (await b('GET', '/admin/api/topology')).body;
   c('the map on either instance draws all the traffic', topo.edges.some((e: any) => e.key_id === k.id && e.requests >= 6), `edges for the agent on b: ${topo.edges.filter((e: any) => e.key_id === k.id).map((e: any) => e.requests).join(', ')}`);
 
+  // The audit log to a SIEM: changes through both instances arrive once each, in order, sent by one of them.
+  const dest = (await a('POST', '/admin/api/exports', { name: 'SIEM', kind: 'webhook', config: { url: siemUrl }, send_flights: false, send_audit: true })).body;
+  const made: string[] = [];
+  for (let i = 0; i < 10; i++) made.push((await (i % 2 ? b : a)('POST', '/admin/api/keys', { name: `cluster-audit-${i}` })).body.id);
+  for (const id of made) await (made.indexOf(id) % 2 ? a : b)('DELETE', `/admin/api/keys/${id}`);
+  const upTo = await newestSeq(a);
+  const arrived = await siemHas(upTo, 20_000);
+  const dupes = siemGot.length - new Set(siemGot).size;
+  const inOrder = siemGot.every((x, i) => i === 0 || x === siemGot[i - 1]! + 1);
+  const holder = ((await a('GET', '/admin/api/exports')).body.destinations as any[]).find((d) => d.id === dest.id)?.audit;
+  c('the audit log reaches the SIEM once, in order, from changes made through both instances', arrived && dupes === 0 && inOrder && siemGot.length >= 21, `${siemGot.length} events (seq ${siemGot[0]}–${siemGot.at(-1)}), newest recorded ${upTo}, ${dupes} twice, ${inOrder ? 'in order' : 'out of order'}; status: ${holder?.last_status}, ${holder?.behind} behind`);
+
   // An instance that crashes: the other closes out what it left open.
   const ck = (await a('POST', '/admin/api/keys', { name: 'cluster-crash' })).body;
   const ch = (await a('POST', '/admin/api/rules', { name: 'cluster: hold for crash', target_kind: 'model', match: { keys: [ck.id] }, effect: 'require_approval', config: { hold_ms: 30000 } })).body;
@@ -171,6 +206,11 @@ try {
   const stillB = await chat(B.url, k.key);
   const rb = (await b('GET', '/admin/api/rules')).body;
   const rules = (Array.isArray(rb) ? rb : (rb.rules ?? [])).map((r: any) => r.name);
+  // Whichever instance was sending to the SIEM, the survivor sends now.
+  await b('POST', '/admin/api/keys', { name: 'cluster-audit-after-crash' });
+  const afterCrash = await newestSeq(b);
+  const tookOver = await siemHas(afterCrash, 45_000);
+  c('when an instance crashes, the other goes on sending the audit log', tookOver, `newest ${afterCrash}, SIEM has up to ${Math.max(...siemGot)}; ${siemGot.length - new Set(siemGot).size} sent twice (allowed: delivery is at least once)`);
   c('the surviving instance keeps serving', stillB.status === 200, `call through b: ${stillB.status} ${stillB.code ?? ''} ${stillB.message}; gates: ${rules.join(', ')}`);
 
   // An instance with a different master key refuses to start.
@@ -183,6 +223,7 @@ try {
   A.p.kill('SIGTERM');
   B.p.kill('SIGTERM');
   await oai.close();
+  siem.close();
   fs.writeFileSync(`${DIR}/cluster-results.json`, JSON.stringify({ ran_at: new Date().toISOString(), checks }, null, 2));
   await sleep(1000);
 }

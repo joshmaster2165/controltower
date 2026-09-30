@@ -32,11 +32,15 @@ Each event says:
 
 Events are numbered in one sequence, even across [several instances](scaling.md) sharing a database. Each event stores the SHA-256 hash of its own contents and of the event before it. **Verify** (or `GET /admin/api/audit/verify`) walks the whole chain, and names the first event that was edited, removed or put out of order by someone with direct database access. The oldest event still kept is where checking starts, since older events leave with retention.
 
-For evidence that survives someone with full database access, export the log to storage they can't change, and keep the exports.
+For evidence that survives someone with full database access, [send the log to your SIEM](siem.md) or export it to storage they can't change. Your SIEM can [check the chain](siem.md#checking-the-chain-in-your-siem) itself.
 
 ## Export
 
 **CSV** and **JSON Lines** on the page (or `GET /admin/api/audit/export?format=csv|jsonl&since=&until=`) download the whole log for the chosen window, oldest first. CSV cells that a spreadsheet would treat as a formula are defused.
+
+## Send it to your SIEM
+
+Any [export destination](exports.md) can receive the audit log as it happens: Splunk, Datadog, OpenTelemetry (and through it Elastic, Sentinel and others), S3 or a webhook. Events arrive in order, with their chain hashes, and nothing is lost while the SIEM is down. See [Audit log to your SIEM](siem.md).
 
 ## Retention
 

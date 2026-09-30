@@ -187,3 +187,67 @@ test('"Test" sends an example record; a destination that is down reports why', a
   const h2 = at('/hook2').at(-1)!;
   expect(String(h2.headers['x-ct-signature'])).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
 });
+
+test('the audit log goes to a SIEM in order, with its chain; a SIEM that was down catches up (Enterprise)', async () => {
+  // Only the audit log, from every event still kept.
+  const r = await admin.post('/admin/api/exports', { name: 'SIEM (audit)', kind: 'webhook', config: { url: `${rUrl}/audit`, secret: SECRET }, send_flights: false, send_audit: true, audit_from: 'start' });
+  expect(r.status, JSON.stringify(r.body)).toBe(201);
+  const siem = r.body.id as string;
+  destIds.push(siem);
+  const splunk = await admin.post('/admin/api/exports', { name: 'Splunk (audit)', kind: 'splunk', config: { url: `${rUrl}/splunk-audit`, token: 'hec-secret', index: 'ai', audit_index: 'security' }, send_flights: false, send_audit: true });
+  destIds.push(splunk.body.id);
+  expect((await admin.post('/admin/api/exports', { kind: 'webhook', config: { url: `${rUrl}/x` }, send_flights: false, send_audit: false })).status).toBe(400);
+
+  // A change, and a call (which an audit-only destination doesn't get).
+  const k = await admin.post('/admin/api/keys', { name: 'siem-audited-agent' });
+  await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'ex-model', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+  await admin.post(`/admin/api/exports/${siem}/flush`);
+  await admin.post(`/admin/api/exports/${splunk.body.id}/flush`);
+
+  const batches = at('/audit').map(json);
+  expect(batches.every((b) => b.type === 'controltower.audit')).toBe(true);
+  const events = batches.flatMap((b) => b.events);
+  const seqs = events.map((e: any) => e.seq);
+  expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+  for (let i = 1; i < events.length; i++) {
+    expect(events[i].seq).toBe(events[i - 1].seq + 1);
+    expect(events[i].prev_hash).toBe(events[i - 1].hash);
+  }
+  const made = events.find((e: any) => e.action === 'keys.create' && e.target?.id === k.body.id);
+  expect(made).toMatchObject({ outcome: 'success', status: 201, actor: { type: 'person' } });
+  expect(JSON.stringify(events)).not.toContain(k.body.key); // the key it returned is never recorded
+  expect(events.some((e: any) => e.action === 'exports.create')).toBe(true); // including setting this up
+  const sig = at('/audit')[0]!.headers['x-ct-signature'];
+  const [t, v1] = String(sig).replace('t=', '').split(',v1=');
+  expect(v1).toBe(crypto.createHmac('sha256', SECRET).update(`${t}.${at('/audit')[0]!.body.toString('utf8')}`).digest('hex'));
+
+  // Splunk: its own source type and index; from when it was added, not before.
+  const hec = at('/splunk-audit/services/collector/event').flatMap((g) => g.body.toString('utf8').split('\n').map((l) => JSON.parse(l)));
+  expect(hec.length).toBeGreaterThan(0);
+  expect(hec.every((x) => x.sourcetype === 'controltower:audit' && x.index === 'security')).toBe(true);
+  expect(hec.some((x) => x.event.action === 'keys.create' && x.event.target?.id === k.body.id)).toBe(true);
+  expect(Math.min(...hec.map((x) => x.event.seq))).toBeGreaterThan(Math.min(...seqs));
+
+  // The SIEM goes down: events wait in the log, and it says so; back up, it gets them all, none twice.
+  await admin.patch(`/admin/api/exports/${siem}`, { config: { url: `${rUrl}/down-audit` } });
+  const whileDown = await admin.post('/admin/api/keys', { name: 'siem-while-down' });
+  await admin.post(`/admin/api/exports/${siem}/flush`);
+  const failing = ((await admin.get('/admin/api/exports')).body.destinations as any[]).find((d) => d.id === siem);
+  expect(failing).toMatchObject({ send_flights: false, send_audit: true, audit: { last_status: 'error', last_error: expect.stringContaining('503') } });
+  expect(failing.audit.behind).toBeGreaterThan(0);
+  await admin.patch(`/admin/api/exports/${siem}`, { config: { url: `${rUrl}/audit` } });
+  await admin.post(`/admin/api/exports/${siem}/flush`);
+  const after = at('/audit').map(json).flatMap((b) => b.events);
+  const all = after.map((e: any) => e.seq);
+  expect(new Set(all).size).toBe(all.length);
+  for (let i = 1; i < after.length; i++) expect(after[i].seq).toBe(after[i - 1].seq + 1);
+  expect(after.some((e: any) => e.action === 'keys.create' && e.detail?.body?.name === 'siem-while-down')).toBe(true);
+  const ok = ((await admin.get('/admin/api/exports')).body.destinations as any[]).find((d) => d.id === siem);
+  expect(ok.audit).toMatchObject({ last_status: 'ok' });
+
+  // "Test" on an audit destination sends an example event.
+  expect((await admin.post('/admin/api/exports/test', { id: siem, stream: 'audit' })).body).toEqual({ ok: true });
+  expect(at('/audit').map(json).at(-1).events[0]).toMatchObject({ action: 'audit.test', seq: 0 });
+  // Leave the fleet as it was (later specs count agents on the map).
+  for (const id of [k.body.id, whileDown.body.id]) await admin.del(`/admin/api/keys/${id}`);
+});

@@ -44,7 +44,7 @@ const SIDEBAR = [
     ],
   },
   { title: 'Governance', items: [['airspace', 'Airspace, gates & approvals'], ['agent-to-agent', 'Agents calling agents'], ['policy-as-code', 'Policy as code'], ['guardrails', 'Guardrail services'], ['threat-model', 'What is enforced'], ['owasp-llm-top-10', 'OWASP LLM Top 10']] },
-  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['exports', 'Exporting flights'], ['scaling', 'Running several instances'], ['people', 'People & roles'], ['enterprise', 'Enterprise'], ['sso', 'Single sign-on'], ['scim', 'SCIM provisioning'], ['audit', 'Audit log'], ['troubleshooting', 'Troubleshooting']] },
+  { title: 'Operations', items: [['alerts', 'Alerting & approvals'], ['monitoring', 'Logging & metrics'], ['exports', 'Exporting flights'], ['scaling', 'Running several instances'], ['people', 'People & roles'], ['enterprise', 'Enterprise'], ['sso', 'Single sign-on'], ['scim', 'SCIM provisioning'], ['audit', 'Audit log'], ['siem', 'Audit log to your SIEM'], ['troubleshooting', 'Troubleshooting']] },
   { title: 'Reference', items: [['architecture', 'Architecture'], ['api', 'API reference'], ['configuration', 'CLI & environment'], ['config-file', 'Config file']] },
 ];
 

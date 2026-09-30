@@ -12,7 +12,7 @@ const NAMES: Record<Feature, string> = {
   secret_managers: 'Secret managers',
   orgs: 'Organisations and team admins',
   multi_region: 'The multi-region control plane',
-  siem_export: 'Audit export to a SIEM',
+  siem_export: 'Sending the audit log to a SIEM',
 };
 
 /** preHandler: 402 unless the license in force includes the feature. */

@@ -1,3 +1,5 @@
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { nav, shot, startServer } from './helpers';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license';
@@ -135,11 +137,32 @@ test('enterprise: license, people, single sign-on, SCIM, audit log, guardrails, 
     await nav(page, 'Guardrails');
     await expect(page.getByText('Lakera Guard').first()).toBeVisible();
     await shot(page, 'guardrails');
-    await api('POST', '/admin/api/exports', { name: 'Datadog', kind: 'datadog', config: { api_key: 'dd_example_key_not_real', site: 'datadoghq.com', service: 'controltower' } });
+    // Datadog gets calls and the audit log (its intake is a local stand-in, so the audit log shows as delivered).
+    const intake = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => (res.writeHead(202, { 'content-type': 'application/json' }), res.end('{}')));
+    });
+    await new Promise<void>((r) => intake.listen(0, '127.0.0.1', () => r()));
+    const dd = await api('POST', '/admin/api/exports', { name: 'Datadog', kind: 'datadog', config: { api_key: 'dd_example_key_not_real', site: 'datadoghq.com', service: 'controltower', endpoint: `http://127.0.0.1:${(intake.address() as AddressInfo).port}` }, send_audit: true, audit_from: 'start' });
     await api('POST', '/admin/api/exports', { name: 'OpenTelemetry collector', kind: 'otlp', config: { endpoint: 'http://otel-collector:4318', signal: 'traces' } });
+    await api('POST', `/admin/api/exports/${dd.id}/flush`);
     await nav(page, 'Exports');
     await expect(page.getByText('OpenTelemetry collector').first()).toBeVisible();
+    await expect(page.getByText('Audit log: up to date')).toBeVisible();
     await shot(page, 'exports');
+    // Adding Splunk for the audit log only.
+    await page.getByRole('button', { name: '+ Splunk' }).click();
+    const exForm = page.locator('form.card');
+    await exForm.getByLabel('Name').fill('Splunk (security)');
+    await exForm.getByLabel('HTTP Event Collector URL').fill('https://splunk.acme.com:8088');
+    await exForm.getByLabel('HEC token').fill('an-example-hec-token');
+    await exForm.getByRole('checkbox', { name: /Calls/ }).uncheck();
+    await exForm.getByRole('checkbox', { name: /The audit log/ }).check();
+    await exForm.getByLabel('Index for the audit log (optional)').fill('security');
+    await exForm.getByLabel('Start from').selectOption('start');
+    await shot(page, 'exports-audit-form', { clip: exForm, pad: 8 });
+    await exForm.getByRole('button', { name: 'Cancel' }).click();
+    intake.close();
 
     // The audit log, after all that, and its check.
     await page.goto(`${ct.url}/#/audit`);

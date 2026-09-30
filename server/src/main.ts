@@ -53,6 +53,7 @@ import { ObservedStore } from './observe/observe.js';
 import { NANO_PER_USD } from '@controltower/shared';
 import { supportBundle } from './support/bundle.js';
 import { AuditLog } from './ee/audit.js';
+import { AuditShipper } from './ee/siem.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
@@ -247,6 +248,9 @@ async function main(): Promise<void> {
   const ls = await license.load();
   if (ls.status === 'invalid') console.warn(`[controltower] license: ${ls.reason}`);
   else if (ls.license) console.warn(`[controltower] Enterprise license for ${ls.license.customer}: ${ls.status}, until ${new Date(ls.license.expires_at).toISOString().slice(0, 10)}`);
+  // The audit log to SIEMs, from each destination's position in the log (Enterprise).
+  const auditShipper = new AuditShipper({ db, destinations: () => exporter.auditDestinations(), allowed: () => license.allows('siem_export'), instanceId: cluster.id, version: config.version, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
+  auditShipper.start();
   const pricing = new PricingTable();
   const autoModels = new AutoModels({ db: db.write, registry, pricing, adapters, enabled: config.autoModels }, (msg) => (logRef ?? console).info?.(msg));
 
@@ -261,6 +265,7 @@ async function main(): Promise<void> {
     limiter: cluster.redis ? new RedisLimiter(cluster.redis) : new MemoryLimiter(),
     cache: cluster.redis ? new RedisStore(cluster.redis) : new MemoryStore(),
     exporter,
+    auditShipper,
     guardrails,
     license,
     audit: new AuditLog(db, { warn: (o, m) => (logRef ?? console).warn?.(o, m) }, () => license.allows('audit')),
@@ -434,6 +439,7 @@ async function main(): Promise<void> {
     alerts.stop();
     modelHealth.stop();
     await exporter.stop();
+    await auditShipper.stop();
     clearInterval(guardrailSaver);
     await guardrails.save();
     observed.stop();

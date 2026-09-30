@@ -79,7 +79,7 @@ jobs:
           gh label create approved --color 1a9e6b --description "Publish this social draft" 2>/dev/null || true
           gh label create published --color 0b3d91 --description "Social draft was posted" 2>/dev/null || true
           node marketing/lib/issue.mjs body out/manifest.json "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.store.outputs.sha }}" "$ID" > body.md
-          title="📣 Social draft $ID: $(jq -r .title out/manifest.json)"
+          title="📣 Social draft $ID: $(jq -r .brief.title out/manifest.json)"
           existing=$(gh issue list --label social-draft --state open --search "\"social draft $ID\" in:title" --json number --jq '.[0].number')
           if [ -n "$existing" ]; then gh issue edit "$existing" --title "$title" --body-file body.md; else gh issue create --title "$title" --label social-draft --body-file body.md --assignee "${{ github.repository_owner }}"; fi
       - name: Delete the draft branch

@@ -45,7 +45,7 @@ A license includes a number of requests a year, and **License** shows how many h
 - **The license year** runs from when your subscription began (a trial: from when it started), then from that date each year. For a key without that date, it runs from when this install first saw it.
 - **At this pace** projects the year from the months so far, once a week has passed, so you can see early if you'll need more.
 - **At 80%, and again at 100%,** a line at the top of the console says so. The [audit log](audit.md) records it once each year as `license.usage`, and the server logs it.
-- **Going over never slows, refuses or stops anything.** It's a conversation at renewal, where more requests a year cost less each ([pricing](https://website-production-77c1.up.railway.app/pricing.html)).
+- **Going over never slows, refuses or stops anything.** It's a conversation at renewal, where more requests a year cost less each ([pricing](https://agentcontroltower.app/pricing.html)).
 
 **What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
 
@@ -69,7 +69,7 @@ Without a license, each Enterprise feature says so where it would be:
 - **Enterprise:** a yearly subscription per deployment. The base plan includes 5 single sign-on seats and 100 million requests a year. Add seats as you grow: seats 6–25 and seats 26–100 each have their own price, and the per-seat price drops for the larger block. Monthly billing is available at a higher rate.
 - **More than 100 seats, or over a billion requests a year:** contact sales for volume pricing.
 
-Plans, checkout and trial keys are at the **[license service](https://license-production-9780.up.railway.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
+Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
 
 ## API
 

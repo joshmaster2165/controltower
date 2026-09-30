@@ -18,7 +18,7 @@ const PUBLIC_KEYS: Record<string, string> = {
 };
 
 /** Where plans, checkout and trial keys are (the license service). */
-export const LICENSE_STORE: string | null = 'https://license-production-9780.up.railway.app';
+export const LICENSE_STORE: string | null = 'https://license.agentcontroltower.app';
 
 export const FEATURES = ['sso', 'scim', 'audit', 'jwt_auth', 'secret_managers', 'orgs', 'multi_region', 'siem_export'] as const;
 export type Feature = (typeof FEATURES)[number];

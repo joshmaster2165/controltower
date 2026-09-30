@@ -1,7 +1,7 @@
 <p align="center">
   <img src="ui/public/logo-wordmark.svg" alt="Control Tower" width="320"><br/>
   The self-hosted AI gateway that <em>shows</em> you where your agents go — and lets you stop them at the border.<br/>
-  <a href="https://joshmaster2165.github.io/controltower/">Website</a> · <a href="docs/README.md">Docs</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="SUPPORT.md">Support</a>
+  <a href="https://agentcontroltower.app">Website</a> · <a href="docs/README.md">Docs</a> · <a href="#quickstart">Quickstart</a> · <a href="docs/threat-model.md">What is enforced</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="SUPPORT.md">Support</a>
 </p>
 
 <p align="center">

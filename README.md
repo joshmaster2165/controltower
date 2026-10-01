@@ -5,6 +5,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/joshmaster2165/controltower/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/joshmaster2165/controltower/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/joshmaster2165/controltower/releases/latest"><img src="https://img.shields.io/github/v/release/joshmaster2165/controltower?label=release" alt="Latest release"></a>
+  <a href="https://github.com/joshmaster2165/controltower/pkgs/container/controltower"><img src="https://img.shields.io/badge/image-ghcr.io-2496ED?logo=docker&logoColor=white" alt="Container image on ghcr.io"></a>
+  <a href="docs/install.md#verifying-the-image"><img src="https://img.shields.io/badge/image-signed%20(cosign)-2ea44f?logo=sigstore&logoColor=white" alt="Images signed with cosign"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  <a href="docs/enterprise.md"><img src="https://img.shields.io/badge/enterprise-ELv2-8a63d2" alt="Enterprise: Elastic License 2.0"></a>
+  <a href="https://agentcontroltower.app/docs/"><img src="https://img.shields.io/badge/docs-agentcontroltower.app-0b7285" alt="Docs"></a>
+</p>
+
+<p align="center">
   <img src="docs/media/controltower-demo.gif" alt="The Control Tower console: a live map of agents, models, MCP tool servers and APIs; clicking an agent traces its connections; dragging from the agent to a Salesforce tool adds a require-approval gate; the next call holds at the gate and is approved in the Tower." width="100%"><br/>
   <sub>The real console with the demo fleet: <b>see</b> every flow, <b>trace</b> an agent, <b>draw a gate</b>, <b>approve</b> the held call. Recorded with <code>pnpm demo:gif</code>.</sub>
 </p>

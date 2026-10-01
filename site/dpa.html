@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data processing agreement — Control Tower</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root { --bg:#f4f6fa; --paper:#fff; --ink:#0f1b2d; --dim:#5b6b82; --faint:#8a98ad; --line:#e3e8f0; --line-2:#d3dbe7; --accent:#1f5eff; --soft:#e8efff; --warn:#d9860b; --night:#0a1222;
+  --sans:'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; --mono:'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.draft { background: #fff4e0; color: #7a4a00; border-bottom: 1px solid #f0d49c; font: 500 12.5px/1.4 var(--mono); text-align: center; padding: 10px 16px; }
+.nav { background: rgba(255,255,255,.85); border-bottom: 1px solid var(--line); }
+.nav .in { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 24px; height: 60px; padding: 0 24px; }
+.brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-weight: 600; font-size: 16px; color: var(--ink); text-decoration: none; }
+.brand img { width: 24px; height: 24px; }
+.nav nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+.nav nav a { color: #33435a; text-decoration: none; }
+.nav nav a[aria-current] { color: var(--ink); font-weight: 500; }
+main { max-width: 760px; margin: 0 auto; padding: 56px 24px 88px; }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 40px; line-height: 1.1; font-weight: 500; letter-spacing: -.03em; margin: 14px 0 8px; text-wrap: balance; }
+.meta { color: var(--dim); font-size: 14px; margin-bottom: 28px; }
+.summary { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin: 0 0 36px; }
+.summary h2 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.summary ul { margin: 0; padding-left: 20px; }
+h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; margin: 40px 0 8px; scroll-margin-top: 16px; }
+h3 { font-size: 16px; font-weight: 600; margin: 22px 0 4px; }
+p, li { max-width: 68ch; }
+li { margin: 4px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--paper); }
+.tw { overflow-x: auto; }
+mark.fill { background: #fff0c2; color: #6b4200; padding: 0 4px; border-radius: 4px; font-weight: 500; }
+code { font: 400 .9em var(--mono); background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { background: var(--night); color: #8b9ab5; font-size: 13px; }
+footer .in { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; padding: 28px 24px; }
+footer a { color: #8b9ab5; text-decoration: none; } footer a:hover { color: #fff; }
+footer .sp { flex: 1; }
+@media (max-width: 640px) { h1 { font-size: 31px; } .nav .in { gap: 12px; padding: 0 16px; } .nav nav { gap: 12px; font-size: 13px; } .nav nav .wide { display: none; } main { padding-top: 36px; } }
+</style>
+</head>
+<body>
+
+<header class="nav"><div class="in"><a class="brand" href="./"><img src="logo.svg" alt="" />Control Tower</a><nav><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html">Refunds</a><a href="dpa.html" aria-current="page">DPA</a><a class="wide" href="pricing.html">Pricing</a></nav></div></header>
+<main>
+<div class="eyebrow">Legal</div>
+<h1>Data processing agreement</h1>
+<div class="meta">Effective 1 October 2026 · Questions: <a href="mailto:privacy@agentcontroltower.app">privacy@agentcontroltower.app</a></div>
+<div class="summary">
+<h2>In short</h2>
+<ul>
+<li>Control Tower runs on your servers. The personal data passing through it never reaches us, so most of what a DPA usually covers doesn't arise.</li>
+<li>This agreement covers what you choose to share with us: support emails, attachments, logs and support bundles.</li>
+<li>We use it only to help you, keep it safe, delete it within 90 days of your request being resolved, and tell you within 48 hours if something goes wrong.</li>
+<li>It forms part of your Enterprise subscription. There's nothing to sign unless you want a countersigned copy.</li>
+</ul>
+</div>
+
+<h2 id="parties">1. Parties and scope</h2>
+<p>This data processing agreement ("<b>DPA</b>") is between Agent Control Tower ("<b>we</b>", the processor; <a href="mailto:privacy@agentcontroltower.app">privacy@agentcontroltower.app</a>), and the organisation that holds a Control Tower Enterprise subscription or trial ("<b>you</b>", the controller). It forms part of our <a href="terms.html">Enterprise subscription terms</a> ("<b>Agreement</b>"). Where they disagree about personal data, this DPA wins.</p>
+<p><b>What it covers.</b> You run Control Tower on your own infrastructure. We don't host it or have access to it, and the prompts, responses, call records, credentials and users it handles stay with you. This DPA covers the personal data you choose to send us when you ask for support, described in <a href="#annex-1">Annex 1</a> ("<b>Support Data</b>").</p>
+<p><b>What it doesn't cover.</b> Your account, billing and license details (who bought, their email, the license renewal), which we handle as a controller under our <a href="privacy.html">privacy policy</a>.</p>
+<p>Terms such as <i>personal data</i>, <i>processing</i>, <i>controller</i>, <i>processor</i>, <i>data subject</i> and <i>personal data breach</i> have the meanings given in the GDPR (Regulation (EU) 2016/679) and the UK GDPR. "<b>Data Protection Law</b>" means those laws, and any other privacy law that applies to the Support Data.</p>
+
+<h2 id="instructions">2. Processing on your instructions</h2>
+<p>We process Support Data only to provide support under the Agreement, and otherwise only on your documented instructions. The Agreement, this DPA and your support requests are those instructions. If we believe an instruction breaks Data Protection Law, we'll tell you. If the law requires us to process Support Data otherwise, we'll tell you first, unless the law forbids it.</p>
+<p>Please send us only what we need. The support bundle Control Tower produces leaves out keys, credentials, prompts, answers, hostnames and the names of agents and people. Read it before you send it.</p>
+
+<h2 id="confidentiality">3. Confidentiality</h2>
+<p>Only people who need Support Data to help you have access to it, and each of them is bound by confidentiality.</p>
+
+<h2 id="security">4. Security</h2>
+<p>We protect Support Data with the measures in <a href="#annex-2">Annex 2</a>, appropriate to the risk. We may improve them, but we won't lower the overall level of protection.</p>
+
+<h2 id="subprocessors">5. Sub-processors</h2>
+<p>You authorise the sub-processors in <a href="#annex-3">Annex 3</a>. We'll tell you at least 30 days before adding or replacing one. If you object on reasonable data protection grounds and we can't resolve it, you may end the affected subscription and we'll refund the fees prepaid for the rest of its term. Each sub-processor is bound by written terms that protect Support Data at least as well as this DPA does. We remain responsible for them.</p>
+
+<h2 id="assistance">6. Helping you</h2>
+<ul>
+<li><b>Requests from data subjects:</b> we help you answer them. If a data subject asks us directly, we'll pass the request to you rather than answer it ourselves.</li>
+<li><b>Your other obligations:</b> where it concerns Support Data, we help with data protection impact assessments, prior consultations and security.</li>
+</ul>
+
+<h2 id="breach">7. Personal data breaches</h2>
+<p>We'll tell you without undue delay, and within 48 hours, of becoming aware of a personal data breach affecting Support Data. We'll say what we know (what happened, the data and people affected, the likely consequences, and what we're doing about it) and update you as we learn more.</p>
+
+<h2 id="deletion">8. Deletion</h2>
+<p>We delete Support Data within 90 days of the support request it came with being resolved, and all of it within 30 days of the Agreement ending, unless the law requires us to keep it. You can ask us to delete Support Data sooner at any time.</p>
+
+<h2 id="audits">9. Information and audits</h2>
+<p>We'll give you the information you reasonably need to show that we meet this DPA. That includes:</p>
+<ul>
+<li>answering a reasonable security questionnaire once a year;</li>
+<li>our <a href="docs/security.html">security documentation</a>.</li>
+</ul>
+<p>If that isn't enough, or a supervisory authority requires it, we'll allow an audit by you or an independent auditor bound by confidentiality, on 30 days' notice, during business hours, at your cost, and at most once a year.</p>
+
+<h2 id="transfers">10. International transfers</h2>
+<p>Where Support Data is transferred out of the EEA, the UK or Switzerland to a country without an adequacy decision, the following are incorporated into this DPA and govern the transfer:</p>
+<ul>
+<li>the Standard Contractual Clauses (Commission Implementing Decision (EU) 2021/914), Module Two (controller to processor), with you as data exporter and us as data importer;</li>
+<li>for the UK, the International Data Transfer Addendum;</li>
+<li>for Switzerland, the clauses as adapted for the Swiss Federal Act on Data Protection.</li>
+</ul>
+<p>How the clauses' options are taken:</p>
+<ul>
+<li>Clause 7 (docking) applies.</li>
+<li>Under Clause 9, option 2 applies, with 30 days' notice.</li>
+<li>Clause 11's optional wording doesn't apply.</li>
+<li>Clauses 17 and 18 refer to the law and courts of Ireland.</li>
+<li>Annexes 1 to 3 of this DPA complete Annexes I to III of the clauses.</li>
+</ul>
+
+<h2 id="liability">11. Liability and term</h2>
+<p>Each party's liability under this DPA is subject to the limits in the Agreement, except where Data Protection Law doesn't allow them. This DPA lasts as long as we process Support Data.</p>
+
+<h2 id="annex-1">Annex 1 — The processing</h2>
+<div class="tw"><table>
+<tr><th>Subject matter</th><td>Support for your use of Control Tower</td></tr>
+<tr><th>Nature and purpose</th><td>Receiving, reading and storing what you send us to answer support requests; diagnosing and fixing problems</td></tr>
+<tr><th>Duration</th><td>For the Agreement, and until the deletion in section 8</td></tr>
+<tr><th>Data subjects</th><td>Your staff and contractors who contact support; any other people named in what you choose to send</td></tr>
+<tr><th>Personal data</th><td>Names, work email addresses and roles; the content of support requests, and of attachments, logs, screenshots and support bundles you send</td></tr>
+<tr><th>Special categories</th><td>None intended. Please don't send them.</td></tr>
+<tr><th>Frequency</th><td>Whenever you ask for support</td></tr>
+</table></div>
+
+<h2 id="annex-2">Annex 2 — Security measures</h2>
+<ul>
+<li>Support Data is reached only through accounts that require multi-factor authentication, by the people helping you.</li>
+<li>It's stored only in our email and support systems and on encrypted devices. It's never placed in public repositories or issue trackers.</li>
+<li>Email is sent and received over TLS.</li>
+<li>Devices that hold Support Data have full-disk encryption, screen lock and current security updates.</li>
+<li>It's deleted on the schedule in section 8.</li>
+<li>We handle incidents as in section 7.</li>
+<li>Control Tower's own measures are described on our <a href="docs/security.html">security page</a>.</li>
+</ul>
+
+<h2 id="annex-3">Annex 3 — Sub-processors</h2>
+<div class="tw"><table>
+<tr><th>Sub-processor</th><th>What for</th><th>Where</th></tr>
+<tr><td>ImprovMX</td><td>Forwarding support email to our inbox</td><td>France (EU); onward delivery from the United States</td></tr>
+<tr><td>Google (Gmail)</td><td>Our support inbox</td><td>United States</td></tr>
+</table></div>
+<p>If you open a shared Slack or Teams channel with us, it's hosted in your own workspace, under your own agreement with that provider.</p>
+
+</main>
+<footer><div class="in"><span>Control Tower</span><a href="./">Home</a><a href="pricing.html">Pricing</a><a href="docs/">Docs</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html">Refunds</a><a href="dpa.html">DPA</a><a href="docs/security.html">Security</a><span class="sp"></span><span>Apache-2.0 · Enterprise under the Elastic License 2.0</span></div></footer>
+</body>
+</html>

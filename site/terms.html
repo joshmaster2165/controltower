@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Enterprise subscription terms — Control Tower</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root { --bg:#f4f6fa; --paper:#fff; --ink:#0f1b2d; --dim:#5b6b82; --faint:#8a98ad; --line:#e3e8f0; --line-2:#d3dbe7; --accent:#1f5eff; --soft:#e8efff; --warn:#d9860b; --night:#0a1222;
+  --sans:'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; --mono:'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.draft { background: #fff4e0; color: #7a4a00; border-bottom: 1px solid #f0d49c; font: 500 12.5px/1.4 var(--mono); text-align: center; padding: 10px 16px; }
+.nav { background: rgba(255,255,255,.85); border-bottom: 1px solid var(--line); }
+.nav .in { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 24px; height: 60px; padding: 0 24px; }
+.brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-weight: 600; font-size: 16px; color: var(--ink); text-decoration: none; }
+.brand img { width: 24px; height: 24px; }
+.nav nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+.nav nav a { color: #33435a; text-decoration: none; }
+.nav nav a[aria-current] { color: var(--ink); font-weight: 500; }
+main { max-width: 760px; margin: 0 auto; padding: 56px 24px 88px; }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 40px; line-height: 1.1; font-weight: 500; letter-spacing: -.03em; margin: 14px 0 8px; text-wrap: balance; }
+.meta { color: var(--dim); font-size: 14px; margin-bottom: 28px; }
+.summary { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin: 0 0 36px; }
+.summary h2 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.summary ul { margin: 0; padding-left: 20px; }
+h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; margin: 40px 0 8px; scroll-margin-top: 16px; }
+h3 { font-size: 16px; font-weight: 600; margin: 22px 0 4px; }
+p, li { max-width: 68ch; }
+li { margin: 4px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--paper); }
+.tw { overflow-x: auto; }
+mark.fill { background: #fff0c2; color: #6b4200; padding: 0 4px; border-radius: 4px; font-weight: 500; }
+code { font: 400 .9em var(--mono); background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { background: var(--night); color: #8b9ab5; font-size: 13px; }
+footer .in { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; padding: 28px 24px; }
+footer a { color: #8b9ab5; text-decoration: none; } footer a:hover { color: #fff; }
+footer .sp { flex: 1; }
+@media (max-width: 640px) { h1 { font-size: 31px; } .nav .in { gap: 12px; padding: 0 16px; } .nav nav { gap: 12px; font-size: 13px; } .nav nav .wide { display: none; } main { padding-top: 36px; } }
+</style>
+</head>
+<body>
+
+<header class="nav"><div class="in"><a class="brand" href="./"><img src="logo.svg" alt="" />Control Tower</a><nav><a href="terms.html" aria-current="page">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html">Refunds</a><a href="dpa.html">DPA</a><a class="wide" href="pricing.html">Pricing</a></nav></div></header>
+<main>
+<div class="eyebrow">Legal</div>
+<h1>Enterprise subscription terms</h1>
+<div class="meta">Effective 1 October 2026 · Questions: <a href="mailto:legal@agentcontroltower.app">legal@agentcontroltower.app</a></div>
+<div class="summary">
+<h2>In short</h2>
+<ul>
+<li>The open-source Control Tower is yours to use under Apache-2.0. These terms add nothing to it and take nothing away.</li>
+<li>A subscription lets you use the Enterprise features, within your plan's seats, for as long as it runs.</li>
+<li>You run Control Tower on your own servers. We never receive your prompts, responses, credentials or call records.</li>
+<li>Going over your yearly requests never slows or stops anything, and never costs extra automatically. We talk about capacity at renewal.</li>
+<li>If a subscription ends, gateway traffic keeps flowing. Enterprise features stop after a 14-day grace period.</li>
+</ul>
+</div>
+
+<h2 id="parties">1. Who these terms are between</h2>
+<p>These terms are between <b>Agent Control Tower</b> ("<b>we</b>", "<b>us</b>"; <a href="mailto:legal@agentcontroltower.app">legal@agentcontroltower.app</a>), and the organisation that starts a trial, buys a subscription or signs an order form for Control Tower Enterprise ("<b>you</b>"). The person accepting them confirms they may do so for that organisation.</p>
+<p>You accept these terms by starting a trial, completing checkout or signing an order form that refers to them. If a signed order form says something different from these terms, the order form wins for that order.</p>
+
+<h2 id="software">2. The software</h2>
+<p><b>Open source.</b> Everything in Control Tower outside directories named <code>ee</code> is licensed under the Apache License 2.0. Your rights to it come from that license, not from these terms, and they don't depend on a subscription.</p>
+<p><b>Enterprise features.</b> The code in <code>ee</code> directories is licensed under the Elastic License 2.0. It is turned on by a license key. The Enterprise features include single sign-on and SCIM, the audit log and sending it to a SIEM, agent identity, secret managers and key rotation, organisations and teams, request metering and the multi-region control plane, as described in the <a href="docs/enterprise.html">documentation</a>.</p>
+<p><b>What a subscription gives you.</b> While your subscription or trial runs, you may use the Enterprise features on installations you run for your own organisation, within your plan. You may not provide them to third parties as a hosted or managed service.</p>
+
+<h2 id="keys">3. License keys</h2>
+<ul>
+<li>A license key is for your organisation only. Don't share, publish or resell it.</li>
+<li>Keys are checked on your own servers, with no connection needed.</li>
+<li>A server that can reach our license service fetches its renewed key once a day. Air-gapped installations can ask us for renewed keys.</li>
+<li>Don't remove, bypass or tamper with the license checks.</li>
+</ul>
+
+<h2 id="plan">4. Seats and requests</h2>
+<p><b>Seats</b> are the people who sign in through single sign-on or are provisioned through SCIM. Your plan sets how many. Control Tower won't let more sign in, and you can add seats at any time.</p>
+<p><b>Requests a year</b> is the number of calls through the gateway that your plan includes each license year. Control Tower counts them and shows you the total. Going over <b>never slows or stops traffic and is never charged automatically</b>. If you regularly go over, we'll agree the right capacity with you at renewal.</p>
+
+<h2 id="trial">5. Trials</h2>
+<p>A trial gives you the Enterprise features for 30 days, with 5 seats, free and without a card, once per organisation. It ends on its own, and nothing is charged afterwards. Trials are provided as they are, without the warranty in section 12 or any support commitment.</p>
+
+<h2 id="fees">6. Fees, billing and taxes</h2>
+<ul>
+<li><b>Prices</b> are as shown on our <a href="pricing.html">pricing page</a> when you buy, or as set out in your order form.</li>
+<li><b>Who sells the subscription.</b> Subscriptions are sold through Link, the merchant-of-record service of our payment provider, Stripe. Link takes the payment, charges and remits sales tax, VAT or GST where they apply, and sends your receipts and invoices; your card statement shows <code>LINK.COM*</code>. At checkout you also agree to Link's terms for the payment. These terms cover Control Tower itself, the license and our support.</li>
+<li><b>Billing.</b> Subscriptions are billed in advance, yearly or monthly. Checkout may show the price in your local currency.</li>
+<li><b>Renewal.</b> Subscriptions renew automatically for the same period unless cancelled before the renewal date. You can cancel at any time from the customer portal, or by writing to us.</li>
+<li><b>Price changes</b> apply from your next renewal. We tell you at least 30 days before.</li>
+<li><b>Taxes.</b> Prices don't include taxes. Link adds them at checkout where the law requires.</li>
+<li><b>Failed payments.</b> If a payment fails, it's tried again. A renewal that isn't paid doesn't extend your license; if it stays unpaid, the subscription ends as described in section 7.</li>
+<li><b>Managing it.</b> Change seats on our <a href="https://license.agentcontroltower.app/seats">seats page</a>. Update your card, see invoices or cancel in the customer portal, or at <a href="https://link.com">link.com</a>.</li>
+<li><b>Refunds</b> are covered by our <a href="refunds.html">refund policy</a>.</li>
+</ul>
+
+<h2 id="ending">7. When a subscription ends</h2>
+<p>Your license key keeps working until the end of the period you paid for. Then there is a 14-day grace period. After it:</p>
+<ul>
+<li>the Enterprise features stop;</li>
+<li>password sign-in works again, so nobody is locked out;</li>
+<li><b>gateway traffic is never affected</b>, and the open-source features keep working;</li>
+<li>your data stays where it always was: on your servers.</li>
+</ul>
+
+<h2 id="data">8. Your data</h2>
+<p>You run Control Tower yourself. We don't host it, and we have no access to your installations. We never receive:</p>
+<ul>
+<li>your prompts or responses;</li>
+<li>your provider credentials;</li>
+<li>your call records;</li>
+<li>your users.</li>
+</ul>
+<p>What we do receive:</p>
+<ul>
+<li>the details you give us to buy or start a trial;</li>
+<li>from servers that renew their key online, the license key and one number: the year's request count.</li>
+</ul>
+<p>Our <a href="privacy.html">privacy policy</a> has the details.</p>
+<p>You're responsible for your installations: their security, their backups (including the master key, without which stored credentials can't be read), and that your use of them and of the AI providers you connect is lawful.</p>
+
+<h2 id="support">9. Support</h2>
+<p>Support is provided as described for your plan on the pricing page or in your order form. Everyone can use the community support on GitHub.</p>
+
+<h2 id="use">10. Using Control Tower lawfully</h2>
+<p>Use Control Tower in line with the law, including export controls and sanctions. Don't use our license service or website to attack, overload or probe them.</p>
+
+<h2 id="confidential">11. Confidentiality and ownership</h2>
+<p>Each of us keeps the other's non-public information confidential, and uses it only for this agreement. This doesn't cover information that is public, already known, independently developed or lawfully received from someone else. Either of us may disclose it where the law requires.</p>
+<p>We own Control Tower and its name and logo, subject to the open-source licenses above. If you send us feedback, we may use it freely.</p>
+
+<h2 id="warranty">12. Warranty</h2>
+<p>During a paid subscription, the Enterprise features will work materially as documented. If they don't, tell us. We'll fix the problem, or, if we can't within a reasonable time, either of us may end the subscription and we'll refund the fees prepaid for the rest of its term.</p>
+<p>Beyond that, and to the extent the law allows, Control Tower is provided <b>as is</b>, without other warranties, express or implied, including merchantability, fitness for a particular purpose and non-infringement. We don't warrant the output of AI models or the behaviour of third-party providers you connect.</p>
+
+<h2 id="liability">13. Limitation of liability</h2>
+<p>To the extent the law allows:</p>
+<ul>
+<li>Neither of us is liable for indirect, incidental, special or consequential damages, or for lost profits, revenue or data.</li>
+<li>Each party's total liability under this agreement is limited to the fees you paid us in the 12 months before the claim.</li>
+<li>These limits don't apply to your payment obligations, to breaches of section 11, or to misuse of license keys.</li>
+</ul>
+
+<h2 id="term">14. Term and termination</h2>
+<p>This agreement runs for as long as you have a trial or subscription. Either of us may end it if the other materially breaches it and doesn't fix the breach within 30 days of being told. Sections 7, 8, 11, 12, 13 and 16 continue after it ends.</p>
+
+<h2 id="changes">15. Changes to these terms</h2>
+<p>We may update these terms. We'll post the new version here with its effective date, and tell subscribers by email at least 30 days before a material change. For an existing subscription, changes apply from its next renewal.</p>
+
+<h2 id="general">16. General</h2>
+<ul>
+<li>These terms, with any order form, are the whole agreement between us about Control Tower Enterprise.</li>
+<li>Neither of us may transfer it without the other's consent, except to a successor of the business.</li>
+<li>Notices may be given by email: to us at <a href="mailto:legal@agentcontroltower.app">legal@agentcontroltower.app</a>, to you at the address on your account.</li>
+<li>Neither of us is liable for delays caused by events beyond our reasonable control.</li>
+<li>If a provision is found unenforceable, the rest still applies. Not enforcing a provision isn't a waiver of it.</li>
+</ul>
+
+</main>
+<footer><div class="in"><span>Control Tower</span><a href="./">Home</a><a href="pricing.html">Pricing</a><a href="docs/">Docs</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html">Refunds</a><a href="dpa.html">DPA</a><a href="docs/security.html">Security</a><span class="sp"></span><span>Apache-2.0 · Enterprise under the Elastic License 2.0</span></div></footer>
+</body>
+</html>

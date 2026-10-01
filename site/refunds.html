@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Refunds and cancellation — Control Tower</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root { --bg:#f4f6fa; --paper:#fff; --ink:#0f1b2d; --dim:#5b6b82; --faint:#8a98ad; --line:#e3e8f0; --line-2:#d3dbe7; --accent:#1f5eff; --soft:#e8efff; --warn:#d9860b; --night:#0a1222;
+  --sans:'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; --mono:'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+.draft { background: #fff4e0; color: #7a4a00; border-bottom: 1px solid #f0d49c; font: 500 12.5px/1.4 var(--mono); text-align: center; padding: 10px 16px; }
+.nav { background: rgba(255,255,255,.85); border-bottom: 1px solid var(--line); }
+.nav .in { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 24px; height: 60px; padding: 0 24px; }
+.brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-weight: 600; font-size: 16px; color: var(--ink); text-decoration: none; }
+.brand img { width: 24px; height: 24px; }
+.nav nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+.nav nav a { color: #33435a; text-decoration: none; }
+.nav nav a[aria-current] { color: var(--ink); font-weight: 500; }
+main { max-width: 760px; margin: 0 auto; padding: 56px 24px 88px; }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: 40px; line-height: 1.1; font-weight: 500; letter-spacing: -.03em; margin: 14px 0 8px; text-wrap: balance; }
+.meta { color: var(--dim); font-size: 14px; margin-bottom: 28px; }
+.summary { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin: 0 0 36px; }
+.summary h2 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.summary ul { margin: 0; padding-left: 20px; }
+h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; margin: 40px 0 8px; scroll-margin-top: 16px; }
+h3 { font-size: 16px; font-weight: 600; margin: 22px 0 4px; }
+p, li { max-width: 68ch; }
+li { margin: 4px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--paper); }
+.tw { overflow-x: auto; }
+mark.fill { background: #fff0c2; color: #6b4200; padding: 0 4px; border-radius: 4px; font-weight: 500; }
+code { font: 400 .9em var(--mono); background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+footer { background: var(--night); color: #8b9ab5; font-size: 13px; }
+footer .in { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; padding: 28px 24px; }
+footer a { color: #8b9ab5; text-decoration: none; } footer a:hover { color: #fff; }
+footer .sp { flex: 1; }
+@media (max-width: 640px) { h1 { font-size: 31px; } .nav .in { gap: 12px; padding: 0 16px; } .nav nav { gap: 12px; font-size: 13px; } .nav nav .wide { display: none; } main { padding-top: 36px; } }
+</style>
+</head>
+<body>
+
+<header class="nav"><div class="in"><a class="brand" href="./"><img src="logo.svg" alt="" />Control Tower</a><nav><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html" aria-current="page">Refunds</a><a href="dpa.html">DPA</a><a class="wide" href="pricing.html">Pricing</a></nav></div></header>
+<main>
+<div class="eyebrow">Legal</div>
+<h1>Refunds and cancellation</h1>
+<div class="meta">Effective 1 October 2026 · Billing questions: <a href="mailto:billing@agentcontroltower.app">billing@agentcontroltower.app</a></div>
+<div class="summary">
+<h2>In short</h2>
+<ul>
+<li>Try it first: a 30-day trial with 5 seats, free and without a card.</li>
+<li>Yearly plans: a full refund if you ask within 30 days of your first payment.</li>
+<li>Monthly plans: cancel any time; your plan runs to the end of the month you paid for.</li>
+<li>Cancelling never cuts off your gateway traffic.</li>
+</ul>
+</div>
+
+<h2 id="trial">Try before you buy</h2>
+<p>Every organisation can use Control Tower Enterprise free for 30 days, with 5 seats and no card. Nothing is charged when the trial ends.</p>
+
+<h2 id="cancel">Cancelling</h2>
+<p>Cancel at any time from the customer portal (the link is on the page where you bought, and in your receipts), or by writing to <a href="mailto:billing@agentcontroltower.app">billing@agentcontroltower.app</a>. Cancelling stops the next renewal. Your plan keeps working until the end of the period you've paid for. Then, as with any ended subscription, the Enterprise features stop after a 14-day grace period, and gateway traffic is never affected.</p>
+
+<h2 id="yearly">Yearly plans</h2>
+<ul>
+<li><b>First purchase:</b> if you ask within 30 days of your first yearly payment, we refund it in full.</li>
+<li><b>Renewals:</b> if a yearly renewal went through that you meant to cancel, tell us within 14 days of it and we'll refund it.</li>
+<li><b>Otherwise:</b> we don't refund the rest of a yearly term.</li>
+</ul>
+
+<h2 id="monthly">Monthly plans</h2>
+<p>You can cancel any time, and your plan runs to the end of the month you've paid for. We don't refund part-months.</p>
+
+<h2 id="seats">Changing seats</h2>
+<ul>
+<li><b>Adding seats</b> is charged for the rest of the current period, in proportion to the time left.</li>
+<li><b>Removing seats</b> takes effect from your next renewal, and the current period isn't refunded.</li>
+</ul>
+
+<h2 id="warranty">If it doesn't work as documented</h2>
+<p>If an Enterprise feature doesn't work materially as documented and we can't fix it within a reasonable time, we refund the fees you prepaid for the rest of your term (see section 12 of the <a href="terms.html">terms</a>).</p>
+
+<h2 id="how">How refunds are paid</h2>
+<p>Write to <a href="mailto:billing@agentcontroltower.app">billing@agentcontroltower.app</a> with the email you bought with, or your license id (shown on the <b>License</b> page in Control Tower). You can also ask <a href="https://support.link.com/topics/sold-through-link">Link's support</a>: purchases are sold through Link, Stripe's merchant-of-record service, which may also refund a purchase within 60 days in some cases under its own terms. Refunds go back to the original payment method, including the tax charged on the amount refunded. They usually arrive within 5–10 business days. A refunded subscription ends when the refund is made.</p>
+
+<h2 id="law">Your statutory rights</h2>
+<p>This policy doesn't limit any rights you have under the law where you are.</p>
+
+</main>
+<footer><div class="in"><span>Control Tower</span><a href="./">Home</a><a href="pricing.html">Pricing</a><a href="docs/">Docs</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="refunds.html">Refunds</a><a href="dpa.html">DPA</a><a href="docs/security.html">Security</a><span class="sp"></span><span>Apache-2.0 · Enterprise under the Elastic License 2.0</span></div></footer>
+</body>
+</html>

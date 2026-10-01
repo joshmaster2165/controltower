@@ -73,7 +73,7 @@ We run two small services, both on Railway:
 - **The website** at agentcontroltower.app: static pages, with no cookies, analytics or tracking.
 - **The license service** at license.agentcontroltower.app, which issues and renews keys. It keeps no database. Stripe processes payments, so card details never reach us. Trial keys are sent by Resend.
 
-Our privacy policy lists exactly what these services collect.
+Our [privacy policy](https://agentcontroltower.app/privacy.html) lists exactly what these services collect, and our [data processing agreement](https://agentcontroltower.app/dpa.html) covers what you send us for support.
 
 ## Reporting a vulnerability
 
@@ -83,4 +83,4 @@ Please don't open a public issue. Report it privately through [GitHub](https://g
 
 We don't have a SOC 2 report. Because Control Tower runs entirely in your infrastructure, under your own access controls, encryption and monitoring, most of what a review covers is your environment rather than ours.
 
-For questionnaires, a data processing agreement or anything this page doesn't answer, write to sales@agentcontroltower.app.
+For questionnaires, or anything this page doesn't answer, write to sales@agentcontroltower.app. Our [terms](https://agentcontroltower.app/terms.html) and [DPA](https://agentcontroltower.app/dpa.html) are public.

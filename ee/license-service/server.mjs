@@ -403,7 +403,7 @@ function page(title, body, { head = '' } = {}) {
 <nav class="nav-links"><a href="${SITE}/#map">Airspace</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/enterprise.html">How licensing works</a><a href="${SITE}/docs/">Docs</a></nav>
 <div class="nav-right"><a class="btn alt" href="/#trial">Start a trial</a><a class="btn primary" href="/#buy">Buy</a></div></div></header>
 ${body}
-<footer><div class="frame pad"><span class="brand">${LOGO}Control Tower</span><nav><a href="${SITE}">Home</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/">Docs</a><a href="${SITE}/docs/enterprise.html">Enterprise</a><a href="https://github.com/joshmaster2165/controltower">GitHub</a></nav><span class="sp"></span><span>Enterprise under the Elastic License 2.0</span></div></footer>
+<footer><div class="frame pad"><span class="brand">${LOGO}Control Tower</span><nav><a href="${SITE}">Home</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/">Docs</a><a href="${SITE}/docs/enterprise.html">Enterprise</a><a href="${SITE}/terms.html">Terms</a><a href="${SITE}/privacy.html">Privacy</a><a href="${SITE}/refunds.html">Refunds</a><a href="https://github.com/joshmaster2165/controltower">GitHub</a></nav><span class="sp"></span><span>Enterprise under the Elastic License 2.0</span></div></footer>
 </body></html>`;
 }
 
@@ -463,7 +463,7 @@ ${ticker}
 <div class="per" id="perNote">${ready ? '' : 'Start a free trial meanwhile — it has every feature.'}</div>
 <ul class="checks"><li>${CHECK}Every Enterprise feature, and support</li><li>${CHECK}${INCLUDED_SEATS} seats and ${(REQUESTS_PER_YEAR / 1e6).toLocaleString()}M requests a year included</li><li>${CHECK}Going over your requests never slows or stops anything</li><li>${CHECK}Cancel any time; traffic is never cut off</li></ul>
 <form method="post" action="/checkout"><input type="hidden" name="seats" id="seatsField" value="${INCLUDED_SEATS}"><input type="hidden" name="interval" id="intervalField" value="year"><button class="btn primary lg full" ${ready ? '' : 'disabled'}>Buy with Stripe ${ARROW}</button></form>
-<p class="fine">Prices in US dollars, before tax. Sold through Link, Stripe’s merchant of record: checkout adds tax where it applies and may show your local currency. More than ${MAX_SELF_SERVE_SEATS} seats or a billion requests a year? Contact sales for volume pricing.</p>
+<p class="fine">By buying you agree to our <a href="${SITE}/terms.html" style="text-decoration:underline">terms</a> and <a href="${SITE}/refunds.html" style="text-decoration:underline">refund policy</a>. Prices in US dollars, before tax. Sold through Link, Stripe’s merchant of record: checkout adds tax where it applies and may show your local currency. More than ${MAX_SELF_SERVE_SEATS} seats or a billion requests a year? Contact sales for volume pricing.</p>
 </div>
 <div class="trial" id="trial"><div class="scanline" aria-hidden="true"></div>
 <span class="eyebrow">Free trial</span><h3 style="margin-top:12px">30 days of everything</h3>
@@ -471,7 +471,7 @@ ${ticker}
 <form method="post" action="/trial"><div class="field"><label for="company">Company</label><input id="company" type="text" name="company" placeholder="Acme Corp" required maxlength="100" autocomplete="organization"></div>
 <div class="field"><label for="email">Work email</label><input id="email" type="email" name="email" placeholder="you@acme.com" required maxlength="200" autocomplete="email"></div>
 <button class="btn primary lg full" style="margin-top:6px">${RESEND_KEY ? 'Email me my trial key' : 'Get my trial key'} ${ARROW}</button></form>
-<p class="fine">Ends on its own after 30 days. Nothing is charged, and your gateway keeps working.</p>
+<p class="fine">Ends on its own after 30 days. Nothing is charged, and your gateway keeps working. By starting a trial you agree to our <a href="${SITE}/terms.html" style="color:#a9b8d3;text-decoration:underline">terms</a> and <a href="${SITE}/privacy.html" style="color:#a9b8d3;text-decoration:underline">privacy policy</a>.</p>
 </div>
 </div></div></section>
 <section class="sec"><div class="frame pad">

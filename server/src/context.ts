@@ -66,6 +66,8 @@ export interface AppContext {
   instanceId?: string;
   /** Agents authenticating with tokens from a trusted issuer (Enterprise). */
   tokens?: import('./ee/tokens.js').TokenAuth;
+  /** Laptops signed in as people, for Claude Code, Claude Desktop and Codex (Enterprise). */
+  devices?: import('./ee/devices.js').DeviceAuth;
   /** The audit log to SIEMs (Enterprise). */
   auditShipper?: import('./ee/siem.js').AuditShipper;
   /** Cached answers, for models that opt in. */

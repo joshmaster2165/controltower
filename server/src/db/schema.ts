@@ -558,6 +558,9 @@ export interface Database {
   scim_groups: ScimGroupsTable;
   scim_group_members: ScimGroupMembersTable;
   sso_used: SsoUsedTable;
+  device_codes: DeviceCodesTable;
+  device_sessions: DeviceSessionsTable;
+  device_rules: DeviceRulesTable;
 }
 
 /** Single sign-on requests already answered (SAML request ids): a response is accepted once. */
@@ -819,4 +822,54 @@ export interface RegionUsageDailyTable {
   bucket: string;
   requests: number;
   updated_at: number;
+}
+
+/** Laptop sign-in (Enterprise): a sign-in started by ct-auth on a laptop, waiting for its person to approve it. */
+export interface DeviceCodesTable {
+  /** sha256 of the device code (what the laptop polls with). */
+  code_hash: string;
+  /** What the person types or confirms in the console: XXXX-XXXX. */
+  user_code: string;
+  /** claude-code, claude-desktop, codex or other. */
+  client: string;
+  device_name: string;
+  ip: string;
+  created_at: number;
+  expires_at: number;
+  last_poll_at: number | null;
+  /** pending, approved, denied or used. */
+  status: string;
+  /** Who approved it. */
+  admin_id: string | null;
+}
+
+/** Laptop sign-in: one client on one laptop, signed in as a person until revoked, idle or too old. */
+export interface DeviceSessionsTable {
+  id: string;
+  admin_id: string;
+  client: string;
+  device_name: string;
+  /** sha256 of the refresh token (kept in the laptop's keychain). */
+  refresh_hash: string;
+  created_at: number;
+  last_used_at: number;
+  last_ip: string | null;
+  expires_at: number;
+  revoked_at: number | null;
+  /** Who revoked it: a person's email, "deactivated", "license" … */
+  revoked_by: string | null;
+  /** The key its calls were last made as. */
+  key_id: string | null;
+}
+
+/** Laptop sign-in: which key a person's calls from a client are made as. The first rule that matches wins. */
+export interface DeviceRulesTable {
+  id: string;
+  position: number;
+  /** claude-code, claude-desktop, codex, other, or * for any. */
+  client: string;
+  /** A team the person belongs to, or null for everyone. */
+  team_id: string | null;
+  key_id: string;
+  created_at: number;
 }

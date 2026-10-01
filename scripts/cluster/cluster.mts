@@ -246,6 +246,33 @@ try {
   let onL2 = '';
   for (let i = 0; i < 20 && onL2 !== 'valid'; i++) (await sleep(300), (onL2 = (await l2('GET', '/admin/api/license')).body.status));
   const enterpriseOnL2 = (await l2('GET', '/admin/api/audit')).status;
+
+  // A laptop signed in through one instance works through the other; signed out through one, it's refused by both.
+  {
+    const lapKey = (await l1('POST', '/admin/api/keys', { name: 'laptops-cluster' })).body;
+    await l1('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: lapKey.id }] });
+    const made = (await l1('POST', '/admin/api/users', { email: 'lap@cluster.test', role: 'viewer' })).body;
+    const loginTo = async (base: string, pw: string) => {
+      const r = await fetch(`${base}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'lap@cluster.test', password: pw }) });
+      return { cookie: r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; '), csrf: ((await r.json()) as { csrf: string }).csrf };
+    };
+    let ses = await loginTo(L2.url, made.password);
+    await fetch(`${L2.url}/admin/api/me/password`, { method: 'POST', headers: { cookie: ses.cookie, 'x-ct-csrf': ses.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ current: made.password, password: 'lap-password-123' }) });
+    ses = await loginTo(L2.url, 'lap-password-123');
+    const form = (base: string, p: string, b: Record<string, string>) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(b) }).then((r) => r.json() as Promise<Record<string, string>>);
+    const dc = await form(L1.url, '/device/code', { client: 'claude-code', device_name: 'cluster laptop' });
+    const approved = (await fetch(`${L2.url}/admin/api/me/devices/approve`, { method: 'POST', headers: { cookie: ses.cookie, 'x-ct-csrf': ses.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ user_code: dc.user_code }) })).status;
+    const tok = await form(L1.url, '/device/token', { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: dc.device_code! });
+    const models = (base: string) => fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${tok.access_token}` } }).then((r) => r.status);
+    const viaL2 = await models(L2.url);
+    const sid = ((await l2('GET', '/admin/api/devices')).body.sessions as Array<{ id: string; status: string }>).find((x) => x.status === 'active')?.id;
+    await l1('DELETE', `/admin/api/devices/${sid}`);
+    let refusedL2 = 0;
+    const signedOutAt = Date.now();
+    for (let i = 0; i < 20 && refusedL2 !== 401; i++) (refusedL2 = await models(L2.url), refusedL2 !== 401 && (await sleep(200)));
+    c('a laptop signed in through one instance works through the other, and signing it out applies to both at once', approved === 200 && !!tok.access_token && viaL2 === 200 && refusedL2 === 401 && (await models(L1.url)) === 401, `approved on l2: ${approved}; token from l1; /v1/models through l2: ${viaL2}; signed out on l1, l2 refused it after ${Date.now() - signedOutAt} ms (${refusedL2})`);
+  }
+
   await l1('DELETE', '/admin/api/license');
   let goneL2 = '';
   for (let i = 0; i < 20 && goneL2 !== 'none'; i++) (await sleep(300), (goneL2 = (await l2('GET', '/admin/api/license')).body.status));

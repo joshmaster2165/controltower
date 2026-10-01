@@ -178,3 +178,69 @@ export function TagsCard({ window }: { window: string }) {
     </div>
   );
 }
+
+interface PersonSpend {
+  who: string;
+  requests: number;
+  errors: number;
+  denied: number;
+  cost_usd: number;
+  in_tokens: number;
+  out_tokens: number;
+  last_ts: number;
+  keys: Array<{ key_id: string; key_name: string; requests: number; cost_usd: number }>;
+}
+
+/**
+ * Spend by who made the calls: people signed in on their laptops (Claude Code, Claude Desktop, Codex) and workloads
+ * presenting an identity provider's token. Several people can share a key; this splits its spend between them.
+ */
+export function PeopleCard({ window }: { window: string }) {
+  const [rows, setRows] = useState<PersonSpend[]>([]);
+  useEffect(() => {
+    const load = () => void api.get<{ people: PersonSpend[] }>(`/admin/api/ledger/people?window=${apiWindow(window)}`).then((d) => setRows(d.people)).catch(() => undefined);
+    load();
+    const t = setInterval(load, 15_000);
+    return () => clearInterval(t);
+  }, [window]);
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <div className="card-head" style={{ padding: '12px 14px 0' }}>
+        <h3 style={{ margin: 0, fontSize: 14 }}>Spend by person</h3>
+        <span className="hint">People signed in on their computers, and workloads with your identity provider's tokens</span>
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Who</th>
+            <th>Keys</th>
+            <th>Requests</th>
+            <th>Tokens</th>
+            <th>Spend</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 200).map((p) => (
+            <tr key={p.who}>
+              <td>{p.who}</td>
+              <td className="hint">{p.keys.map((k) => k.key_name).join(', ')}</td>
+              <td className="mono">
+                {p.requests.toLocaleString()}
+                {p.errors + p.denied > 0 && <span className="hint"> · {p.errors + p.denied} failed or refused</span>}
+              </td>
+              <td className="mono">{(p.in_tokens + p.out_tokens).toLocaleString()}</td>
+              <td className="mono num">{usd(p.cost_usd)}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={5} className="hint" style={{ padding: 20, textAlign: 'center' }}>
+                No calls by a signed-in person in this window. People appear here once they use Claude Code, Claude Desktop or Codex signed in through Laptops.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}

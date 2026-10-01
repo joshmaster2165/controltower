@@ -983,3 +983,47 @@ CREATE TABLE region_usage_daily (
 );
 `,
 });
+
+migrations.push({
+  version: 35,
+  name: 'device_sign_in',
+  sqlite: `
+CREATE TABLE device_codes (
+  code_hash    TEXT PRIMARY KEY,
+  user_code    TEXT NOT NULL,
+  client       TEXT NOT NULL,
+  device_name  TEXT NOT NULL,
+  ip           TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  last_poll_at INTEGER,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  admin_id     TEXT
+);
+CREATE UNIQUE INDEX device_codes_user ON device_codes (user_code);
+CREATE TABLE device_sessions (
+  id           TEXT PRIMARY KEY,
+  admin_id     TEXT NOT NULL,
+  client       TEXT NOT NULL,
+  device_name  TEXT NOT NULL,
+  refresh_hash TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL,
+  last_ip      TEXT,
+  expires_at   INTEGER NOT NULL,
+  revoked_at   INTEGER,
+  revoked_by   TEXT,
+  key_id       TEXT
+);
+CREATE UNIQUE INDEX device_sessions_refresh ON device_sessions (refresh_hash);
+CREATE INDEX device_sessions_admin ON device_sessions (admin_id);
+CREATE TABLE device_rules (
+  id         TEXT PRIMARY KEY,
+  position   INTEGER NOT NULL,
+  client     TEXT NOT NULL,
+  team_id    TEXT,
+  key_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
+});

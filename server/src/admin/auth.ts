@@ -25,10 +25,12 @@ export interface AdminSession {
 }
 
 /** Changes each role may make besides reading (by route pattern). Admins may make any. */
+/** What everyone may do for themselves: their password, and their own laptops' sign-ins. */
+const OWN = ['POST /admin/api/me/password', 'POST /admin/api/me/devices/approve', 'DELETE /admin/api/me/devices/:id'];
 const ROLE_MAY: Record<Exclude<Role, 'admin'>, Set<string>> = {
-  approver: new Set(['POST /admin/api/approvals/:id/decide', 'POST /admin/api/me/password']),
-  viewer: new Set(['POST /admin/api/me/password']),
-  member: new Set(['POST /admin/api/me/password']),
+  approver: new Set(['POST /admin/api/approvals/:id/decide', ...OWN]),
+  viewer: new Set(OWN),
+  member: new Set(OWN),
 };
 /** Reads only admins may make: people and their roles, the audit log, identity-provider and credential settings. */
 const ADMIN_ONLY_READS = new Set([
@@ -39,6 +41,8 @@ const ADMIN_ONLY_READS = new Set([
   'GET /admin/api/identity-providers',
   'GET /admin/api/token-issuers',
   'GET /admin/api/secret-managers',
+  'GET /admin/api/devices',
+  'GET /admin/api/devices/rollout',
 ]);
 /**
  * What a member (who sees only their teams) may read: their agents' keys, calls, approvals, spend and map —
@@ -46,6 +50,8 @@ const ADMIN_ONLY_READS = new Set([
  */
 const MEMBER_READS = new Set([
   'GET /admin/api/me',
+  'GET /admin/api/me/devices',
+  'GET /admin/api/me/devices/pending',
   'GET /admin/api/status',
   'GET /admin/api/license',
   'GET /admin/api/keys',

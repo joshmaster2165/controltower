@@ -2,6 +2,8 @@
 
 Claude Desktop can send its conversations through an inference gateway instead of straight to Anthropic. Pointed at Control Tower, every message is attributed to a key, counted in the Ledger, drawn on the Airspace and subject to your gates — and Control Tower's `/mcp` endpoint gives Claude Desktop the tools of your registered MCP servers as a connector.
 
+> Setting Claude Desktop up for a whole company? [Laptops](laptops.md) rolls it out with Jamf, Intune, Kandji or Group Policy, each person signed in through single sign-on (Enterprise).
+
 ## Quick reference
 
 | Setting | Value |

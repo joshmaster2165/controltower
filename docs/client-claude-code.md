@@ -2,6 +2,8 @@
 
 Point Claude Code at Control Tower and every request it makes — to Claude, or to any other model you route it to — goes through your gateway: it is attributed to its own key, counted in the Ledger, drawn on the Airspace and subject to your gates. Control Tower's `/mcp` endpoint also gives Claude Code the tools of every MCP server you have registered, behind the same key.
 
+> Setting Claude Code up for a whole company? [Laptops](laptops.md) rolls it out with Jamf, Intune, Kandji or Group Policy, each person signed in through single sign-on (Enterprise).
+
 ## Quick reference
 
 | Setting | Value |

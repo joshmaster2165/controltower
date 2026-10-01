@@ -14,6 +14,7 @@ Control Tower is free and open source, and everything else in these docs works w
 | [Secret managers](secret-managers.md) (AWS, Google, Azure, Vault) and [key rotation](key-rotation.md): credentials read by reference and followed when they rotate; agents' keys rotated on a schedule into your secret manager | Available |
 | [Organisations and team admins](teams.md): each team manages its own agents' keys, budgets, people and held calls, and members see only their teams, everywhere in the console | Available |
 | [Multi-region control plane](multi-region.md): configure every region from one control plane; regions serve through its outages, keep their calls to themselves, and share limits and budgets | Available |
+| [Laptops](laptops.md): Claude Code, Claude Desktop and Codex on people's computers, rolled out with Jamf, Intune, Kandji or Group Policy, each person signed in through single sign-on, with spend by person | Available |
 | Self-hosted, air-gap available | Available: licenses are checked on your server, with no connection needed |
 | Support with response times, a named contact and onboarding | Included: first response within 4 business hours when production is down. See [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md#enterprise-support) |
 | Annual request capacity and volume discounts | In the license. Usage against it is shown; traffic is never stopped |

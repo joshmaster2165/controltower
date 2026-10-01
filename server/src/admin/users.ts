@@ -72,6 +72,8 @@ export async function userRoutes(app: FastifyInstance, ctx: AppContext): Promise
     if (!user) return reply.status(404).send({ error: { code: 'not_found', message: 'user not found' } });
     if ((user.role ?? 'admin') === 'admin' && (await admins()) <= 1) return bad(reply, 'Someone has to stay an admin.');
     await ctx.db.write.deleteFrom('sessions').where('admin_id', '=', id).execute();
+    // Their laptops' sign-ins end now too (their access tokens are refused at once).
+    await ctx.devices?.revokePerson(id, `removed by ${req.admin?.email ?? 'an admin'}`);
     await ctx.db.write.deleteFrom('admins').where('id', '=', id).execute();
     await ctx.db.write.deleteFrom('memberships').where('admin_id', '=', id).execute();
     await ctx.orgs?.reload();

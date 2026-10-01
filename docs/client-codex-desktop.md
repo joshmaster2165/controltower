@@ -2,6 +2,8 @@
 
 Codex in the ChatGPT desktop app reads the same configuration as the Codex CLI, `~/.codex/config.toml`. Add Control Tower there as a model provider and every Codex task in the app goes through your gateway: attributed to its own key, counted in the Ledger, drawn on the Airspace and subject to your gates. The same file adds Control Tower's `/mcp` endpoint as an MCP server.
 
+> Setting Codex up for a whole company? [Laptops](laptops.md) rolls it out with Jamf, Intune, Kandji or Group Policy, each person signed in through single sign-on (Enterprise).
+
 ## Quick reference
 
 | Setting | Value |

@@ -6,7 +6,7 @@ import { useStore } from '../store';
 import { RegionsNotice } from '../components/RegionsNotice';
 import { PageHeader } from '../components/PageHeader';
 import { BudgetsCard } from '../components/BudgetsCard';
-import { CustomersCard, TagsCard } from '../components/CustomersCard';
+import { CustomersCard, PeopleCard, TagsCard } from '../components/CustomersCard';
 
 /**
  * Ledger: what the gateway cost and how much it moved. Forms follow the job —
@@ -346,6 +346,7 @@ export function LedgerPage() {
         {/* Spend by customer and tag spans every team: not shown to someone who sees only theirs. */}
         {role !== 'member' && <CustomersCard window={win} />}
         {role !== 'member' && <TagsCard window={win} />}
+        {role !== 'member' && <PeopleCard window={win} />}
       </div>
     </div>
   );

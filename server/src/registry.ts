@@ -317,6 +317,8 @@ export class Registry {
   authenticate(plaintext: string): KeyRecord | undefined {
     // A token from a trusted issuer (Enterprise), verified when the request arrived.
     if (looksLikeJwt(plaintext)) return this.tokens?.keyFor(plaintext);
+    // A laptop's access token (Enterprise laptop sign-in): signed, so checked here without a lookup.
+    if (plaintext.startsWith('ct_dt_')) return this.devices?.keyFor(plaintext);
     if (plaintext.length < 16 || plaintext.length > 512) return undefined;
     const hash = hashApiKey(plaintext);
     let key = this.keysByHash.get(hash);
@@ -331,6 +333,9 @@ export class Registry {
 
   /** Agents' tokens (Enterprise JWT authentication), when set up. */
   tokens: { keyFor(token: string): KeyRecord | undefined; enforced(): boolean } | undefined;
+
+  /** Laptops' access tokens (Enterprise laptop sign-in). */
+  devices: { keyFor(token: string): KeyRecord | undefined } | undefined;
 
   private missing = new Map<string, number>();
   /**

@@ -82,6 +82,49 @@ export async function customerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     return { ok: true };
   });
 
+  // Spend by who made the calls: people signed in on their laptops, and workloads presenting an identity provider's
+  // token. Several people can share one key (a team's Claude Code key, say); this splits its spend between them.
+  app.get('/admin/api/ledger/people', { preHandler: guard }, async (req) => {
+    const rows = await ctx.db.read
+      .selectFrom('flights')
+      .select((eb) => [
+        'principal',
+        'key_id',
+        'key_name',
+        eb.fn.countAll<number>().as('requests'),
+        eb.fn.sum<number>('cost_nanousd').as('cost_nanousd'),
+        eb.fn.sum<number>('in_tokens').as('in_tokens'),
+        eb.fn.sum<number>('out_tokens').as('out_tokens'),
+        eb.fn.sum<number>(sql<number>`CASE WHEN status = 'error' THEN 1 ELSE 0 END`).as('errors'),
+        eb.fn.sum<number>(sql<number>`CASE WHEN status IN ('denied', 'rejected') THEN 1 ELSE 0 END`).as('denied'),
+        eb.fn.max<number>('ts').as('last_ts'),
+      ])
+      .where('principal', 'is not', null)
+      .where('ts', '>=', since(req.query))
+      .groupBy(['principal', 'key_id', 'key_name'])
+      .execute();
+    const n = (v: unknown) => Number(v ?? 0);
+    const people = new Map<string, { who: string; requests: number; errors: number; denied: number; cost_nanousd: number; in_tokens: number; out_tokens: number; last_ts: number; keys: Array<{ key_id: string; key_name: string; requests: number; cost_usd: number }> }>();
+    for (const r of rows) {
+      const who = r.principal!;
+      const p = people.get(who) ?? { who, requests: 0, errors: 0, denied: 0, cost_nanousd: 0, in_tokens: 0, out_tokens: 0, last_ts: 0, keys: [] };
+      p.requests += n(r.requests);
+      p.errors += n(r.errors);
+      p.denied += n(r.denied);
+      p.cost_nanousd += n(r.cost_nanousd);
+      p.in_tokens += n(r.in_tokens);
+      p.out_tokens += n(r.out_tokens);
+      p.last_ts = Math.max(p.last_ts, n(r.last_ts));
+      p.keys.push({ key_id: r.key_id, key_name: r.key_name, requests: n(r.requests), cost_usd: n(r.cost_nanousd) / 1e9 });
+      people.set(who, p);
+    }
+    const list = [...people.values()]
+      .map(({ cost_nanousd, ...p }) => ({ ...p, cost_usd: cost_nanousd / 1e9, keys: p.keys.sort((a, b) => b.cost_usd - a.cost_usd) }))
+      .sort((a, b) => b.cost_usd - a.cost_usd || b.requests - a.requests)
+      .slice(0, 2000);
+    return { people: list };
+  });
+
   // Spend by the tags requests carried.
   app.get('/admin/api/ledger/tags', { preHandler: guard }, async (req) => {
     const from = since(req.query);

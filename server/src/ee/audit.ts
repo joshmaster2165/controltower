@@ -68,6 +68,9 @@ const NAMED: Record<string, string> = {
   'DELETE /admin/api/demo': 'demo.stop',
   'POST /admin/api/license/clock': 'license.clock_accepted',
   'POST /admin/api/license/refresh': 'license.refresh',
+  'POST /admin/api/me/devices/approve': 'devices.approve',
+  'DELETE /admin/api/me/devices/:id': 'devices.revoke',
+  'DELETE /admin/api/devices/:id': 'devices.revoke',
 };
 /**
  * A readable action for an admin route: `POST /admin/api/keys` → keys.create,

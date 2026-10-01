@@ -45,6 +45,7 @@ const FEATURES: Array<[string, string, boolean]> = [
   ['secret_managers', 'Secret managers and key rotation', true],
   ['orgs', 'Organisations and team admins', true],
   ['multi_region', 'Multi-region control plane', true],
+  ['laptops', 'Laptop sign-in for Claude Code, Claude Desktop and Codex, rolled out by MDM', true],
 ];
 const date = (ms: number) => new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 const days = (ms: number) => Math.max(0, Math.ceil((ms - Date.now()) / 86_400_000));

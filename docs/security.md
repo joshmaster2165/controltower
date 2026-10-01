@@ -30,6 +30,7 @@ There is no usage telemetry, crash reporting or analytics, in the product or on 
 - **Agents' keys** are stored as SHA-256 hashes. Their `ct_sk_` prefix and checksum let secret scanners spot a leaked one.
 - **Rotation:** agents' keys rotate on a schedule with an overlap period, and the master key rotates with one command. See [Key rotation](key-rotation.md).
 - **Agent identity:** agents can sign in with short-lived tokens from your identity provider instead of long-lived secrets. See [Agent identity](agent-identity.md).
+- **People's computers:** Claude Code, Claude Desktop and Codex sign in as the person, through the console's own sign-in. Access tokens last an hour and are signed (HMAC-SHA256, from the master key); the refresh token is stored as a hash on the server and in the keychain (macOS), a file only the person can read (Linux) or DPAPI (Windows) on the computer. Signing a computer out, or removing the person, refuses its tokens at once. The rollout files hold no secret. See [Laptops](laptops.md).
 
 ## Access to the console
 

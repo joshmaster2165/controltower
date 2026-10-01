@@ -14,6 +14,8 @@ import { syncIdpTeams } from '../orgs.js';
 const STATE_COOKIE = 'ct_sso';
 const STATE_TTL_MS = 10 * 60_000;
 const ROLES: SsoRole[] = ['admin', 'approver', 'viewer', 'member'];
+/** Where to go after signing in: a path on this console (approving a laptop's sign-in, say), never another site. */
+const safeNext = (v: unknown): string | undefined => (typeof v === 'string' && /^\/(?![/\\])[\x21-\x7e]{0,300}$/.test(v) ? v : undefined);
 
 /** The address the IdP sends people back to. CT_PUBLIC_URL when set, else the address this request came in on. */
 function baseUrl(ctx: AppContext, req: FastifyRequest): string {
@@ -75,7 +77,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
    * and a session. Someone who signed in this way before is found by their IdP identity; otherwise by email (an
    * admin or SCIM added them), or created.
    */
-  const complete = async (p: IdentityProvider, result: Extract<SsoResult, { ok: true }>, origin: ReturnType<typeof auditOrigin>, deny: Deny, reply: FastifyReply, method: 'oidc' | 'saml'): Promise<FastifyReply> => {
+  const complete = async (p: IdentityProvider, result: Extract<SsoResult, { ok: true }>, origin: ReturnType<typeof auditOrigin>, deny: Deny, reply: FastifyReply, method: 'oidc' | 'saml', next?: string): Promise<FastifyReply> => {
     const w = ctx.db.write;
     const noGroup = 'You are in none of the groups allowed to sign in. Ask an admin to add you.';
     let person = await w.selectFrom('admins').selectAll().where('sso_provider_id', '=', p.id).where('sso_subject', '=', result.subject).executeTakeFirst();
@@ -122,7 +124,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     setCookie(ctx, reply, s);
     clearState(reply);
     await ctx.audit?.record({ action: 'auth.sign_in', outcome: 'success', actor: { type: 'person', id: person.id, email: person.email, role }, status: 200, detail: { method, provider: p.name, groups: result.groups.slice(0, 50) }, ...origin });
-    return reply.redirect('/', 303);
+    return reply.redirect(safeNext(next) ?? '/', 303);
   };
 
   // For the sign-in page: which providers to offer, and whether passwords still work. Nothing else.
@@ -138,6 +140,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     const p = await sso.get((req.params as { id: string }).id);
     if (!p || !p.enabled) return failTo(reply, 'That sign-in option is not available.');
     const base = baseUrl(ctx, req);
+    const next = safeNext((req.query as { next?: string }).next);
     if (p.kind === 'saml') {
       const nonce = randomToken(16);
       let url: URL;
@@ -146,7 +149,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
         // RelayState carries the sealed sign-in (the IdP returns it unchanged): the request id the response must
         // answer, for this provider, until it expires. Requests aren't signed, so it can be set on the URL here.
         url = new URL(st.url);
-        url.searchParams.set('RelayState', ctx.secrets.encrypt(JSON.stringify({ p: p.id, rid: st.requestId, inst: st.instant, n: nonce, e: Date.now() + STATE_TTL_MS }), 'saml-state'));
+        url.searchParams.set('RelayState', ctx.secrets.encrypt(JSON.stringify({ p: p.id, rid: st.requestId, inst: st.instant, n: nonce, e: Date.now() + STATE_TTL_MS, ...(next ? { x: next } : {}) }), 'saml-state'));
       } catch (err) {
         ctx.log.warn({ err: (err as Error).message, provider: p.name }, 'single sign-on: SAML sign-in could not start');
         return failTo(reply, `${p.name} is not set up correctly. Ask an admin to check its settings.`);
@@ -164,7 +167,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       return failTo(reply, `${p.name} could not be reached. Try again, or ask an admin to check its settings.`);
     }
     // What the callback must match, sealed so the browser can carry it but not read or change it.
-    const sealed = ctx.secrets.encrypt(JSON.stringify({ p: p.id, v: start.verifier, s: start.state, n: start.nonce, r: uri, e: Date.now() + STATE_TTL_MS }), 'sso-state');
+    const sealed = ctx.secrets.encrypt(JSON.stringify({ p: p.id, v: start.verifier, s: start.state, n: start.nonce, r: uri, e: Date.now() + STATE_TTL_MS, ...(next ? { x: next } : {}) }), 'sso-state');
     reply.setCookie(STATE_COOKIE, sealed, { path: '/admin/sso', httpOnly: true, sameSite: 'lax', secure: uri.startsWith('https://'), maxAge: STATE_TTL_MS / 1000 });
     return reply.redirect(start.url, 302);
   });
@@ -181,7 +184,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     const slow = await ctx.limiter.admit(`sso:ip:${req.ip}`, 1, { rpm: ctx.config.loginRpm * 3 });
     if (!slow.ok) return failTo(reply, 'Too many sign-in attempts. Wait a minute and try again.');
 
-    let st: { p: string; v: string; s: string; n: string; r: string; e: number };
+    let st: { p: string; v: string; s: string; n: string; r: string; e: number; x?: string };
     try {
       st = JSON.parse(ctx.secrets.decrypt(req.cookies?.[STATE_COOKIE] ?? '', 'sso-state'));
     } catch {
@@ -204,7 +207,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     }
     if (!result.ok) return deny(result.reason, result.email, result.reason);
 
-    return complete(p, result, origin, deny, reply, 'oidc');
+    return complete(p, result, origin, deny, reply, 'oidc', st.x);
   });
 
   // SAML: the IdP posts its response here (a cross-site form POST, so only this route parses form bodies).
@@ -222,7 +225,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       if (!slow.ok) return failTo(reply, 'Too many sign-in attempts. Wait a minute and try again.');
       const body = (req.body ?? {}) as Record<string, string>;
       if (!body.SAMLResponse) return deny('no SAMLResponse in the post', undefined, 'The identity provider sent nothing to sign in with.');
-      let st: { p: string; rid: string; inst: string; n: string; e: number };
+      let st: { p: string; rid: string; inst: string; n: string; e: number; x?: string };
       try {
         st = JSON.parse(ctx.secrets.decrypt(body.RelayState ?? '', 'saml-state'));
       } catch {
@@ -246,7 +249,7 @@ export async function ssoRoutes(app: FastifyInstance, ctx: AppContext): Promise<
       const first = await ctx.db.write.insertInto('sso_used').values({ id: `saml:${st.rid}`, expires_at: st.e + 60_000 }).onConflict((oc) => oc.column('id').doNothing()).executeTakeFirst();
       if (Number(first.numInsertedOrUpdatedRows ?? 0) === 0) return deny('a SAML response for this request was already used (replay)', result.email, 'This sign-in was already used. Start again.');
       reply.clearCookie(SAML_COOKIE, { path: '/admin/sso' });
-      return complete(p, result, origin, deny, reply, 'saml');
+      return complete(p, result, origin, deny, reply, 'saml', st.x);
     });
   });
 

@@ -14,6 +14,7 @@ const NAMES: Record<Feature, string> = {
   orgs: 'Organisations and team admins',
   multi_region: 'The multi-region control plane',
   siem_export: 'Sending the audit log to a SIEM',
+  laptops: 'Laptop sign-in',
 };
 
 /** preHandler: 402 unless the license in force includes the feature. */

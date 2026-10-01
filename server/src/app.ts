@@ -20,6 +20,7 @@ import { regionRoutes } from './ee/admin/regions.js';
 import { ControlPlane } from './ee/multi-region/control-plane.js';
 import { auditRoutes } from './ee/admin/audit.js';
 import { ssoRoutes } from './ee/admin/sso.js';
+import { deviceRoutes } from './ee/admin/devices.js';
 import { licenseRoutes } from './ee/admin/license.js';
 import { scimRoutes } from './ee/scim.js';
 import { timingSafeEqual } from 'node:crypto';
@@ -82,6 +83,12 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
       if (!full.tokens?.configured) return;
       const v = await full.tokens.verify(presented);
       if ('principal' in v) req.ctPrincipal = v.principal;
+      return;
+    }
+    // A laptop signed in as a person (Enterprise): its calls are recorded as theirs.
+    if (presented.startsWith('ct_dt_')) {
+      const t = full.devices?.verify(presented);
+      if (t) req.ctPrincipal = t.principal;
       return;
     }
     if (!full.registry.authenticate(presented)) await full.registry.findStored(presented);
@@ -236,6 +243,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await orgRoutes(a, full);
     await regionRoutes(a, full);
     await ssoRoutes(a, full);
+    if (full.devices) await deviceRoutes(a, full);
     await licenseRoutes(a, full);
     await scimRoutes(a, full);
     await viewRoutes(a, full);

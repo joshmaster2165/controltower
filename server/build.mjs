@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { build } from 'esbuild';
 
 await build({
@@ -17,3 +18,6 @@ await build({
   // sign licenses of their own. Release builds — the image and the npm package — are built without it: the code isn't in them.
   define: { __CT_TEST_LICENSE_KEYS__: process.env.CT_TEST_LICENSE_KEYS === '1' ? 'true' : 'false' },
 });
+
+// The laptop sign-in helper (Enterprise) ships beside the bundle: the console hands it out in rollout files.
+for (const f of ['ct-auth.sh', 'ct-auth.ps1']) fs.copyFileSync(`src/ee/laptops/${f}`, `dist/${f}`);

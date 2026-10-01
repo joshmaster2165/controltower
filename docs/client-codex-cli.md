@@ -2,6 +2,8 @@
 
 Add Control Tower to Codex as a model provider and every request Codex makes goes through your gateway: attributed to its own key, counted in the Ledger, drawn on the Airspace and subject to your gates. Codex speaks OpenAI's Responses API; Control Tower forwards it to OpenAI-compatible providers as it is and translates it for the rest, so Codex can run on Claude or Gemini models too. The same config file adds Control Tower's `/mcp` endpoint as an MCP server.
 
+> Setting Codex up for a whole company? [Laptops](laptops.md) rolls it out with Jamf, Intune, Kandji or Group Policy, each person signed in through single sign-on (Enterprise).
+
 ## Quick reference
 
 | Setting | Value |

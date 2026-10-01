@@ -10,6 +10,10 @@ Control Tower is an enforcement point for traffic that goes **through** it. This
 | Agent → tool via `/mcp` or `/mcp/<server>` | `tools/list` is filtered before the model ever sees a tool (deny-by-invisibility); `tools/call` runs the same policy and hold path. | Same `base_url` caveat; an agent configured to talk to the upstream MCP server directly bypasses the gate. Keep upstream MCP credentials in Control Tower only. |
 | Agent → REST API via `/http/<slug>/…` | Each request runs the same policy, hold and inspect path as a tool call (route and method are the target; `GET`/`HEAD` read, `POST`/`PUT`/`PATCH` write, `DELETE` destructive). The agent's Control Tower key is stripped and the API's stored credentials are added, so the agent never needs them. Paths are confined to the registered base URL: dot segments, encoded dots and backslashes are refused before anything is sent. | An agent that still holds the API's own credentials can call its host directly. Move those credentials into Control Tower and revoke the agent's copy. The admin chooses each base URL, so only register hosts agents should reach. |
 
+## People's computers
+
+[Laptops](laptops.md) rolls Claude Code, Claude Desktop and Codex out with their vendors' managed settings, which users can't override. Those settings send the tools' model and MCP calls through the gateway, signed in as the person, and with **Lock down** refuse other providers and MCP servers. They don't cover other tools: Cursor and GitHub Copilot can't be pointed at a gateway, and code that calls a provider's API directly never reaches one. Close that gap at the network: allow provider APIs only from Control Tower.
+
 ## Observed only (drawn dashed on the Airspace)
 
 - Calls reported through `/v1/observe` or OpenTelemetry spans rather than made through the gateway. They are mapped and documented, and each comes with steps to bring it inside.

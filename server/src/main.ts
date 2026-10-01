@@ -57,6 +57,7 @@ import { supportBundle } from './support/bundle.js';
 import { AuditLog } from './ee/audit.js';
 import { AuditShipper } from './ee/siem.js';
 import { TokenAuth } from './ee/tokens.js';
+import { DeviceAuth } from './ee/devices.js';
 import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
@@ -320,6 +321,11 @@ async function main(): Promise<void> {
   await tokens.reload();
   tokens.start();
   registry.tokens = tokens;
+  // Laptops signed in as people (Claude Code, Claude Desktop, Codex), with short-lived tokens (Enterprise).
+  const devices = new DeviceAuth({ db: db.write, key: secrets.deriveKey('device-tokens'), keys: () => registry.keysById, allowed: () => license.allows('laptops') });
+  await devices.reload();
+  devices.start();
+  registry.devices = devices;
   // Organisations and teams, and who belongs to them (Enterprise).
   const orgs = new Orgs({ db: db.write, allowed: () => license.allows('orgs') });
   await orgs.reload();
@@ -341,6 +347,7 @@ async function main(): Promise<void> {
     exporter,
     auditShipper,
     tokens,
+    devices,
     instanceId: cluster.id,
     orgs,
     // The control plane reaches into regions through the hub; a region answers it in-process, marked by a secret.
@@ -574,7 +581,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs, orgs, license });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, devices, secretManagers: secretRefs, orgs, license });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);

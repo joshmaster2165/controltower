@@ -187,6 +187,10 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | POST, DELETE | `/demo` | Start or stop the demo fleet |
 | POST | `/playground/chat` | Send a request from the console's playground |
 
+### Laptops (Enterprise)
+
+Signing people's computers in for Claude Code, Claude Desktop and Codex (`/device/code`, `/device/token`, `/device/revoke`), approving them (`/admin/api/me/devices…`), the rules and the rollout files (`/admin/api/devices…`), and spend by person (`/admin/api/ledger/people`): see [Laptops](laptops.md#api).
+
 ## Key and model management API
 
 With the admin key: `POST /key/generate`, `GET /key/info`, `POST /key/update`, `GET /key/list`, `POST /key/delete`, `POST /key/block`, `POST /key/unblock`, `POST /key/regenerate` (also `/key/:key/regenerate`), `GET /model/info` (also `/v1/model/info`), `POST /model/new`, `POST /model/delete`. See [Keys](keys.md#key-management-api).

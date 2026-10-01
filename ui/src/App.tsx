@@ -22,6 +22,8 @@ import { AgentIdentityPage } from './ee/AgentIdentity';
 import { SecretManagersPage } from './ee/SecretManagers';
 import { TeamsPage } from './ee/Teams';
 import { RegionsPage } from './ee/Regions';
+import { DevicePage } from './ee/DevicePage';
+import { LaptopsPage } from './ee/Laptops';
 import { LicenseBanner, LicensePage } from './ee/LicensePage';
 import { AlertsPage, AlertToasts } from './pages/Alerts';
 import { ReportPage } from './pages/Report';
@@ -53,6 +55,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'models', label: 'Models', icon: 'cpu', hint: 'Deployments and aliases' },
       { id: 'keys', label: 'Keys', icon: 'key', hint: 'One API key per agent' },
       { id: 'agent-identity', label: 'Agent identity', icon: 'shield', hint: 'Agents authenticate with tokens from your identity provider' },
+      { id: 'laptops', label: 'Laptops', icon: 'cpu', hint: 'Claude Code, Claude Desktop and Codex on people’s computers, signed in as them' },
       { id: 'mcp', label: 'MCP servers', icon: 'tool', hint: 'Tool servers agents may reach' },
       { id: 'http', label: 'HTTP APIs', icon: 'globe', hint: 'REST APIs agents call through the gateway' },
       { id: 'a2a', label: 'A2A agents', icon: 'agents', hint: 'Remote agents reached over the A2A protocol' },
@@ -114,6 +117,8 @@ export function App() {
   if (!status?.setup_complete) return <SetupPage />;
   if (!me?.email) return <LoginPage />;
   if (me.must_change_password) return <ChangePassword forced onDone={() => void useStore.getState().boot()} />;
+  // A laptop's sign-in, opened by ct-auth at /device?code=…: approved here, outside the console's pages.
+  if (location.pathname === '/device') return <DevicePage />;
   // A region's console shows what it serves; its configuration is changed on the control plane.
   const role = status?.region ? 'viewer' : (me.role ?? 'admin');
   // Someone scoped to teams (a member) sees their teams' agents: the pages that show them, and Teams.
@@ -122,7 +127,7 @@ export function App() {
   const navShows = (id: string) =>
     id === 'regions'
       ? role === 'admin' && !status?.region
-      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
+      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers', 'laptops'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
   const manages = me.scope && me.scope.manage !== 'all' ? me.scope.manage : [];
 
   const logout = async () => {
@@ -301,6 +306,7 @@ export function App() {
         {route === 'audit' && role === 'admin' && <AuditPage />}
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
+        {route === 'laptops' && role === 'admin' && <LaptopsPage />}
         {route === 'teams' && navShows('teams') && <TeamsPage />}
         {route === 'regions' && navShows('regions') && <RegionsPage />}
         {route === 'license' && <LicensePage />}

@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { AuthSky } from '../components/AuthSky';
 
 /** Brand story on the left, the form on the right. */
-function AuthLayout({ children }: { children: ReactNode }) {
+export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="auth-shell">
       <aside className="auth-brand">
@@ -103,6 +103,9 @@ export function LoginPage() {
     void api.get<typeof sso>('/admin/api/sso').then(setSso).catch(() => undefined);
   }, []);
   const passwords = !sso.sso_only || showPassword;
+  // Signing in to approve a laptop (/device?code=…): single sign-on comes back here, not to the console.
+  const device = location.pathname === '/device';
+  const next = device ? `?next=${encodeURIComponent(location.pathname + location.search)}` : '';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -121,12 +124,12 @@ export function LoginPage() {
   return (
     <AuthLayout>
       <form className="auth" onSubmit={submit}>
-        <h1>Sign in</h1>
-        <p>Welcome back. Sign in to the Airspace, approvals and settings.</p>
+        <h1>{device ? 'Connect your computer' : 'Sign in'}</h1>
+        <p>{device ? 'Sign in as yourself to approve the sign-in you started on your computer.' : 'Welcome back. Sign in to the Airspace, approvals and settings.'}</p>
         {sso.providers.length > 0 && (
           <div className="sso-options" style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
             {sso.providers.map((p) => (
-              <button key={p.id} type="button" className={`btn auth-submit ${sso.sso_only ? 'primary' : ''}`} onClick={() => location.assign(`/admin/sso/${encodeURIComponent(p.id)}/start`)}>
+              <button key={p.id} type="button" className={`btn auth-submit ${sso.sso_only ? 'primary' : ''}`} onClick={() => location.assign(`/admin/sso/${encodeURIComponent(p.id)}/start${next}`)}>
                 Sign in with {p.name}
               </button>
             ))}

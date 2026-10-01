@@ -109,6 +109,19 @@ async function sendSeatEmail(to, seats, current, link) {
 /** The subscription's seats: those included plus the seat item's quantity. */
 const seatsOf = (sub) => INCLUDED_SEATS + (sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'))?.quantity ?? 0);
 
+/**
+ * Why no key may be minted from this subscription now, or null: it isn't active, or its latest invoice isn't paid.
+ * The second matters at every renewal: Stripe moves the period on at once but keeps the renewal's invoice a draft for
+ * about an hour before charging the card, so "active" with next period's end date isn't yet paid for.
+ * (`latest_invoice` must be expanded.)
+ */
+function owing(sub) {
+  if (!['active', 'trialing'].includes(sub.status)) return sub.status;
+  const inv = sub.latest_invoice;
+  if (inv && typeof inv === 'object' && ['draft', 'open', 'uncollectible'].includes(inv.status) && (inv.amount_remaining ?? inv.amount_due) > 0) return `invoice_${inv.status}`;
+  return null;
+}
+
 function licenseFor(sub, customer) {
   const seatItem = sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'));
   const end = (sub.items.data[0]?.current_period_end ?? sub.current_period_end) * 1000;
@@ -619,9 +632,9 @@ export function createServer() {
       if (req.method === 'GET' && u.pathname === '/success') {
         const id = u.searchParams.get('session_id') ?? '';
         if (!/^cs_[A-Za-z0-9_]+$/.test(id)) return html(res, 400, note('That checkout was not found', 'UNKNOWN · 400', 'Use the link from your receipt, or start again from the plans.'));
-        const s = await stripe('GET', `/v1/checkout/sessions/${id}?expand[]=subscription&expand[]=customer`);
+        const s = await stripe('GET', `/v1/checkout/sessions/${id}?expand[]=subscription&expand[]=subscription.latest_invoice&expand[]=customer`);
         const paid = s.payment_status === 'paid' || s.payment_status === 'no_payment_required';
-        if (s.status !== 'complete' || !s.subscription || !paid || !['active', 'trialing'].includes(s.subscription.status)) return html(res, 402, note('Payment not complete yet', 'HOLDING · 402', 'This page checks again every few seconds: your key appears as soon as the payment clears.', { head: '<meta http-equiv="refresh" content="4">', back: false }));
+        if (s.status !== 'complete' || !s.subscription || !paid || owing(s.subscription)) return html(res, 402, note('Payment not complete yet', 'HOLDING · 402', 'This page checks again every few seconds: your key appears as soon as the payment clears.', { head: '<meta http-equiv="refresh" content="4">', back: false }));
         const customer = { name: s.customer_details?.name ?? s.customer?.name, email: s.customer_details?.email ?? s.customer?.email };
         return html(res, 200, keyPage('You’re cleared', sign(licenseFor(s.subscription, customer)), `Your Control Tower Enterprise license, for ${customer.name ?? customer.email}. It renews with your subscription; servers that can reach this service pick up the renewed key themselves.`));
       }
@@ -663,7 +676,7 @@ export function createServer() {
         const lic = verify(b.key);
         if (!lic) return json(res, 400, { error: 'invalid_license' });
         if (!lic.sub) return json(res, 200, { status: 'unchanged' }); // trials and hand-issued keys don't renew here
-        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer&expand[]=latest_invoice`);
         // A seat reduction's schedule, once its last period has begun, lets go of the subscription: while attached it
         // stops the subscription being cancelled (in Stripe's portal too). Stripe's own "current phase" says when.
         if (typeof sub.schedule === 'string') {
@@ -671,7 +684,7 @@ export function createServer() {
           const last = sched?.phases?.at(-1);
           if (sched?.status === 'active' && last && sched.current_phase?.start_date === last.start_date) {
             await stripe('POST', `/v1/subscription_schedules/${sched.id}/release`, {}).catch((err) => console.error(JSON.stringify({ error: `schedule not released: ${err.message}`, subscription: sub.id })));
-            sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+            sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer&expand[]=latest_invoice`);
           }
         }
         // The server's request count this license year (a number, nothing else): kept on the subscription, for renewals.
@@ -679,6 +692,10 @@ export function createServer() {
         if (u && Number.isFinite(u.requests) && u.requests >= 0 && Number.isFinite(u.period_start)) {
           console.log(JSON.stringify({ event: 'usage', license: lic.id, customer: lic.customer, requests: Math.round(u.requests), allowance: lic.requests_per_year, period_start: new Date(u.period_start).toISOString() }));
           await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { requests_this_year: String(Math.round(u.requests)), requests_allowance: String(lic.requests_per_year), requests_period_start: new Date(u.period_start).toISOString().slice(0, 10), usage_reported_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `usage not recorded: ${err.message}`, license: lic.id })));
+        }
+        // How many people use seats on that server: kept on the subscription, so seats aren't reduced below it.
+        if (Number.isFinite(b.seats_used) && b.seats_used >= 0) {
+          await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { seats_used: String(Math.round(b.seats_used)), seats_used_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `seats in use not recorded: ${err.message}`, license: lic.id })));
         }
         // A server whose clock was found set back says so (how far, and the latest time it had seen): kept on the subscription.
         const c = b.clock;
@@ -691,7 +708,22 @@ export function createServer() {
           console.log(JSON.stringify({ event: 'renewal_unpaid', license: lic.id, customer: lic.customer }));
           return json(res, 200, { status: 'unchanged', subscription: 'past_due' });
         }
-        if (!['active', 'trialing'].includes(sub.status)) return json(res, 200, { status: 'ended', subscription: sub.status });
+        if (!['active', 'trialing'].includes(sub.status)) {
+          // Ended before the key's end date (cancelled at once, refunded, or Stripe gave up): the key ends then too, so a
+          // refund doesn't leave Enterprise running for the rest of a paid year.
+          const endedAt = (sub.ended_at ?? sub.canceled_at ?? 0) * 1000;
+          if (endedAt && endedAt < lic.expires_at) {
+            console.log(JSON.stringify({ event: 'license_shortened', license: lic.id, customer: lic.customer, from: new Date(lic.expires_at).toISOString(), to: new Date(endedAt).toISOString(), subscription: sub.status }));
+            return json(res, 200, { status: 'ended', subscription: sub.status, key: sign({ ...lic, issued_at: Date.now(), expires_at: endedAt }) });
+          }
+          return json(res, 200, { status: 'ended', subscription: sub.status });
+        }
+        // Active, but the renewal's invoice isn't paid yet (a draft for its first hour, or open while retried).
+        const due = owing(sub);
+        if (due) {
+          console.log(JSON.stringify({ event: 'renewal_unpaid', license: lic.id, customer: lic.customer, invoice: due }));
+          return json(res, 200, { status: 'unchanged', subscription: 'payment_pending' });
+        }
         const next = licenseFor(sub, { name: sub.customer?.name ?? lic.customer, email: sub.customer?.email ?? lic.email });
         if (next.expires_at === lic.expires_at && next.seats === lic.seats && next.period_start === lic.period_start) return json(res, 200, { status: 'unchanged' });
         return json(res, 200, { status: 'renewed', key: sign(next) });
@@ -706,10 +738,14 @@ export function createServer() {
         const seats = Math.round(Number(b.seats));
         if (!lic?.sub) return html(res, 400, note('That key has no subscription', 'UNKNOWN · 400', 'Paste the license key from Control Tower’s License page (a trial has no seats to change).'));
         if (!(seats >= INCLUDED_SEATS && seats <= MAX_SELF_SERVE_SEATS)) return html(res, 400, note('Check the number of seats', 'RETURNED · 400', `Between ${INCLUDED_SEATS} and ${MAX_SELF_SERVE_SEATS}; for more, write to sales@agentcontroltower.app.`));
-        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer&expand[]=latest_invoice`);
         if (!['active', 'trialing'].includes(sub.status)) return html(res, 409, note('That subscription isn’t active', 'HOLD · 409', 'Seats can be changed on an active subscription. Write to billing@agentcontroltower.app.'));
+        if (owing(sub)) return html(res, 402, note('An invoice is waiting', 'HOLD · 402', 'Seats can be changed once your latest invoice is paid. Pay it from the customer portal (the link is in your receipts), then try again.'));
         const current = seatsOf(sub);
         if (seats === current) return html(res, 200, note('Nothing to change', 'NO CHANGE', `Your license already has ${current} seats.`));
+        // Not below the people using seats now, as Control Tower last reported.
+        const inUse = Number(sub.metadata?.seats_used);
+        if (seats < current && Number.isFinite(inUse) && seats < inUse) return html(res, 409, note(`${inUse} people use seats now`, 'HOLD · 409', `Control Tower reports ${inUse} people signing in with single sign-on or provisioned by SCIM. Remove or deactivate people first (in Control Tower, or at your identity provider), then reduce to ${seats}.`));
         const email = sub.customer?.email;
         if (!RESEND_KEY || !email) return html(res, 503, note('Write to us to change seats', 'STANDBY · 503', 'Email billing@agentcontroltower.app with the number of seats you want, and we’ll change it for you.'));
         try {
@@ -726,7 +762,9 @@ export function createServer() {
         const r = verify(u.searchParams.get('t') ?? '', PUBLIC, 'cts1');
         if (!r?.sub || !Number.isFinite(r.seats)) return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Open the link from your email as it is.'));
         if (Date.now() > r.exp) return html(res, 410, note('That link has expired', 'EXPIRED · 410', 'Links work for 24 hours. Ask again from the seats page.'));
-        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer`);
+        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer&expand[]=latest_invoice`);
+        // The subscription may have changed since the email was sent (cancelled, refunded, a renewal unpaid).
+        if (owing(sub)) return html(res, 409, note('That subscription can’t change now', 'HOLD · 409', 'It isn’t active, or an invoice is waiting to be paid. Settle it from the customer portal, or write to billing@agentcontroltower.app.'));
         const current = seatsOf(sub);
         const customer = { name: sub.customer?.name, email: sub.customer?.email };
         if (r.seats === current || (sub.schedule && r.seats < current)) {
@@ -742,7 +780,7 @@ export function createServer() {
             const seatPrice = (await prices())[month ? LOOKUP.seat_month : LOOKUP.seat_year];
             await stripe('POST', '/v1/subscription_items', { subscription: sub.id, price: seatPrice.id, ...opts });
           }
-          sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer`);
+          sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer&expand[]=latest_invoice`);
           console.log(JSON.stringify({ event: 'seats_added', subscription: sub.id, from: current, to: seatsOf(sub) }));
           return html(res, 200, keyPage('You’re cleared', sign(licenseFor(sub, customer)), `Your license now has ${seatsOf(sub)} seats. Paste this key into Control Tower, or let your servers pick it up within a day.`));
         }

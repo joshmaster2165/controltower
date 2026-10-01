@@ -32,7 +32,7 @@ Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the ser
 
  Every instance sharing a database reads a key added in the console. With `CT_LICENSE_KEY`, set it on each instance.
 
-**Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats.
+**Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats. If more people use seats than the license has (after seats were reduced, say), the console says so and no one new can sign in through single sign-on until seats are added or people removed. Seats can't be reduced below the number in use that the server last reported.
 
 **Requests a year:** see [below](#requests-a-year). Going over is a conversation at renewal; it never slows or stops traffic.
 
@@ -47,7 +47,7 @@ A license includes a number of requests a year, and **License** shows how many h
 - **At 80%, and again at 100%,** a line at the top of the console says so. The [audit log](audit.md) records it once each year as `license.usage`, and the server logs it.
 - **Going over never slows, refuses or stops anything.** It's a conversation at renewal, where more requests a year cost less each ([pricing](https://agentcontroltower.app/pricing.html)).
 
-**What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
+**What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key, the number of people using seats, and whether the clock was found set back. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
 
 ## When a license ends
 
@@ -78,7 +78,21 @@ Without a license, each Enterprise feature says so where it would be:
 
 The license keeps working, so a clock that was simply wrong never switches anything off. If the clock is right (it was once set ahead by mistake), an admin says so from the console's warning, and the latest time seen starts again from now (`license.clock_accepted`).
 
-Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
+Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. From a day before the end date until the renewal arrives, it checks every hour. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
+
+**What payment does to a license:**
+
+| What happens | The license |
+|---|---|
+| A renewal is paid | Extended to the new end date, picked up within the hour |
+| A renewal hasn't been charged yet, or its payment failed (Stripe retries for a few weeks) | Not extended: it keeps its end date, then has its 14-day grace period. Paying the invoice (a new card in the customer portal) extends it |
+| Stripe stops retrying and ends the subscription | Not extended; it ends on its end date and grace period |
+| Cancelled at the end of the period | Keeps its end date. Resuming before then renews it as usual |
+| Cancelled at once, or refunded | Ends when the subscription ended (servers that can reach the license service pick that up), then the 14-day grace period |
+| More seats | Charged for the rest of the period; the new key at once |
+| Fewer seats | From the next renewal; not below the number in use |
+
+When a license ends, only Enterprise features stop. Gateway traffic is never affected. An air-gapped server learns none of this: its key runs to its end date.
 
 ## API
 

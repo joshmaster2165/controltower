@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GRACE_MS, WARN_MS, parseLicense, signLicense, stateOf, type LicensePayload } from '../src/ee/license.js';
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
@@ -103,9 +103,50 @@ describe('license renewal', () => {
       expect((await again.load()).license?.seats).toBe(40);
       answer = { status: 'ended' };
       expect(await l.refresh(url, log)).toBe('ended');
+      // Ended early (refunded, say): the service sends the key shortened to when it ended, and it's taken.
+      const endedAt = Date.now() - 2 * 86_400_000;
+      answer = { status: 'ended', key: signLicense({ ...lic, seats: 40, issued_at: Date.now(), expires_at: endedAt }, privateKey) };
+      expect(await l.refresh(url, log)).toBe('ended');
+      expect(l.current.license?.expires_at).toBe(endedAt);
+      expect(l.current.status).toBe('grace'); // 14 days from when it ended, then off
+      // …and stays so after a restart, over the longer key the server was started with.
+      expect((await new Licensing(db.write, signLicense(lic, privateKey)).load()).license?.expires_at).toBe(endedAt);
+      // A shortened key for another license is ignored.
+      answer = { status: 'ended', key: signLicense({ ...lic, id: 'someone-else', issued_at: Date.now() + 1000, expires_at: endedAt - 86_400_000 }, privateKey) };
+      await l.refresh(url, log);
+      expect(l.current.license?.expires_at).toBe(endedAt);
       expect(await new Licensing(db.write, signLicense((({ sub: _s, ...rest }) => rest)(lic), privateKey)).refresh(url, log)).toBe('skipped');
     } finally {
       svc.close();
+      delete process.env.CT_LICENSE_PUBLIC_KEY;
+    }
+  });
+
+  it('checks daily, and hourly from a day before the end date (a renewal is issued only once it is paid)', async () => {
+    const { openSqlite } = await import('../src/db/index.js');
+    const { Licensing } = await import('../src/ee/license.js');
+    process.env.CT_LICENSE_PUBLIC_KEY = keys.t;
+    const log = { info: () => undefined, warn: () => undefined };
+    const checks = async (endsIn: number, hours: number) => {
+      const l = new Licensing(openSqlite('', { memory: true }).write, signLicense({ ...base, kid: 'test', sub: 'sub_1', issued_at: Date.now(), expires_at: Date.now() + endsIn }, privateKey));
+      await l.load();
+      const spy = vi.spyOn(l, 'refresh').mockResolvedValue('unchanged');
+      vi.useFakeTimers();
+      try {
+        const stop = l.startRefresh('http://license.invalid', log);
+        await vi.advanceTimersByTimeAsync(60_000 + hours * 3600_000);
+        stop();
+        return spy.mock.calls.length;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    try {
+      expect(await checks(20 * 86_400_000, 47)).toBe(2); // at start, then a day later
+      expect(await checks(12 * 3600_000, 10)).toBe(11); // near the end: every hour
+      expect(await checks(-3 * 86_400_000, 5)).toBe(6); // in grace, waiting on a renewal: every hour
+      expect(await checks(-20 * 86_400_000, 30)).toBe(2); // long expired: back to daily
+    } finally {
       delete process.env.CT_LICENSE_PUBLIC_KEY;
     }
   });

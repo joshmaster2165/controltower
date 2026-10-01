@@ -135,6 +135,14 @@ export function LicenseBanner() {
   }, []);
   if (!l?.license) return null;
   if (l.clock?.behind) return <ClockBanner clock={l.clock} onAccepted={() => setL({ ...l, clock: { behind: false, high_water: Date.now(), behind_ms: 0 } })} />;
+  // More people use seats than the license has (seats were reduced, say): new people can't sign in until that's fixed.
+  if (['valid', 'expiring', 'grace'].includes(l.status) && (l.seats_used ?? 0) > l.license.seats) {
+    return (
+      <div className="role-banner warn" role="alert">
+        {l.seats_used} people use single sign-on seats, more than the license’s {l.license.seats}. No one new can sign in through single sign-on until seats are added or people are removed. <a href="#/license">License</a>
+      </div>
+    );
+  }
   // Past 80% of the year's requests: said once at the top, never enforced.
   if (l.status === 'valid' && l.usage && l.usage.level !== 'ok') {
     return (

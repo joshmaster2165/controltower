@@ -6,6 +6,11 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 - **Licensing:** `POST /admin/api/license/refresh` checks for a renewed key now (after buying more seats, say) instead of at the next daily check.
 - **License service, tested end to end against a Stripe sandbox:** a purchase through Stripe Checkout, the key in Control Tower, a renewal, more seats (confirmed from the billing email and charged for the rest of the period), fewer seats (from the next renewal), cancellation, and a renewal whose payment fails, which no longer extends the license. Stripe's API version is pinned.
+- **A renewal is issued only once it's paid.** Stripe moves a subscription to its next period about an hour before it charges the card. A server that checked in that hour was given the next period even if the payment then failed. The license service now waits for the renewal invoice to be paid, and seat changes need it paid too.
+- **A refunded or immediately cancelled subscription ends the license then**, not at the end of the period paid for (then the usual 14-day grace period). Servers that reach the license service pick this up at their next check.
+- **Seats:** with each renewal check, a server reports how many people use seats (a number). Seats can't be reduced below it. When more people use seats than the license has, the console says so.
+- **Renewal checks:** daily as before, and hourly from a day before the end date until the renewal arrives.
+- **Several servers on one database:** a license added, removed or renewed through one now applies on the others at once (it applied only after a restart).
 
 ## 0.2.3 — 30 September 2026
 

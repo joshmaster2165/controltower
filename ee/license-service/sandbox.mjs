@@ -142,7 +142,7 @@ function start(name, args, env, url) {
 // A visible browser: Stripe's invisible bot check doesn't pass in headless mode (and nothing here tries to get past one).
 const browser = await chromium.launch({ headless: false });
 /** Pay on Stripe Checkout (a sandbox page) with Stripe's test card, as a buyer would. */
-async function payOnCheckout(url, { card = '4242424242424242', email, name = 'Acme Corp' } = {}) {
+async function payOnCheckout(url, { card = '4242424242424242', email, name = 'Acme Corp', expectDecline = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -174,6 +174,11 @@ async function payOnCheckout(url, { card = '4242424242424242', email, name = 'Ac
     const link = page.locator('#enableStripePass');
     if ((await link.count()) && (await link.isChecked().catch(() => false))) await link.uncheck();
     await page.locator('[data-testid="hosted-payment-submit-button"]').click();
+    if (expectDecline) {
+      // The buyer stays on Checkout (Stripe shows its own message); the key page is never reached.
+      await page.waitForTimeout(15_000);
+      return { declined: !page.url().includes('127.0.0.1:4820'), url: page.url() };
+    }
     await page.waitForURL(/127\.0\.0\.1:4820\/success/, { timeout: 60_000 });
     // The service shows the key once the payment is in (it may ask to wait a moment first).
     for (let i = 0; i < 15; i++) {
@@ -257,6 +262,30 @@ try {
   const s1c = await subOf(l1.sub);
   c('Managed Payments: fewer seats on a Checkout subscription are scheduled for the renewal', /10 seats from/.test(mpDown) && typeof s1c.schedule === 'string', `page "${/(\d+ seats from [^<]+)|<h1>([^<]+)/.exec(mpDown)?.slice(1).find(Boolean) ?? '?'}", schedule ${s1c.schedule ?? 'none'}`);
 
+  // A card that's declined at checkout: no subscription, no key.
+  const declineBuy = await fetch(`${SVC}/checkout`, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ seats: '5', interval: 'month' }) });
+  const declined = await payOnCheckout(declineBuy.headers.get('location'), { card: '4000000000000002', email: 'declined@acme.example', name: 'Declined Co', expectDecline: true }).catch((e) => ({ error: e.message }));
+  const declinedCustomers = (await stripe('GET', `/v1/customers?email=${encodeURIComponent('declined@acme.example')}&expand[]=data.subscriptions`)).data;
+  const declinedSubs = declinedCustomers.flatMap((cu) => cu.subscriptions?.data ?? []).filter((sb) => ['active', 'trialing'].includes(sb.status));
+  c('a card declined at checkout: the buyer stays on Checkout, no subscription, no key', declined.declined === true && declinedSubs.length === 0, declined.declined ? `still on Checkout after paying; active subscriptions for that email: ${declinedSubs.length}` : String(declined.error ?? declined.url).slice(0, 120));
+
+  // Seats can't go below the people using them (Control Tower reports them with each renewal check).
+  await ct('PUT', '/admin/api/license', { key: k1 });
+  await refresh(); // Control Tower reports its seats in use (none here) with the check
+  const reported = (await subOf(l1.sub)).metadata?.seats_used;
+  await stripe('POST', `/v1/subscriptions/${l1.sub}`, { metadata: { seats_used: '13' } }); // as a server with 13 people would
+  const floor = await fetch(`${SVC}/seats`, { method: 'POST', body: new URLSearchParams({ key: k1, seats: '9' }) });
+  const floorText = await floor.text();
+  c('seats can\'t be reduced below the people using them', reported === '0' && floor.status === 409 && /13 people use seats now/.test(floorText), `Control Tower reported ${reported} in use; asking for 9 with 13 in use: ${floor.status}`);
+
+  // Cancelled at once (as with a refund): the license is cut short in Control Tower, not left running for the year.
+  const sched1 = (await subOf(l1.sub)).schedule;
+  if (sched1) await stripe('POST', `/v1/subscription_schedules/${sched1}/release`, {});
+  await stripe('DELETE', `/v1/subscriptions/${l1.sub}`);
+  const rCut = await refresh();
+  const licCut = (await ct('GET', '/admin/api/license')).body;
+  c('cancelled at once (a refund): the license ends now, not at the end of the paid year', rCut.result === 'ended' && Math.abs((licCut.license?.expires_at ?? 0) - Date.now()) < 10 * 60_000 && licCut.status === 'grace', `refresh ${rCut.result}; the license now ends ${licCut.license ? new Date(licCut.license.expires_at).toISOString() : '?'} (was ${new Date(l1.expires_at).toISOString().slice(0, 10)}); status ${licCut.status} (14 days' grace, then off)`);
+
   // ---- 4. Monthly, on a test clock: renewal, seats up and down, cancellation.
   const now = Math.floor(Date.now() / 1000);
   const clockA = (await stripe('POST', '/v1/test_helpers/test_clocks', { frozen_time: now, name: 'ct renewal, seats, cancel' })).id;
@@ -268,7 +297,14 @@ try {
 
   // Renewal: a month on, the card is charged and the server picks up the renewed key.
   let sA = await subOf(lA.sub);
-  await advance(clockA, sA.items.data[0].current_period_end + 3600);
+  const endA = sA.items.data[0].current_period_end;
+  // A minute past the end date: Stripe has moved the period on and says "active", but the renewal invoice is still a
+  // draft (Stripe charges it about an hour later). Nothing is paid, so nothing is extended.
+  await advance(clockA, endA + 60);
+  const sA0 = await subOf(lA.sub);
+  const rA0 = await refresh();
+  c('in the hour between the end date and the charge, the renewal isn\'t issued yet', sA0.status === 'active' && sA0.items.data[0].current_period_end > endA && sA0.latest_invoice?.status === 'draft' && rA0.result === 'unchanged' && rA0.license?.expires_at === lA.expires_at, `Stripe ${sA0.status}, period to ${day(sA0.items.data[0].current_period_end)}, invoice ${sA0.latest_invoice?.status}; refresh ${rA0.result}, the license still ends ${rA0.license ? day(rA0.license.expires_at / 1000) : '?'}`);
+  await advance(clockA, endA + 7200);
   sA = await subOf(lA.sub);
   const rA = await refresh();
   c('a month on, the renewal is charged and Control Tower picks up the renewed key', sA.status === 'active' && sA.latest_invoice?.status === 'paid' && rA.result === 'renewed' && rA.license?.expires_at > lA.expires_at, `Stripe ${sA.status}, invoice ${sA.latest_invoice?.status}; refresh ${rA.result}, until ${rA.license ? day(rA.license.expires_at / 1000) : '?'}`);
@@ -292,20 +328,30 @@ try {
   const downPage = await (await fetch(lastLink(/http:\/\/127\.0\.0\.1:4820\/seats\/confirm\?t=\S+/))).text();
   sA = await subOf(lA.sub);
   const stillNow = sA.items.data.find((i) => i.price.lookup_key.startsWith('ct_enterprise_seat'))?.quantity;
-  await advance(clockA, sA.items.data[0].current_period_end + 3600);
+  await advance(clockA, sA.items.data[0].current_period_end + 7200);
   sA = await subOf(lA.sub);
   const after = sA.items.data.find((i) => i.price.lookup_key.startsWith('ct_enterprise_seat'))?.quantity;
   const rDown = await refresh();
   c('fewer seats: unchanged until the renewal, then 9 (and Control Tower follows)', /9 seats from/.test(downPage) && stillNow === 10 && after === 4 && rDown.license?.seats === 9, `page "${/(\d+ seats from [^<]+)/.exec(downPage)?.[1] ?? '?'}"; seat item ${stillNow} → ${after}; Control Tower ${rDown.license?.seats} seats`);
 
+  // Cancel at the end of the period, then change your mind: the renewal goes on.
+  await stripe('POST', `/v1/subscriptions/${lA.sub}`, { cancel_at_period_end: true });
+  await stripe('POST', `/v1/subscriptions/${lA.sub}`, { cancel_at_period_end: false });
+  sA = await subOf(lA.sub);
+  await advance(clockA, sA.items.data[0].current_period_end + 7200);
+  sA = await subOf(lA.sub);
+  const rResume = await refresh();
+  c('cancelled, then resumed before the end: the next renewal is charged and the license extended', sA.status === 'active' && sA.latest_invoice?.status === 'paid' && rResume.result === 'renewed', `Stripe ${sA.status}, invoice ${sA.latest_invoice?.status}; refresh ${rResume.result}, until ${rResume.license ? day(rResume.license.expires_at / 1000) : '?'}`);
+  const resumedEnd = rResume.license?.expires_at;
+
   // Cancellation at the end of the period (as the portal does it): working until then, ended after.
   await stripe('POST', `/v1/subscriptions/${lA.sub}`, { cancel_at_period_end: true });
   const rCancel = await refresh();
   sA = await subOf(lA.sub);
-  await advance(clockA, sA.items.data[0].current_period_end + 3600);
+  await advance(clockA, sA.items.data[0].current_period_end + 7200);
   const rEnded = await refresh();
   const licEnded = (await ct('GET', '/admin/api/license')).body;
-  c('cancelled: the key keeps its end date, and after it the subscription is ended (no renewal)', rCancel.result === 'unchanged' && rEnded.result === 'ended' && licEnded.license?.expires_at === rDown.license?.expires_at, `before the end: ${rCancel.result}; after: ${rEnded.result}; the license still ends ${licEnded.license ? day(licEnded.license.expires_at / 1000) : '?'}`);
+  c('cancelled: the key keeps its end date, and after it the subscription is ended (no renewal)', rCancel.result === 'unchanged' && rEnded.result === 'ended' && licEnded.license?.expires_at === resumedEnd, `before the end: ${rCancel.result}; after: ${rEnded.result}; the license still ends ${licEnded.license ? day(licEnded.license.expires_at / 1000) : '?'}`);
 
   // ---- 5. A renewal whose payment fails.
   const clockB = (await stripe('POST', '/v1/test_helpers/test_clocks', { frozen_time: now, name: 'ct failed renewal' })).id;
@@ -318,11 +364,30 @@ try {
   if (!pm.customer) await stripe('POST', `/v1/payment_methods/${pm.id}/attach`, { customer: custB.id });
   await stripe('POST', `/v1/subscriptions/${lB.sub}`, { default_payment_method: pm.id });
   let sB = await subOf(lB.sub);
-  await advance(clockB, sB.items.data[0].current_period_end + 3600);
+  const endB = sB.items.data[0].current_period_end;
+  // The draft hour with a card that will fail: nothing for it either.
+  await advance(clockB, endB + 60);
+  const rB0 = await refresh();
+  c('a card that will fail gets nothing in the hour before the charge either', rB0.result === 'unchanged' && rB0.license?.expires_at === lB.expires_at, `refresh ${rB0.result}; the license still ends ${rB0.license ? day(rB0.license.expires_at / 1000) : '?'}`);
+  await advance(clockB, endB + 7200);
   sB = await subOf(lB.sub);
   const rB = await refresh();
   const licB = (await ct('GET', '/admin/api/license')).body;
   c('the renewal payment fails: the license is not extended', sB.status === 'past_due' && rB.result === 'unchanged' && licB.license?.expires_at === lB.expires_at, `Stripe ${sB.status}, invoice ${sB.latest_invoice?.status}; refresh ${rB.result}; the license still ends ${day(lB.expires_at / 1000)}`);
+  // The customer fixes their card and pays: the license is extended.
+  const good = await stripe('POST', '/v1/payment_methods/pm_card_visa/attach', { customer: custB.id });
+  await stripe('POST', `/v1/subscriptions/${lB.sub}`, { default_payment_method: good.id });
+  await stripe('POST', `/v1/invoices/${sB.latest_invoice.id}/pay`, { payment_method: good.id });
+  sB = await subOf(lB.sub);
+  const rRecover = await refresh();
+  c('the failed renewal is then paid with a new card: the license is extended', sB.status === 'active' && rRecover.result === 'renewed' && rRecover.license?.expires_at > lB.expires_at, `Stripe ${sB.status}; refresh ${rRecover.result}, until ${rRecover.license ? day(rRecover.license.expires_at / 1000) : '?'}`);
+  // The next renewal fails, and this time it isn't fixed.
+  await stripe('POST', `/v1/subscriptions/${lB.sub}`, { default_payment_method: pm.id });
+  const recoveredEnd = rRecover.license?.expires_at;
+  await advance(clockB, sB.items.data[0].current_period_end + 7200);
+  sB = await subOf(lB.sub);
+  const rB3 = await refresh();
+  c('the next renewal fails too: not extended again', sB.status === 'past_due' && rB3.result === 'unchanged' && (await ct('GET', '/admin/api/license')).body.license?.expires_at === recoveredEnd, `Stripe ${sB.status}; refresh ${rB3.result}`);
   // Stripe retries; when it gives up the subscription ends, and so does the license.
   for (let d = 7; d <= 35; d += 7) {
     await advance(clockB, sB.items.data[0].current_period_start + d * DAY);
@@ -331,6 +396,20 @@ try {
   sB = await subOf(lB.sub);
   const rB2 = await refresh();
   c('when Stripe gives up, the subscription is over and so is the license (never renewed)', !['active', 'trialing', 'past_due'].includes(sB.status) && rB2.result === 'ended', `Stripe ${sB.status}; refresh ${rB2.result}`);
+
+  // ---- 5b. Renewal with a card that needs the customer to authenticate (3-D Secure), which they can't while away.
+  const clockC = (await stripe('POST', '/v1/test_helpers/test_clocks', { frozen_time: now, name: 'ct 3ds renewal' })).id;
+  clocks.push(clockC);
+  const { key: kC, cust: custC } = await subscribeOnClock(clockC, { email: 'billing@umbrella.example', name: 'Umbrella', seats: 5 });
+  const lC = decode(kC);
+  await ct('PUT', '/admin/api/license', { key: kC });
+  const auth = await stripe('POST', '/v1/payment_methods/pm_card_authenticationRequired/attach', { customer: custC.id });
+  await stripe('POST', `/v1/subscriptions/${lC.sub}`, { default_payment_method: auth.id });
+  let sC = await subOf(lC.sub);
+  await advance(clockC, sC.items.data[0].current_period_end + 7200);
+  sC = await subOf(lC.sub);
+  const rC = await refresh();
+  c('a renewal that needs the customer to authenticate (3-D Secure) isn\'t paid, and the license isn\'t extended', ['past_due', 'incomplete'].includes(sC.status) && rC.result !== 'renewed' && (await ct('GET', '/admin/api/license')).body.license?.expires_at === lC.expires_at, `Stripe ${sC.status}, invoice ${sC.latest_invoice?.status}; refresh ${rC.result}`);
 
   // ---- 6. A trial, by email (the service's own flow).
   await fetch(`${SVC}/trial`, { method: 'POST', body: new URLSearchParams({ company: 'Hooli', email: 'dev@hooli.example' }) });

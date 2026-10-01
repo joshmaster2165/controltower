@@ -232,6 +232,26 @@ try {
   await sleep(500);
   c('an instance with a different master key refuses to start', !okC && /different master key/.test(logs.c!.join('')), okC ? 'it started' : (logs.c!.join('').match(/this database was set up with a different master key[^\n]*/)?.[0] ?? logs.c!.join('').slice(-200)));
   C.p.kill('SIGKILL');
+
+  // A license added in one instance's console reaches the other (no CT_LICENSE_KEY: the console decides), on a
+  // database of its own (PG_URL's server, database "licsync").
+  const LPG = PG.replace(/\/[^/?]+(\?|$)/, '/licsync$1');
+  const L1 = start('l1', 4804, { CT_DATABASE_URL: LPG, CT_LICENSE_KEY: '' });
+  const L2 = start('l2', 4805, { CT_DATABASE_URL: LPG, CT_LICENSE_KEY: '' });
+  const [okL1, okL2] = await Promise.all([L1.ready, L2.ready]);
+  const l1 = admin(L1.url);
+  const l2 = admin(L2.url);
+  const licBefore = (await l2('GET', '/admin/api/license')).body.status;
+  await l1('PUT', '/admin/api/license', { key: testLicense({ customer: 'Sync Co', seats: 9 }) });
+  let onL2 = '';
+  for (let i = 0; i < 20 && onL2 !== 'valid'; i++) (await sleep(300), (onL2 = (await l2('GET', '/admin/api/license')).body.status));
+  const enterpriseOnL2 = (await l2('GET', '/admin/api/audit')).status;
+  await l1('DELETE', '/admin/api/license');
+  let goneL2 = '';
+  for (let i = 0; i < 20 && goneL2 !== 'none'; i++) (await sleep(300), (goneL2 = (await l2('GET', '/admin/api/license')).body.status));
+  c('a license added or removed through one instance applies on the other at once', okL1 && okL2 && licBefore === 'none' && onL2 === 'valid' && enterpriseOnL2 === 200 && goneL2 === 'none', `l2 before: ${licBefore}; after adding on l1: ${onL2} (audit ${enterpriseOnL2}); after removing on l1: ${goneL2}`);
+  L1.p.kill('SIGTERM');
+  L2.p.kill('SIGTERM');
 } finally {
   A.p.kill('SIGTERM');
   B.p.kill('SIGTERM');

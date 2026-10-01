@@ -574,7 +574,7 @@ async function main(): Promise<void> {
   );
   // Keep the instances in step: caches reload together, consoles hear every bump and see every instance's traffic,
   // and a card decided on one instance releases the call held on another.
-  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs, orgs });
+  cluster.syncReloads({ registry, mcp, http, a2a, policy, budgets, alerts, exporter, guardrails, tokens, secretManagers: secretRefs, orgs, license });
   cluster.syncVersions({ approvals: approvalsVersion, alerts: alertsVersion, observed: observedVersion, views: viewsVersion });
   if (cluster.shared) {
     live.onLocal = (m) => cluster.publish('live', m);

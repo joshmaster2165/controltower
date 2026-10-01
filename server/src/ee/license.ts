@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
+import { seatsUsed } from './seats.js';
 
 /**
  * Control Tower Enterprise licenses. A license key is `ctl1.<payload>.<signature>`: a JSON payload signed with
@@ -124,6 +125,11 @@ export class Licensing {
 
   private raw: string | undefined;
 
+  /** Load again (and, with several instances, on all of them: see Cluster.syncReloads). */
+  async reload(): Promise<void> {
+    await this.load();
+  }
+
   async load(): Promise<LicenseState> {
     const rows = await this.db.selectFrom('settings').select(['key', 'value']).where('key', 'in', ['license_key', 'license_key_renewed']).execute();
     const get = (k: string) => rows.find((r) => r.key === k)?.value;
@@ -133,7 +139,9 @@ export class Licensing {
     const renewed = get('license_key_renewed');
     if (renewed && state.license) {
       const r = stateOf(renewed, state.source);
-      if (r.license && r.license.id === state.license.id && r.license.expires_at >= state.license.expires_at) {
+      // The newest key the license service issued for this license wins: a renewal, or a key shortened because the
+      // subscription ended early (refunded, say).
+      if (r.license && r.license.id === state.license.id && r.license.issued_at >= state.license.issued_at) {
         key = renewed;
         state = r;
       }
@@ -158,19 +166,31 @@ export class Licensing {
       // And whether the clock was found set back (the latest time seen, how far behind): nothing else about the server.
       const c = this.clock?.();
       const clock = c?.behind ? { behind_ms: c.behind_ms, latest_seen: c.high_water } : undefined;
-      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}), ...(clock ? { clock } : {}) }), signal: AbortSignal.timeout(15_000) });
+      // And how many people use seats now (a number), so seats can't be reduced below it.
+      const seats_used = await seatsUsed(this.db).catch(() => undefined);
+      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}), ...(clock ? { clock } : {}), ...(seats_used !== undefined ? { seats_used } : {}) }), signal: AbortSignal.timeout(15_000) });
       const j = (await r.json()) as { status?: string; key?: string };
       if (j.status === 'renewed' && j.key) {
         const next = parseLicense(j.key);
         if (!next.ok || next.license.id !== l.id) return 'failed';
         const now = Date.now();
         await this.db.insertInto('settings').values({ key: 'license_key_renewed', value: j.key, updated_at: now }).onConflict((oc) => oc.column('key').doUpdateSet({ value: j.key!, updated_at: now })).execute();
-        await this.load();
+        await this.reload();
         log.info({ customer: next.license.customer, until: new Date(next.license.expires_at).toISOString().slice(0, 10), seats: next.license.seats }, 'license renewed');
         return 'renewed';
       }
-      if (j.status === 'ended') log.warn({ customer: l.customer }, 'license: the subscription behind it has ended; Enterprise features stop after the end date and grace period');
-      return j.status === 'ended' ? 'ended' : 'unchanged';
+      if (j.status === 'ended') {
+        // A subscription that ended before the key did: its key ends then (it comes signed, for this license).
+        const short = j.key ? parseLicense(j.key) : undefined;
+        if (short?.ok && short.license.id === l.id && short.license.expires_at < l.expires_at) {
+          const now = Date.now();
+          await this.db.insertInto('settings').values({ key: 'license_key_renewed', value: j.key!, updated_at: now }).onConflict((oc) => oc.column('key').doUpdateSet({ value: j.key!, updated_at: now })).execute();
+          await this.reload();
+        }
+        log.warn({ customer: l.customer, ends: new Date((short?.ok ? short.license : l).expires_at).toISOString().slice(0, 10) }, 'license: the subscription behind it has ended; Enterprise features stop after its end date and grace period');
+        return 'ended';
+      }
+      return 'unchanged';
     } catch (err) {
       log.warn({ err: (err as Error).message }, 'license: could not reach the license service (the current key keeps working)');
       return 'failed';
@@ -183,16 +203,28 @@ export class Licensing {
   /** This license year's request count, sent with renewals (set by the metering service). */
   usage: (() => Promise<{ used: number; period_start: number; period_end: number } | undefined>) | undefined;
 
-  /** Refresh a minute after start and then daily. */
+  /**
+   * Refresh a minute after start and then daily, or hourly from a day before the key's end date until a renewal comes
+   * (a renewal is charged at the end date, and its key is only issued once the payment has gone through).
+   */
   startRefresh(server: string | undefined, log: Parameters<Licensing['refresh']>[1]): () => void {
     if (!server) return () => undefined;
-    const first = setTimeout(() => void this.refresh(server, log), 60_000);
-    const daily = setInterval(() => void this.refresh(server, log), 24 * 3600_000);
+    let last = 0;
+    const tick = (): void => {
+      const l = this.state.license;
+      const now = Date.now();
+      const nearEnd = !!l?.sub && l.expires_at - now < 24 * 3600_000 && now - l.expires_at < 15 * 24 * 3600_000;
+      if (now - last < (nearEnd ? 3600_000 : 24 * 3600_000) - 60_000) return;
+      last = now;
+      void this.refresh(server, log);
+    };
+    const first = setTimeout(tick, 60_000);
+    const hourly = setInterval(tick, 3600_000);
     first.unref?.();
-    daily.unref?.();
+    hourly.unref?.();
     return () => {
       clearTimeout(first);
-      clearInterval(daily);
+      clearInterval(hourly);
     };
   }
 
@@ -224,7 +256,8 @@ export class Licensing {
     else await this.db.deleteFrom('settings').where('key', '=', 'license_key').execute();
     // A key added by hand replaces any renewal of the one before.
     await this.db.deleteFrom('settings').where('key', '=', 'license_key_renewed').execute();
-    return this.load();
+    await this.reload();
+    return this.state;
   }
 
   onChange(fn: () => void): () => void {

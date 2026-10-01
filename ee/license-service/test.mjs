@@ -25,6 +25,9 @@ const sub = () => ({
   start_date: 1788000000,
   customer: { id: 'cus_1', name: 'Acme Inc', email: 'buyer@acme.com' },
   schedule: stripe.schedule ?? null,
+  ended_at: stripe.endedAt ?? null,
+  latest_invoice: stripe.invoice ?? { id: 'in_1', status: 'paid', amount_due: 1020000, amount_remaining: 0 },
+  metadata: stripe.seatsUsed ? { seats_used: stripe.seatsUsed } : {},
   items: { data: [{ id: 'si_platform', price: { id: 'price_py', lookup_key: 'ct_enterprise_platform_year', recurring: { interval: 'year' } }, quantity: 1, current_period_end: stripe.periodEnd }, { id: 'si_seat', price: { id: 'price_sy', lookup_key: 'ct_enterprise_seat_year', recurring: { interval: 'year' } }, quantity: stripe.seatQty, current_period_end: stripe.periodEnd }] },
 });
 
@@ -206,6 +209,50 @@ test('payment enforcement: no key until the money is in; an unpaid renewal doesn
   assert.deepEqual(r, { status: 'unchanged', subscription: 'past_due' });
 });
 
+test('a renewal not yet charged (Stripe\'s draft hour) or still open extends nothing, and no key comes from it', async () => {
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  const refresh = () => fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) }).then((r) => r.json());
+  // The period has moved on and the subscription is still "active", but the renewal invoice is a draft: nothing charged yet.
+  stripe.periodEnd += 365 * 86400;
+  for (const status of ['draft', 'open']) {
+    stripe.invoice = { id: 'in_2', status, amount_due: 1020000, amount_remaining: 1020000 };
+    assert.deepEqual(await refresh(), { status: 'unchanged', subscription: 'payment_pending' }, status);
+    assert.equal((await fetch(`${base}/success?session_id=cs_test_1`)).status, 402, `the checkout page doesn't hand out the next period either (${status})`);
+    assert.equal((await fetch(`${base}/seats`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.78' }, body: new URLSearchParams({ key, seats: '9' }) })).status, 402);
+  }
+  // Paid: the renewed key.
+  stripe.invoice = { id: 'in_2', status: 'paid', amount_due: 1020000, amount_remaining: 0 };
+  const r = await refresh();
+  assert.equal(r.status, 'renewed');
+  assert.equal(decode(r.key).expires_at, stripe.periodEnd * 1000);
+  // A free invoice (a 100% coupon, say) is nothing owed.
+  stripe.invoice = { id: 'in_3', status: 'open', amount_due: 0, amount_remaining: 0 };
+  assert.equal((await refresh()).status, 'renewed');
+  stripe.invoice = undefined;
+  stripe.periodEnd -= 365 * 86400;
+});
+
+test('a seat link opened after the subscription was cancelled (or a renewal went unpaid) mints nothing', async () => {
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  stripe.seatQty = 7;
+  const asked = await fetch(`${base}/seats`, { method: "POST", headers: { "x-real-ip": "192.0.2.79" }, body: new URLSearchParams({ key, seats: "14" }) });
+  assert.equal(asked.status, 200, await asked.clone().text());
+  const t = new URL(/https:\/\/license\.example\.com\/seats\/confirm\?t=[^"\s]+/.exec(emails.at(-1).html)[0]).searchParams.get('t');
+  const open = () => fetch(`${base}/seats/confirm?t=${encodeURIComponent(t)}`).then(async (r) => ({ status: r.status, key: /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await r.text())?.[1] }));
+  stripe.subStatus = 'canceled';
+  assert.deepEqual(await open(), { status: 409, key: undefined });
+  stripe.subStatus = 'past_due';
+  assert.deepEqual(await open(), { status: 409, key: undefined });
+  stripe.subStatus = 'active';
+  stripe.invoice = { id: 'in_4', status: 'open', amount_due: 600000, amount_remaining: 600000 };
+  assert.deepEqual(await open(), { status: 409, key: undefined });
+  stripe.invoice = undefined;
+  const ok = await open();
+  assert.equal(ok.status, 200);
+  assert.equal(decode(ok.key).seats, 14);
+  stripe.seatQty = 7;
+});
+
 test('seats: the license key asks, the billing email confirms; more now (charged), fewer at renewal', async () => {
   const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
   const ask = (seats) => fetch(`${base}/seats`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.77' }, body: new URLSearchParams({ key, seats: String(seats) }) });
@@ -248,6 +295,34 @@ test('refresh: a server whose clock was set back says so, and it is kept on the 
   assert.equal(r.status, 200);
   const m = stripe.metadata.find((x) => x['metadata[clock_behind_days]']);
   assert.equal(m?.['metadata[clock_behind_days]'], '40');
+});
+
+test('a subscription that ended early shortens the key; seats in use are kept and seats can\'t go below them', async () => {
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  const refresh = (extra = {}) => fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...extra }) }).then((r) => r.json());
+  // Seats in use go onto the subscription.
+  stripe.metadata.length = 0;
+  await refresh({ seats_used: 11 });
+  assert.equal(stripe.metadata.find((m) => m['metadata[seats_used]'])?.['metadata[seats_used]'], '11');
+  // Cancelled at once (a refund): the key comes back ending when the subscription did.
+  stripe.subStatus = 'canceled';
+  stripe.endedAt = Math.floor(Date.now() / 1000) - 3600;
+  const r = await refresh();
+  stripe.subStatus = 'active';
+  stripe.endedAt = undefined;
+  assert.equal(r.status, 'ended');
+  assert.equal(decode(r.key).expires_at, (Math.floor(Date.now() / 1000) - 3600) * 1000);
+  assert.equal(decode(r.key).id, decode(key).id);
+});
+
+test('seats can\'t be reduced below the people using them', async () => {
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  stripe.seatQty = 7; // 12 seats
+  stripe.seatsUsed = '11';
+  const r = await fetch(`${base}/seats`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.88' }, body: new URLSearchParams({ key, seats: '8' }) });
+  stripe.seatsUsed = undefined;
+  assert.equal(r.status, 409);
+  assert.match(await r.text(), /11 people use seats now/);
 });
 
 test('without an email service, the trial key is shown at once', async () => {

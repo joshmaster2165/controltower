@@ -7,22 +7,28 @@
 
 Community help is best effort, from the maintainers and other users.
 
-## Paid support
+## Enterprise support
 
-For teams running Control Tower in production.
+Included in every [Control Tower Enterprise](docs/enterprise.md) subscription, for the teams running it in production.
 
-| | Business | Enterprise |
+- **Where:** email to support@agentcontroltower.app, or a shared Slack or Teams channel.
+- **When:** Monday to Friday, 9:00–18:00 US Eastern time, outside US public holidays.
+- **A named contact**, who knows your deployment.
+- **Onboarding:** a call to review your deployment and configuration, when you start and after a major change.
+- **Upgrades:** release notes before each release, and help planning upgrades.
+- **Security advisories** before public disclosure.
+
+### How quickly we respond
+
+| Severity | Example | First response |
 |---|---|---|
-| Channel | Email | Email, and a shared Slack or Teams channel |
-| First response, production down | TBD | TBD |
-| First response, other questions | Next business day | TBD |
-| Upgrade help and release notes before release | ✓ | ✓ |
-| Deployment and configuration review | | ✓ |
-| Security advisories before public disclosure | | ✓ |
-| Named contact | | ✓ |
-| Price | TBD | TBD |
+| **1 — Production down** | Agents' calls fail, or nobody can sign in | Within 4 business hours |
+| **2 — Seriously impaired** | A feature you depend on is broken and there's no workaround | Within 1 business day |
+| **3 — Everything else** | Questions, minor bugs, requests | Within 2 business days |
 
-To ask about paid support: TBD.
+These are targets for a first response from someone who can act on the problem, measured in support hours. A fix may take longer; we'll keep you updated until it's resolved. You set the severity when you write; if we see it differently, we'll agree it with you.
+
+Larger deployments can ask for 24/7 cover for production-down problems and response-time commitments with service credits: write to sales@agentcontroltower.app.
 
 ## What to include
 
@@ -40,4 +46,4 @@ Read it before you send it. Add what you did, what you expected, and what happen
 
 ## Versions
 
-Control Tower is in preview. Fixes, security fixes included, go into the latest release and `main`. Upgrade to the latest release before reporting a problem, if you can. A longer support window per version will come with 1.0.
+Control Tower is in preview. Fixes, security fixes included, go into the latest release and `main`. Enterprise support covers the latest release and the one before it. Upgrade to the latest release before reporting a problem, if you can. A longer support window per version will come with 1.0.

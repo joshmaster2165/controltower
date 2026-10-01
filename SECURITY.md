@@ -17,12 +17,13 @@ What happens next:
 
 | | Target |
 |---|---|
-| Acknowledgement | TBD (best effort today: as soon as a maintainer sees it) |
-| First assessment (is it real, how severe) | TBD |
-| Fix released, critical or high severity | TBD |
+| Acknowledgement | Within 2 business days |
+| First assessment (is it real, how severe) | Within 5 business days |
+| Fix released, critical severity | Within 7 days of the assessment |
+| Fix released, high severity | Within 30 days |
 | Fix released, medium or low | Next release |
 
-We will keep you updated while we work on a fix, and credit you in the advisory unless you prefer otherwise. Please give us a reasonable window to ship a fix before disclosing publicly. Customers with [Enterprise support](SUPPORT.md#paid-support) hear about fixes before public disclosure.
+We will keep you updated while we work on a fix, and credit you in the advisory unless you prefer otherwise. Please give us a reasonable window to ship a fix before disclosing publicly. Customers with [Enterprise support](SUPPORT.md#enterprise-support) hear about fixes before public disclosure.
 
 ## Verifying what you run
 

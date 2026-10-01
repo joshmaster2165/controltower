@@ -15,7 +15,7 @@ Control Tower is free and open source, and everything else in these docs works w
 | [Organisations and team admins](teams.md): each team manages its own agents' keys, budgets, people and held calls, and members see only their teams, everywhere in the console | Available |
 | [Multi-region control plane](multi-region.md): configure every region from one control plane; regions serve through its outages, keep their calls to themselves, and share limits and budgets | Available |
 | Self-hosted, air-gap available | Available: licenses are checked on your server, with no connection needed |
-| 24/7 support with SLAs, dedicated support and onboarding | See [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md) |
+| Support with response times, a named contact and onboarding | Included: first response within 4 business hours when production is down. See [support](https://github.com/joshmaster2165/controltower/blob/main/SUPPORT.md#enterprise-support) |
 | Annual request capacity and volume discounts | In the license. Usage against it is shown; traffic is never stopped |
 
 Features marked *Coming* are part of Enterprise when they ship; a license covers them without a new key.

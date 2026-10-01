@@ -9,7 +9,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/joshmaster2165/controltower
-  # Defaults to the chart's appVersion. Pin a digest for production: tag: "0.2.3@sha256:…"
+  # Defaults to the chart's appVersion. Pin a digest for production: tag: "0.2.4@sha256:…"
   tag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []

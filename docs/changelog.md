@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.4 — 1 October 2026
 
 - **Licensing:** `POST /admin/api/license/refresh` checks for a renewed key now (after buying more seats, say) instead of at the next daily check.
 - **License service, tested end to end against a Stripe sandbox:** a purchase through Stripe Checkout, the key in Control Tower, a renewal, more seats (confirmed from the billing email and charged for the rest of the period), fewer seats (from the next renewal), cancellation, and a renewal whose payment fails, which no longer extends the license. Stripe's API version is pinned.

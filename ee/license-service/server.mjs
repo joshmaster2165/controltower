@@ -12,7 +12,8 @@
 //   GET  /seats           change seats: the license key asks, the billing email confirms (GET /seats/confirm)
 //   POST /portal          {key} → Stripe's customer portal (card, invoices, cancel)
 //
-// Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
+// Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, STRIPE_API_VERSION, STRIPE_PORTAL_CONFIGURATION,
+// RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
 import crypto from 'node:crypto';
 import http from 'node:http';
 
@@ -140,7 +141,7 @@ function form(obj, prefix = '', out = new URLSearchParams()) {
   return out;
 }
 /** Stripe's API version this service was written against (pinned so an account default can't change behaviour). */
-const STRIPE_VERSION = process.env.STRIPE_API_VERSION ?? '';
+const STRIPE_VERSION = process.env.STRIPE_API_VERSION ?? '2026-08-26.dahlia';
 async function stripe(method, path, body) {
   const r = await fetch(`${STRIPE}${path}`, {
     method,
@@ -662,7 +663,17 @@ export function createServer() {
         const lic = verify(b.key);
         if (!lic) return json(res, 400, { error: 'invalid_license' });
         if (!lic.sub) return json(res, 200, { status: 'unchanged' }); // trials and hand-issued keys don't renew here
-        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        // A seat reduction's schedule, once its last period has begun, lets go of the subscription: while attached it
+        // stops the subscription being cancelled (in Stripe's portal too). Stripe's own "current phase" says when.
+        if (typeof sub.schedule === 'string') {
+          const sched = await stripe('GET', `/v1/subscription_schedules/${encodeURIComponent(sub.schedule)}`).catch(() => undefined);
+          const last = sched?.phases?.at(-1);
+          if (sched?.status === 'active' && last && sched.current_phase?.start_date === last.start_date) {
+            await stripe('POST', `/v1/subscription_schedules/${sched.id}/release`, {}).catch((err) => console.error(JSON.stringify({ error: `schedule not released: ${err.message}`, subscription: sub.id })));
+            sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+          }
+        }
         // The server's request count this license year (a number, nothing else): kept on the subscription, for renewals.
         const u = b.usage;
         if (u && Number.isFinite(u.requests) && u.requests >= 0 && Number.isFinite(u.period_start)) {
@@ -746,7 +757,9 @@ export function createServer() {
           proration_behavior: 'none',
           phases: {
             0: { start_date: now.start_date, end_date: now.end_date, items: Object.fromEntries(now.items.map((i, k) => [k, { price: typeof i.price === 'string' ? i.price : i.price.id, quantity: i.quantity }])) },
-            1: { iterations: 1, items: Object.fromEntries(next.map((i, k) => [k, i])) },
+            // One billing period at the new quantity, then the subscription carries on as it is (Stripe's API has
+            // `duration` here; `iterations` is gone).
+            1: { duration: { interval: sub.items.data[0]?.price?.recurring?.interval === 'month' ? 'month' : 'year', interval_count: 1 }, items: Object.fromEntries(next.map((i, k) => [k, i])) },
           },
         });
         console.log(JSON.stringify({ event: 'seats_reduced_at_renewal', subscription: sub.id, from: current, to: r.seats, from_date: new Date(now.end_date * 1000).toISOString() }));
@@ -758,7 +771,7 @@ export function createServer() {
         const lic = verify(b.key);
         if (!lic?.sub) return html(res, 400, note('No subscription to manage', 'UNKNOWN · 400', 'That license has no subscription to manage.'));
         const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`);
-        const portal = await stripe('POST', '/v1/billing_portal/sessions', { customer: sub.customer, return_url: `${PUBLIC_URL}/` });
+        const portal = await stripe('POST', '/v1/billing_portal/sessions', { customer: sub.customer, return_url: `${PUBLIC_URL}/`, ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}) });
         return redirect(res, portal.url);
       }
       return json(res, 404, { error: 'not_found' });

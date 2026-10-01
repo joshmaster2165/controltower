@@ -85,6 +85,7 @@ Plans, checkout and trial keys are at the **[license service](https://license.ag
 | Method | Path | |
 |---|---|---|
 | GET | `/admin/api/license` | The license in force: `status` (`none`, `valid`, `expiring`, `grace`, `expired`, `invalid`), who it's for, seats and seats used, requests a year, features, end date, and (for those who see the whole install) `clock`: `behind`, `high_water`, `behind_ms`. Never the key itself |
+| POST | `/admin/api/license/refresh` | Check for a renewed key now (after buying seats, say) rather than at the next daily check (admins) |
 | POST | `/admin/api/license/clock` | The clock is right: the latest time seen starts again from now (admins) |
 | PUT | `/admin/api/license` | `{key}`: add or replace the key (admins). Refused with a reason if it isn't valid |
 | DELETE | `/admin/api/license` | Remove the key added in the console |

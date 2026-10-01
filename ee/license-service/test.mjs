@@ -233,6 +233,8 @@ test('seats: the license key asks, the billing email confirms; more now (charged
   assert.equal(upd.path, '/v1/subscription_schedules/sub_sched_1');
   assert.equal(upd['phases[1][items][1][quantity]'], '3');
   assert.equal(upd['phases[0][items][1][quantity]'], '15');
+  assert.equal(upd['phases[1][duration][interval]'], 'year');
+  assert.equal(upd['phases[1][iterations]'], undefined);
   assert.equal(stripe.seatQty, 15, 'unchanged until the renewal');
   stripe.schedule = undefined;
   stripe.seatQty = 7;

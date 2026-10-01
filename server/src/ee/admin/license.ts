@@ -67,6 +67,14 @@ export async function licenseRoutes(app: FastifyInstance, ctx: AppContext): Prom
     return { ...publicLicense(ctx), seats_used: await seatsUsed(ctx.db.read), ...(usage ? { usage } : {}), ...(clock ? { clock } : {}) };
   });
 
+  // Check for a renewal now (after buying seats, say) rather than at the next daily check.
+  app.post('/admin/api/license/refresh', { preHandler: guard }, async (_req, reply) => {
+    const server = ctx.config.licenseServer === 'off' ? undefined : (ctx.config.licenseServer ?? LICENSE_STORE ?? undefined);
+    if (!server) return reply.status(409).send({ error: { code: 'offline', message: 'This server doesn\'t reach the license service (CT_LICENSE_SERVER=off): add a renewed key by hand.' } });
+    const result = await ctx.license.refresh(server, ctx.log);
+    return { result, ...publicLicense(ctx) };
+  });
+
   // The clock is right (it was once set ahead, say): the latest time seen starts again from now.
   app.post('/admin/api/license/clock', { preHandler: guard }, async (req, reply) => {
     if (!ctx.clock) return reply.status(404).send({ error: { code: 'not_found', message: 'no clock watch here' } });

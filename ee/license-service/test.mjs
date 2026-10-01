@@ -16,14 +16,16 @@ const PRICES = [
   { id: 'price_sm', lookup_key: 'ct_enterprise_seat_month', unit_amount: null, tiers: [{ up_to: 20, unit_amount: 6000 }, { up_to: 95, unit_amount: 4500 }] },
 ];
 const periodEnd = Math.floor(Date.now() / 1000) + 365 * 86400;
-const stripe = { sessions: [], subStatus: 'active', seatQty: 7, periodEnd, metadata: [] };
+const stripe = { sessions: [], subStatus: 'active', paymentStatus: 'paid', seatQty: 7, periodEnd, metadata: [] };
 const emails = [];
+const calls = [];
 const sub = () => ({
   id: 'sub_123',
   status: stripe.subStatus,
   start_date: 1788000000,
   customer: { id: 'cus_1', name: 'Acme Inc', email: 'buyer@acme.com' },
-  items: { data: [{ price: { id: 'price_py', lookup_key: 'ct_enterprise_platform_year' }, quantity: 1, current_period_end: stripe.periodEnd }, { price: { id: 'price_sy', lookup_key: 'ct_enterprise_seat_year' }, quantity: stripe.seatQty, current_period_end: stripe.periodEnd }] },
+  schedule: stripe.schedule ?? null,
+  items: { data: [{ id: 'si_platform', price: { id: 'price_py', lookup_key: 'ct_enterprise_platform_year', recurring: { interval: 'year' } }, quantity: 1, current_period_end: stripe.periodEnd }, { id: 'si_seat', price: { id: 'price_sy', lookup_key: 'ct_enterprise_seat_year', recurring: { interval: 'year' } }, quantity: stripe.seatQty, current_period_end: stripe.periodEnd }] },
 });
 
 let fake, svc, base;
@@ -49,9 +51,25 @@ before(async () => {
         stripe.sessions.push(Object.fromEntries(new URLSearchParams(body)));
         return j(200, { id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay/cs_test_1' });
       }
-      if (u.pathname === '/v1/checkout/sessions/cs_test_1') return j(200, { id: 'cs_test_1', status: 'complete', customer_details: { name: 'Acme Inc', email: 'buyer@acme.com' }, subscription: sub() });
+      if (u.pathname === '/v1/checkout/sessions/cs_test_1') return j(200, { id: 'cs_test_1', status: 'complete', payment_status: stripe.paymentStatus, customer_details: { name: 'Acme Inc', email: 'buyer@acme.com' }, subscription: sub() });
       if (u.pathname === '/v1/subscriptions/sub_123' && req.method === 'POST') return (stripe.metadata.push(Object.fromEntries(new URLSearchParams(body))), j(200, sub()));
       if (u.pathname === '/v1/subscriptions/sub_123') return j(200, sub());
+      // Seat changes.
+      if (u.pathname === '/v1/subscription_items/si_seat' && req.method === 'POST') {
+        const f = Object.fromEntries(new URLSearchParams(body));
+        calls.push({ path: u.pathname, ...f });
+        stripe.seatQty = Number(f.quantity);
+        return j(200, { id: 'si_seat' });
+      }
+      if (u.pathname === '/v1/subscription_schedules' && req.method === 'POST') {
+        calls.push({ path: u.pathname, ...Object.fromEntries(new URLSearchParams(body)) });
+        return j(200, { id: 'sub_sched_1', phases: [{ start_date: 1788000000, end_date: stripe.periodEnd, items: [{ price: 'price_py', quantity: 1 }, { price: 'price_sy', quantity: stripe.seatQty }] }] });
+      }
+      if (u.pathname === '/v1/subscription_schedules/sub_sched_1' && req.method === 'POST') {
+        calls.push({ path: u.pathname, ...Object.fromEntries(new URLSearchParams(body)) });
+        stripe.schedule = 'sub_sched_1';
+        return j(200, { id: 'sub_sched_1' });
+      }
       if (u.pathname === '/v1/billing_portal/sessions') return j(200, { url: 'https://billing.stripe.com/p/session/x' });
       return j(404, { error: { message: 'no such thing' } });
     });
@@ -171,6 +189,53 @@ test('trials: the key goes by email, behind a link that works for a day; 30 days
   // The same address can't ask again and again.
   await fetch(`${base}/trial`, { method: 'POST', body: new URLSearchParams({ company: 'Tryco', email: 'dev@tryco.io' }) });
   assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '203.0.113.9' }, body: new URLSearchParams({ company: 'Tryco', email: 'dev@tryco.io' }) })).status, 429);
+});
+
+test('payment enforcement: no key until the money is in; an unpaid renewal doesn\'t extend the license', async () => {
+  // A bank debit: checkout completes before the payment clears.
+  stripe.paymentStatus = 'unpaid';
+  assert.equal((await fetch(`${base}/success?session_id=cs_test_1`)).status, 402);
+  stripe.paymentStatus = 'paid';
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  // The renewal's payment failed: the period moved on, but the key isn't extended until it's paid.
+  stripe.subStatus = 'past_due';
+  stripe.periodEnd += 365 * 86400;
+  const r = await (await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) })).json();
+  stripe.subStatus = 'active';
+  stripe.periodEnd -= 365 * 86400;
+  assert.deepEqual(r, { status: 'unchanged', subscription: 'past_due' });
+});
+
+test('seats: the license key asks, the billing email confirms; more now (charged), fewer at renewal', async () => {
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  const ask = (seats) => fetch(`${base}/seats`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.77' }, body: new URLSearchParams({ key, seats: String(seats) }) });
+  assert.equal((await fetch(`${base}/seats`)).status, 200);
+  // More: confirmed from the billing email, charged now, the new key shown at once.
+  stripe.seatQty = 7; // 12 seats
+  const r = await ask(20);
+  assert.match(await r.text(), /b•••@acme\.com/);
+  const mail = emails.at(-1);
+  assert.deepEqual(mail.to, ['buyer@acme.com']);
+  const link = /https:\/\/license\.example\.com\/seats\/confirm\?t=[^"\s]+/.exec(mail.html)[0];
+  const t = new URL(link).searchParams.get('t');
+  // The link can't be edited to ask for something else.
+  const [k, b, sig] = t.split('.');
+  const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(b, 'base64url')), seats: 100 })).toString('base64url');
+  assert.equal((await fetch(`${base}/seats/confirm?t=${k}.${edited}.${sig}`)).status, 400);
+  const page = await (await fetch(`${base}/seats/confirm?t=${encodeURIComponent(t)}`)).text();
+  assert.equal(decode(/(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(page)[1]).seats, 20);
+  assert.deepEqual(calls.at(-1), { path: '/v1/subscription_items/si_seat', quantity: '15', proration_behavior: 'always_invoice', payment_behavior: 'error_if_incomplete' });
+  // Fewer: from the next renewal, through a subscription schedule; nothing changes now.
+  await ask(8);
+  const t2 = new URL(/https:\/\/license\.example\.com\/seats\/confirm\?t=[^"\s]+/.exec(emails.at(-1).html)[0]).searchParams.get('t');
+  assert.match(await (await fetch(`${base}/seats/confirm?t=${encodeURIComponent(t2)}`)).text(), /8 seats from/);
+  const upd = calls.at(-1);
+  assert.equal(upd.path, '/v1/subscription_schedules/sub_sched_1');
+  assert.equal(upd['phases[1][items][1][quantity]'], '3');
+  assert.equal(upd['phases[0][items][1][quantity]'], '15');
+  assert.equal(stripe.seatQty, 15, 'unchanged until the renewal');
+  stripe.schedule = undefined;
+  stripe.seatQty = 7;
 });
 
 test('refresh: a server whose clock was set back says so, and it is kept on the subscription', async () => {

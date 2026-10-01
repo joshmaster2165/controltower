@@ -9,7 +9,8 @@
 //   POST /trial           a 30-day trial (5 seats), no card: a link to the key, by email (Resend)
 //   GET  /trial/confirm   the link from that email: the trial key
 //   POST /refresh         {key} → a renewed key for an active subscription (Control Tower calls this daily)
-//   POST /portal          {key} → Stripe's customer portal (seats, card, cancel)
+//   GET  /seats           change seats: the license key asks, the billing email confirms (GET /seats/confirm)
+//   POST /portal          {key} → Stripe's customer portal (card, invoices, cancel)
 //
 // Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
 import crypto from 'node:crypto';
@@ -79,6 +80,34 @@ async function sendTrialEmail(to, company, link) {
   if (!r.ok) throw new Error(`the email service answered ${r.status}`);
 }
 
+/**
+ * Seat changes. Stripe's customer portal can't change a subscription with more than one product (ours: the platform
+ * and seats), so changes are made here. A license key asks; the billing email on the subscription confirms, so a
+ * leaked key can't change anyone's bill. More seats: charged now for the rest of the period. Fewer: from the next
+ * renewal (a subscription schedule), with nothing refunded for the current period.
+ */
+const seatRequest = (sub, seats, now) => sign({ sub, seats, iat: now, exp: now + LINK_MS }, SIGNING, 'cts1');
+const masked = (email) => String(email).replace(/^(.)[^@]*(@.*)$/, '$1•••$2');
+async function sendSeatEmail(to, seats, current, link) {
+  const more = seats > current;
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#0f1b2d">
+<div style="font-weight:600;font-size:17px">Control Tower</div>
+<h1 style="font-size:26px;font-weight:500;letter-spacing:-.02em;margin:28px 0 12px">Confirm ${seats} seats</h1>
+<p style="color:#5b6b82;line-height:1.6;margin:0 0 24px">Someone with your Control Tower Enterprise license key asked to change it from ${current} to ${seats} single sign-on seats. ${more ? 'The extra seats are charged now, for the rest of this billing period.' : 'The change takes effect at your next renewal; nothing is refunded for this period.'}</p>
+<a href="${link}" style="display:inline-block;background:#1f5eff;color:#fff;text-decoration:none;font-weight:600;padding:13px 20px;border-radius:10px">Confirm ${seats} seats</a>
+<p style="color:#8a98ad;font-size:13px;line-height:1.6;margin:24px 0 0">The link works for 24 hours. If this wasn't you, ignore this email: nothing changes. Questions: billing@agentcontroltower.app</p></div>`;
+  const text = `Confirm a change to your Control Tower Enterprise license: ${current} → ${seats} seats.\n${more ? 'The extra seats are charged now, for the rest of this billing period.' : 'It takes effect at your next renewal.'}\n\nConfirm (the link works for 24 hours):\n${link}\n\nIf this wasn't you, ignore this email.`;
+  const r = await fetch(`${EMAIL_API}/emails`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject: `Confirm ${seats} seats for Control Tower Enterprise`, html, text }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!r.ok) throw new Error(`the email service answered ${r.status}`);
+}
+/** The subscription's seats: those included plus the seat item's quantity. */
+const seatsOf = (sub) => INCLUDED_SEATS + (sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'))?.quantity ?? 0);
+
 function licenseFor(sub, customer) {
   const seatItem = sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'));
   const end = (sub.items.data[0]?.current_period_end ?? sub.current_period_end) * 1000;
@@ -110,10 +139,18 @@ function form(obj, prefix = '', out = new URLSearchParams()) {
   }
   return out;
 }
+/** Stripe's API version this service was written against (pinned so an account default can't change behaviour). */
+const STRIPE_VERSION = process.env.STRIPE_API_VERSION ?? '';
 async function stripe(method, path, body) {
   const r = await fetch(`${STRIPE}${path}`, {
     method,
-    headers: { authorization: `Bearer ${STRIPE_KEY}`, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) },
+    headers: {
+      authorization: `Bearer ${STRIPE_KEY}`,
+      ...(STRIPE_VERSION ? { 'stripe-version': STRIPE_VERSION } : {}),
+      // A write retried after a network failure is applied once.
+      ...(method === 'POST' ? { 'idempotency-key': crypto.randomUUID() } : {}),
+      ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
+    },
     ...(body ? { body: form(body).toString() } : {}),
   });
   const j = await r.json();
@@ -451,14 +488,31 @@ s.oninput=draw;y.onclick=()=>{interval='year';y.className='on';m.className='';dr
 }
 
 /** After asking for a trial: the link is on its way. */
-function inboxPage(email) {
+/** Change seats: paste the license key, choose the number. */
+function seatsPage() {
+  return page(
+    'Change seats',
+    `<main class="msg" style="max-width:620px;text-align:left"><span class="code" style="color:var(--accent);background:var(--soft);border-color:#cddcff">SEATS</span><h1>Change your seats</h1>
+<p>Paste the license key from Control Tower’s <b>License</b> page and choose the number of people signing in with single sign-on. We email the billing address on your subscription to confirm.</p>
+<form method="post" action="/seats" class="card" style="display:grid;gap:14px">
+<label class="seats" for="key" style="margin:0"><span>License key</span></label>
+<textarea id="key" name="key" required rows="4" style="font:12.5px/1.5 var(--mono);border:1px solid var(--line-2);border-radius:10px;padding:12px;width:100%;resize:vertical" placeholder="ctl1.…"></textarea>
+<div class="seats" style="margin:0"><label for="seats">Seats</label><b><output id="sv">${INCLUDED_SEATS}</output></b></div>
+<input id="seats" name="seats" type="range" min="${INCLUDED_SEATS}" max="${MAX_SELF_SERVE_SEATS}" value="${INCLUDED_SEATS}" oninput="sv.value=this.value">
+<button class="btn primary lg full">Email me a confirmation ${ARROW}</button>
+<p class="fine" style="margin:0">More seats are charged now for the rest of the period. Fewer seats take effect at your next renewal, with nothing refunded for this period. Over ${MAX_SELF_SERVE_SEATS}? Write to sales@agentcontroltower.app.</p>
+</form></main>`,
+  );
+}
+
+function inboxPage(email, what = 'see your trial key') {
   return page(
     'Check your inbox',
     `<section class="clear" style="min-height:calc(100vh - 230px)"><div class="frame pad">
 <svg class="tower-sm rise" viewBox="0 0 120 180" aria-hidden="true">${TOWER('t3')}</svg>
 <div class="eyebrow rise" style="--d:80ms;margin-top:14px">Awaiting clearance</div>
 <h1 class="rise" style="--d:120ms">Check your inbox</h1>
-<p class="lede rise" style="--d:180ms">We sent a link to <b style="color:#fff">${esc(email)}</b>. Open it within 24 hours and your trial key is there, ready to paste into Control Tower.</p>
+<p class="lede rise" style="--d:180ms">We sent a link to <b style="color:#fff">${esc(email)}</b>. Open it within 24 hours to ${esc(what)}${what === 'see your trial key' ? ', ready to paste into Control Tower' : ''}.</p>
 <div class="pill rise" style="--d:260ms"><span><i></i>LINK TRANSMITTED</span></div>
 <p class="note rise" style="--d:320ms;color:#7d8fb1">Nothing there? Check spam, or ask again in a few minutes.</p>
 </div></section>`,
@@ -555,6 +609,7 @@ export function createServer() {
           cancel_url: `${PUBLIC_URL}/`,
           allow_promotion_codes: 'true',
           billing_address_collection: 'required',
+          tax_id_collection: { enabled: 'true' },
           subscription_data: { metadata: { product: 'controltower-enterprise', seats: String(seats) } },
         });
         return redirect(res, session.url);
@@ -564,7 +619,8 @@ export function createServer() {
         const id = u.searchParams.get('session_id') ?? '';
         if (!/^cs_[A-Za-z0-9_]+$/.test(id)) return html(res, 400, note('That checkout was not found', 'UNKNOWN · 400', 'Use the link from your receipt, or start again from the plans.'));
         const s = await stripe('GET', `/v1/checkout/sessions/${id}?expand[]=subscription&expand[]=customer`);
-        if (s.status !== 'complete' || !s.subscription) return html(res, 402, note('Payment not complete yet', 'HOLDING · 402', 'This page checks again every few seconds: your key appears as soon as the payment clears.', { head: '<meta http-equiv="refresh" content="4">', back: false }));
+        const paid = s.payment_status === 'paid' || s.payment_status === 'no_payment_required';
+        if (s.status !== 'complete' || !s.subscription || !paid || !['active', 'trialing'].includes(s.subscription.status)) return html(res, 402, note('Payment not complete yet', 'HOLDING · 402', 'This page checks again every few seconds: your key appears as soon as the payment clears.', { head: '<meta http-equiv="refresh" content="4">', back: false }));
         const customer = { name: s.customer_details?.name ?? s.customer?.name, email: s.customer_details?.email ?? s.customer?.email };
         return html(res, 200, keyPage('You’re cleared', sign(licenseFor(s.subscription, customer)), `Your Control Tower Enterprise license, for ${customer.name ?? customer.email}. It renews with your subscription; servers that can reach this service pick up the renewed key themselves.`));
       }
@@ -620,10 +676,81 @@ export function createServer() {
           console.log(JSON.stringify({ event: 'clock_behind', license: lic.id, customer: lic.customer, days_behind: days, latest_seen: Number.isFinite(c.latest_seen) ? new Date(c.latest_seen).toISOString() : null }));
           await stripe('POST', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`, { metadata: { clock_behind_days: String(days), clock_reported_at: new Date().toISOString() } }).catch((err) => console.error(JSON.stringify({ error: `clock report not recorded: ${err.message}`, license: lic.id })));
         }
-        if (!['active', 'trialing', 'past_due'].includes(sub.status)) return json(res, 200, { status: 'ended', subscription: sub.status });
+        if (sub.status === 'past_due') {
+          console.log(JSON.stringify({ event: 'renewal_unpaid', license: lic.id, customer: lic.customer }));
+          return json(res, 200, { status: 'unchanged', subscription: 'past_due' });
+        }
+        if (!['active', 'trialing'].includes(sub.status)) return json(res, 200, { status: 'ended', subscription: sub.status });
         const next = licenseFor(sub, { name: sub.customer?.name ?? lic.customer, email: sub.customer?.email ?? lic.email });
         if (next.expires_at === lic.expires_at && next.seats === lic.seats && next.period_start === lic.period_start) return json(res, 200, { status: 'unchanged' });
         return json(res, 200, { status: 'renewed', key: sign(next) });
+      }
+
+      if (req.method === 'GET' && u.pathname === '/seats') return html(res, 200, seatsPage());
+
+      if (req.method === 'POST' && u.pathname === '/seats') {
+        if (limited(ip, 'seats', 10, 3600_000)) return html(res, 429, note('Too many attempts', 'HOLD · 429', 'Try again in a while.'));
+        const b = await body(req);
+        const lic = verify(String(b.key ?? '').trim());
+        const seats = Math.round(Number(b.seats));
+        if (!lic?.sub) return html(res, 400, note('That key has no subscription', 'UNKNOWN · 400', 'Paste the license key from Control Tower’s License page (a trial has no seats to change).'));
+        if (!(seats >= INCLUDED_SEATS && seats <= MAX_SELF_SERVE_SEATS)) return html(res, 400, note('Check the number of seats', 'RETURNED · 400', `Between ${INCLUDED_SEATS} and ${MAX_SELF_SERVE_SEATS}; for more, write to sales@agentcontroltower.app.`));
+        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        if (!['active', 'trialing'].includes(sub.status)) return html(res, 409, note('That subscription isn’t active', 'HOLD · 409', 'Seats can be changed on an active subscription. Write to billing@agentcontroltower.app.'));
+        const current = seatsOf(sub);
+        if (seats === current) return html(res, 200, note('Nothing to change', 'NO CHANGE', `Your license already has ${current} seats.`));
+        const email = sub.customer?.email;
+        if (!RESEND_KEY || !email) return html(res, 503, note('Write to us to change seats', 'STANDBY · 503', 'Email billing@agentcontroltower.app with the number of seats you want, and we’ll change it for you.'));
+        try {
+          await sendSeatEmail(email, seats, current, `${PUBLIC_URL}/seats/confirm?t=${encodeURIComponent(seatRequest(sub.id, seats, Date.now()))}`);
+        } catch (err) {
+          console.error(JSON.stringify({ error: `seat email not sent: ${err.message}`, license: lic.id }));
+          return html(res, 502, note('We couldn’t send the email', 'NO CONTACT · 502', 'Try again in a minute, or write to billing@agentcontroltower.app.'));
+        }
+        console.log(JSON.stringify({ event: 'seats_requested', license: lic.id, from: current, to: seats }));
+        return html(res, 200, inboxPage(masked(email), `confirm ${seats} seats`));
+      }
+
+      if (req.method === 'GET' && u.pathname === '/seats/confirm') {
+        const r = verify(u.searchParams.get('t') ?? '', PUBLIC, 'cts1');
+        if (!r?.sub || !Number.isFinite(r.seats)) return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Open the link from your email as it is.'));
+        if (Date.now() > r.exp) return html(res, 410, note('That link has expired', 'EXPIRED · 410', 'Links work for 24 hours. Ask again from the seats page.'));
+        let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer`);
+        const current = seatsOf(sub);
+        const customer = { name: sub.customer?.name, email: sub.customer?.email };
+        if (r.seats === current || (sub.schedule && r.seats < current)) {
+          return html(res, 200, keyPage('You’re cleared', sign(licenseFor(sub, customer)), `Your license has ${current} seats${sub.schedule ? ', and a change is already scheduled for your next renewal' : ''}.`));
+        }
+        const seatItem = sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'));
+        if (r.seats > current) {
+          // More seats now, charged for the rest of the period; the payment must go through.
+          const opts = { quantity: r.seats - INCLUDED_SEATS, proration_behavior: 'always_invoice', payment_behavior: 'error_if_incomplete' };
+          if (seatItem) await stripe('POST', `/v1/subscription_items/${seatItem.id}`, opts);
+          else {
+            const month = sub.items.data[0]?.price?.recurring?.interval === 'month';
+            const seatPrice = (await prices())[month ? LOOKUP.seat_month : LOOKUP.seat_year];
+            await stripe('POST', '/v1/subscription_items', { subscription: sub.id, price: seatPrice.id, ...opts });
+          }
+          sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}?expand[]=customer`);
+          console.log(JSON.stringify({ event: 'seats_added', subscription: sub.id, from: current, to: seatsOf(sub) }));
+          return html(res, 200, keyPage('You’re cleared', sign(licenseFor(sub, customer)), `Your license now has ${seatsOf(sub)} seats. Paste this key into Control Tower, or let your servers pick it up within a day.`));
+        }
+        // Fewer seats from the next renewal: the current period as it is, then the new quantity.
+        const sched = await stripe('POST', '/v1/subscription_schedules', { from_subscription: sub.id });
+        const now = sched.phases[0];
+        const next = sub.items.data
+          .map((i) => (i === seatItem ? { price: i.price.id, quantity: r.seats - INCLUDED_SEATS } : { price: i.price.id, quantity: i.quantity }))
+          .filter((i) => i.quantity > 0);
+        await stripe('POST', `/v1/subscription_schedules/${sched.id}`, {
+          end_behavior: 'release',
+          proration_behavior: 'none',
+          phases: {
+            0: { start_date: now.start_date, end_date: now.end_date, items: Object.fromEntries(now.items.map((i, k) => [k, { price: typeof i.price === 'string' ? i.price : i.price.id, quantity: i.quantity }])) },
+            1: { iterations: 1, items: Object.fromEntries(next.map((i, k) => [k, i])) },
+          },
+        });
+        console.log(JSON.stringify({ event: 'seats_reduced_at_renewal', subscription: sub.id, from: current, to: r.seats, from_date: new Date(now.end_date * 1000).toISOString() }));
+        return html(res, 200, note(`${r.seats} seats from ${day(now.end_date * 1000)}`, 'SCHEDULED', `Your license keeps ${current} seats until your next renewal on ${day(now.end_date * 1000)}; from then it has ${r.seats}, and your servers pick up the new key by themselves.`, { back: false }));
       }
 
       if (req.method === 'POST' && u.pathname === '/portal') {

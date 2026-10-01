@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-01",
+  "angle": "build-in-public",
+  "title": "A security page written for the reviewer",
+  "why": "Thursday is build-in-public, and today's commit shipped docs/security.md: the page a platform or security engineer needs before they'll put Control Tower in front of their agents. It's concrete, verifiable (cosign) and differs from yesterday's gate/feature post in both angle and scene.",
+  "video": {
+    "scene": "docs",
+    "page": "security",
+    "headline": "The page your security reviewer *asks for*",
+    "captions": [["Security, on one page", "agentcontroltower.app/docs/security.html"]]
+  },
+  "cards": [
+    {
+      "template": "code",
+      "size": "square",
+      "eyebrow": "Don't take our word for it",
+      "headline": "Every image is *signed*",
+      "code": "$ cosign verify \\\n    ghcr.io/joshmaster2165/controltower:0.2.3 \\\n    --certificate-identity-regexp \\\n    '^https://github.com/joshmaster2165/controltower/.github/workflows/' \\\n    --certificate-oidc-issuer \\\n    https://token.actions.githubusercontent.com",
+      "sub": "Keyless Sigstore signing in CI, plus an SBOM and build provenance on every image.",
+      "alt": "Code card: the cosign verify command that checks a Control Tower image was signed by the repository's own CI workflow."
+    },
+    {
+      "template": "release",
+      "size": "square",
+      "version": "0.2.3",
+      "date": "This week, in the open",
+      "headline": "Six releases since *Monday*",
+      "highlights": [
+        "A security page: what leaves your network, and what doesn't",
+        "Helm chart: one pod on SQLite, or several on Postgres + Redis",
+        "Signed images with SBOM and build provenance",
+        "CI attacks every image with a forged license key"
+      ],
+      "alt": "Release card for v0.2.3: six releases this week, including a security page, a Helm chart, signed images and a forged-key test in CI."
+    }
+  ],
+  "linkedin": {
+    "text": "Before anyone lets an AI gateway hold their provider keys and see every agent call, someone has to sign off on it. Today we wrote the page for that person.\n\nControl Tower's new security page answers the questions a reviewer actually asks:\n\nWhat leaves our network? It runs on your servers, and there's no telemetry, crash reporting or analytics. The only outbound call is an optional daily Enterprise license renewal (the key and one number), and air-gapped installs turn it off.\n\nHow are secrets kept? Provider and tool credentials are encrypted with AES-256-GCM under a master key you hold, or stay in your own secret manager. Agents' keys are stored as SHA-256 hashes.\n\nHow do we know the image is yours? Every image and Helm chart is signed keylessly with Sigstore in CI, with an SBOM and build provenance. One cosign command checks it. Before release, CI also attacks each image with a forged license key, which it has to refuse.\n\nIt rounds out a busy week: six releases since Monday, including a Helm chart that runs one pod on SQLite or several on Postgres and Redis.\n\nRead it, poke holes in it, open an issue if we got something wrong: https://github.com/joshmaster2165/controltower\n\nA ⭐ helps other engineers find it.\n\n#AIAgents #OpenSource #PlatformEngineering",
+    "media": "video"
+  },
+  "x": {
+    "posts": [
+      "Shipped today: a security page for whoever has to sign off on an AI gateway holding your provider keys.\n\nNo telemetry. Credentials AES-256-GCM under your key. Agent keys stored as hashes. Runs on your servers.",
+      "Don't take the page's word for it.\n\nEvery image is signed keylessly in CI with Sigstore, with an SBOM and build provenance. One `cosign verify` checks it.\n\nAnd before release, CI attacks each image with a forged license key. It has to refuse.",
+      "Also this week: six releases since Monday, and a Helm chart. One pod on SQLite, or several on Postgres + Redis.",
+      "Self-hosted AI gateway for agents, models and MCP tools. A ⭐ helps other engineers find it:\nhttps://github.com/joshmaster2165/controltower"
+    ],
+    "media": "video"
+  },
+  "notes": "Cards are optional extras (cosign command and a week recap); the video of docs/security is the main media. 'Six releases since Monday' = 0.1.7, 0.1.8 (28 Sep) and 0.2.0-0.2.3 (30 Sep) per docs/changelog.md. No good-first-issue issues are open, so no contributor call today."
+}

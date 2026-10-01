@@ -463,7 +463,7 @@ ${ticker}
 <div class="per" id="perNote">${ready ? '' : 'Start a free trial meanwhile — it has every feature.'}</div>
 <ul class="checks"><li>${CHECK}Every Enterprise feature, and support</li><li>${CHECK}${INCLUDED_SEATS} seats and ${(REQUESTS_PER_YEAR / 1e6).toLocaleString()}M requests a year included</li><li>${CHECK}Going over your requests never slows or stops anything</li><li>${CHECK}Cancel any time; traffic is never cut off</li></ul>
 <form method="post" action="/checkout"><input type="hidden" name="seats" id="seatsField" value="${INCLUDED_SEATS}"><input type="hidden" name="interval" id="intervalField" value="year"><button class="btn primary lg full" ${ready ? '' : 'disabled'}>Buy with Stripe ${ARROW}</button></form>
-<p class="fine">More than ${MAX_SELF_SERVE_SEATS} seats or a billion requests a year? Contact sales for volume pricing.</p>
+<p class="fine">Prices in US dollars, before tax. Sold through Link, Stripe’s merchant of record: checkout adds tax where it applies and may show your local currency. More than ${MAX_SELF_SERVE_SEATS} seats or a billion requests a year? Contact sales for volume pricing.</p>
 </div>
 <div class="trial" id="trial"><div class="scanline" aria-hidden="true"></div>
 <span class="eyebrow">Free trial</span><h3 style="margin-top:12px">30 days of everything</h3>
@@ -610,7 +610,7 @@ export function createServer() {
           cancel_url: `${PUBLIC_URL}/`,
           allow_promotion_codes: 'true',
           billing_address_collection: 'required',
-          tax_id_collection: { enabled: 'true' },
+          // (No tax_id_collection: with Managed Payments, Link is the merchant of record and collects business details.)
           subscription_data: { metadata: { product: 'controltower-enterprise', seats: String(seats) } },
         });
         return redirect(res, session.url);

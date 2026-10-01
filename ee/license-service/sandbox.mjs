@@ -246,6 +246,17 @@ try {
   const portalRes = await fetch(`${SVC}/portal`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: k1 }) });
   c('the key opens Stripe’s customer portal (card, invoices, cancel)', portalRes.status === 303 && /^https:\/\/billing\.stripe\.com\//.test(portalRes.headers.get('location') ?? ''), `${portalRes.status} → ${(portalRes.headers.get('location') ?? '').slice(0, 40)}…`);
 
+  // Seats on the subscription bought through Checkout (sold through Link, with Managed Payments): more now, fewer later.
+  await fetch(`${SVC}/seats`, { method: 'POST', body: new URLSearchParams({ key: k1, seats: '14' }) });
+  const mpUp = await (await fetch(lastLink(/http:\/\/127\.0\.0\.1:4820\/seats\/confirm\?t=\S+/))).text();
+  const mpKey = keyIn(mpUp);
+  const s1b = await subOf(l1.sub);
+  c('Managed Payments: more seats on a Checkout subscription are charged and the key follows', !!mpKey && decode(mpKey).seats === 14 && s1b.latest_invoice?.status === 'paid', mpKey ? `14-seat key; proration invoice ${s1b.latest_invoice?.status} $${(s1b.latest_invoice?.amount_paid ?? 0) / 100}` : `no key: ${/<h1>([^<]+)/.exec(mpUp)?.[1] ?? mpUp.slice(0, 120)}`);
+  await fetch(`${SVC}/seats`, { method: 'POST', body: new URLSearchParams({ key: k1, seats: '10' }) });
+  const mpDown = await (await fetch(lastLink(/http:\/\/127\.0\.0\.1:4820\/seats\/confirm\?t=\S+/))).text();
+  const s1c = await subOf(l1.sub);
+  c('Managed Payments: fewer seats on a Checkout subscription are scheduled for the renewal', /10 seats from/.test(mpDown) && typeof s1c.schedule === 'string', `page "${/(\d+ seats from [^<]+)|<h1>([^<]+)/.exec(mpDown)?.slice(1).find(Boolean) ?? '?'}", schedule ${s1c.schedule ?? 'none'}`);
+
   // ---- 4. Monthly, on a test clock: renewal, seats up and down, cancellation.
   const now = Math.floor(Date.now() / 1000);
   const clockA = (await stripe('POST', '/v1/test_helpers/test_clocks', { frozen_time: now, name: 'ct renewal, seats, cancel' })).id;

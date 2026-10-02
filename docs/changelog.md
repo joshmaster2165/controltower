@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.5 — 2 October 2026
 
 - **Laptops (Enterprise): Claude Code, Claude Desktop and Codex on people's computers, rolled out by MDM.** IT downloads the files from **Laptops** (a macOS profile and install script for Jamf, Intune or Kandji; an Intune script and registry file for Windows; a Linux script) and deploys them. Each tool then sends its model and MCP calls through Control Tower, signed in as the person. The first time, ct-auth opens **Connect your computer**, where they sign in as usual and approve (the OAuth device flow). Rules pick the key each tool's calls are made as, by team. Tokens last an hour; signing out a computer, or removing the person, applies at once. **Lock down** stops the tools using other providers or MCP servers. Tested with Claude Code and Codex themselves. See [Laptops](laptops.md).
 - **Spend by person** in the Ledger: calls by people signed in on their computers, and by workloads presenting an identity provider's token, split by who made them.

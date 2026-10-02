@@ -188,79 +188,57 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'claude-desktop-elements.txt'), ax.out + ax.err);
   log(`elements: ${ax.out.split('\n').length} (saved)`);
   await shot('main');
-  // What Claude Desktop shows to accessibility (so the video can click by name).
-  const tree = await osa(`tell application "Claude" to activate
+  // What's on screen, by name and place (Electron builds its accessibility tree for whoever asks; the app in front),
+  // and clicking a named element where it is.
+  type El = { role: string; name: string; x: number; y: number; w: number; h: number };
+  const tree = async (proc = 'Claude'): Promise<El[]> => {
+    const t = await osa(`tell application "${proc}" to activate
 delay 1
-tell application "System Events" to tell process "Claude"
+tell application "System Events" to tell process "${proc}"
   try
     set value of attribute "AXManualAccessibility" to true
   end try
 end tell
 delay 3
-tell application "System Events" to tell process "Claude"
+tell application "System Events" to tell process "${proc}"
   set out to ""
   set els to entire contents of window 1
   repeat with e in els
     try
-      set out to out & (role of e as text) & " | " & (description of e as text) & " | " & (name of e as text) & " | " & ((position of e) as text) & " | " & ((size of e) as text) & linefeed
+      set p to position of e
+      set z to size of e
+      set out to out & (role of e as text) & tab & (description of e as text) & tab & (name of e as text) & tab & (item 1 of p as text) & tab & (item 2 of p as text) & tab & (item 1 of z as text) & tab & (item 2 of z as text) & linefeed
     end try
-  end repeat
-  return (count of els) as text & linefeed & out
-end tell`);
-  fs.writeFileSync(path.join(OUT, 'ax-tree.txt'), tree.out + tree.err);
-  log(`ax tree: ${tree.out.split('\n')[0]} elements; ${tree.err.trim().slice(0, 200)}`);
-  // Press things by name (looping: a "whose" query over Electron's tree fails), and list what's on screen.
-  const AX_ON = (proc: string) => `tell application "${proc}" to activate
-delay 1
-tell application "System Events" to tell process "${proc}"
-  set frontmost to true
-  try
-    set value of attribute "AXManualAccessibility" to true
-  end try
-end tell
-delay 3
-`;
-  const press = (name: string, proc = 'Claude') => osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
-  repeat with w in {window 1}
-    repeat with e in (entire contents of w)
-      try
-        if (description of e as text) is "${name}" or (name of e as text) is "${name}" then
-          perform action "AXPress" of e
-          return "pressed"
-        end if
-      end try
-    end repeat
-  end repeat
-  return "not found"
-end tell`);
-  const dump = async (file: string, proc = 'Claude') => {
-    const t = await osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
-  set out to ""
-  repeat with w in {window 1}
-    set out to out & "== window " & (name of w as text) & linefeed
-    repeat with e in (entire contents of w)
-      try
-        set r to role of e as text
-        if r is not "AXGroup" then
-          set p to position of e
-          set z to size of e
-          set out to out & r & " | " & (description of e as text) & " | " & (name of e as text) & " | " & (item 1 of p as text) & "," & (item 2 of p as text) & " | " & (item 1 of z as text) & "x" & (item 2 of z as text) & linefeed
-        end if
-      end try
-    end repeat
   end repeat
   return out
 end tell`);
-    fs.writeFileSync(path.join(OUT, file), t.out + t.err);
+    return t.out.split('\n').filter(Boolean).map((l) => {
+      const [role, d, n, x, y, w, h] = l.split('\t');
+      return { role: role!, name: d && d !== 'missing value' ? d : n && n !== 'missing value' ? n : '', x: Number(x), y: Number(y), w: Number(w), h: Number(h) };
+    });
   };
-  log(`Code: ${(await press('Code')).out.trim()}`);
-  await sleep(2000);
+  const clickNamed = async (name: string | RegExp, proc = 'Claude'): Promise<boolean> => {
+    const els = await tree(proc);
+    const e = els.find((x) => (typeof name === 'string' ? x.name === name : name.test(x.name)) && x.w > 0);
+    if (!e) return false;
+    await osa(`tell application "System Events" to click at {${Math.round(e.x + e.w / 2)}, ${Math.round(e.y + e.h / 2)}}`);
+    return true;
+  };
+  const els0 = await tree();
+  fs.writeFileSync(path.join(OUT, 'ax-main.txt'), els0.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
+  log(`tree: ${els0.length} elements`);
+  log(`Code: ${await clickNamed('Code')}`);
+  await sleep(2500);
   await shot('code-tab');
-  await dump('ax-code-tab.txt');
-  log(`Project or folder: ${(await press('Project or folder')).out.trim()}`);
+  const els1 = await tree();
+  fs.writeFileSync(path.join(OUT, 'ax-code-tab.txt'), els1.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
+  log(`Project or folder: ${await clickNamed('Project or folder')}`);
   await sleep(3000);
   await shot('project-or-folder');
-  await dump('ax-project-or-folder.txt');
+  const els2 = await tree();
+  fs.writeFileSync(path.join(OUT, 'ax-project-or-folder.txt'), els2.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
+  const wins = await osa('tell application "System Events" to tell process "Claude" to return name of every window');
+  log(`windows: ${wins.out.trim()}`);
 } finally {
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   ct.kill();

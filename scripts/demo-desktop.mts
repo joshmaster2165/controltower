@@ -163,7 +163,26 @@ let recording = false;
 let recLoop: Promise<void> | undefined;
 const RAW = path.join(OUT, 'raw.mov');
 const duration = async (f: string) => Number((await run(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${q(f)}`)).out.trim()) || 0;
-const startRecording = () => {
+// First choice: one continuous recording by ffmpeg, which stops cleanly on "q" (its clock starts when it says it's
+// capturing). If it can't capture the screen, screencapture's chunks.
+let ff: ChildProcess | undefined;
+let ffT0 = 0;
+const startRecording = async () => {
+  log(`screens: ${(await run('ffmpeg -hide_banner -f avfoundation -list_devices true -i ""')).err.split('\n').filter((l) => /screen/i.test(l)).join(' | ')}`);
+  let err = '';
+  ff = spawn('ffmpeg', ['-y', '-f', 'avfoundation', '-capture_cursor', '1', '-framerate', '30', '-i', 'Capture screen 0:none', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22', '-pix_fmt', 'yuv420p', RAW], { stdio: ['pipe', 'ignore', 'pipe'] });
+  ff.stderr!.on('data', (d) => {
+    err += d;
+    if (!ffT0 && /Press \[q\]/.test(err)) ffT0 = Date.now();
+  });
+  await sleep(5000);
+  if (ff.exitCode === null && ffT0 && /frame=\s*[1-9]/.test(err)) {
+    log('recording: ffmpeg');
+    return;
+  }
+  log(`recording: ffmpeg didn't capture (${err.split('\n').slice(-4).join(' | ').slice(0, 300)}); screencapture chunks instead`);
+  ff.kill('SIGKILL');
+  ff = undefined;
   recording = true;
   recLoop = (async () => {
     for (let n = 0; recording; n++) {
@@ -175,6 +194,15 @@ const startRecording = () => {
   })();
 };
 const stopRecording = async () => {
+  if (ff) {
+    const p = ff;
+    p.stdin!.write('q');
+    await new Promise<void>((r) => {
+      const t = setTimeout(() => (p.kill('SIGINT'), r()), 30_000);
+      p.on('exit', () => (clearTimeout(t), r()));
+    });
+    await sleep(1000);
+  }
   recording = false;
   await recLoop;
 };
@@ -372,16 +400,17 @@ const clientSees = async (name: string) => {
 
 // ---- The whole story: install, sign-in, an answer, a block, a hold ----
 async function fullVideo(zip: string) {
-  startRecording();
+  await startRecording();
   await sleep(2500);
 
   scene("A company Mac. IT's device management has already sent Control Tower's settings.");
-  await osa(`tell application "Finder"
+  const fw = await osa(`tell application "Finder"
   activate
-  set w to make new Finder window to (POSIX file "/Applications" as alias)
+  set w to make new Finder window to folder "Applications" of startup disk
   set bounds of w to {360, 120, 1560, 900}
   set current view of w to icon view
 end tell`);
+  log(`Finder window: ${fw.code} ${fw.err.trim().slice(0, 200)}`);
   await sleep(5000);
   scene('Claude Desktop is installed', 3);
   log(`unzip: ${(await run(`ditto -x -k ${q(zip)} /Applications`)).code}`);
@@ -520,7 +549,7 @@ tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
   await sleep(2000);
   await shot('ready');
 
-  startRecording();
+  await startRecording();
   await sleep(2500);
   scene('Dana works in Claude Desktop. Maria approves requests in Control Tower’s Tower.');
   await sleep(5000);
@@ -655,13 +684,17 @@ try {
 // ---- The edit: each scene at its speed with its caption, less the time spent reading the screen, between a title and
 // an end card. Each piece is cut and captioned on its own, then the pieces are joined. (Captions are drawn by a browser:
 // Homebrew's ffmpeg has no text filter.)
-if (chunks.length && scenes.length > 1) {
-  fs.writeFileSync(path.join(TMP, 'chunks.txt'), chunks.map((c) => `file '${c.file}'`).join('\n'));
-  log(`join ${chunks.length} chunks: ${(await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'chunks.txt'))} -c copy ${q(RAW)}`, 600_000)).code}`);
+fs.writeFileSync(path.join(OUT, 'timeline.json'), JSON.stringify({ ffT0, chunks: chunks.map((c) => ({ start: c.start, end: c.end })), cuts, scenes }, null, 2));
+if ((ffT0 ? fs.existsSync(RAW) : chunks.length) && scenes.length > 1) {
+  if (!ffT0) {
+    fs.writeFileSync(path.join(TMP, 'chunks.txt'), chunks.map((c) => `file '${c.file}'`).join('\n'));
+    log(`join ${chunks.length} chunks: ${(await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'chunks.txt'))} -c copy ${q(RAW)}`, 600_000)).code}`);
+  }
   const dur = await duration(RAW);
   log(`raw: ${dur}s`);
-  // A wall-clock moment's place in the joined video (a moment between chunks goes to the start of the next).
+  // A wall-clock moment's place in the video (with chunks, a moment between two goes to the start of the next).
   const at = (t: number) => {
+    if (ffT0) return Math.max(0, (t - ffT0) / 1000);
     let before = 0;
     for (const c of chunks) {
       if (t < c.end) return before + Math.max(0, t - c.start) / 1000;

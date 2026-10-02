@@ -250,7 +250,33 @@ end tell`);
   await keys('keystroke "g" using {command down, shift down}\n  delay 1.5\n  keystroke "/Users/runner/acme-reports"\n  delay 1\n  key code 36\n  delay 1.5\n  key code 36');
   await sleep(4000);
   await shot('folder-chosen');
-  log(`Trust workspace: ${await clickNamed('Trust workspace')}`);
+  // Pressing a button, by whatever takes: System Events' click, a real mouse click, then the AX press action.
+  const gone = async (name: string) => !(await tree()).some((x) => x.name === name && x.w > 0);
+  const press = async (name: string) => {
+    if (!(await clickNamed(name))) return 'not found';
+    await sleep(1500);
+    if (await gone(name)) return 'click';
+    const e = (await tree()).find((x) => x.name === name && x.w > 0)!;
+    await run(`cliclick m:${Math.round(e.x + e.w / 2)},${Math.round(e.y + e.h / 2)} c:.`);
+    await sleep(1500);
+    if (await gone(name)) return 'cliclick';
+    await osa(`tell application "System Events" to tell process "Claude"
+  repeat with e in (entire contents of window 1)
+    try
+      if (description of e as text) is "${name}" then
+        perform action "AXPress" of e
+        exit repeat
+      end if
+    end try
+  end repeat
+end tell`);
+    await sleep(1500);
+    if (await gone(name)) return 'AXPress';
+    await keys('key code 48\n  delay 0.3\n  key code 49');
+    await sleep(1500);
+    return (await gone(name)) ? 'tab+space' : 'still there';
+  };
+  log(`Trust workspace: ${await press('Trust workspace')}`);
   await sleep(3000);
   await shot('trusted');
   await dump('trusted');

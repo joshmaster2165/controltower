@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## 0.2.8 — 2 October 2026
+
+- **Laptops on Windows: Codex gets Control Tower's MCP tools again.** Codex on Windows no longer reads a per-person `managed_config.toml`, where the install script put Control Tower's MCP server, so Codex there had no Control Tower tools (model calls were unaffected). The script now adds the server to each profile's own `~\.codex\config.toml`, only where it's missing, and to the Default profile for people who sign in later. Found by the new real-machine test, which now checks Codex lists the server; it passes 13 of 13 on Windows and on macOS.
+
 ## 0.2.7 — 2 October 2026
 
 - **Docs: [Rolling it out](rollout.md):** the rollout from both sides: who does what (admins, viewers, approvers, team admins, everyone else), what reaches each computer, what an employee sees the first time they open Claude and after, their questions, and a note to send them.

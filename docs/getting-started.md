@@ -11,7 +11,7 @@ docker run -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/contro
 The terminal prints where to open the console, a one-time setup code, the two environment variables agents need, and the file to back up:
 
 ```text
-  Control Tower 0.2.7 is running
+  Control Tower 0.2.8 is running
 
      Open        http://localhost:4000/?setup=K7QM-4XTP-9HRD  → create your admin account  (or the host port you published)
      Setup code  K7QM-4XTP-9HRD   (the setup page asks for it: only someone who can read this log sets up this server)

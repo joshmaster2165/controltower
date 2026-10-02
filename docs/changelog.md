@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.6 — 2 October 2026
 
 - **Laptops: sign in with your identity provider.** ct-auth can sign people in to Okta, Entra ID or any OpenID Connect provider directly (its device flow) and hand the tools its ID tokens, which Control Tower checks through a trusted issuer under Agent identity. People need no Control Tower account; the issuer's rules (groups to keys) pick the key, and calls are recorded under the person's email. Choose it under **Laptops › Roll it out**. Tested end to end, refresh and sign-out included.
 - **Seats include people signing in with your identity provider.** A trusted issuer can be marked as people (laptops, as opposed to workloads); each person it names uses a seat while seen in the last 30 days, counted once even if they also use single sign-on. When seats are full, a new person's token is refused and everyone else carries on. Workload issuers are unchanged.

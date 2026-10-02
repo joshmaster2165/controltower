@@ -3,7 +3,7 @@
 A self-hosted AI gateway with a live map of agent traffic, gates drawn on the map, and human approvals.
 
 ```bash
-helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.2.5
+helm install controltower oci://ghcr.io/joshmaster2165/charts/controltower --version 0.2.6
 kubectl logs deploy/controltower | grep -A1 "Setup code"   # the setup page asks for it
 ```
 

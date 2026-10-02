@@ -58,7 +58,10 @@ const osa = (script: string) => {
 // ---- Driving the Mac like a person: what's on screen by name and place, clicks, typing ----
 type El = { role: string; name: string; x: number; y: number; w: number; h: number };
 // Electron (Claude) builds its accessibility tree for whoever asks, with the app in front; Safari always has one.
+// Reading it is slow (seconds), and nothing happens on screen meanwhile: the edit cuts that time out of the video.
+const cuts: Array<[number, number]> = [];
 const tree = async (proc = 'Claude'): Promise<El[]> => {
+  const t0 = Date.now();
   const t = await osa(`tell application "${proc}" to activate
 delay 1
 tell application "System Events" to tell process "${proc}"
@@ -91,6 +94,7 @@ tell application "System Events" to tell process "${proc}"
   end repeat
   return out
 end tell`);
+  cuts.push([t0, Date.now()]);
   const ok = (s?: string) => (s && s !== 'missing value' ? s : '');
   return t.out
     .split('\n')
@@ -204,7 +208,7 @@ const ct: ChildProcess = spawn(process.execPath, ['server/dist/server.mjs', '--p
     CT_LICENSE_KEY: testLicense({ customer: 'Acme Corp' }),
     CT_LICENSE_SERVER: 'off',
     CT_MODEL_HEALTH_INTERVAL_S: '0',
-    CT_HOLD_BUDGET_MS: '180000',
+    CT_HOLD_BUDGET_MS: '600000',
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -272,7 +276,7 @@ try {
     target_kind: 'model',
     match: { models: ['claude-sonnet-4-5'] },
     effect: 'require_approval',
-    config: { hold_ms: 150_000 },
+    config: { hold_ms: 600_000 },
     priority: 10,
   });
   log(`gates: ${block.id ?? JSON.stringify(block)} ${hold.id ?? JSON.stringify(hold)}`);
@@ -307,7 +311,12 @@ try {
   await sleep(2500);
 
   scene("A company Mac. IT's device management has already sent Control Tower's settings.");
-  await run('open /Applications');
+  await osa(`tell application "Finder"
+  activate
+  set w to make new Finder window to (POSIX file "/Applications" as alias)
+  set bounds of w to {360, 120, 1560, 900}
+  set current view of w to icon view
+end tell`);
   await sleep(5000);
   scene('Claude Desktop is installed', 3);
   log(`unzip: ${(await run(`ditto -x -k ${q(zip)} /Applications`)).code}`);
@@ -348,7 +357,6 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await sleep(5000);
   await shot('browser-sign-in');
   scene('She signs in with her work account…');
-  await dump('safari-login', 'Safari');
   const emailBox = await find(/^(Email|Username|Email or username)$/i, 'Safari', 'AXTextField');
   if (emailBox) await clickAt(emailBox.x + emailBox.w / 2, emailBox.y + emailBox.h / 2);
   await type('Safari', DANA.email);
@@ -359,7 +367,6 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await sleep(1500);
   await shot('device-request');
   scene('…checks it’s her computer asking, and approves.');
-  await dump('safari-device', 'Safari');
   await sleep(3000);
   log(`Approve (device): ${await press('Approve', 'Safari', { role: 'AXButton' })}`);
   await sleep(3000);
@@ -411,7 +418,6 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   log(`View details: ${details ? 'clicked' : 'not found'}`);
   await sleep(6000);
   await shot('blocked');
-  await dump('blocked');
   log(`calls: ${calls(n1)}`);
   await keys('Claude', 'key code 53');
   await sleep(1000);
@@ -445,7 +451,6 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   scene('Maria, her manager, opens the Tower…');
   await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
   await sleep(5000);
-  await dump('maria-login', 'Safari');
   const mBox = await find(/^(Email|Username|Email or username)$/i, 'Safari', 'AXTextField');
   if (mBox) await clickAt(mBox.x + mBox.w / 2, mBox.y + mBox.h / 2);
   await type('Safari', MARIA.email);
@@ -454,17 +459,29 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await sleep(3000);
   await keys('Safari', 'key code 53');
   await sleep(1500);
-  if (!(await find('Approve', 'Safari', 'AXButton'))) {
-    await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
-    await sleep(4000);
-  }
   scene('…sees who is asking, from which app, for which model, and approves.');
   await shot('tower');
-  await dump('tower', 'Safari');
-  await sleep(5000);
-  log(`Approve (tower): ${await press('Approve', 'Safari', { role: 'AXButton' })}`);
+  await sleep(4000);
+  // Claude Code asks twice on a new session (the reply, and a title for the session): she approves both.
+  const pending = async () => ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []).length;
+  for (let i = 0; i < 5 && (await pending()) > 0; i++) {
+    const before = await pending();
+    const btn = await find('Approve', 'Safari', 'AXButton');
+    if (!btn) {
+      await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
+      await sleep(3000);
+      continue;
+    }
+    await clickAt(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    await sleep(2000);
+    if ((await pending()) >= before) {
+      await mouse(btn.x + btn.w / 2, btn.y + btn.h / 2);
+      await sleep(2000);
+    }
+    log(`Approve (tower): ${before} -> ${await pending()} waiting`);
+  }
   if (card) log(`card now: ${(await api('GET', `/admin/api/approvals/${card.id}`)).approval?.status}`);
-  await sleep(3000);
+  await sleep(2500);
 
   scene('The call goes through, and the answer arrives in Claude.');
   await osa('tell application "Claude" to activate');
@@ -491,9 +508,10 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await Promise.race([ant.close(), sleep(5000)]);
 }
 
-// ---- The edit: each scene at its speed with its caption, between a title and an end card ----
-// (Captions are drawn by a browser and laid over the video: Homebrew's ffmpeg has no text filter.)
-if (chunks.length && scenes.length) {
+// ---- The edit: each scene at its speed with its caption, less the time spent reading the screen, between a title and
+// an end card. Each piece is cut and captioned on its own, then the pieces are joined. (Captions are drawn by a browser:
+// Homebrew's ffmpeg has no text filter.)
+if (chunks.length && scenes.length > 1) {
   fs.writeFileSync(path.join(TMP, 'chunks.txt'), chunks.map((c) => `file '${c.file}'`).join('\n'));
   log(`join ${chunks.length} chunks: ${(await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'chunks.txt'))} -c copy ${q(RAW)}`, 600_000)).code}`);
   const dur = await duration(RAW);
@@ -507,8 +525,19 @@ if (chunks.length && scenes.length) {
     }
     return before;
   };
-  for (const s of scenes) s.t = at(s.t);
-  fs.writeFileSync(path.join(OUT, 'scenes.json'), JSON.stringify(scenes, null, 2));
+  // Each scene (the last one only marks the end) less the cuts, as pieces of the joined video.
+  const pieces: Array<{ a: number; b: number; speed: number; caption: string; scene: number }> = [];
+  for (let i = 0; i + 1 < scenes.length; i++) {
+    const s = scenes[i]!;
+    let spans: Array<[number, number]> = [[s.t, scenes[i + 1]!.t]];
+    for (const [c0, c1] of cuts) spans = spans.flatMap(([x, y]): Array<[number, number]> => (c1 <= x || c0 >= y ? [[x, y]] : ([[x, c0], [c1, y]] as Array<[number, number]>).filter(([u, v]) => v - u > 0)));
+    for (const [x, y] of spans) {
+      const a = at(x);
+      const b = Math.min(at(y), dur);
+      if (b - a >= 0.5) pieces.push({ a, b, speed: s.speed, caption: s.caption, scene: i });
+    }
+  }
+  fs.writeFileSync(path.join(OUT, 'pieces.json'), JSON.stringify(pieces, null, 2));
   const { chromium } = await import('@playwright/test');
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
@@ -524,35 +553,32 @@ if (chunks.length && scenes.length) {
     `<div style="position:absolute;left:0;right:0;bottom:56px;display:flex;justify-content:center"><div style="max-width:1500px;background:rgba(13,17,23,.86);color:#fff;font-size:38px;font-weight:600;line-height:1.3;padding:18px 34px;border-radius:16px;text-align:center;letter-spacing:-.01em">${esc(s)}</div></div>`;
   const cardHtml = (title: string, sub: string) =>
     `<div style="height:1080px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;color:#fff;text-align:center"><div style="font-size:30px;letter-spacing:.18em;text-transform:uppercase;color:#f0a35e;font-weight:600">Control Tower</div><div style="font-size:76px;font-weight:700;letter-spacing:-.02em;max-width:1500px">${esc(title)}</div><div style="font-size:36px;color:#9aa4b2;max-width:1400px;line-height:1.35">${esc(sub)}</div></div>`;
-  const segs = scenes.map((s, i) => ({ ...s, i, end: i + 1 < scenes.length ? scenes[i + 1]!.t : dur })).filter((s) => s.end - s.t >= 0.3 && s.t < dur);
-  const inputs: string[] = [`-i ${q(RAW)}`];
-  const add = (f: string, still = false) => (inputs.push(still ? `-loop 1 -framerate 30 -t 4 -i ${q(f)}` : `-i ${q(f)}`), inputs.length - 1);
+  const ENC = '-an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -video_track_timescale 30000';
   const parts: string[] = [];
-  const labels: string[] = [];
-  const cardIn = (n: string, title: string, sub: string) => png(n, cardHtml(title, sub), false).then((f) => add(f, true));
-  const c0 = await cardIn('card0', 'Claude Desktop on a company Mac', 'Recorded live: installed, signed in, and governed by Control Tower');
-  parts.push(`[${c0}:v]fps=30,scale=1920:1080,setsar=1,format=yuv420p[c0]`);
-  labels.push('[c0]');
-  parts.push(`[0:v]split=${segs.length}${segs.map((s) => `[r${s.i}]`).join('')}`);
-  for (const s of segs) {
-    const base = `[r${s.i}]trim=start=${s.t.toFixed(2)}:end=${Math.min(s.end, dur).toFixed(2)},setpts=(PTS-STARTPTS)/${s.speed},fps=30,scale=1920:1080,setsar=1`;
-    if (s.caption) {
-      const k = add(await png(`cap${s.i}`, caption(s.caption), true));
-      parts.push(`${base}[b${s.i}]`, `[b${s.i}][${k}:v]overlay=0:0:eof_action=repeat,format=yuv420p[s${s.i}]`);
-    } else parts.push(`${base},format=yuv420p[s${s.i}]`);
-    labels.push(`[s${s.i}]`);
+  const card = async (n: string, title: string, sub: string) => {
+    const f = path.join(TMP, `${n}.mp4`);
+    const r = await run(`ffmpeg -y -loop 1 -framerate 30 -t 4 -i ${q(await png(n, cardHtml(title, sub), false))} -vf scale=1920:1080,setsar=1 ${ENC} ${q(f)}`, 300_000);
+    if (r.code) log(`card ${n}: ${r.err.slice(-600)}`);
+    parts.push(f);
+  };
+  await card('card0', 'Claude Desktop on a company Mac', 'Recorded live: installed, signed in, and governed by Control Tower');
+  const caps = new Map<number, string>();
+  for (const [k, pc] of pieces.entries()) {
+    if (pc.caption && !caps.has(pc.scene)) caps.set(pc.scene, await png(`cap${pc.scene}`, caption(pc.caption), true));
+    const f = path.join(TMP, `piece-${String(k).padStart(3, '0')}.mp4`);
+    // (A still screen records few frames, so each piece is held to its exact length.)
+    const base = `setpts=(PTS-STARTPTS)/${pc.speed},fps=30,tpad=stop_mode=clone:stop_duration=600,scale=1920:1080,setsar=1`;
+    const len = `-t ${((pc.b - pc.a) / pc.speed).toFixed(3)}`;
+    const r = pc.caption
+      ? await run(`ffmpeg -y -ss ${pc.a.toFixed(3)} -to ${pc.b.toFixed(3)} -i ${q(RAW)} -i ${q(caps.get(pc.scene)!)} -filter_complex "[0:v]${base}[v];[v][1:v]overlay=0:0[o]" -map "[o]" ${len} ${ENC} ${q(f)}`, 600_000)
+      : await run(`ffmpeg -y -ss ${pc.a.toFixed(3)} -to ${pc.b.toFixed(3)} -i ${q(RAW)} -vf "${base}" ${len} ${ENC} ${q(f)}`, 600_000);
+    if (r.code) log(`piece ${k}: ${r.err.slice(-600)}`);
+    else parts.push(f);
   }
-  const c1 = await cardIn('card1', 'See every agent. Gate what matters.', 'Open-source AI gateway · github.com/joshmaster2165/controltower');
-  parts.push(`[${c1}:v]fps=30,scale=1920:1080,setsar=1,format=yuv420p[c1]`);
-  labels.push('[c1]');
+  await card('card1', 'See every agent. Gate what matters.', 'Open-source AI gateway · github.com/joshmaster2165/controltower');
   await browser.close();
-  parts.push(`${labels.join('')}concat=n=${labels.length}:v=1:a=0[out]`);
-  fs.writeFileSync(path.join(TMP, 'filter.txt'), parts.join(';\n'));
-  fs.copyFileSync(path.join(TMP, 'filter.txt'), path.join(OUT, 'filter.txt'));
+  fs.writeFileSync(path.join(TMP, 'parts.txt'), parts.map((f) => `file '${f}'`).join('\n'));
   const mp4 = path.join(OUT, 'demo-desktop.mp4');
-  const r = await run(
-    `ffmpeg -y ${inputs.join(' ')} -/filter_complex ${q(path.join(TMP, 'filter.txt'))} -map '[out]' -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -movflags +faststart ${q(mp4)}`,
-    1_200_000,
-  );
-  log(`edit: ${r.code} ${r.code ? r.err.slice(-1500) : ''}${fs.existsSync(mp4) ? ` ${(fs.statSync(mp4).size / 1e6).toFixed(1)} MB` : ''}`);
+  const r = await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'parts.txt'))} -c copy -movflags +faststart ${q(mp4)}`, 600_000);
+  log(`edit: ${pieces.length} pieces, ${r.code} ${r.code ? r.err.slice(-1500) : ''}${fs.existsSync(mp4) ? ` ${(fs.statSync(mp4).size / 1e6).toFixed(1)} MB, ${(await duration(mp4)).toFixed(1)}s` : ''}`);
 }

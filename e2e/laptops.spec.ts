@@ -284,7 +284,8 @@ test('the install scripts write what they say (run into a scratch root), and the
     expect(fs.readFileSync(path.join(root, conf), 'utf8').trim()).toBe('url=https://ai.example.com');
     if (name.includes('linux')) {
       expect(JSON.parse(fs.readFileSync(path.join(root, 'etc/claude-code/managed-settings.json'), 'utf8')).env.ANTHROPIC_BASE_URL).toBe('https://ai.example.com');
-      expect(JSON.parse(fs.readFileSync(path.join(root, 'etc/claude-desktop/managed-settings.json'), 'utf8'))).toMatchObject({ inferenceProvider: 'gateway', inferenceCredentialHelperArgs: ['token', '--client', 'claude-desktop'], isLocalDevMcpEnabled: false });
+      expect(JSON.parse(fs.readFileSync(path.join(root, 'etc/claude-desktop/managed-settings.json'), 'utf8'))).toMatchObject({ inferenceProvider: 'gateway', inferenceCredentialHelper: `${root}/usr/local/bin/ct-auth-claude-desktop`, isLocalDevMcpEnabled: false });
+      expect(fs.readFileSync(path.join(root, 'usr/local/bin/ct-auth-claude-desktop'), 'utf8')).toContain('token --client claude-desktop');
       expect(fs.readFileSync(path.join(root, 'etc/codex/requirements.toml'), 'utf8')).toContain('model_provider = "controltower"');
     } else {
       expect(JSON.parse(fs.readFileSync(path.join(root, 'Library/Application Support/ClaudeCode/managed-mcp.json'), 'utf8')).mcpServers.controltower.url).toBe('https://ai.example.com/mcp');

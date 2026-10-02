@@ -312,8 +312,10 @@ Start-Sleep -Milliseconds 500
   }
   await sleep(5000);
   await screenshot('3-chat');
-  drove += chat ? '; chat sent' : '; no chat request';
-  c('Claude Desktop sends a chat through Control Tower with ct-auth\'s token (see the screenshots for the answer)', !!chat && chat.cred === 'ct_dt' && chat.status === 200, chat ? `${chat.method} ${chat.path}: ${chat.cred} → ${chat.status}; ${drove}` : `no chat request; ${drove}`);
+  drove += chat ? '; a model request went through' : '; no model request';
+  // (A model request: the typed message itself waits for a project folder on the Code tab, and Cowork needs hardware
+  // virtualization these machines don't have. The screenshots show where it got to.)
+  c('Claude Desktop makes model requests through Control Tower with ct-auth\'s token', !!chat && chat.cred === 'ct_dt' && chat.status === 200, chat ? `${chat.method} ${chat.path}: ${chat.cred} → ${chat.status}; ${drove}` : `no chat request; ${drove}`);
   const shot = path.join(shots, `claude-desktop-${os_}.png`);
   if (MAC) await run(`screencapture -x ${q(shot)}`);
   else await run(`powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${shot}')"`);

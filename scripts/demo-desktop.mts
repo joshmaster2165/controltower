@@ -96,7 +96,8 @@ try {
   await run(`sudo mkdir -p "/Library/Managed Preferences" && sudo cp ${q(p)} "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist" && sudo killall cfprefsd || true`);
 
   // ---- What the screen can do: its size, and recording video ----
-  log(`display: ${(await run('system_profiler SPDisplaysDataType | grep -i -E "resolution|display type"')).out.trim().replace(/\s+/g, ' ')}`);
+  await run('brew install cliclick displayplacer', 300_000);
+  log(`displays: ${(await run('displayplacer list')).out.split('\n').filter((l) => /Resolution|res:|mode/i.test(l)).slice(0, 30).join(' | ').slice(0, 1500)}`);
   const vid = await run(`screencapture -v -V 3 ${q(path.join(OUT, 'probe.mov'))}`, 30_000);
   log(`screencapture -v: exit ${vid.code} ${vid.err.trim().slice(0, 160)}; file ${fs.existsSync(path.join(OUT, 'probe.mov')) ? fs.statSync(path.join(OUT, 'probe.mov')).size : 0} bytes`);
 
@@ -115,7 +116,25 @@ end tell
 return (px as text) & "," & (py as text) & "," & (sw as text) & "," & (sh as text)`);
   log(`window: ${pos.out.trim()}`);
   const [px, py, sw, sh] = pos.out.trim().split(',').map(Number) as [number, number, number, number];
-  await osa(`tell application "System Events" to click at {${px + sw / 2}, ${py + sh * 0.608}}`);
+  // Click like a person: the app in front, its web content exposed to accessibility (Electron asks for it), then
+  // System Events' click at the button's place; a real mouse click (cliclick) if that doesn't take.
+  const clickAt = async (x: number, y: number) => {
+    await osa(`tell application "Claude" to activate
+tell application "System Events" to tell process "Claude"
+  try
+    set value of attribute "AXManualAccessibility" to true
+  end try
+end tell
+delay 2
+tell application "System Events" to click at {${Math.round(x)}, ${Math.round(y)}}`);
+  };
+  await clickAt(px + sw / 2, py + sh * 0.608);
+  await sleep(4000);
+  await shot('after-ax-click');
+  if (!seen.length) {
+    const c = await run(`cliclick c:${Math.round(px + sw / 2)},${Math.round(py + sh * 0.608)}`);
+    log(`cliclick: ${c.code} ${c.err.trim().slice(0, 120)}`);
+  }
   // Not signed in yet: the helper opens the browser at /device?code=…; the recorder sees the code.
   let code = '';
   for (let i = 0; i < 40 && !code; i++) {
@@ -164,6 +183,15 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'claude-desktop-elements.txt'), ax.out + ax.err);
   log(`elements: ${ax.out.split('\n').length} (saved)`);
   await shot('main');
+  // The Code tab's "Project or folder": what it opens.
+  const win = (await osa(`tell application "System Events" to tell process "Claude" to return ((position of window 1) as text) & "," & ((size of window 1) as text)`)).out.trim().split(',').map(Number);
+  log(`main window: ${win.join(',')}`);
+  await run('cliclick c:505,507');
+  await sleep(3000);
+  await shot('project-or-folder');
+  await run('cliclick c:640,92');
+  await sleep(2000);
+  await shot('cowork-tab');
 } finally {
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   ct.kill();

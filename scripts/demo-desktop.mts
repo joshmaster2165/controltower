@@ -232,13 +232,67 @@ end tell`);
   await shot('code-tab');
   const els1 = await tree();
   fs.writeFileSync(path.join(OUT, 'ax-code-tab.txt'), els1.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
-  log(`Project or folder: ${await clickNamed('Project or folder')}`);
+  const dump = async (name: string) => {
+    const els = await tree();
+    fs.writeFileSync(path.join(OUT, `ax-${name}.txt`), els.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
+    return els;
+  };
+  const keys = (script: string) => osa(`tell application "Claude" to activate
+delay 0.5
+tell application "System Events"
+${script}
+end tell`);
+  // The folder: a native open panel; Go to folder (cmd-shift-G), the path, Open.
+  log(`Select folder: ${await clickNamed(/^Select folder/)}`);
   await sleep(3000);
-  await shot('project-or-folder');
-  const els2 = await tree();
-  fs.writeFileSync(path.join(OUT, 'ax-project-or-folder.txt'), els2.map((e) => `${e.role} | ${e.name} | ${e.x},${e.y} ${e.w}x${e.h}`).join('\n'));
-  const wins = await osa('tell application "System Events" to tell process "Claude" to return name of every window');
-  log(`windows: ${wins.out.trim()}`);
+  await shot('open-panel');
+  log(`windows: ${(await osa('tell application "System Events" to tell process "Claude" to return name of every window')).out.trim()}`);
+  await keys('keystroke "g" using {command down, shift down}\n  delay 1.5\n  keystroke "/Users/runner/acme-reports"\n  delay 1\n  key code 36\n  delay 1.5\n  key code 36');
+  await sleep(4000);
+  await shot('folder-chosen');
+  await dump('folder-chosen');
+  // A gate that blocks secrets in prompts, and one that holds Sonnet for an approver.
+  const block = await api('POST', '/admin/api/rules', { name: 'No secrets to models', target_kind: 'model', effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input' }, priority: 50 });
+  const hold = await api('POST', '/admin/api/rules', { name: 'Sonnet needs a manager', target_kind: 'model', match: { models: ['claude-sonnet-4-5'] }, effect: 'require_approval', config: { hold_ms: 90_000 }, priority: 10 });
+  log(`gates: ${block.id ?? JSON.stringify(block)} ${hold.id ?? JSON.stringify(hold)}`);
+  const send = async (text: string, name: string) => {
+    log(`Prompt: ${await clickNamed('Prompt')}`);
+    await sleep(800);
+    await keys(`keystroke ${JSON.stringify(text)}\n  delay 0.8\n  key code 36`);
+    for (const t of [5, 15, 30]) {
+      await sleep(t === 5 ? 5000 : 10_000);
+      await shot(`${name}-${t}s`);
+    }
+    await dump(name);
+  };
+  const flights0 = seen.length;
+  await send('Summarize the Q3 pipeline in README.md', 'ask');
+  log(`requests since: ${seen.slice(flights0).map((x) => `${x.method} ${x.url.split('?')[0]} ${x.status}`).join(', ').slice(0, 1500)}`);
+  const f1 = seen.length;
+  await send('Check this AWS key works: AKIAIOSFODNN7EXAMPLE secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'secret');
+  log(`requests since: ${seen.slice(f1).map((x) => `${x.method} ${x.url.split('?')[0]} ${x.status}`).join(', ').slice(0, 1500)}`);
+  // Sonnet: the model menu, then a prompt the gate holds; approve it while held.
+  log(`Model menu: ${await clickNamed(/^Model:/)}`);
+  await sleep(2000);
+  await shot('model-menu');
+  await dump('model-menu');
+  log(`Sonnet: ${await clickNamed(/Sonnet/)}`);
+  await sleep(2000);
+  const f2 = seen.length;
+  const sending = send('Draft the board update on the Q3 pipeline', 'held');
+  let card: { id: string } | undefined;
+  for (let i = 0; i < 40 && !card; i++) {
+    await sleep(1000);
+    card = ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? [])[0];
+  }
+  log(`held: ${card?.id ?? 'none'}`);
+  await sending;
+  if (card) log(`decide: ${JSON.stringify(await api('POST', `/admin/api/approvals/${card.id}/decide`, { action: 'approve' }))}`);
+  await sleep(10_000);
+  await shot('after-approve');
+  log(`requests since: ${seen.slice(f2).map((x) => `${x.method} ${x.url.split('?')[0]} ${x.status}`).join(', ').slice(0, 1500)}`);
+  const fl = await api('GET', '/admin/api/flights?limit=30');
+  fs.writeFileSync(path.join(OUT, 'flights.json'), JSON.stringify(fl, null, 2));
 } finally {
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   ct.kill();

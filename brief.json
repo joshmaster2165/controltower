@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-02",
+  "angle": "release",
+  "title": "v0.2.6: every laptop's AI tools through one gateway",
+  "why": "v0.2.5 and v0.2.6 shipped since the last post (Laptops, IdP sign-in, the enforcement guide), so a release beats Friday's try-it rhythm. Yesterday was build-in-public with the docs scene; today is cards only.",
+  "cards": [
+    {
+      "template": "release",
+      "size": "square",
+      "version": "0.2.6",
+      "date": "2 October 2026",
+      "headline": "Every laptop's AI calls, *through your gateway*",
+      "highlights": [
+        "Claude Code, Claude Desktop and Codex rolled out by MDM",
+        "Each person signs in: Okta, Entra ID or any OIDC provider",
+        "Calls recorded per person; spend by person in the Ledger",
+        "Lock down: no other provider or MCP server",
+        "A guide to enforcing it, and checking it holds"
+      ],
+      "alt": "Release card for Control Tower v0.2.6: Claude Code, Claude Desktop and Codex rolled out by MDM through the gateway, each person signed in with their identity provider, calls and spend recorded per person, a Lock down option, and an enforcement guide."
+    },
+    {
+      "template": "diagram",
+      "size": "square",
+      "eyebrow": "How it works",
+      "headline": "Signed in as a person. *Gated* as a key.",
+      "sub": "ct-auth hands each tool an hour-long token. Rules pick the key, so its models, tools, budget and gates apply.",
+      "agents": [
+        "Claude Code",
+        "Claude Desktop",
+        "Codex"
+      ],
+      "destinations": [
+        {
+          "name": "Anthropic",
+          "kind": "model"
+        },
+        {
+          "name": "OpenAI",
+          "kind": "model"
+        },
+        {
+          "name": "Your MCP servers",
+          "kind": "mcp"
+        }
+      ],
+      "gates": [
+        {
+          "to": "Anthropic",
+          "action": "limit"
+        },
+        {
+          "to": "OpenAI",
+          "action": "limit"
+        },
+        {
+          "to": "Your MCP servers",
+          "action": "approve"
+        }
+      ],
+      "alt": "Diagram: Claude Code, Claude Desktop and Codex on people's laptops route through Control Tower to Anthropic and OpenAI models (with budgets and limits) and to your MCP servers (behind a require-approval gate)."
+    },
+    {
+      "template": "statement",
+      "size": "square",
+      "dark": true,
+      "eyebrow": "From the enforcement guide",
+      "statement": "Managed settings stop people using these tools *any other way*. They don't stop a script calling the provider directly. That's the network's job.",
+      "attribution": "docs/enforcement.md",
+      "alt": "Quote from the Control Tower enforcement guide: managed settings stop people using these tools any other way, but they don't stop a script calling the provider directly; that takes network controls."
+    }
+  ],
+  "linkedin": {
+    "text": "Half your engineers run Claude Code or Codex on their laptops. Which key are those calls made with, and who can see them?\n\nControl Tower v0.2.6 is out. IT deploys the files from the Laptops page with Jamf, Intune or Kandji (Windows and Linux scripts too). The first time someone opens Claude Code, Claude Desktop or Codex, a small helper asks them to sign in. New today: that sign-in can go straight to Okta, Entra ID or any OpenID Connect provider.\n\nFrom then on, every model call and MCP tool call goes through your gateway as a key chosen by team, with its budget and gates, recorded under the person's email. No shared key in the files, tokens last an hour, and signing out a computer applies at once.\n\nWe also wrote down where it stops. Managed settings keep these tools on the gateway; they don't stop someone calling a provider's API from their own code. The new enforcement guide covers all four layers: settings, sign-in, the network, and checking every computer.\n\nLaptops is an Enterprise feature. The gateway is Apache-2.0 and runs in one docker command: https://github.com/joshmaster2165/controltower\n\nA ⭐ helps others find it.\n\n#AIAgents #PlatformEngineering #OpenSource",
+    "media": "cards"
+  },
+  "x": {
+    "posts": [
+      "Control Tower v0.2.6: Claude Code, Claude Desktop and Codex on every laptop, sent through your gateway.\n\nRolled out by MDM. Each person signs in with Okta, Entra ID or any OIDC provider. Every model and MCP call is recorded under their email.",
+      "No shared key in the files you deploy. Tokens last an hour. A rule picks the key by team, so its budget and gates apply. Sign out a computer and it's out at once.\n\nLock down stops the tools reaching any other provider or MCP server.",
+      "Laptops is Enterprise. The gateway it runs on is Apache-2.0: one docker run, a live map of where your agents go.\n\nA star helps others find it ⭐ https://github.com/joshmaster2165/controltower"
+    ],
+    "media": "cards"
+  },
+  "notes": "Laptops and IdP sign-in are Enterprise (ELv2); the copy says so. All claims are from docs/changelog.md (0.2.5, 0.2.6), docs/laptops.md and docs/enforcement.md. No video today: the Laptops page needs a license, which the demo recorder may not have."
+}

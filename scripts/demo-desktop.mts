@@ -183,15 +183,22 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'claude-desktop-elements.txt'), ax.out + ax.err);
   log(`elements: ${ax.out.split('\n').length} (saved)`);
   await shot('main');
-  // The Code tab's "Project or folder": what it opens.
-  const win = (await osa(`tell application "System Events" to tell process "Claude" to return ((position of window 1) as text) & "," & ((size of window 1) as text)`)).out.trim().split(',').map(Number);
-  log(`main window: ${win.join(',')}`);
-  await run('cliclick c:505,507');
+  // Claude Desktop's own report of the configuration it can't use (its "Copy report for IT" button).
+  await run('osascript -e \'tell application "Claude" to activate\'');
+  await sleep(1000);
+  await run('cliclick c:522,217');
+  await sleep(1500);
+  const report = (await run('pbpaste')).out;
+  fs.writeFileSync(path.join(OUT, 'claude-desktop-it-report.txt'), report);
+  log(`IT report: ${report.length} chars`);
+  await run('cliclick c:471,179');
+  await sleep(2000);
+  await shot('details');
+  await run('osascript -e \'tell application "System Events" to key code 53\'');
+  // The Code tab's "Project or folder".
+  await run('cliclick c:505,527');
   await sleep(3000);
   await shot('project-or-folder');
-  await run('cliclick c:640,92');
-  await sleep(2000);
-  await shot('cowork-tab');
 } finally {
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   ct.kill();

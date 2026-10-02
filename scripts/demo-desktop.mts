@@ -210,7 +210,14 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'ax-tree.txt'), tree.out + tree.err);
   log(`ax tree: ${tree.out.split('\n')[0]} elements; ${tree.err.trim().slice(0, 200)}`);
   // Press things by name (looping: a "whose" query over Electron's tree fails), and list what's on screen.
-  const press = (name: string, proc = 'Claude') => osa(`tell application "System Events" to tell process "${proc}"
+  const AX_ON = (proc: string) => `tell application "System Events" to tell process "${proc}"
+  try
+    set value of attribute "AXManualAccessibility" to true
+  end try
+end tell
+delay 1.5
+`;
+  const press = (name: string, proc = 'Claude') => osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
   repeat with w in windows
     repeat with e in (entire contents of w)
       try
@@ -224,7 +231,7 @@ end tell`);
   return "not found"
 end tell`);
   const dump = async (file: string, proc = 'Claude') => {
-    const t = await osa(`tell application "System Events" to tell process "${proc}"
+    const t = await osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
   set out to ""
   repeat with w in windows
     set out to out & "== window " & (name of w as text) & linefeed

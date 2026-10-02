@@ -144,7 +144,8 @@ test('a laptop signs in: the person sees what asked and as which key, approves, 
   expect(again.status).toBe(200);
   expect(again.body.refresh_token).toBeUndefined();
   expect((await chat(again.body.access_token)).status).toBe(200);
-  await expect.poll(async () => ((await admin.get('/admin/api/ledger/people?window=24h')).body.people as any[]).find((p) => p.who === 'dana@laptops.test')).toMatchObject({ requests: 3, keys: [{ key_name: 'claude-code-eng', requests: 3 }] });
+  // (By this run's key: a retry of the file runs it all again, and the person's earlier calls stay in the Ledger.)
+  await expect.poll(async () => ((await admin.get('/admin/api/ledger/people?window=24h')).body.people as any[]).find((p) => p.who === 'dana@laptops.test')?.keys.find((k: any) => k.key_id === keys.eng!.id)).toMatchObject({ key_name: 'claude-code-eng', requests: 3 });
 
   // Dana sees her sign-in; Eve doesn't, and can't end it.
   const mine = (await dana.call('GET', '/admin/api/me/devices')).body.sessions as any[];

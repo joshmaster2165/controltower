@@ -127,7 +127,8 @@ if ($idp) {
 # Where to sign in: Control Tower's endpoints, or the identity provider's (from its discovery document).
 function Endpoints {
   if (-not $idp) { return @{ device = "$url/device/code"; token = "$url/device/token"; revoke = "$url/device/revoke" } }
-  try { $d = Invoke-RestMethod -UseBasicParsing -Uri "$idpIssuer/.well-known/openid-configuration" -TimeoutSec 20 } catch { Die "$where can't be reached, or has no OpenID configuration" }
+  try { $d = (Invoke-WebRequest -UseBasicParsing -Uri "$idpIssuer/.well-known/openid-configuration" -Headers @{ 'accept' = 'application/json' } -TimeoutSec 20).Content | ConvertFrom-Json }
+  catch { Die "$where can't be reached, or has no OpenID configuration ($($_.Exception.Message))" }
   return @{ device = $d.device_authorization_endpoint; token = $d.token_endpoint; revoke = $d.revocation_endpoint }
 }
 

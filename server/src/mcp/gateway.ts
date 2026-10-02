@@ -388,7 +388,9 @@ export class McpGateway {
       if (decision.effect === 'hold') {
         // A client following progress hears why nothing is happening, every 5 s until a human answers.
         // The first note goes out once the approval card exists, so whoever reads it can find the card.
-        const waiting = () => progress?.({ message: `Waiting for a human to approve this call in Control Tower${decision.summary ? `: ${decision.summary}` : ''}` });
+        const label = ctx.config.noticeLabel;
+        const gateName = decision.ruleId ? ctx.policy.rule?.(decision.ruleId)?.name : undefined;
+        const waiting = () => progress?.({ message: `Waiting for a human to approve this call in ${label}${gateName ? ` (gate “${gateName}”)` : ''}${decision.summary ? `: ${decision.summary}` : ''}` });
         const beat = progress ? setInterval(waiting, 5000) : undefined;
         const outcome = await ctx.approvals.hold(f, decision, waiting).finally(() => clearInterval(beat));
         if (outcome.kind === 'denied') {
@@ -400,6 +402,7 @@ export class McpGateway {
           const ct = (outcome.error.extra?.ct as Record<string, unknown> | undefined) ?? {};
           return blocked(String(ct.status ?? 'pending'), outcome.error.message, { ...ct, how_to_resume: 'Retry this exact tool call with _meta.ct_approval set to the ticket (or the x-ct-approval HTTP header).' });
         }
+        progress?.({ message: `Approved by ${outcome.by ?? 'an approver'} in ${label}` });
       }
 
       // ---- inspect the arguments ----

@@ -665,7 +665,8 @@ test('MCP: progress reaches the client — the server’s own, and a note while 
   };
   const held = await call(approve);
   expect(held.text).toBe('done');
-  expect(held.got[0]!.message).toBe('Waiting for a human to approve this call in Control Tower: A human checks each run');
+  expect(held.got[0]!.message).toBe('Waiting for a human to approve this call in Control Tower (gate “Progressive needs a yes”): A human checks each run');
+  expect(held.got.some((p) => /^Approved by .+ in Control Tower$/.test(String(p.message)))).toBe(true);
   expect(held.got.slice(-3).map((p) => p.message)).toEqual(['step 1 of 3', 'step 2 of 3', 'step 3 of 3']);
   expect(held.got.every((p, i) => i === 0 || p.progress > held.got[i - 1]!.progress)).toBe(true);
   await admin.call('DELETE', `/admin/api/rules/${gate.body.id}`);

@@ -4,6 +4,10 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **People are told what a gate decided, in words, in the tool they use.** Claude Desktop, Claude Code and Codex read a `403` as a failed sign-in: an expired approval showed "Authentication failed", and a denied one left Claude waiting with nothing to say (found by recording Claude Desktop through a gate). Their refusals are now a `400`, which they show, with a message for the person: what was blocked, which gate and its reason, who denied it and their note, whether it's still waiting or expired, and what to do. Agents get the same `403` as before. Control Tower knows the tool from the laptop's sign-in, or its User-Agent. `CT_NOTICE_LABEL` changes the name in these messages.
+- **The Tower's cards name the person and their tool** (*Asked by dana@acme.com in Claude Desktop*), for calls from signed-in laptops and trusted tokens.
+- **Once approved, the same message again goes through.** A person's tool can't present a ticket, so after an approver says yes, the same person sending the same message goes through on that approval, once.
+- **MCP:** a held tool call's progress notes name the gate, and say who approved it.
 - **Laptops warns when Claude Desktop would find no model.** Claude Desktop lists the Claude models Control Tower serves, and won't start without one ("Gateway returned no usable models"); models added on first use aren't listed until someone uses them. **Laptops › Roll it out** now says so for the keys Claude Desktop would use.
 
 ## 0.2.9 — 2 October 2026

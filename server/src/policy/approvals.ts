@@ -120,6 +120,27 @@ export class ApprovalService implements Approvals {
       }
     }
 
+    // A person whose call was approved after they stopped waiting: the same call again goes through on that approval
+    // (their app can't present a ticket; the approval was for them, for exactly this).
+    if (flight.principal) {
+      const done = await this.db
+        .selectFrom('approvals')
+        .select(['id', 'grant_id', 'resolved_by'])
+        .where('dedupe_key', '=', dk)
+        .where('status', '=', 'approved')
+        .where('requester', '=', flight.principal)
+        .where('grant_id', 'is not', null)
+        .orderBy('resolved_at', 'desc')
+        .executeTakeFirst();
+      if (done?.grant_id && (await this.consumeGrant(done.grant_id, key.id, sh, undefined)).ok) {
+        flight.approvalId = done.id;
+        this.version.bump();
+        const by = done.resolved_by ?? undefined;
+        this.bus.emit({ t: 'flight.resolved', flight_id: flight.id, ts: now, approval_id: done.id, outcome: 'approved', by, grant_id: done.grant_id });
+        return { kind: 'approved', grantId: done.grant_id, by };
+      }
+    }
+
     // Admission control: over the cap we do not hold at all.
     const perKey = this.heldByKey.get(key.id) ?? 0;
     const canHold = budget > 0 && this._held < this.opts.maxHeld && perKey < MAX_HELD_PER_KEY;
@@ -157,6 +178,8 @@ export class ApprovalService implements Approvals {
           grant_id: null,
           demo: key.demo ? 1 : 0,
           hold_until: holdUntil,
+          requester: flight.principal ?? null,
+          client: flight.client ?? null,
         })
         .execute();
       approval = (await this.db.selectFrom('approvals').selectAll().where('id', '=', id).executeTakeFirst())!;

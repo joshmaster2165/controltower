@@ -115,7 +115,7 @@ Click `claude-code` to trace everything it reaches. To control it, drag from it 
 | Requests don't appear in Flights | Claude Code is still talking to Anthropic directly | Make sure `ANTHROPIC_BASE_URL` is set in that shell (or in `settings.json`), and unset `ANTHROPIC_API_KEY` |
 | `404 model_not_found` | No connected provider serves that model name | Connect a provider that does, or set `ANTHROPIC_MODEL` to a model Control Tower serves |
 | `403 model_not_allowed` | The key's **Allowed models** exclude it | Widen the key's allowed models |
-| `403 policy_denied` / a request waits | A gate blocked it or is holding it for approval | See the gate on the Airspace; approvals are in the **Tower** |
+| `400 policy_denied` / `content_blocked` / `approval_required`, or a request waits | A gate blocked it or is holding it for approval; the message says which gate and why (Claude Code gets a 400, which it shows; agents get a 403) | See the gate on the Airspace; approvals are in the **Tower** |
 | `/mcp` shows the server but no tools | The key may not use those tools | Check the key's allowed tools (`allowed_mcp`) — tools it may not use are not listed |
 
 More in [Troubleshooting](troubleshooting.md).

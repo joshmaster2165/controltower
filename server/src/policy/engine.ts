@@ -68,6 +68,8 @@ export interface PolicyEngine {
   evaluate(input: PolicyInput): PolicyDecision | Promise<PolicyDecision>;
   /** Static decision (no args) used to filter MCP tools/list pre-emptively. */
   staticDecision(key: KeyRecord, target: PolicyTarget): 'deny' | 'maybe';
+  /** A gate by id: its name and stated reason, for telling a person what decided. */
+  rule?(id: string): { name: string; config: { reason?: string | undefined } } | undefined;
   /** Optional change notification (zones/rules edited). */
   onChange?(fn: () => void): () => void;
 }

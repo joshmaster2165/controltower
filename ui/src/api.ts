@@ -370,6 +370,9 @@ export interface Approval {
   demo: boolean;
   /** When the agent stops waiting for this card; after that it holds a ticket. */
   hold_until: number | null;
+  /** The person who made the call, and the app they made it from, when it came from a signed-in laptop. */
+  requester?: string | null;
+  client?: string | null;
 }
 
 /** An open approval window: an agent a human let through a gate for its next N calls. */

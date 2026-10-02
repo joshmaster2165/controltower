@@ -32,6 +32,8 @@ export interface Config {
   modelHealthIntervalMs: number;
   maxHeld: number;
   holdBudgetMs: number;
+  /** How Control Tower names itself in what people's apps show them (CT_NOTICE_LABEL). */
+  noticeLabel: string;
   logLevel: string;
   sessionTtlMs: number;
   /** A console session unused this long ends (CT_SESSION_IDLE_MS). */
@@ -140,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     maxHeld: int(env.CT_MAX_HELD, 500),
     modelHealthIntervalMs: int(env.CT_MODEL_HEALTH_INTERVAL_S, 300) * 1000,
     holdBudgetMs: int(env.CT_HOLD_BUDGET_MS, 20_000),
+    noticeLabel: (env.CT_NOTICE_LABEL ?? '').trim() || 'Control Tower',
     a2aPushRelay: env.CT_A2A_PUSH_RELAY !== 'off',
     pushAllowPrivate: env.CT_PUSH_ALLOW_PRIVATE === '1' || env.CT_PUSH_ALLOW_PRIVATE === 'true',
     logLevel: debug ? 'debug' : (env.CT_LOG_LEVEL ?? (logEnv && ['debug', 'info', 'warn', 'error'].includes(logEnv) ? logEnv : undefined) ?? (env.NODE_ENV === 'production' ? 'info' : 'debug')),

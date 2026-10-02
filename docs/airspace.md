@@ -168,6 +168,14 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 - **Nobody answers** in time: the agent gets `403 approval_required` with a **ticket**. Once someone approves, the agent retries the same call with `x-ct-approval: <ticket>` and it goes through **once**. A retry with different arguments is refused (`403 policy_denied`, *scope mismatch*) and raised as a security event (`scope_mismatch`).
 - Held alerts by [email](alerts.md#approving-by-email), in Slack or to a webhook link straight to the card. Approving is always an authenticated action in the console — a link click never approves anything.
 
+### What a person sees
+
+Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as the reason. So when the call comes from one of them (a [signed-in laptop](laptops.md) says which; otherwise their User-Agent), a refusal is a `400`, with the same `code` and `ct` fields and a message written for the person: what decided, which gate, its reason, and what to do. Blocked by a gate or an inspect gate, denied by an approver (with their note), still waiting, or expired: each says so. The card in the Tower names the person and the tool they asked from.
+
+The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again goes through on that approval, once. Anyone else, or another message, is a new card.
+
+Tool calls through MCP hear, while held, *Waiting for a human to approve this call in Control Tower (gate "…")*, and *Approved by …* once someone does. `CT_NOTICE_LABEL` changes the name these messages use (for example `Acme AI Gateway`).
+
 ### Retrying with a ticket
 
 The `approval_required` error tells the agent what to do, in its message and in fields a program can read. On a model call they are under `ct`:

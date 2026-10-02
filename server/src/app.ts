@@ -88,7 +88,10 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     // A laptop signed in as a person (Enterprise): its calls are recorded as theirs.
     if (presented.startsWith('ct_dt_')) {
       const t = full.devices?.verify(presented);
-      if (t) req.ctPrincipal = t.principal;
+      if (t) {
+        req.ctPrincipal = t.principal;
+        req.ctClient = t.client;
+      }
       return;
     }
     if (!full.registry.authenticate(presented)) await full.registry.findStored(presented);

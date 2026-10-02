@@ -5,6 +5,8 @@ import { PageHeader } from '../components/PageHeader';
 import { ago } from '../format';
 import { Icon } from '../components/Icon';
 
+const CLIENT_NAMES: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex' };
+
 export function scopeStatement(a: Approval): string {
   const t = a.target;
   const behalf = t.on_behalf_of?.length ? `, made for ${t.on_behalf_of[0]}` : '';
@@ -87,6 +89,12 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
         {pending ? <Countdown until={Date.now() < holdUntil ? holdUntil : a.expires_at} label={Date.now() < holdUntil ? 'holding' : 'expires in'} /> : <span className="cd">{a.status}{a.resolved_by ? ` · ${a.resolved_by}` : ''}</span>}
       </div>
       <div className="s">{a.summary}</div>
+      {a.requester && (
+        <div className="requester-line">
+          Asked by <b>{a.requester}</b>
+          {a.client && <> in {CLIENT_NAMES[a.client] ?? a.client}</>}
+        </div>
+      )}
       <BehalfLine a={a} />
       <div className="scope">{pending && more ? windowStatement(a, usesOk ? uses : 1, ms, anyArgs) : scopeStatement(a)}</div>
       {a.args_preview && (

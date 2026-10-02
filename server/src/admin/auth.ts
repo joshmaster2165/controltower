@@ -118,6 +118,8 @@ declare module 'fastify' {
     auditCreatedId?: string;
     /** Who presented the token an agent authenticated with (issuer · subject), when it used one. */
     ctPrincipal?: string;
+    /** The app a signed-in laptop made the call from (claude-desktop, claude-code, codex), from its token. */
+    ctClient?: string;
   }
 }
 

@@ -130,6 +130,10 @@ function argOk(c: ArgConstraint, args: Record<string, unknown>): boolean {
 export class PolicyService implements PolicyEngine {
   zones = new Map<string, ZoneRecord>();
   rules: RuleRecord[] = [];
+
+  rule(id: string): RuleRecord | undefined {
+    return this.rules.find((r) => r.id === id);
+  }
   version = 0;
   /** Compiled detectors per inspect gate, rebuilt on reload. */
   private compiled = new Map<string, CompiledInspector>();

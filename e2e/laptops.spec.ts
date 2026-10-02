@@ -401,3 +401,80 @@ test('signing in with the identity provider: no Control Tower account, the issue
     await idp.close();
   }
 });
+
+test("a person's app is told in words what a gate decided; their held call is theirs on the card, and goes through once approved", async () => {
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  const fay = await person('fay@laptops.test');
+  const t = await signIn(fay, 'claude-desktop');
+  // Claude Desktop's calls: its token, and the User-Agent it sends.
+  const ask = (text: string, as: { credential?: string; ua?: string } = {}) =>
+    fetch(`${CT}/v1/messages`, {
+      method: 'POST',
+      headers: { 'x-api-key': as.credential ?? t.access_token, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': as.ua ?? 'claude-cli/2.1.286 (external, claude-desktop-3p, agent-sdk/0.3.286)' },
+      body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content: text }] }),
+    }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+  const agent = { credential: keys.all!.key, ua: 'my-agent/1.0' };
+  const rules: string[] = [];
+  const rule = async (body: Record<string, unknown>) => {
+    const r = await admin.post('/admin/api/rules', { target_kind: 'model', match: { keys: [keys.all!.id] }, ...body });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    rules.push(r.body.id);
+    return r.body.id as string;
+  };
+  try {
+    expect((await ask('hello')).status).toBe(200);
+
+    // Blocked by an inspect gate: a 400 the app shows, saying what, which gate, why, and what to do.
+    const insp = await rule({ name: 'No credentials to models', effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input', reason: 'Credentials must never be sent to a model' }, priority: 1 });
+    const blocked = await ask('is this key live? AKIAIOSFODNN7EXAMPLE');
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.error).toMatchObject({ type: 'invalid_request_error', code: 'content_blocked' });
+    expect(blocked.body.error.message).toBe('Control Tower blocked this message: it contains AWS access key (gate “No credentials to models”). Credentials must never be sent to a model. Remove it and send your message again.');
+    // An agent's refusal is unchanged.
+    const agentBlocked = await ask('is this key live? AKIAIOSFODNN7EXAMPLE', agent);
+    expect(agentBlocked.status).toBe(400);
+    expect(agentBlocked.body.error.message).toMatch(/^CONTROL_TOWER_CONTENT_BLOCKED: /);
+    await admin.del(`/admin/api/rules/${insp}`);
+
+    // Denied by a gate: 400 in words for the person (a 403 reads to Claude as a failed sign-in); 403 for the agent.
+    const deny = await rule({ name: 'Not this model today', effect: 'deny', config: { reason: 'Ask your manager first' }, priority: 1 });
+    const denied = await ask('hello');
+    expect(denied.status).toBe(400);
+    expect(denied.body.error).toMatchObject({ code: 'policy_denied', message: 'Control Tower blocked this request (gate “Not this model today”): Ask your manager first.' });
+    expect((await ask('hello', agent)).status).toBe(403);
+    // The app is known from its User-Agent too: Claude Code in a terminal, with a plain key.
+    expect((await ask('hello', { credential: keys.all!.key, ua: 'claude-cli/2.1.286 (external, cli)' })).status).toBe(400);
+    await admin.del(`/admin/api/rules/${deny}`);
+
+    // Held, and the approver says no: the card names the person and the app; the person reads who said no, and why.
+    const hold = await rule({ name: 'A manager approves', effect: 'require_approval', config: { hold_ms: 8000 }, priority: 1 });
+    const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.key_id === keys.all!.id);
+    const waiting = ask('draft the board update');
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    const [card] = await pending();
+    expect(card).toMatchObject({ requester: 'fay@laptops.test', client: 'claude-desktop' });
+    await admin.post(`/admin/api/approvals/${card.id}/decide`, { action: 'deny', note: 'Not before the audit closes' });
+    const no = await waiting;
+    expect(no.status).toBe(400);
+    expect(no.body.error.code).toBe('policy_denied');
+    expect(no.body.error.message).toMatch(/^Control Tower: your request was denied by .+: Not before the audit closes \(gate “A manager approves”\)\.$/);
+
+    // Nobody answers within the hold: told it's waiting; approved later, the same message again goes through, once.
+    await admin.patch(`/admin/api/rules/${hold}`, { config: { hold_ms: 1500 } });
+    const ticketed = await ask('draft the investor update');
+    expect(ticketed.status).toBe(400);
+    expect(ticketed.body.error.code).toBe('approval_required');
+    expect(ticketed.body.error.message).toMatch(/^Control Tower: this request needs approval \(gate “A manager approves”\)\. An approver has been asked; once they approve, send the same message again\./);
+    const [later] = await pending();
+    await admin.post(`/admin/api/approvals/${later.id}/decide`, { action: 'approve' });
+    expect((await ask('draft the investor update')).status).toBe(200);
+    expect((await ask('draft the investor update')).status).toBe(400);
+    // Someone else sending the same words doesn't ride on Fay's approval.
+    const other = await signIn(eve, 'claude-desktop');
+    const [again] = await pending();
+    await admin.post(`/admin/api/approvals/${again.id}/decide`, { action: 'approve' });
+    expect((await ask('draft the investor update', { credential: other.access_token })).status).toBe(400);
+  } finally {
+    for (const id of rules) await admin.del(`/admin/api/rules/${id}`);
+  }
+});

@@ -1044,3 +1044,13 @@ CREATE INDEX seat_people_seen ON seat_people (last_seen);
 CREATE INDEX seat_people_who ON seat_people (who);
 `,
 });
+
+migrations.push({
+  version: 37,
+  name: 'approval_requester',
+  sqlite: `
+ALTER TABLE approvals ADD COLUMN requester TEXT;
+ALTER TABLE approvals ADD COLUMN client TEXT;
+CREATE INDEX approvals_requester ON approvals (requester, status);
+`,
+});

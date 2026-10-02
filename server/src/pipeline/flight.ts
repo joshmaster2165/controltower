@@ -12,6 +12,7 @@ import type { NormalizedError, WireDialect } from '../providers/adapter.js';
 import type { PriceRef, Units } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
+import { clientOf, forPerson } from '../gateway/notices.js';
 import { extractApiKey, keyProblem } from '../gateway/key.js';
 import type { InspectGate, PolicyDecision, PolicyTarget } from '../policy/engine.js';
 import { MAX_SCAN_CHARS } from '../guardrails/scan.js';
@@ -99,6 +100,8 @@ export interface Flight {
   customer: string | undefined;
   /** Who presented the token the call was made with, when it wasn't a key's secret. */
   principal: string | undefined;
+  /** The app a person made the call from (claude-desktop, claude-code, codex), when it's one: see gateway/notices.ts. */
+  client: string | undefined;
   /** What a non-token call was billed on. */
   units: Units | undefined;
   /** Answered from the response cache. */
@@ -182,6 +185,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     tags: [],
     customer: undefined,
     principal: undefined,
+    client: undefined,
     units: undefined,
     cacheHit: false,
     plan: undefined,
@@ -327,6 +331,7 @@ export class FlightRunner {
     f.tags = meta.tags;
     f.customer = meta.customer;
     f.principal = spec.keyOverride ? undefined : req.ctPrincipal;
+    f.client = clientOf(req);
     f.trace = meta.trace;
     if (f.customer && ctx.registry.customers.get(f.customer)?.blocked) throw E.customerBlocked(f.customer);
 
@@ -930,7 +935,9 @@ export class FlightRunner {
       f.route = { alias: undefined, candidates: [], price: { source: 'none', key: '', entry: undefined }, projected: 0, budgetScopes: [] };
       this.emitStarted(f);
     }
-    await reply.status(ge.status).send(errorBody(f.dialect, ge));
+    // A person's app (Claude, Codex) gets the refusal in words, with a status it shows them.
+    const out = forPerson(ge, f, this.ctx);
+    await reply.status(out.status).send(errorBody(f.dialect, out));
   }
 
   record(f: Flight): void {

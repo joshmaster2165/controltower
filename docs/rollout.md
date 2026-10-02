@@ -55,8 +55,8 @@ Then they go back to the tool, which carries on by itself. That's the only time 
 ## Day to day, for them
 
 - **They use the tools as normal.** Models they're allowed, Control Tower's tools as MCP tools, nothing to manage.
-- **A call a gate blocks** comes back as an error the tool shows, with the reason.
-- **A call a gate holds** waits briefly (about 20 seconds) while an approver decides. If they approve in that time it goes through; if not, the tool reports that approval is needed, and the person can ask again once it's approved.
+- **A call a gate blocks** comes back as a message the tool shows, in words: what was blocked, which gate, its reason, and what to do. For example: *Control Tower blocked this message: it contains AWS access key (gate "No credentials to models"). Credentials must never be sent to a model. Remove it and send your message again.*
+- **A call a gate holds** waits while an approver decides (Claude shows *Waiting for Claude…*); the approval card names the person and the tool. If they approve in time, the answer arrives as usual. If they deny it, the person reads who did and why: *Control Tower: your request was denied by maria@acme.com: Not before the audit closes (gate "Sonnet needs a manager").* If nobody answers in time (about 20 seconds by default, `CT_HOLD_BUDGET_MS`), the tool says approval is needed; once it's approved, sending the same message again goes through, for them only, once.
 - **A new computer, or a reinstalled one:** the MDM sets it up again, and they sign in once more.
 - **Changing teams:** with Control Tower sign-in, the rules apply at their next token (within the hour). With your identity provider, when the provider's groups change.
 - **Leaving:** removing them in Control Tower, or deactivating them at the identity provider (also through SCIM), ends their access. With Control Tower sign-in that's at once; with your identity provider's tokens, when their current token expires (usually within the hour).

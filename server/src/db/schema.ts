@@ -287,6 +287,10 @@ export interface ApprovalsTable {
   demo: Bool;
   /** When the agent stops waiting (the latest of the calls held on this card). */
   hold_until: number | null;
+  /** The person who made the call (a signed-in laptop's, or a trusted token's), when it was one. */
+  requester: string | null;
+  /** The app they made it from: claude-desktop, claude-code, codex. */
+  client: string | null;
 }
 
 export interface TicketsTable {

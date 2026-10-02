@@ -2,9 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.7 — 2 October 2026
 
 - **Docs: [Rolling it out](rollout.md):** the rollout from both sides: who does what (admins, viewers, approvers, team admins, everyone else), what reaches each computer, what an employee sees the first time they open Claude and after, their questions, and a note to send them.
+- **Laptops tested on real machines:** a workflow (manual, and weekly) installs the rollout files on Windows and macOS the way Intune and Jamf do, then runs the real Claude Code and Codex with nothing else configured, and checks their calls reach Control Tower as the person who signed in.
 
 ## 0.2.6 — 2 October 2026
 

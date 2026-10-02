@@ -352,13 +352,17 @@ function installWindows(o: RolloutOptions): string {
     );
     if (o.mcp) {
       ps.push(
-        '# Codex reads its managed defaults per person on Windows (~\\.codex\\managed_config.toml): every profile here, and new ones.',
+        '# Codex on Windows has no system-wide defaults file (it no longer reads ~\\.codex\\managed_config.toml): Control',
+        "# Tower's MCP server goes into each person's ~\\.codex\\config.toml, added only where it isn't there yet (nothing",
+        '# else in the file is changed). The Default profile covers people who sign in for the first time later.',
         `$codexDefaults = ${psHere(codexManagedConfig(o, `${WIN_DIR}\\ct-auth-mcp-codex.cmd`))}`,
-        "$profiles = @(Get-ChildItem 'C:\\Users' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('Public', 'All Users', 'Default User') } | ForEach-Object { $_.FullName })",
+        "$profiles = @(Get-ChildItem 'C:\\Users' -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('Public', 'All Users', 'Default User') } | ForEach-Object { $_.FullName })",
         'foreach ($p in $profiles) {',
         "  $d = Join-Path $p '.codex'",
+        "  $f = Join-Path $d 'config.toml'",
         '  New-Item -ItemType Directory -Path $d -Force | Out-Null',
-        "  Write-File (Join-Path $d 'managed_config.toml') $codexDefaults",
+        "  $now = if (Test-Path -LiteralPath $f) { [IO.File]::ReadAllText($f) } else { '' }",
+        "  if ($now -notmatch '(?m)^\\[mcp_servers\\.controltower\\]') { Write-File $f (($now.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $codexDefaults).TrimStart()) }",
         '}',
       );
     }

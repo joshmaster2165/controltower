@@ -169,7 +169,9 @@ try {
 
   const cx = await run('codex exec --skip-git-repo-check -m gpt-5 "Which gateway?"', clean);
   c('Codex answers through Control Tower (requirements.toml, auth.command)', (cx.out + cx.err).includes('Connected through Control Tower'), (cx.out + cx.err).trim().slice(-400));
-  c('Codex runs its MCP headers helper without errors', !/headers helper exited/i.test(cx.err), (cx.err.match(/.*headers helper.*/i)?.[0] ?? 'no helper errors').slice(0, 200));
+  const mcpList = await run('codex mcp list', clean);
+  c('Codex has Control Tower\'s MCP server, enabled', /controltower\s+\S*127\.0\.0\.1:4000\/mcp[\s\S]*enabled/.test(mcpList.out), mcpList.out.trim().split('\n').slice(0, 3).join(' | ').slice(0, 300));
+  c('Codex runs its MCP headers helper without errors, and reads no setting it ignores', !/headers helper exited/i.test(cx.err) && !/no longer supported/i.test(cx.out + cx.err), ((cx.out + cx.err).match(/.*(headers helper|no longer supported).*/i)?.[0] ?? 'no helper errors, no ignored settings').slice(0, 240));
   const cxv = await run('codex --version');
   console.log('codex', cxv.out.trim());
 

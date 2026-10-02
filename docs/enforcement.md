@@ -66,7 +66,8 @@ Claude Desktop reads its configuration when it starts, and re-checks it every 10
 | `requirements.toml`: `model_provider = "controltower"` and its `[model_providers.controltower]` | Codex uses Control Tower's provider, overriding local and session configuration | No. A conflicting local value falls back to the required one, and Codex says so |
 | `[model_providers.controltower.auth]` = ct-auth | The credential comes from the person's sign-in | No |
 | `[mcp_servers.controltower.identity]` (**Lock down**) | Only an MCP server with that name and URL can be enabled | No |
-| `managed_config.toml` | Control Tower's MCP endpoint, set up | It's re-applied at each start. People can change it during a run; the requirement above still applies |
+| `managed_config.toml` (macOS: the profile's `config_toml_base64`; Linux: `/etc/codex/`) | Control Tower's MCP endpoint, set up | It's re-applied at each start. People can change it during a run; the requirement above still applies |
+| Windows: each person's `~\.codex\config.toml` | Codex on Windows has no system-wide defaults file, so the install script adds Control Tower's MCP server to each profile's own file, only where it's missing (and to the Default profile, for people who sign in later) | They can edit their own file; with **Lock down**, `requirements.toml` still enables only Control Tower's server |
 
 **Where the settings are read from:**
 - macOS: preference domain `com.openai.codex`, keys `requirements_toml_base64` and `config_toml_base64`.

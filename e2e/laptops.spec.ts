@@ -379,9 +379,14 @@ test('signing in with the identity provider: no Control Tower account, the issue
     idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
     const ps = path.resolve('server/src/ee/laptops/ct-auth.ps1');
     const psEnv = { ...env, CT_AUTH_DIR: path.join(tmp, 'idp-ps-store') };
-    const psLogin = spawnSync('pwsh', ['-NoProfile', '-File', ps, 'login', '--client', 'codex'], { env: psEnv, encoding: 'utf8', timeout: 30_000 });
+    // Asynchronously: the identity provider runs in this process, and a blocking call would stop it answering.
+    const pwsh = (args: string[]) =>
+      new Promise<{ status: number; stdout: string; stderr: string }>((resolve) =>
+        execFile('pwsh', ['-NoProfile', '-File', ps, ...args, '--client', 'codex'], { env: psEnv, encoding: 'utf8', timeout: 40_000 }, (e, stdout, stderr) => resolve({ status: e ? (typeof e.code === 'number' ? e.code : -1) : 0, stdout, stderr })),
+      );
+    const psLogin = await pwsh(['login']);
     expect(psLogin.status, psLogin.stderr).toBe(0);
-    const psTok = spawnSync('pwsh', ['-NoProfile', '-File', ps, 'token', '--client', 'codex'], { env: psEnv, encoding: 'utf8' }).stdout.trim();
+    const psTok = (await pwsh(['token'])).stdout.trim();
     expect((await chat(psTok)).status).toBe(200);
   } finally {
     if (issuerId) await admin.del(`/admin/api/token-issuers/${issuerId}`);

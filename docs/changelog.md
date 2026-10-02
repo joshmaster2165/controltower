@@ -4,7 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
-- **Laptops on Windows: Claude Desktop runs ct-auth.** In Windows policy, `inferenceCredentialHelper` now holds the Windows path. Claude Desktop on Windows (1.44121) runs that key and ignored `inferenceCredentialHelperWindows`, so it tried the macOS path and showed "Credential helper failed to start". Found by the real-machine test, which now installs Claude Desktop from Anthropic's release server on Windows and macOS, opens it with only the managed settings, and drives its first run. Re-deploy `install-controltower-windows.ps1` (or the `.reg` file).
+- **Laptops: Claude Desktop gets a helper of its own, `ct-auth-claude-desktop`, which needs no arguments.** Claude Desktop on Windows (1.44121) ignores both `inferenceCredentialHelperWindows` and `inferenceCredentialHelperArgs`. So it ran the macOS path (and showed "Credential helper failed to start"), or ct-auth without saying it was Claude Desktop (and asked for a new sign-in). Windows policy now names the Windows helper in `inferenceCredentialHelper` itself. Found by the real-machine test, which now installs Claude Desktop from Anthropic's release server on Windows and macOS, opens it with only the managed settings, and drives its first run. Re-deploy the rollout files.
 
 ## 0.2.8 — 2 October 2026
 

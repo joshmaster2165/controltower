@@ -253,13 +253,28 @@ try {
   const clicked = MAC
     ? await ui(`tell application "Claude" to activate
 delay 2
--- Its window's web content isn't searchable by name: click where the welcome screen's Continue sits.
+-- Electron shows its web content to automation once asked to (AXManualAccessibility): then press Continue by name,
+-- or, failing that, click where it sits.
 tell application "System Events" to tell process "Claude"
+  try
+    set value of attribute "AXManualAccessibility" to true
+  end try
+end tell
+delay 2
+tell application "System Events" to tell process "Claude"
+  repeat 15 times
+    try
+      set b to first UI element of (entire contents of window 1) whose role is "AXButton" and (title is "Continue" or description is "Continue" or name is "Continue")
+      perform action "AXPress" of b
+      return "true (by name)"
+    end try
+    delay 1
+  end repeat
   set {px, py} to position of window 1
   set {sw, sh} to size of window 1
 end tell
 tell application "System Events" to click at {px + sw / 2, py + sh * 0.608}
-return true`)
+return "true (by position)"`)
     : await ui(`Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, 'Continue')
 $b = $null
@@ -267,7 +282,7 @@ for ($i = 0; $i -lt 30 -and -not $b; $i++) { $b = [Windows.Automation.Automation
 if (-not $b) { 'false'; exit }
 try { $b.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { $b.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
 'true'`);
-  drove = /true/.test(clicked.out) ? 'clicked Continue' : `Continue not clicked: ${(clicked.err || clicked.out).trim().slice(0, 200)}`;
+  drove = /true/.test(clicked.out) ? `clicked Continue ${clicked.out.trim().replace('true', '')}`.trim() : `Continue not clicked: ${(clicked.err || clicked.out).trim().slice(0, 200)}`;
   for (let i = 0; i < 60 && !models; i++) {
     await sleep(1000);
     models ??= seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).find((x) => x.path === '/v1/models');

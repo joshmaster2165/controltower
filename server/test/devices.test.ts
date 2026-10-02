@@ -85,8 +85,11 @@ describe('rollout files', () => {
     expect(JSON.parse(settings).apiKeyHelper).toBe('"C:\\Program Files\\ControlTower\\ct-auth.cmd" token --client claude-code');
     expect(files['install-controltower-windows.ps1']).toContain('[IO.File]::WriteAllText');
     // Claude Desktop on Windows runs inferenceCredentialHelper itself: the Windows path, in Windows policy.
-    expect(files['controltower-windows.reg']).toContain('"inferenceCredentialHelper"="C:\\\\Program Files\\\\ControlTower\\\\ct-auth.cmd"');
-    expect(files['controltower.mobileconfig']).toMatch(/<key>inferenceCredentialHelper<\/key>\s*<string>\/usr\/local\/bin\/ct-auth<\/string>/);
+    expect(files['controltower-windows.reg']).toContain('"inferenceCredentialHelper"="C:\\\\Program Files\\\\ControlTower\\\\ct-auth-claude-desktop.cmd"');
+    expect(files['controltower.mobileconfig']).toMatch(/<key>inferenceCredentialHelper<\/key>\s*<string>\/usr\/local\/bin\/ct-auth-claude-desktop<\/string>/);
+    // (It needs no arguments: some versions don't pass them.)
+    expect(files['controltower.mobileconfig']).not.toContain('inferenceCredentialHelperArgs');
+    expect(files['install-ct-auth-macos.sh']).toContain('exec /usr/local/bin/ct-auth token --client claude-desktop');
     expect(files['install-controltower-windows.ps1']).not.toContain('-Encoding UTF8');
     expect(files['controltower.mobileconfig']).toContain('<string>com.openai.codex</string>');
     expect(Buffer.from(/<key>requirements_toml_base64<\/key>\s*<string>([^<]+)</.exec(files['controltower.mobileconfig']!)![1]!, 'base64').toString()).toContain('model_provider = "controltower"');

@@ -126,11 +126,11 @@ function claudeDesktopKeys(o: RolloutOptions, windows: boolean): Record<string, 
     inferenceProvider: 'gateway',
     inferenceGatewayBaseUrl: o.url,
     inferenceCredentialKind: 'helper-script',
-    // Windows policy only ever reaches Windows: the helper's own key carries the Windows path there (Claude Desktop
-    // 1.44121 on Windows runs inferenceCredentialHelper and ignores inferenceCredentialHelperWindows).
-    inferenceCredentialHelper: windows ? WIN_HELPER : UNIX_HELPER,
-    inferenceCredentialHelperWindows: WIN_HELPER,
-    inferenceCredentialHelperArgs: JSON.stringify(['token', '--client', 'claude-desktop']),
+    // A helper of its own that needs no arguments: Claude Desktop 1.44121 on Windows ignores both
+    // inferenceCredentialHelperArgs and inferenceCredentialHelperWindows. Windows policy only reaches Windows, so the
+    // helper's own key carries the Windows path there.
+    inferenceCredentialHelper: windows ? `${WIN_DIR}\\ct-auth-claude-desktop.cmd` : '/usr/local/bin/ct-auth-claude-desktop',
+    inferenceCredentialHelperWindows: `${WIN_DIR}\\ct-auth-claude-desktop.cmd`,
     // Tokens last an hour; reused for 50 minutes. The first sign-in waits for the browser, so it may take minutes.
     inferenceCredentialHelperTtlSec: '3000',
     inferenceCredentialHelperTimeoutSec: '300',
@@ -260,6 +260,7 @@ function heredoc(path: string, content: string, mode: string): string {
 
 function unixWrappers(): string {
   return [
+    heredoc('/usr/local/bin/ct-auth-claude-desktop', '#!/bin/sh\nexec /usr/local/bin/ct-auth token --client claude-desktop\n', '755'),
     heredoc('/usr/local/bin/ct-auth-mcp-claude-desktop', '#!/bin/sh\nexec /usr/local/bin/ct-auth header --client claude-desktop\n', '755'),
     heredoc('/usr/local/bin/ct-auth-mcp-codex', '#!/bin/sh\nexec /usr/local/bin/ct-auth header --client codex\n', '755'),
   ].join('');
@@ -327,6 +328,7 @@ function installWindows(o: RolloutOptions): string {
     'New-Item -ItemType Directory -Path $dir -Force | Out-Null',
     `Write-File (Join-Path $dir 'ct-auth.ps1') ${psHere(helperScripts().ps1)}`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" %*'`,
+    `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-claude-desktop.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" token --client claude-desktop'`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-claude-desktop.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client claude-desktop'`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-codex.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client codex'`,
     "New-Item -ItemType Directory -Path (Join-Path $env:ProgramData 'ControlTower') -Force | Out-Null",

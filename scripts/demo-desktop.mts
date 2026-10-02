@@ -150,13 +150,32 @@ ${script}
 end tell`);
 
 // ---- The recording, and the scenes the captions follow ----
+// screencapture only writes a video it was told the length of, so it records back-to-back 45-second chunks; each
+// chunk's place in time is its end less its length, and the scenes (in wall-clock time) are mapped onto the joined video.
 type Scene = { t: number; caption: string; speed: number };
 const scenes: Scene[] = [];
-let recStart = 0;
-let rec: ChildProcess | undefined;
+const chunks: Array<{ file: string; start: number; end: number }> = [];
+let recording = false;
+let recLoop: Promise<void> | undefined;
 const RAW = path.join(OUT, 'raw.mov');
+const duration = async (f: string) => Number((await run(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${q(f)}`)).out.trim()) || 0;
+const startRecording = () => {
+  recording = true;
+  recLoop = (async () => {
+    for (let n = 0; recording; n++) {
+      const file = path.join(TMP, `chunk-${String(n).padStart(3, '0')}.mov`);
+      await run(`screencapture -v -x -V 45 ${q(file)}`, 120_000);
+      const end = Date.now();
+      if (fs.existsSync(file)) chunks.push({ file, start: end - (await duration(file)) * 1000, end });
+    }
+  })();
+};
+const stopRecording = async () => {
+  recording = false;
+  await recLoop;
+};
 const scene = (caption: string, speed = 1) => {
-  scenes.push({ t: (Date.now() - recStart) / 1000, caption, speed });
+  scenes.push({ t: Date.now(), caption, speed });
   log(`scene: ${caption}${speed !== 1 ? ` (x${speed})` : ''}`);
 };
 
@@ -284,9 +303,8 @@ try {
   await sleep(3000);
 
   // ---- The video ----
-  rec = spawn('screencapture', ['-v', '-x', '-V', '1500', RAW], { stdio: ['pipe', 'ignore', 'ignore'] });
-  recStart = Date.now();
-  await sleep(1500);
+  startRecording();
+  await sleep(2500);
 
   scene("A company Mac. IT's device management has already sent Control Tower's settings.");
   await run('open /Applications');
@@ -336,7 +354,9 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await type('Safari', DANA.email);
   await keys('Safari', 'key code 48');
   await type('Safari', DANA.password, true);
-  await sleep(4000);
+  await sleep(3000);
+  await keys('Safari', 'key code 53'); // Safari's "Save Password?": not now
+  await sleep(1500);
   await shot('device-request');
   scene('…checks it’s her computer asking, and approves.');
   await dump('safari-device', 'Safari');
@@ -386,7 +406,9 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await sleep(6000);
   scene('Control Tower’s gate blocks it before it reaches any model.');
   await sleep(3000);
-  log(`View details: ${await press(/^View details/, 'Claude', { done: async () => true })}`);
+  const details = await find(/^View details/);
+  if (details) await mouse(details.x + details.w / 2, details.y + details.h / 2);
+  log(`View details: ${details ? 'clicked' : 'not found'}`);
   await sleep(6000);
   await shot('blocked');
   await dump('blocked');
@@ -400,7 +422,13 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   const els = await dump('new-session');
   if (els.some((e) => /^Select folder/.test(e.name) && e.w > 0)) await chooseFolder();
   log(`Model menu: ${await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) })}`);
-  log(`Sonnet: ${await press(/sonnet/i, 'Claude', { role: 'AXMenuItem', done: async () => !!(await find(/^Model:.*sonnet/i)) })}`);
+  // The menu answers the keyboard (a click on its item doesn't take): down to Sonnet, Return.
+  for (let downs = 1; downs <= 2 && !(await find(/^Model:.*sonnet/i)); downs++) {
+    if (!(await find(/sonnet/i, 'Claude', 'AXMenuItem'))) await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) });
+    await keys('Claude', `${'key code 125\n  delay 0.4\n  '.repeat(downs)}key code 36`);
+    await sleep(1500);
+  }
+  log(`Sonnet: ${(await find(/^Model:/))?.name ?? '?'}`);
   await shot('sonnet');
   const n2 = seen.length;
   await ask('Draft the board update on the Q3 pipeline');
@@ -423,7 +451,9 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await type('Safari', MARIA.email);
   await keys('Safari', 'key code 48');
   await type('Safari', MARIA.password, true);
-  await sleep(4000);
+  await sleep(3000);
+  await keys('Safari', 'key code 53');
+  await sleep(1500);
   if (!(await find('Approve', 'Safari', 'AXButton'))) {
     await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
     await sleep(4000);
@@ -449,28 +479,36 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   scene('');
   await sleep(1500);
 } finally {
-  if (rec) {
-    rec.stdin?.write('q\n');
-    await new Promise<void>((r) => {
-      const t = setTimeout(() => (rec!.kill('SIGINT'), r()), 20_000);
-      rec!.on('exit', () => (clearTimeout(t), r()));
-    });
-  }
+  await stopRecording();
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   fs.writeFileSync(path.join(OUT, 'scenes.json'), JSON.stringify(scenes, null, 2));
   fs.writeFileSync(path.join(OUT, 'flights.json'), JSON.stringify(await api('GET', '/admin/api/flights?limit=50').catch(() => ({})), null, 2));
+  // (Claude keeps its connections open: don't wait on them.)
+  await run('osascript -e \'quit app "Claude"\'', 20_000);
   ct.kill();
+  recorder.closeAllConnections();
   recorder.close();
-  await ant.close();
-  await run('osascript -e \'quit app "Claude"\'');
+  await Promise.race([ant.close(), sleep(5000)]);
 }
 
 // ---- The edit: each scene at its speed with its caption, between a title and an end card ----
 // (Captions are drawn by a browser and laid over the video: Homebrew's ffmpeg has no text filter.)
-await sleep(3000);
-if (fs.existsSync(RAW) && scenes.length) {
-  const dur = Number((await run(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${q(RAW)}`)).out.trim());
+if (chunks.length && scenes.length) {
+  fs.writeFileSync(path.join(TMP, 'chunks.txt'), chunks.map((c) => `file '${c.file}'`).join('\n'));
+  log(`join ${chunks.length} chunks: ${(await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'chunks.txt'))} -c copy ${q(RAW)}`, 600_000)).code}`);
+  const dur = await duration(RAW);
   log(`raw: ${dur}s`);
+  // A wall-clock moment's place in the joined video (a moment between chunks goes to the start of the next).
+  const at = (t: number) => {
+    let before = 0;
+    for (const c of chunks) {
+      if (t < c.end) return before + Math.max(0, t - c.start) / 1000;
+      before += (c.end - c.start) / 1000;
+    }
+    return before;
+  };
+  for (const s of scenes) s.t = at(s.t);
+  fs.writeFileSync(path.join(OUT, 'scenes.json'), JSON.stringify(scenes, null, 2));
   const { chromium } = await import('@playwright/test');
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });

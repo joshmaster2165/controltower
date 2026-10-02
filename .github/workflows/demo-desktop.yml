@@ -3,6 +3,12 @@ name: demo video (Claude Desktop)
 # Records Claude Desktop going through Control Tower on a managed Mac (scripts/demo-desktop.mts). Manual only.
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'full (install to Flights) or approvals (a held call, side by side)'
+        type: choice
+        options: [full, approvals]
+        default: full
 
 jobs:
   record:
@@ -23,6 +29,7 @@ jobs:
       - run: npx tsx scripts/demo-desktop.mts
         env:
           RESULTS_DIR: ${{ runner.temp }}/demo
+          SCENARIO: ${{ inputs.scenario }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -256,57 +256,122 @@ const calls = (from: number) =>
     .map((x) => `${x.url.split('?')[0]} ${x.status}`)
     .join(', ');
 
-try {
-  // ---- Before the video: Control Tower as the company set it up ----
-  const prov = await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant.url, credentials: { api_key: 'sk-ant-demo' } });
-  for (const m of ['claude-sonnet-4-5', 'claude-haiku-4-5']) await api('POST', '/admin/api/deployments', { provider_id: (prov.provider ?? prov).id, upstream_model: m, public_name: m });
-  const key = await api('POST', '/admin/api/keys', { name: 'claude-desktop', agent_id: 'claude-desktop', team: 'finance' });
-  await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: key.id }] });
-  await person(DANA.email, 'member', DANA.password);
-  await person(MARIA.email, 'approver', MARIA.password);
-  const block = await api('POST', '/admin/api/rules', {
-    name: 'No credentials to models',
-    target_kind: 'model',
-    effect: 'inspect',
-    config: { detectors: ['secrets'], action: 'block', direction: 'input', reason: 'Credentials must never be sent to a model' },
-    priority: 50,
-  });
-  const hold = await api('POST', '/admin/api/rules', {
-    name: 'Sonnet needs a manager',
-    target_kind: 'model',
-    match: { models: ['claude-sonnet-4-5'] },
-    effect: 'require_approval',
-    config: { hold_ms: 600_000 },
-    priority: 10,
-  });
-  log(`gates: ${block.id ?? JSON.stringify(block)} ${hold.id ?? JSON.stringify(hold)}`);
 
-  // IT's rollout: ct-auth, and Claude Desktop's managed settings (as an MDM delivers them).
-  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-desktop&mcp=0&lockdown=1`);
-  const file = (n: string) => (roll.files as Array<{ name: string; content: string }>).find((f) => f.name === n)!.content;
-  fs.writeFileSync(path.join(TMP, 'install.sh'), file('install-ct-auth-macos.sh'));
-  log(`install: ${(await run(`sudo sh ${q(path.join(TMP, 'install.sh'))}`)).code}`);
-  const mc = path.join(TMP, 'controltower.mobileconfig');
-  fs.writeFileSync(mc, file('controltower.mobileconfig'));
-  const p = path.join(TMP, 'com.anthropic.claudefordesktop.plist');
-  await run(`plutil -extract PayloadContent.0 xml1 -o ${q(p)} ${q(mc)}`);
-  for (const k of ['PayloadType', 'PayloadVersion', 'PayloadIdentifier', 'PayloadUUID', 'PayloadDisplayName']) await run(`plutil -remove ${k} ${q(p)}`);
-  await run(`sudo mkdir -p "/Library/Managed Preferences" && sudo cp ${q(p)} "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist" && sudo killall cfprefsd || true`);
-
-  // The screen, the tools for the video, Claude Desktop's download, and a project folder.
-  log(`brew: ${(await run('brew install cliclick displayplacer ffmpeg', 900_000)).code}`);
-  const disp = (await run('displayplacer list')).out.match(/id:(\S+) res:/)?.[1];
-  if (disp) log(`1920x1080: ${(await run(`displayplacer "id:${disp} res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"`)).code}`);
-  const rel = (await (await fetch('https://downloads.claude.ai/releases/darwin/universal/RELEASES.json')).json()) as { releases: Array<{ updateTo: { url: string; version: string } }> };
-  const zip = path.join(TMP, 'Claude.zip');
-  fs.writeFileSync(zip, Buffer.from(await (await fetch(rel.releases[0]!.updateTo.url)).arrayBuffer()));
-  log(`Claude Desktop ${rel.releases[0]!.updateTo.version}`);
-  fs.mkdirSync('/Users/runner/acme-reports', { recursive: true });
-  fs.writeFileSync('/Users/runner/acme-reports/README.md', '# Q3 pipeline\n\n42 open deals, $3.1M. Largest three close in October.\n');
-  await run(`osascript -e 'tell application "Finder" to close every window'`);
+// ---- Steps both videos use ----
+const sheets = async () => (await osa('tell application "System Events" to tell process "Claude" to return count of sheets of window 1')).out.trim() !== '0';
+const chooseFolder = async () => {
+  log(`Select folder: ${await press(/^Select folder/, 'Claude', { done: sheets })}`);
+  await sleep(1500);
+  await keys('Claude', 'keystroke "g" using {command down, shift down}\n  delay 1.5');
+  await type('Claude', '/Users/runner/acme-reports');
+  await keys('Claude', 'delay 0.8\n  key code 36\n  delay 1.5\n  key code 36');
   await sleep(3000);
+  if (await find('Trust workspace')) log(`Trust workspace: ${await press('Trust workspace')}`);
+};
+const ask = async (text: string) => {
+  const box = await waitFor('Prompt');
+  if (box) await clickAt(box.x + box.w / 2, box.y + box.h / 2);
+  await sleep(500);
+  await type('Claude', text, true);
+};
+const chooseSonnet = async () => {
+  log(`Model menu: ${await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) })}`);
+  // The menu answers the keyboard (a click on its item doesn't take): down to Sonnet, Return.
+  for (let downs = 1; downs <= 2 && !(await find(/^Model:.*sonnet/i)); downs++) {
+    if (!(await find(/sonnet/i, 'Claude', 'AXMenuItem'))) await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) });
+    await keys('Claude', `${'key code 125\n  delay 0.4\n  '.repeat(downs)}key code 36`);
+    await sleep(1500);
+  }
+  log(`Sonnet: ${(await find(/^Model:/))?.name ?? '?'}`);
+};
+const mariaSignsIn = async () => {
+  await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
+  await sleep(5000);
+  const box = await find(/^(Email|Username|Email or username)$/i, 'Safari', 'AXTextField');
+  if (box) await clickAt(box.x + box.w / 2, box.y + box.h / 2);
+  await type('Safari', MARIA.email);
+  await keys('Safari', 'key code 48');
+  await type('Safari', MARIA.password, true);
+  await sleep(3000);
+  await keys('Safari', 'key code 53'); // Safari's "Save Password?": not now
+  await sleep(1500);
+};
+const waiting = async () => ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []) as Array<{ id: string }>;
+const heldCall = async (seconds = 30) => {
+  for (let i = 0; i < seconds; i++) {
+    const w = await waiting();
+    if (w.length) return w[0];
+    await sleep(1000);
+  }
+  return undefined;
+};
+// Maria presses Approve on each card in the Tower.
+const approveAll = async () => {
+  for (let i = 0; i < 5 && (await waiting()).length > 0; i++) {
+    const before = (await waiting()).length;
+    const btn = await find('Approve', 'Safari', 'AXButton');
+    if (!btn) {
+      await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
+      await sleep(3000);
+      continue;
+    }
+    await clickAt(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    await sleep(2000);
+    if ((await waiting()).length >= before) {
+      await mouse(btn.x + btn.w / 2, btn.y + btn.h / 2);
+      await sleep(2000);
+    }
+    log(`Approve (tower): ${before} -> ${(await waiting()).length} waiting`);
+  }
+};
+// Claude Desktop's first launch: Continue, then the browser sign-in (the code, caught by the recorder).
+const signInCode = () => new URL(seen.find((x) => x.url.startsWith('/device?code='))?.url ?? '/', GW).searchParams.get('code') ?? '';
+const pressContinue = async () => {
+  const win = await osa(`tell application "System Events" to tell process "Claude"
+  set {px, py} to position of window 1
+  set {sw, sh} to size of window 1
+end tell
+return (px as text) & "," & (py as text) & "," & (sw as text) & "," & (sh as text)`);
+  const [px, py, sw, sh] = win.out.trim().split(',').map(Number) as [number, number, number, number];
+  const cont = await find(/^Continue$/);
+  log(`Continue: ${cont ? 'by name' : 'by place'}`);
+  await osa(`tell application "Claude" to activate
+delay 1
+tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.w / 2 : px + sw / 2)}, ${Math.round(cont ? cont.y + cont.h / 2 : py + sh * 0.608)}}`);
+  let code = '';
+  for (let i = 0; i < 40 && !code; i++) {
+    await sleep(1000);
+    code = signInCode();
+  }
+  if (!code) {
+    await mouse(px + sw / 2, py + sh * 0.608);
+    for (let i = 0; i < 30 && !code; i++) {
+      await sleep(1000);
+      code = signInCode();
+    }
+  }
+  log(`sign-in code: ${code || 'none'}`);
+  return code;
+};
+// Approving Dana's computer through her own session, off camera.
+const danaApproves = async (code: string) => {
+  const r = await fetch(`http://127.0.0.1:${PORT}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(DANA) });
+  const cookie = r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ');
+  const { csrf } = (await r.json()) as { csrf: string };
+  const ok = await fetch(`http://127.0.0.1:${PORT}/admin/api/me/devices/approve`, { method: 'POST', headers: { cookie, 'x-ct-csrf': csrf, 'content-type': 'application/json' }, body: JSON.stringify({ user_code: code }) });
+  log(`device approved: ${ok.status}`);
+};
+// What the person in Claude sees, and what Control Tower answered.
+const clientSees = async (name: string) => {
+  await shot(name);
+  const els = await tree();
+  const text = els.filter((e) => e.role === 'AXStaticText' && e.y > 110 && e.y < 1000).map((e) => e.name).filter(Boolean);
+  fs.writeFileSync(path.join(OUT, `client-${name}.txt`), text.join('\n'));
+  log(`client ${name}: ${text.slice(-6).join(' | ').slice(0, 400)}`);
+};
 
-  // ---- The video ----
+// ---- The whole story: install, sign-in, an answer, a block, a hold ----
+async function fullVideo(zip: string) {
   startRecording();
   await sleep(2500);
 
@@ -328,32 +393,8 @@ end tell`);
   await shot('welcome');
   await sleep(6000);
 
-  const win = await osa(`tell application "System Events" to tell process "Claude"
-  set {px, py} to position of window 1
-  set {sw, sh} to size of window 1
-end tell
-return (px as text) & "," & (py as text) & "," & (sw as text) & "," & (sh as text)`);
-  const [px, py, sw, sh] = win.out.trim().split(',').map(Number) as [number, number, number, number];
   scene('Dana clicks Continue. Control Tower’s sign-in opens in her browser.');
-  const cont = await find(/^Continue$/);
-  log(`Continue: ${cont ? 'by name' : 'by place'}`);
-  await osa(`tell application "Claude" to activate
-delay 1
-tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.w / 2 : px + sw / 2)}, ${Math.round(cont ? cont.y + cont.h / 2 : py + sh * 0.608)}}`);
-  const signInCode = () => new URL(seen.find((x) => x.url.startsWith('/device?code='))?.url ?? '/', GW).searchParams.get('code') ?? '';
-  let code = '';
-  for (let i = 0; i < 40 && !code; i++) {
-    await sleep(1000);
-    code = signInCode();
-  }
-  if (!code) {
-    await mouse(px + sw / 2, py + sh * 0.608);
-    for (let i = 0; i < 30 && !code; i++) {
-      await sleep(1000);
-      code = signInCode();
-    }
-  }
-  log(`sign-in code: ${code || 'none'}`);
+  await pressContinue();
   await sleep(5000);
   await shot('browser-sign-in');
   scene('She signs in with her work account…');
@@ -379,27 +420,11 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await shot('signed-in');
 
   scene('She opens a project folder in the Code tab', 1.5);
-  const sheets = async () => (await osa('tell application "System Events" to tell process "Claude" to return count of sheets of window 1')).out.trim() !== '0';
-  const chooseFolder = async () => {
-    log(`Select folder: ${await press(/^Select folder/, 'Claude', { done: sheets })}`);
-    await sleep(1500);
-    await keys('Claude', 'keystroke "g" using {command down, shift down}\n  delay 1.5');
-    await type('Claude', '/Users/runner/acme-reports');
-    await keys('Claude', 'delay 0.8\n  key code 36\n  delay 1.5\n  key code 36');
-    await sleep(3000);
-    if (await find('Trust workspace')) log(`Trust workspace: ${await press('Trust workspace')}`);
-  };
   log(`Code: ${await press('Code', 'Claude', { role: 'AXButton', done: async () => !!(await find(/^Select folder/)) })}`);
   await chooseFolder();
   await sleep(2000);
   await shot('folder');
 
-  const ask = async (text: string) => {
-    const box = await waitFor('Prompt');
-    if (box) await clickAt(box.x + box.w / 2, box.y + box.h / 2);
-    await sleep(500);
-    await type('Claude', text, true);
-  };
   scene('An everyday question: allowed, answered, and recorded.');
   const n0 = seen.length;
   await ask('Summarize the Q3 pipeline in README.md');
@@ -427,14 +452,7 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await sleep(3000);
   const els = await dump('new-session');
   if (els.some((e) => /^Select folder/.test(e.name) && e.w > 0)) await chooseFolder();
-  log(`Model menu: ${await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) })}`);
-  // The menu answers the keyboard (a click on its item doesn't take): down to Sonnet, Return.
-  for (let downs = 1; downs <= 2 && !(await find(/^Model:.*sonnet/i)); downs++) {
-    if (!(await find(/sonnet/i, 'Claude', 'AXMenuItem'))) await press(/^Model:/, 'Claude', { done: async () => !!(await find(/sonnet/i, 'Claude', 'AXMenuItem')) });
-    await keys('Claude', `${'key code 125\n  delay 0.4\n  '.repeat(downs)}key code 36`);
-    await sleep(1500);
-  }
-  log(`Sonnet: ${(await find(/^Model:/))?.name ?? '?'}`);
+  await chooseSonnet();
   await shot('sonnet');
   const n2 = seen.length;
   await ask('Draft the board update on the Q3 pipeline');
@@ -449,37 +467,12 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await shot('held');
 
   scene('Maria, her manager, opens the Tower…');
-  await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
-  await sleep(5000);
-  const mBox = await find(/^(Email|Username|Email or username)$/i, 'Safari', 'AXTextField');
-  if (mBox) await clickAt(mBox.x + mBox.w / 2, mBox.y + mBox.h / 2);
-  await type('Safari', MARIA.email);
-  await keys('Safari', 'key code 48');
-  await type('Safari', MARIA.password, true);
-  await sleep(3000);
-  await keys('Safari', 'key code 53');
-  await sleep(1500);
+  await mariaSignsIn();
   scene('…sees who is asking, from which app, for which model, and approves.');
   await shot('tower');
   await sleep(4000);
   // Claude Code asks twice on a new session (the reply, and a title for the session): she approves both.
-  const pending = async () => ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []).length;
-  for (let i = 0; i < 5 && (await pending()) > 0; i++) {
-    const before = await pending();
-    const btn = await find('Approve', 'Safari', 'AXButton');
-    if (!btn) {
-      await run(`open -a Safari ${q(`${CONSOLE}/#/tower`)}`);
-      await sleep(3000);
-      continue;
-    }
-    await clickAt(btn.x + btn.w / 2, btn.y + btn.h / 2);
-    await sleep(2000);
-    if ((await pending()) >= before) {
-      await mouse(btn.x + btn.w / 2, btn.y + btn.h / 2);
-      await sleep(2000);
-    }
-    log(`Approve (tower): ${before} -> ${await pending()} waiting`);
-  }
+  await approveAll();
   if (card) log(`card now: ${(await api('GET', `/admin/api/approvals/${card.id}`)).approval?.status}`);
   await sleep(2500);
 
@@ -495,6 +488,157 @@ tell application "System Events" to click at {${Math.round(cont ? cont.x + cont.
   await shot('flights');
   scene('');
   await sleep(1500);
+}
+
+// ---- Approvals, side by side: Dana in Claude Desktop, Maria in the Tower; then how a hold ends other ways ----
+async function approvalsVideo(zip: string) {
+  // Off camera: Claude installed and signed in, a folder open with one ordinary answer (so the session already has its
+  // title, and the Sonnet call is the only one held), and Maria signed in to the Tower.
+  log(`unzip: ${(await run(`ditto -x -k ${q(zip)} /Applications`)).code}`);
+  await run('open /Applications/Claude.app');
+  await sleep(14_000);
+  const code = await pressContinue();
+  if (code) await danaApproves(code);
+  await sleep(4000);
+  await run(`osascript -e 'tell application "Safari" to close every window'`);
+  await osa('tell application "Claude" to activate');
+  await sleep(12_000);
+  log(`Code: ${await press('Code', 'Claude', { role: 'AXButton', done: async () => !!(await find(/^Select folder/)) })}`);
+  await chooseFolder();
+  await ask('Summarize the Q3 pipeline in README.md');
+  await sleep(14_000);
+  await mariaSignsIn();
+  // Side by side, the Dock out of the way.
+  await run('defaults write com.apple.dock autohide -bool true && killall Dock');
+  await sleep(2000);
+  await osa(`tell application "System Events" to tell process "Claude"
+  set position of window 1 to {0, 30}
+  set size of window 1 to {980, 1050}
+end tell
+tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
+  await osa('tell application "Claude" to activate');
+  await sleep(2000);
+  await shot('ready');
+
+  startRecording();
+  await sleep(2500);
+  scene('Dana works in Claude Desktop. Maria approves requests in Control Tower’s Tower.');
+  await sleep(5000);
+  scene('Dana switches to Sonnet. Company policy: every Sonnet call needs a manager’s OK.');
+  await chooseSonnet();
+  await sleep(1500);
+  scene('She asks Claude for the board update…');
+  const n = seen.length;
+  await ask('Draft the board update on the Q3 pipeline');
+  const card = await heldCall();
+  log(`held: ${card?.id ?? 'none'}`);
+  scene('Control Tower holds the call at the gate. Nothing has reached the model; Claude just waits.');
+  await sleep(10_000);
+  await shot('held');
+  scene('In the Tower, Maria sees who is asking, from which app, for which model, and the request itself.');
+  await sleep(9000);
+  await shot('tower');
+  scene('She approves…');
+  await approveAll();
+  scene('…and the held call carries on: the answer streams into Claude.');
+  await sleep(10_000);
+  await clientSees('approved');
+  log(`calls: ${calls(n)}`);
+  scene('The decision is on record: who approved it, and when.');
+  await sleep(6000);
+  await shot('decided');
+  scene('');
+  await sleep(1000);
+
+  // ---- After the video (still recorded, not in the edit): how a hold ends other ways, as Dana sees it ----
+  const decide = async (id: string, action: 'approve' | 'deny', note?: string) => log(`${action}: ${JSON.stringify(await api('POST', `/admin/api/approvals/${id}/decide`, { action, ...(note ? { note } : {}) }))}`.slice(0, 200));
+  // A long wait (4 minutes), then approved: does Claude keep waiting?
+  let m = seen.length;
+  await ask('Draft the board update for the leadership offsite');
+  let c = await heldCall();
+  log(`long hold: ${c?.id ?? 'none'}`);
+  await sleep(120_000);
+  await clientSees('long-hold-2min');
+  await sleep(120_000);
+  await clientSees('long-hold-4min');
+  if (c) await decide(c.id, 'approve');
+  await sleep(15_000);
+  await clientSees('long-hold-approved');
+  log(`calls: ${calls(m)}`);
+  // Denied, with a note.
+  m = seen.length;
+  await ask('Draft the board update for the investors');
+  c = await heldCall();
+  await sleep(5000);
+  if (c) await decide(c.id, 'deny', 'Not before the audit closes');
+  await sleep(10_000);
+  await clientSees('denied');
+  log(`calls: ${calls(m)}`);
+  // Nobody answers in time: the hold expires.
+  log(`hold 20s: ${JSON.stringify(await api('PATCH', `/admin/api/rules/${holdRule}`, { config: { hold_ms: 20_000 } })).slice(0, 160)}`);
+  m = seen.length;
+  await ask('Draft the board update for the partners');
+  c = await heldCall();
+  await sleep(45_000);
+  await clientSees('expired');
+  log(`calls: ${calls(m)}; card: ${c ? (await api('GET', `/admin/api/approvals/${c.id}`)).approval?.status : 'none'}`);
+}
+
+let holdRule = '';
+const SCENARIO = process.env.SCENARIO ?? 'full';
+try {
+  // ---- Before the video: Control Tower as the company set it up ----
+  const prov = await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant.url, credentials: { api_key: 'sk-ant-demo' } });
+  for (const m of ['claude-sonnet-4-5', 'claude-haiku-4-5']) await api('POST', '/admin/api/deployments', { provider_id: (prov.provider ?? prov).id, upstream_model: m, public_name: m });
+  const key = await api('POST', '/admin/api/keys', { name: 'claude-desktop', agent_id: 'claude-desktop', team: 'finance' });
+  await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: key.id }] });
+  await person(DANA.email, 'member', DANA.password);
+  await person(MARIA.email, 'approver', MARIA.password);
+  const block = await api('POST', '/admin/api/rules', {
+    name: 'No credentials to models',
+    target_kind: 'model',
+    effect: 'inspect',
+    config: { detectors: ['secrets'], action: 'block', direction: 'input', reason: 'Credentials must never be sent to a model' },
+    priority: 50,
+  });
+  const hold = await api('POST', '/admin/api/rules', {
+    name: 'Sonnet needs a manager',
+    target_kind: 'model',
+    match: { models: ['claude-sonnet-4-5'] },
+    effect: 'require_approval',
+    config: { hold_ms: 600_000 },
+    priority: 10,
+  });
+  holdRule = hold.id;
+  log(`gates: ${block.id ?? JSON.stringify(block)} ${hold.id ?? JSON.stringify(hold)}`);
+
+  // IT's rollout: ct-auth, and Claude Desktop's managed settings (as an MDM delivers them).
+  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-desktop&mcp=0&lockdown=1`);
+  const file = (n: string) => (roll.files as Array<{ name: string; content: string }>).find((f) => f.name === n)!.content;
+  fs.writeFileSync(path.join(TMP, 'install.sh'), file('install-ct-auth-macos.sh'));
+  log(`install: ${(await run(`sudo sh ${q(path.join(TMP, 'install.sh'))}`)).code}`);
+  const mc = path.join(TMP, 'controltower.mobileconfig');
+  fs.writeFileSync(mc, file('controltower.mobileconfig'));
+  const p = path.join(TMP, 'com.anthropic.claudefordesktop.plist');
+  await run(`plutil -extract PayloadContent.0 xml1 -o ${q(p)} ${q(mc)}`);
+  for (const k of ['PayloadType', 'PayloadVersion', 'PayloadIdentifier', 'PayloadUUID', 'PayloadDisplayName']) await run(`plutil -remove ${k} ${q(p)}`);
+  await run(`sudo mkdir -p "/Library/Managed Preferences" && sudo cp ${q(p)} "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist" && sudo killall cfprefsd || true`);
+
+  // The screen, the tools for the video, Claude Desktop's download, and a project folder.
+  log(`brew: ${(await run('brew install cliclick displayplacer ffmpeg', 900_000)).code}`);
+  const disp = (await run('displayplacer list')).out.match(/id:(\S+) res:/)?.[1];
+  if (disp) log(`1920x1080: ${(await run(`displayplacer "id:${disp} res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"`)).code}`);
+  const rel = (await (await fetch('https://downloads.claude.ai/releases/darwin/universal/RELEASES.json')).json()) as { releases: Array<{ updateTo: { url: string; version: string } }> };
+  const zip = path.join(TMP, 'Claude.zip');
+  fs.writeFileSync(zip, Buffer.from(await (await fetch(rel.releases[0]!.updateTo.url)).arrayBuffer()));
+  log(`Claude Desktop ${rel.releases[0]!.updateTo.version}`);
+  fs.mkdirSync('/Users/runner/acme-reports', { recursive: true });
+  fs.writeFileSync('/Users/runner/acme-reports/README.md', '# Q3 pipeline\n\n42 open deals, $3.1M. Largest three close in October.\n');
+  await run(`osascript -e 'tell application "Finder" to close every window'`);
+  await sleep(3000);
+
+  if (SCENARIO === 'approvals') await approvalsVideo(zip);
+  else await fullVideo(zip);
 } finally {
   await stopRecording();
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
@@ -561,7 +705,8 @@ if (chunks.length && scenes.length > 1) {
     if (r.code) log(`card ${n}: ${r.err.slice(-600)}`);
     parts.push(f);
   };
-  await card('card0', 'Claude Desktop on a company Mac', 'Recorded live: installed, signed in, and governed by Control Tower');
+  if (SCENARIO === 'approvals') await card('card0', 'Held for approval', 'Recorded live: Claude Desktop on a company Mac, and Control Tower’s Tower');
+  else await card('card0', 'Claude Desktop on a company Mac', 'Recorded live: installed, signed in, and governed by Control Tower');
   const caps = new Map<number, string>();
   for (const [k, pc] of pieces.entries()) {
     if (pc.caption && !caps.has(pc.scene)) caps.set(pc.scene, await png(`cap${pc.scene}`, caption(pc.caption), true));
@@ -578,7 +723,7 @@ if (chunks.length && scenes.length > 1) {
   await card('card1', 'See every agent. Gate what matters.', 'Open-source AI gateway · github.com/joshmaster2165/controltower');
   await browser.close();
   fs.writeFileSync(path.join(TMP, 'parts.txt'), parts.map((f) => `file '${f}'`).join('\n'));
-  const mp4 = path.join(OUT, 'demo-desktop.mp4');
+  const mp4 = path.join(OUT, SCENARIO === 'approvals' ? 'demo-approvals.mp4' : 'demo-desktop.mp4');
   const r = await run(`ffmpeg -y -f concat -safe 0 -i ${q(path.join(TMP, 'parts.txt'))} -c copy -movflags +faststart ${q(mp4)}`, 600_000);
   log(`edit: ${pieces.length} pieces, ${r.code} ${r.code ? r.err.slice(-1500) : ''}${fs.existsSync(mp4) ? ` ${(fs.statSync(mp4).size / 1e6).toFixed(1)} MB, ${(await duration(mp4)).toFixed(1)}s` : ''}`);
 }

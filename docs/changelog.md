@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Laptops on Windows: Claude Desktop runs ct-auth.** In Windows policy, `inferenceCredentialHelper` now holds the Windows path. Claude Desktop on Windows (1.44121) runs that key and ignored `inferenceCredentialHelperWindows`, so it tried the macOS path and showed "Credential helper failed to start". Found by the real-machine test, which now installs Claude Desktop from Anthropic's release server on Windows and macOS, opens it with only the managed settings, and drives its first run. Re-deploy `install-controltower-windows.ps1` (or the `.reg` file).
+
 ## 0.2.8 — 2 October 2026
 
 - **Laptops on Windows: Codex gets Control Tower's MCP tools again.** Codex on Windows no longer reads a per-person `managed_config.toml`, where the install script put Control Tower's MCP server, so Codex there had no Control Tower tools (model calls were unaffected). The script now adds the server to each profile's own `~\.codex\config.toml`, only where it's missing, and to the Default profile for people who sign in later. Found by the new real-machine test, which now checks Codex lists the server; it passes 13 of 13 on Windows and on macOS.

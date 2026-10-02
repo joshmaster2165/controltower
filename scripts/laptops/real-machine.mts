@@ -253,19 +253,13 @@ try {
   const clicked = MAC
     ? await ui(`tell application "Claude" to activate
 delay 2
+-- Its window's web content isn't searchable by name: click where the welcome screen's Continue sits.
 tell application "System Events" to tell process "Claude"
-  set found to false
-  repeat 30 times
-    try
-      set b to first UI element of (entire contents of window 1) whose role is "AXButton" and (title is "Continue" or description is "Continue" or name is "Continue")
-      click b
-      set found to true
-      exit repeat
-    end try
-    delay 1
-  end repeat
-  return found
-end tell`)
+  set {px, py} to position of window 1
+  set {sw, sh} to size of window 1
+end tell
+tell application "System Events" to click at {px + sw / 2, py + sh * 0.608}
+return true`)
     : await ui(`Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
 $cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, 'Continue')
 $b = $null

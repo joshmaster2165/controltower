@@ -126,7 +126,9 @@ function claudeDesktopKeys(o: RolloutOptions, windows: boolean): Record<string, 
     inferenceProvider: 'gateway',
     inferenceGatewayBaseUrl: o.url,
     inferenceCredentialKind: 'helper-script',
-    inferenceCredentialHelper: UNIX_HELPER,
+    // Windows policy only ever reaches Windows: the helper's own key carries the Windows path there (Claude Desktop
+    // 1.44121 on Windows runs inferenceCredentialHelper and ignores inferenceCredentialHelperWindows).
+    inferenceCredentialHelper: windows ? WIN_HELPER : UNIX_HELPER,
     inferenceCredentialHelperWindows: WIN_HELPER,
     inferenceCredentialHelperArgs: JSON.stringify(['token', '--client', 'claude-desktop']),
     // Tokens last an hour; reused for 50 minutes. The first sign-in waits for the browser, so it may take minutes.

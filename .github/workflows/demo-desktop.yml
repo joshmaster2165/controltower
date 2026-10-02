@@ -7,7 +7,7 @@ on:
 jobs:
   record:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -19,6 +19,7 @@ jobs:
       - run: pnpm build
         env:
           CT_TEST_LICENSE_KEYS: '1'
+      - run: pnpm exec playwright install chromium
       - run: npx tsx scripts/demo-desktop.mts
         env:
           RESULTS_DIR: ${{ runner.temp }}/demo

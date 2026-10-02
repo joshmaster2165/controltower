@@ -46,7 +46,8 @@ function run(line: string, env: Record<string, string | undefined> = {}, timeout
     let err = '';
     p.stdout?.on('data', (d) => (out += d));
     p.stderr?.on('data', (d) => (err += d));
-    const t = setTimeout(() => p.kill(), timeoutMs);
+    // On Windows the shell's children (the tools, the helper) outlive killing the shell: end the whole tree.
+    const t = setTimeout(() => (WIN && p.pid ? spawn('taskkill', ['/pid', String(p.pid), '/T', '/F']) : p.kill()), timeoutMs);
     p.on('exit', (code) => (clearTimeout(t), resolve({ code: code ?? -1, out, err })));
   });
 }
@@ -127,14 +128,15 @@ try {
   const helper = WIN ? q('C:\\Program Files\\ControlTower\\ct-auth.cmd') : '/usr/local/bin/ct-auth';
   const opened = path.join(TMP, 'opened.txt');
   const opener = path.join(TMP, WIN ? 'open.cmd' : 'open.sh');
-  fs.writeFileSync(opener, WIN ? `@echo %~1> "${opened}"\r\n` : `#!/bin/sh\nprintf '%s' "$1" > "${opened}"\n`, { mode: 0o755 });
+  // (cmd splits %1 at "=", so the whole argument: %*.)
+  fs.writeFileSync(opener, WIN ? `@echo %*> "${opened}"\r\n` : `#!/bin/sh\nprintf '%s' "$1" > "${opened}"\n`, { mode: 0o755 });
   const signIn = async (client: string) => {
     fs.rmSync(opened, { force: true });
     const p = run(`${helper} login --client ${client}`, { CT_AUTH_OPEN: opener, CT_URL: '' }, 120_000);
     let url = '';
     for (let i = 0; i < 100 && !url; i++) {
       await sleep(300);
-      url = fs.existsSync(opened) ? fs.readFileSync(opened, 'utf8').trim() : '';
+      url = fs.existsSync(opened) ? fs.readFileSync(opened, 'utf8').trim().replace(/^"|"$/g, '') : '';
     }
     const code = url ? new URL(url).searchParams.get('code') : null;
     const ok = code ? (await fetch(`${CT}/admin/api/me/devices/approve`, { method: 'POST', headers: { cookie: s.cookie, 'x-ct-csrf': s.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ user_code: code }) })).status : 0;
@@ -154,7 +156,8 @@ try {
   }
 
   // ---- The real tools, with nothing configured but what IT deployed ----
-  const clean = { ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: undefined, ANTHROPIC_AUTH_TOKEN: undefined, OPENAI_API_KEY: undefined, CT_URL: undefined };
+  // Signed in already: a helper that finds no sign-in fails at once instead of waiting for a browser.
+  const clean = { ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: undefined, ANTHROPIC_AUTH_TOKEN: undefined, OPENAI_API_KEY: undefined, CT_URL: undefined, CT_AUTH_NONINTERACTIVE: '1' };
   const cc = await run('claude -p "Which gateway?" --output-format stream-json --verbose', { ...clean, CLAUDE_CONFIG_DIR: path.join(TMP, 'claude'), ANTHROPIC_MODEL: 'claude-sonnet-4-5', ANTHROPIC_SMALL_FAST_MODEL: 'claude-haiku-4-5' });
   const events = cc.out.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
   const init = events.find((e) => e.type === 'system' && e.subtype === 'init');

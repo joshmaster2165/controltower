@@ -51,11 +51,13 @@ function start(name: string, port: number, extra: Record<string, string> = {}): 
   });
   for (const s of [p.stdout!, p.stderr!]) s.on('data', (d) => logs[name]!.push(String(d)));
   const ready = (async () => {
-    for (let i = 0; i < 100; i++) {
-      if (p.exitCode !== null) return false;
+    // Up to a minute: a busy CI runner that has started several servers already can be slow.
+    for (let i = 0; i < 400; i++) {
+      if (p.exitCode !== null) break;
       if ((await fetch(`${url}/healthz`).catch(() => null))?.ok) return true;
       await sleep(150);
     }
+    console.error(`[${name}] did not start${p.exitCode !== null ? ` (exited ${p.exitCode})` : ''}:\n${logs[name]!.join('').slice(-2000)}`);
     return false;
   })();
   return { p, url, ready };
@@ -239,6 +241,7 @@ try {
   const L1 = start('l1', 4804, { CT_DATABASE_URL: LPG, CT_LICENSE_KEY: '' });
   const L2 = start('l2', 4805, { CT_DATABASE_URL: LPG, CT_LICENSE_KEY: '' });
   const [okL1, okL2] = await Promise.all([L1.ready, L2.ready]);
+  if (!okL1 || !okL2) throw new Error(`the license-sync instances did not start (l1 ${okL1}, l2 ${okL2}): see their logs above`);
   const l1 = admin(L1.url);
   const l2 = admin(L2.url);
   const licBefore = (await l2('GET', '/admin/api/license')).body.status;

@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Docs: [Rolling it out](rollout.md):** the rollout from both sides: who does what (admins, viewers, approvers, team admins, everyone else), what reaches each computer, what an employee sees the first time they open Claude and after, their questions, and a note to send them.
+
 ## 0.2.6 — 2 October 2026
 
 - **Laptops: sign in with your identity provider.** ct-auth can sign people in to Okta, Entra ID or any OpenID Connect provider directly (its device flow) and hand the tools its ID tokens, which Control Tower checks through a trusted issuer under Agent identity. People need no Control Tower account; the issuer's rules (groups to keys) pick the key, and calls are recorded under the person's email. Choose it under **Laptops › Roll it out**. Tested end to end, refresh and sign-out included.

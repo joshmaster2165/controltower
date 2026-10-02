@@ -10,7 +10,7 @@ Put Control Tower in front of the AI tools on your people's computers. IT rolls 
 
 No shared key is handed out: nothing secret is in the files you deploy. People get short-lived tokens, and you can sign out any computer at once.
 
-People sign in one of two ways: **with Control Tower** (they approve their computer in its console), or **with your identity provider** directly (Okta, Entra ID…), so they need no Control Tower account. To make sure every computer uses Control Tower and nothing else, and to check that it does, see [Enforcing the gateway on every computer](enforcement.md).
+People sign in one of two ways: **with Control Tower** (they approve their computer in its console), or **with your identity provider** directly (Okta, Entra ID…), so they need no Control Tower account. To make sure every computer uses Control Tower and nothing else, and to check that it does, see [Enforcing the gateway on every computer](enforcement.md). For the rollout from both sides (the team running Control Tower, and an employee opening Claude for the first time), see [Rolling it out](rollout.md).
 
 ![Laptops: which key each tool's calls are made as](images/laptops-rules.png)
 

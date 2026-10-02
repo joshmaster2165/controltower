@@ -10,7 +10,7 @@ Control Tower is a self-hosted AI gateway with a live map of every agentic data 
 2. [**Install**](install.md) — Docker, Compose, Render, Fly.io, Railway, any container platform, or from source; upgrades and backups.
 3. [**Connect your agents**](connect-agents.md) — OpenAI SDKs, the OpenAI Agents SDK and Codex, Claude Code, LangChain, MCP clients, plain HTTP.
    Step by step: [Claude Code](client-claude-code.md), [Claude Desktop](client-claude-desktop.md), [Codex in the ChatGPT desktop app](client-codex-desktop.md), [Codex CLI](client-codex-cli.md).
-   For a whole company: [**Laptops**](laptops.md) rolls them out with Jamf, Intune, Kandji or Group Policy, each person signed in as themselves, and [**Enforcing the gateway**](enforcement.md) makes sure every computer uses it (Enterprise).
+   For a whole company: [**Laptops**](laptops.md) rolls them out with Jamf, Intune, Kandji or Group Policy, each person signed in as themselves; [**Rolling it out**](rollout.md) walks through it for the team and for employees, and [**Enforcing the gateway**](enforcement.md) makes sure every computer uses it (Enterprise).
 
 ## Set up
 

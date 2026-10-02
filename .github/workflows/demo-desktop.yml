@@ -1,0 +1,30 @@
+name: demo video (Claude Desktop)
+
+# Records Claude Desktop going through Control Tower on a managed Mac (scripts/demo-desktop.mts). Manual only.
+on:
+  workflow_dispatch:
+
+jobs:
+  record:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          CT_TEST_LICENSE_KEYS: '1'
+      - run: npx tsx scripts/demo-desktop.mts
+        env:
+          RESULTS_DIR: ${{ runner.temp }}/demo
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: demo-desktop
+          path: ${{ runner.temp }}/demo
+          if-no-files-found: ignore

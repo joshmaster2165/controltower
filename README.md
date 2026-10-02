@@ -21,7 +21,7 @@
 
 ---
 
-**Mission:** map and document every agentic dataflow across your environment — which agents reach which models, MCP servers, tools and integrations — while enforcing permissions and security on those flows and monitoring usage and spend.
+**Mission:** map and document every agentic dataflow across your environment which agents reach which models, MCP servers, tools and integrations while enforcing permissions and security on those flows and monitoring usage and spend.
 
 **Control Tower** is an open-source AI gateway with a live map of agent traffic. Point your agents at it like you would any OpenAI-compatible endpoint; every model call and every MCP tool call becomes a *flight* on the **Airspace**. Draw **zones** around systems, put **gates** on the boundaries, and require a human to approve a flight before it crosses. It is an enforcement point, not a dashboard: a gate that says *no* returns a 403 to the agent.
 

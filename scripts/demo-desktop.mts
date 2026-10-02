@@ -535,17 +535,28 @@ async function approvalsVideo(zip: string) {
   await sleep(12_000);
   log(`Code: ${await press('Code', 'Claude', { role: 'AXButton', done: async () => !!(await find(/^Select folder/)) })}`);
   await chooseFolder();
+  // Already on Sonnet, with the gate off for a first answer: switching models restarts Claude Code, which makes a
+  // call of its own, and the session's title is made from the first message. Then the gate, on.
+  await api('PATCH', `/admin/api/rules/${holdRule}`, { enabled: false });
+  await chooseSonnet();
   await ask('Summarize the Q3 pipeline in README.md');
-  await sleep(14_000);
+  await sleep(20_000);
+  await api('PATCH', `/admin/api/rules/${holdRule}`, { enabled: true });
   await mariaSignsIn();
-  // Side by side, the Dock out of the way.
+  // Side by side, the Dock out of the way (windows placed through System Events: the apps' own scripting may not be allowed).
   await run('defaults write com.apple.dock autohide -bool true && killall Dock');
   await sleep(2000);
-  await osa(`tell application "System Events" to tell process "Claude"
-  set position of window 1 to {0, 30}
-  set size of window 1 to {980, 1050}
-end tell
-tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
+  const placed = await osa(`tell application "System Events"
+  tell process "Claude"
+    set position of window 1 to {0, 30}
+    set size of window 1 to {980, 1050}
+  end tell
+  tell process "Safari"
+    set position of window 1 to {980, 30}
+    set size of window 1 to {940, 1050}
+  end tell
+end tell`);
+  log(`side by side: ${placed.code} ${placed.err.trim().slice(0, 200)}`);
   await osa('tell application "Claude" to activate');
   await sleep(2000);
   await shot('ready');
@@ -554,10 +565,7 @@ tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
   await sleep(2500);
   scene('Dana works in Claude Desktop. Maria approves requests in Control Tower’s Tower.');
   await sleep(5000);
-  scene('Dana switches to Sonnet. Company policy: every Sonnet call needs a manager’s OK.');
-  await chooseSonnet();
-  await sleep(1500);
-  scene('She asks Claude for the board update…');
+  scene('Dana is on Sonnet. Company policy: every Sonnet call needs a manager’s OK. She asks for the board update…');
   const n = seen.length;
   await ask('Draft the board update on the Q3 pipeline');
   const card = await heldCall();
@@ -582,19 +590,8 @@ tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
 
   // ---- After the video (still recorded, not in the edit): how a hold ends other ways, as Dana sees it ----
   const decide = async (id: string, action: 'approve' | 'deny', note?: string) => log(`${action}: ${JSON.stringify(await api('POST', `/admin/api/approvals/${id}/decide`, { action, ...(note ? { note } : {}) }))}`.slice(0, 200));
-  // A long wait (4 minutes), then approved: does Claude keep waiting?
-  let m = seen.length;
-  await ask('Draft the board update for the leadership offsite');
-  let c = await heldCall();
-  log(`long hold: ${c?.id ?? 'none'}`);
-  await sleep(120_000);
-  await clientSees('long-hold-2min');
-  await sleep(120_000);
-  await clientSees('long-hold-4min');
-  if (c) await decide(c.id, 'approve');
-  await sleep(15_000);
-  await clientSees('long-hold-approved');
-  log(`calls: ${calls(m)}`);
+  let m = 0;
+  let c: { id: string } | undefined;
   // Denied, with a note.
   m = seen.length;
   await ask('Draft the board update for the investors');
@@ -609,9 +606,25 @@ tell application "Safari" to set bounds of window 1 to {980, 30, 1920, 1080}`);
   m = seen.length;
   await ask('Draft the board update for the partners');
   c = await heldCall();
-  await sleep(45_000);
-  await clientSees('expired');
+  await sleep(35_000);
+  await clientSees('waiting-ticket');
   log(`calls: ${calls(m)}; card: ${c ? (await api('GET', `/admin/api/approvals/${c.id}`)).approval?.status : 'none'}`);
+  // Approved after she stopped waiting: the same message again goes through.
+  if (c) await decide(c.id, 'approve');
+  m = seen.length;
+  await ask('Draft the board update for the partners');
+  await sleep(20_000);
+  await clientSees('resent-after-approval');
+  log(`calls: ${calls(m)}`);
+  // Last (a secret in the conversation blocks every later call in it): blocked by an inspect gate.
+  m = seen.length;
+  await ask('Check this AWS key still works: AKIAIOSFODNN7EXAMPLE');
+  await sleep(10_000);
+  const details = await find(/^View details/);
+  if (details) await mouse(details.x + details.w / 2, details.y + details.h / 2);
+  await sleep(3000);
+  await clientSees('blocked');
+  log(`calls: ${calls(m)}`);
 }
 
 let holdRule = '';

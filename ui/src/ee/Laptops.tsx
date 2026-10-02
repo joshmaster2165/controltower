@@ -81,6 +81,7 @@ export function LaptopsPage() {
   const [mcp, setMcp] = useState(true);
   const [lockdown, setLockdown] = useState(true);
   const [files, setFiles] = useState<RolloutFile[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [shown, setShown] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [settings, setSettings] = useState<{ session_days: string; idle_days: string } | null>(null);
@@ -118,9 +119,10 @@ export function LaptopsPage() {
     const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0', ...(mode === 'idp' ? { idp_issuer_id: issuerId, idp_client_id: clientId } : {}) });
     const t = setTimeout(() => {
       void api
-        .get<{ files: RolloutFile[]; idp?: { id: string; name: string; principal_claim: string; rules: number; people: boolean } }>(`/admin/api/devices/rollout?${q}`)
+        .get<{ files: RolloutFile[]; warnings?: string[]; idp?: { id: string; name: string; principal_claim: string; rules: number; people: boolean } }>(`/admin/api/devices/rollout?${q}`)
         .then((d) => {
           setFiles(d.files);
+          setWarnings(d.warnings ?? []);
           setIdpInfo(d.idp ?? null);
           setErr(null);
         })
@@ -349,6 +351,11 @@ export function LaptopsPage() {
             </label>
           </fieldset>
         </div>
+        {warnings.map((w) => (
+          <div key={w} className="notice-row laptops-warning">
+            <span>{w}</span>
+          </div>
+        ))}
         {PLATFORMS.map((p) => {
           const these = files.filter((f) => f.platform === p.id);
           if (!these.length) return null;

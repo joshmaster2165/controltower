@@ -259,6 +259,8 @@ test('the rollout files: every client set up for this address, with no secret in
   expect(files['codex/requirements.toml']).toContain('base_url = "https://ai.example.com/v1"');
   expect(files['install-controltower-windows.ps1']).toContain('\\"C:\\\\Program Files\\\\ControlTower\\\\ct-auth.cmd\\" token --client claude-code');
   for (const [name, content] of Object.entries(files)) expect(content, name).not.toMatch(/ct_sk_|ct_dt_[A-Za-z0-9]|ct_rt_[A-Za-z0-9]|BEGIN PRIVATE/);
+  // Claude Desktop needs a Claude model listed: the keys here serve only lap-model, so the page says so.
+  expect(r.body.warnings.join(' ')).toContain('Gateway returned no usable models');
   // The address must be a plain origin.
   expect((await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://x.example.com/?q=1')}`)).status).toBe(400);
   expect((await admin.get('/admin/api/devices/rollout?clients=cursor')).status).toBe(400);

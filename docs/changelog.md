@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Laptops warns when Claude Desktop would find no model.** Claude Desktop lists the Claude models Control Tower serves, and won't start without one ("Gateway returned no usable models"); models added on first use aren't listed until someone uses them. **Laptops › Roll it out** now says so for the keys Claude Desktop would use.
+
 ## 0.2.9 — 2 October 2026
 
 - **Laptops: Claude Desktop gets a helper of its own, `ct-auth-claude-desktop`, which needs no arguments.** Claude Desktop on Windows (1.44121) ignores both `inferenceCredentialHelperWindows` and `inferenceCredentialHelperArgs`. So it ran the macOS path (and showed "Credential helper failed to start"), or ct-auth without saying it was Claude Desktop (and asked for a new sign-in). Windows policy now names the Windows helper in `inferenceCredentialHelper` itself. Found by the real-machine test, which now installs Claude Desktop from Anthropic's release server on Windows and macOS, opens it with only the managed settings, and drives its first run. Re-deploy the rollout files.

@@ -1072,3 +1072,5 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .laptops-mode .check { align-items: flex-start; }
 .laptops-mode .check input { margin-top: 3px; }
 .laptops-mode .check .hint { display: block; margin-top: 2px; }
+
+.laptops-warning { background: #fff8ec; border: 1px solid rgba(217, 134, 11, 0.35); }

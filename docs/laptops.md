@@ -80,6 +80,8 @@ Under **Laptops › Roll it out**, enter the address and choose the tools. Two o
 
 Downloading again gives the same profile identifiers, so MDM replaces a profile rather than adding a second one.
 
+**Claude Desktop needs a Claude model listed.** It shows the Claude models Control Tower lists for the person's key (`GET /v1/models`), and doesn't start without one: it says "Configuration can't be used: Gateway returned no usable models". Models [added on first use](providers-and-models.md#models-are-added-on-first-use) aren't listed until someone has used them, so add the Claude models you want under **Models** first. **Laptops** warns when a key Claude Desktop would use lists none.
+
 ### 5. What people see
 
 The first time someone starts a tool, their browser opens at **Connect your computer**. They sign in, check the code, and approve:

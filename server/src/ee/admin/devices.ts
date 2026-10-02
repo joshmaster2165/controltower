@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { KeyRecord } from '../../registry.js';
 import { ulid } from 'ulid';
 import type { AppContext } from '../../context.js';
 import { auditOrigin, requireAdmin } from '../../admin/auth.js';
@@ -258,6 +259,18 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
       issuerInfo = { id: row.id, name: row.name, issuer: row.issuer, principal_claim: row.principal_claim, rules: (JSON.parse(row.rules || "[]") as unknown[]).length, enabled: !!row.enabled, people: !!row.people };
     }
     const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0', idp });
-    return { url, https: url.startsWith('https://'), clients, files, ...(issuerInfo ? { idp: issuerInfo } : {}) };
+    // Claude Desktop lists the Claude models Control Tower serves (GET /v1/models) and won't start without one ("Gateway
+    // returned no usable models"). Models added on first use aren't listed until then: say so before it's rolled out.
+    const warnings: string[] = [];
+    if (clients.includes('claude-desktop')) {
+      const claude = (k: KeyRecord) => ctx.registry.visibleModels(k).some((m) => /claude/i.test(m.id));
+      const keyIds = idp ? [] : devices.ruleList.filter((r) => r.client === '*' || r.client === 'claude-desktop').map((r) => r.keyId);
+      const keys = [...new Set(keyIds)].map((id) => ctx.registry.keysById.get(id)).filter((k): k is KeyRecord => !!k);
+      const without = keys.filter((k) => !claude(k)).map((k) => k.name);
+      const anyClaude = [...ctx.registry.keysById.values()].some((k) => !k.demo && claude(k));
+      if (without.length) warnings.push(`Claude Desktop won't start for people whose key lists no Claude model (${without.join(', ')}): it shows "Gateway returned no usable models". Add a Claude model under Models (models added on first use aren't listed until someone uses them), or allow one on those keys.`);
+      else if (!keys.length && !anyClaude) warnings.push('Claude Desktop won\'t start until Control Tower lists a Claude model: it shows "Gateway returned no usable models". Add one under Models before rolling it out.');
+    }
+    return { url, https: url.startsWith('https://'), clients, files, warnings, ...(issuerInfo ? { idp: issuerInfo } : {}) };
   });
 }

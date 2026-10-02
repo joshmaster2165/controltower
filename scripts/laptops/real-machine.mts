@@ -10,6 +10,7 @@
  * Writes laptops-real-results.json (RESULTS_DIR) and a summary for the workflow run.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -66,6 +67,23 @@ for (let i = 0; ; i++) {
   if (i > 150) throw new Error('Control Tower did not start (a test build is needed: CT_TEST_LICENSE_KEYS=1 pnpm build)');
   await sleep(200);
 }
+// A recorder in front of Control Tower: what each tool sends (method, path, its credential's kind, the answer). The
+// rollout points the tools here, so it sees every request, and passes each on unchanged.
+const RECORD_PORT = 4002;
+const GW = `http://127.0.0.1:${RECORD_PORT}`;
+const seen: Array<{ method: string; path: string; ua: string; cred: string; status: number }> = [];
+const recorder = http.createServer((req, res) => {
+  const a = String(req.headers.authorization ?? req.headers['x-api-key'] ?? '');
+  const cred = /ct_dt_/.test(a) ? 'ct_dt' : a ? 'other' : 'none';
+  const up = http.request({ host: '127.0.0.1', port: PORT, path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${RECORD_PORT}` } }, (r) => {
+    seen.push({ method: req.method ?? '', path: (req.url ?? '').split('?')[0]!, ua: String(req.headers['user-agent'] ?? ''), cred, status: r.statusCode ?? 0 });
+    res.writeHead(r.statusCode ?? 502, r.headers);
+    r.pipe(res);
+  });
+  up.on('error', () => (res.writeHead(502), res.end()));
+  req.pipe(up);
+});
+await new Promise<void>((r) => recorder.listen(RECORD_PORT, '127.0.0.1', () => r()));
 const api = (method: string, p: string, body?: unknown) =>
   fetch(CT + p, { method, headers: { authorization: `Bearer ${AK}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }).then(async (r) => (await r.json().catch(() => ({}))) as any);
 
@@ -87,7 +105,7 @@ try {
   s = await login('dev-password-123');
 
   // ---- What IT deploys ----
-  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(CT)}&clients=claude-code,claude-desktop,codex&mcp=1&lockdown=1`);
+  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-code,claude-desktop,codex&mcp=1&lockdown=1`);
   const file = (n: string) => (roll.files as Array<{ name: string; content: string }>).find((f) => f.name === n)!.content;
   if (WIN) {
     // As Intune runs a platform script: Windows PowerShell 5.1, 64-bit, as an administrator.
@@ -145,6 +163,7 @@ try {
   };
   await signIn('claude-code');
   await signIn('codex');
+  await signIn('claude-desktop');
   if (WIN) {
     const dir = path.join(process.env.LOCALAPPDATA ?? '', 'ControlTower');
     const stored = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
@@ -175,19 +194,66 @@ try {
   const cxv = await run('codex --version');
   console.log('codex', cxv.out.trim());
 
+  // ---- Claude Desktop: installed from Anthropic's release server, opened with only the managed settings ----
+  const before = seen.length;
+  let app = '';
+  if (MAC) {
+    const rel = (await (await fetch('https://downloads.claude.ai/releases/darwin/universal/RELEASES.json')).json()) as { releases: Array<{ updateTo: { url: string; version: string } }> };
+    const zipUrl = rel.releases[0]!.updateTo.url;
+    const zip = path.join(TMP, 'Claude.zip');
+    fs.writeFileSync(zip, Buffer.from(await (await fetch(zipUrl)).arrayBuffer()));
+    const unz = await run(`ditto -x -k ${q(zip)} /Applications`);
+    app = '/Applications/Claude.app';
+    c('Claude Desktop installs (from downloads.claude.ai)', unz.code === 0 && fs.existsSync(app), `${rel.releases[0]!.updateTo.version}${unz.code ? `: ${unz.err.slice(0, 200)}` : ''}`);
+    await run(`open ${q(app)}`);
+  } else {
+    // The same installer Windows' package manager (winget) uses: per user, silent.
+    const manifest = await (await fetch('https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/a/Anthropic/Claude')).json() as Array<{ name: string }>;
+    const ver = manifest.map((m) => m.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1)!;
+    const yaml = await (await fetch(`https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/a/Anthropic/Claude/${ver}/Anthropic.Claude.installer.yaml`)).text();
+    const exeUrl = /InstallerUrl:\s*(https:\/\/downloads\.claude\.ai\/\S+x64\S+\.exe)/.exec(yaml)?.[1];
+    if (!exeUrl) throw new Error('no Claude Desktop installer for Windows x64 in the winget manifest');
+    const exe = path.join(TMP, 'ClaudeSetup.exe');
+    fs.writeFileSync(exe, Buffer.from(await (await fetch(exeUrl)).arrayBuffer()));
+    const inst = await run(`${q(exe)} --silent`, {}, 300_000);
+    const local = process.env.LOCALAPPDATA ?? '';
+    const candidates = [path.join(local, 'AnthropicClaude', 'claude.exe'), path.join(local, 'AnthropicClaude', 'Claude.exe'), path.join(local, 'Programs', 'Claude', 'Claude.exe')];
+    app = candidates.find((f) => fs.existsSync(f)) ?? '';
+    c('Claude Desktop installs (from downloads.claude.ai, the winget installer)', !!app, `${ver}${app ? ` at ${app}` : `: not found (installer exit ${inst.code})`}`);
+    if (app) spawn(app, [], { detached: true, stdio: 'ignore' }).unref();
+  }
+  // At launch, a gateway-mode Claude Desktop lists the gateway's models with its credential, and connects its MCP servers.
+  let models: (typeof seen)[number] | undefined;
+  let mcp: (typeof seen)[number] | undefined;
+  for (let i = 0; i < 90 && !(models && mcp); i++) {
+    await sleep(1000);
+    const fresh = seen.slice(before).filter((x) => !/ct-auth/.test(x.ua));
+    models ??= fresh.find((x) => x.path === '/v1/models');
+    mcp ??= fresh.find((x) => x.path.startsWith('/mcp'));
+  }
+  const shot = path.join(process.env.RESULTS_DIR ?? TMP, `claude-desktop-${WIN ? 'windows' : 'macos'}.png`);
+  if (MAC) await run(`screencapture -x ${q(shot)}`);
+  else await run(`powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${shot}')"`);
+  const others = seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).map((x) => `${x.method} ${x.path} ${x.cred} ${x.status}`);
+  c('Claude Desktop lists Control Tower\'s models with ct-auth\'s token (managed settings, credential helper)', !!models && models.cred === 'ct_dt' && models.status === 200, models ? `${models.method} ${models.path}: ${models.cred} → ${models.status} (${models.ua.slice(0, 60)})` : `not seen; requests: ${others.slice(0, 8).join(', ') || 'none'}`);
+  c('Claude Desktop connects to Control Tower\'s MCP endpoint (managedMcpServers, headersHelper)', !!mcp && mcp.cred === 'ct_dt' && mcp.status < 400, mcp ? `${mcp.method} ${mcp.path}: ${mcp.cred} → ${mcp.status}` : `not seen; requests: ${others.slice(0, 8).join(', ') || 'none'}`);
+  if (MAC) await run('osascript -e \'quit app "Claude"\'');
+  else await run('taskkill /IM claude.exe /F');
+
   // ---- In Control Tower: the calls, as the person ----
   await sleep(1500);
   const flights = ((await api('GET', `/admin/api/flights?key_id=${key.id}&limit=100`)).flights ?? []) as Array<{ principal: string | null; model_requested: string }>;
   const mine = flights.filter((f) => f.principal === 'dev@acme.example');
   c('Control Tower records both tools\' calls as the person', mine.some((f) => f.model_requested.startsWith('claude')) && mine.some((f) => f.model_requested.startsWith('gpt')), `${mine.length} calls as dev@acme.example: ${[...new Set(mine.map((f) => f.model_requested))].join(', ')}`);
   const devices = ((await api('GET', '/admin/api/devices')).sessions ?? []) as Array<{ client: string; device_name: string; status: string }>;
-  c('Laptops lists the computer, once per tool', devices.filter((d) => d.status === 'active').length === 2, devices.map((d) => `${d.client} on ${d.device_name}`).join(', '));
+  c('Laptops lists the computer, once per tool', devices.filter((d) => d.status === 'active').length === 3, devices.map((d) => `${d.client} on ${d.device_name}`).join(', '));
 } finally {
   const failed = checks.filter((x) => !x.pass).length;
   fs.writeFileSync(path.join(process.env.RESULTS_DIR ?? REPO, 'laptops-real-results.json'), JSON.stringify({ platform: process.platform, ran_at: new Date().toISOString(), checks }, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Laptops on ${WIN ? 'Windows' : 'macOS'}: ${checks.length - failed} of ${checks.length}\n\n${checks.map((x) => `- ${x.pass ? '✅' : '❌'} ${x.what} — ${x.detail.replace(/\n/g, ' ')}`).join('\n')}\n`);
   console.log(`${checks.length - failed} of ${checks.length} passed`);
   ct.kill();
+  recorder.close();
   await ant.close();
   await oai.close();
   await files.close();

@@ -36,5 +36,7 @@ jobs:
         if: always()
         with:
           name: laptops-real-${{ matrix.os }}
-          path: ${{ runner.temp }}/laptops-real-results.json
+          path: |
+            ${{ runner.temp }}/laptops-real-results.json
+            ${{ runner.temp }}/claude-desktop-*.png
           if-no-files-found: ignore

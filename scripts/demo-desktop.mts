@@ -209,15 +209,48 @@ tell application "System Events" to tell process "Claude"
 end tell`);
   fs.writeFileSync(path.join(OUT, 'ax-tree.txt'), tree.out + tree.err);
   log(`ax tree: ${tree.out.split('\n')[0]} elements; ${tree.err.trim().slice(0, 200)}`);
-  // "Project or folder", by name.
-  const pf = await osa(`tell application "System Events" to tell process "Claude"
-  set b to first UI element of (entire contents of window 1) whose (name is "Project or folder" or description is "Project or folder")
-  perform action "AXPress" of b
-  return "pressed"
+  // Press things by name (looping: a "whose" query over Electron's tree fails), and list what's on screen.
+  const press = (name: string, proc = 'Claude') => osa(`tell application "System Events" to tell process "${proc}"
+  repeat with w in windows
+    repeat with e in (entire contents of w)
+      try
+        if (description of e as text) is "${name}" or (name of e as text) is "${name}" then
+          perform action "AXPress" of e
+          return "pressed"
+        end if
+      end try
+    end repeat
+  end repeat
+  return "not found"
 end tell`);
-  log(`project or folder: ${pf.out.trim()} ${pf.err.trim().slice(0, 200)}`);
+  const dump = async (file: string, proc = 'Claude') => {
+    const t = await osa(`tell application "System Events" to tell process "${proc}"
+  set out to ""
+  repeat with w in windows
+    set out to out & "== window " & (name of w as text) & linefeed
+    repeat with e in (entire contents of w)
+      try
+        set r to role of e as text
+        if r is not "AXGroup" then
+          set p to position of e
+          set z to size of e
+          set out to out & r & " | " & (description of e as text) & " | " & (name of e as text) & " | " & (item 1 of p as text) & "," & (item 2 of p as text) & " | " & (item 1 of z as text) & "x" & (item 2 of z as text) & linefeed
+        end if
+      end try
+    end repeat
+  end repeat
+  return out
+end tell`);
+    fs.writeFileSync(path.join(OUT, file), t.out + t.err);
+  };
+  log(`Code: ${(await press('Code')).out.trim()}`);
+  await sleep(2000);
+  await shot('code-tab');
+  await dump('ax-code-tab.txt');
+  log(`Project or folder: ${(await press('Project or folder')).out.trim()}`);
   await sleep(3000);
   await shot('project-or-folder');
+  await dump('ax-project-or-folder.txt');
 } finally {
   fs.writeFileSync(path.join(OUT, 'requests.json'), JSON.stringify(seen, null, 2));
   ct.kill();

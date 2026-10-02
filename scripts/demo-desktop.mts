@@ -297,8 +297,9 @@ const chooseFolder = async () => {
   if (await find('Trust workspace')) log(`Trust workspace: ${await press('Trust workspace')}`);
 };
 const ask = async (text: string) => {
+  // (Near its left end: Claude's notifications banner can cover the right half.)
   const box = await waitFor('Prompt');
-  if (box) await clickAt(box.x + box.w / 2, box.y + box.h / 2);
+  if (box) await clickAt(box.x + 40, box.y + box.h / 2);
   await sleep(500);
   await type('Claude', text, true);
 };

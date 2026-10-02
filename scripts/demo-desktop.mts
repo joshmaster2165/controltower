@@ -77,7 +77,9 @@ const api = (method: string, p: string, body?: unknown) =>
   fetch(`http://127.0.0.1:${PORT}${p}`, { method, headers: { authorization: `Bearer ${AK}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }).then(async (r) => (await r.json().catch(() => ({}))) as any);
 
 try {
-  await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant.url, credentials: { api_key: 'sk-ant-demo' } });
+  const prov = await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant.url, credentials: { api_key: 'sk-ant-demo' } });
+  // Claude Desktop lists the Claude models Control Tower serves, and won't start without one.
+  for (const m of ['claude-sonnet-4-5', 'claude-haiku-4-5']) await api('POST', '/admin/api/deployments', { provider_id: (prov.provider ?? prov).id, upstream_model: m, public_name: m });
   const key = await api('POST', '/admin/api/keys', { name: 'claude-desktop', agent_id: 'claude-desktop', team: 'finance' });
   await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: key.id }] });
   const made = await api('POST', '/admin/api/users', { email: 'dana@acme.com', role: 'viewer' });
@@ -97,6 +99,9 @@ try {
 
   // ---- What the screen can do: its size, and recording video ----
   await run('brew install cliclick displayplacer', 300_000);
+  const disp = (await run('displayplacer list')).out.match(/id:(\S+) res:/)?.[1];
+  if (disp) log(`1920x1080: ${(await run(`displayplacer "id:${disp} res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"`)).code}`);
+  await sleep(3000);
   log(`displays: ${(await run('displayplacer list')).out.split('\n').filter((l) => /Resolution|res:|mode/i.test(l)).slice(0, 30).join(' | ').slice(0, 1500)}`);
   const vid = await run(`screencapture -v -V 3 ${q(path.join(OUT, 'probe.mov'))}`, 30_000);
   log(`screencapture -v: exit ${vid.code} ${vid.err.trim().slice(0, 160)}; file ${fs.existsSync(path.join(OUT, 'probe.mov')) ? fs.statSync(path.join(OUT, 'probe.mov')).size : 0} bytes`);
@@ -183,20 +188,34 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'claude-desktop-elements.txt'), ax.out + ax.err);
   log(`elements: ${ax.out.split('\n').length} (saved)`);
   await shot('main');
-  // Claude Desktop's own report of the configuration it can't use (its "Copy report for IT" button).
-  await run('osascript -e \'tell application "Claude" to activate\'');
-  await sleep(1000);
-  await run('cliclick c:522,217');
-  await sleep(1500);
-  const report = (await run('pbpaste')).out;
-  fs.writeFileSync(path.join(OUT, 'claude-desktop-it-report.txt'), report);
-  log(`IT report: ${report.length} chars`);
-  await run('cliclick c:471,179');
-  await sleep(2000);
-  await shot('details');
-  await run('osascript -e \'tell application "System Events" to key code 53\'');
-  // The Code tab's "Project or folder".
-  await run('cliclick c:505,527');
+  // What Claude Desktop shows to accessibility (so the video can click by name).
+  const tree = await osa(`tell application "Claude" to activate
+delay 1
+tell application "System Events" to tell process "Claude"
+  try
+    set value of attribute "AXManualAccessibility" to true
+  end try
+end tell
+delay 3
+tell application "System Events" to tell process "Claude"
+  set out to ""
+  set els to entire contents of window 1
+  repeat with e in els
+    try
+      set out to out & (role of e as text) & " | " & (description of e as text) & " | " & (name of e as text) & " | " & ((position of e) as text) & " | " & ((size of e) as text) & linefeed
+    end try
+  end repeat
+  return (count of els) as text & linefeed & out
+end tell`);
+  fs.writeFileSync(path.join(OUT, 'ax-tree.txt'), tree.out + tree.err);
+  log(`ax tree: ${tree.out.split('\n')[0]} elements; ${tree.err.trim().slice(0, 200)}`);
+  // "Project or folder", by name.
+  const pf = await osa(`tell application "System Events" to tell process "Claude"
+  set b to first UI element of (entire contents of window 1) whose (name is "Project or folder" or description is "Project or folder")
+  perform action "AXPress" of b
+  return "pressed"
+end tell`);
+  log(`project or folder: ${pf.out.trim()} ${pf.err.trim().slice(0, 200)}`);
   await sleep(3000);
   await shot('project-or-folder');
 } finally {

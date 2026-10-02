@@ -264,7 +264,7 @@ test('the rollout files: every client set up for this address, with no secret in
   // The helper can be fetched by hand, to try it before rolling it out.
   const sh = await fetch(`${CT}/device/ct-auth.sh`);
   expect(sh.status).toBe(200);
-  expect(await sh.text()).toContain('ct-auth: signs this computer in to Control Tower');
+  expect(await sh.text()).toContain('ct-auth: signs this computer in, and prints short-lived tokens');
 });
 
 test('the install scripts write what they say (run into a scratch root), and the Windows ones parse', async () => {
@@ -277,7 +277,7 @@ test('the install scripts write what they say (run into a scratch root), and the
     expect(run.status, run.stderr).toBe(0);
     const installed = path.join(root, 'usr/local/bin/ct-auth');
     expect(fs.statSync(installed).mode & 0o111).not.toBe(0);
-    expect(spawnSync('sh', [installed, 'version'], { encoding: 'utf8' }).stdout.trim()).toBe('ct-auth 1');
+    expect(spawnSync('sh', [installed, 'version'], { encoding: 'utf8' }).stdout.trim()).toBe('ct-auth 2');
     expect(spawnSync('sh', [path.join(root, 'usr/local/bin/ct-auth-mcp-codex')], { encoding: 'utf8', env: { ...process.env, CT_URL: '' } }).stderr).toContain('ct-auth');
     const conf = name.includes('macos') ? 'Library/Application Support/ControlTower/ct-auth.conf' : 'etc/controltower/ct-auth.conf';
     expect(fs.readFileSync(path.join(root, conf), 'utf8').trim()).toBe('url=https://ai.example.com');
@@ -316,4 +316,74 @@ test('the install scripts write what they say (run into a scratch root), and the
   expect(JSON.parse(header.stdout)).toEqual({ Authorization: `Bearer ${token}` });
   expect(spawnSync('pwsh', ['-NoProfile', '-File', helper, 'logout', '--client', 'codex'], { env, encoding: 'utf8' }).status).toBe(0);
   expect((await chat(token)).status).toBe(401);
+});
+
+test('signing in with the identity provider: no Control Tower account, the issuer\'s rules pick the key', async () => {
+  const { testIdp } = await import('./support/oidc-idp');
+  const idp = await testIdp({ clientId: 'ct-laptops' });
+  let issuerId = '';
+  try {
+    idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
+    const made = await admin.post('/admin/api/token-issuers', { name: 'Okta', issuer: idp.url, jwks_uri: `${idp.url}/jwks`, audiences: ['ct-laptops'], rules: [{ claims: { groups: 'eng' }, key_id: keys.eng!.id }], principal_claim: 'email' });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    issuerId = made.body.id;
+    // The rollout files carry the identity provider; its client ID must be an accepted audience.
+    expect((await admin.get(`/admin/api/devices/rollout?idp_issuer_id=${issuerId}&idp_client_id=someone-else`)).body.error.message).toContain('accepted audiences');
+    const r = await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://ai.example.com')}&idp_issuer_id=${issuerId}&idp_client_id=ct-laptops`);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.idp).toMatchObject({ name: 'Okta', principal_claim: 'email', rules: 1 });
+    expect((r.body.files as any[]).find((f) => f.name === 'install-controltower-linux.sh').content).toContain(`url=https://ai.example.com\nidp_issuer=${idp.url}\nidp_client_id=ct-laptops\n`);
+
+    // A laptop with that configuration: ct-auth signs in at the identity provider (opening the link approves it).
+    const conf = path.join(tmp, 'idp.conf');
+    fs.writeFileSync(conf, `url=${CT}\nidp_issuer=${idp.url}\nidp_client_id=ct-laptops\n`);
+    const opener = path.join(tmp, 'idp-open.sh');
+    fs.writeFileSync(opener, '#!/bin/sh\ncurl -s "$1" >/dev/null\n', { mode: 0o755 });
+    const env = { ...process.env, CT_AUTH_STORE: 'file', CT_AUTH_DIR: path.join(tmp, 'idp-store'), CT_AUTH_OPEN: opener, CT_AUTH_CONF: conf, CT_URL: '', CT_AUTH_WAIT: '20' };
+    const helper = path.resolve('server/src/ee/laptops/ct-auth.sh');
+    const sh = (args: string[]) =>
+      new Promise<{ status: number; stdout: string; stderr: string }>((resolve) =>
+        execFile('sh', [helper, ...args, '--client', 'claude-code'], { env, encoding: 'utf8', timeout: 30_000 }, (e, stdout, stderr) => resolve({ status: e ? (typeof e.code === 'number' ? e.code : -1) : 0, stdout, stderr })),
+      );
+    const login = await sh(['login']);
+    expect(login.status, login.stderr).toBe(0);
+    expect(login.stderr).toContain('Sign in with your work account');
+    expect(login.stderr).toContain('Signed in as riley@laptops.test');
+    const t1 = (await sh(['token'])).stdout.trim();
+    // Its token is the identity provider's ID token: the issuer's rule makes it the engineering key, recorded as Riley.
+    expect(t1.split('.')).toHaveLength(3);
+    const call = await chat(t1);
+    expect(call.status, await call.clone().text()).toBe(200);
+    const flightId = call.headers.get('x-ct-flight-id')!;
+    await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.eng!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === flightId)?.principal).toBe('Okta · riley@laptops.test');
+    expect((await sh(['status'])).stderr).toContain(`Signed in with ${idp.url} as riley@laptops.test`);
+    // ID tokens last 5 minutes here, so the next call refreshes (the refresh token rotates) and gets a new one.
+    const t2 = (await sh(['token'])).stdout.trim();
+    expect(t2).not.toBe(t1);
+    expect(idp.deviceGrants).toContain('refresh_token');
+    expect((await chat(t2)).status).toBe(200);
+    // MCP clients get the same token.
+    expect(JSON.parse((await sh(['header'])).stdout).Authorization).toMatch(/^Bearer ey/);
+    // Signing out revokes the refresh token at the identity provider.
+    expect((await sh(['logout'])).status).toBe(0);
+    expect(idp.revoked).toHaveLength(1);
+    // Someone outside the group the rule names gets a token, but Control Tower refuses it.
+    idp.user = { sub: 'okta-sam', email: 'sam@laptops.test', groups: ['sales'] };
+    expect((await sh(['login'])).status).toBe(0);
+    expect((await chat((await sh(['token'])).stdout.trim())).status).toBe(401);
+    await sh(['logout']);
+
+    // The same with the Windows helper, where PowerShell is available.
+    if (spawnSync('pwsh', ['-v']).status !== 0) return;
+    idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
+    const ps = path.resolve('server/src/ee/laptops/ct-auth.ps1');
+    const psEnv = { ...env, CT_AUTH_DIR: path.join(tmp, 'idp-ps-store') };
+    const psLogin = spawnSync('pwsh', ['-NoProfile', '-File', ps, 'login', '--client', 'codex'], { env: psEnv, encoding: 'utf8', timeout: 30_000 });
+    expect(psLogin.status, psLogin.stderr).toBe(0);
+    const psTok = spawnSync('pwsh', ['-NoProfile', '-File', ps, 'token', '--client', 'codex'], { env: psEnv, encoding: 'utf8' }).stdout.trim();
+    expect((await chat(psTok)).status).toBe(200);
+  } finally {
+    if (issuerId) await admin.del(`/admin/api/token-issuers/${issuerId}`);
+    await idp.close();
+  }
 });

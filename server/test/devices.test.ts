@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { openSqlite } from '../src/db/index.js';
 import { DeviceAuth, newUserCode, normaliseUserCode, ACCESS_TTL_S } from '../src/ee/devices.js';
-import { rolloutFiles, rolloutUrlProblem } from '../src/ee/laptops/templates.js';
+import { idpProblem, rolloutFiles, rolloutUrlProblem } from '../src/ee/laptops/templates.js';
 import type { KeyRecord } from '../src/registry.js';
 
 const key = (over: Partial<KeyRecord> = {}): KeyRecord =>
@@ -94,5 +94,15 @@ describe('rollout files', () => {
     expect(plain['claude-code/managed-mcp.json']).toBeUndefined();
     for (const bad of ['ftp://x.com', 'https://x.com/?a=1', 'https://u:p@x.com', 'https://x.com/a b', "https://x.com/'$(id)'", 'not a url']) expect(rolloutUrlProblem(bad), bad).toBeDefined();
     expect(rolloutUrlProblem('https://ai.acme.com/gateway')).toBeUndefined();
+  });
+
+  it('with an identity provider: the config file says where people sign in, and only safe values go in it', () => {
+    const files = Object.fromEntries(rolloutFiles({ url: 'https://ai.acme.com', clients: ['claude-code'], mcp: false, lockdown: false, idp: { issuer: 'https://acme.okta.com/oauth2/default', clientId: '0oa1b2c3', scope: 'openid email groups offline_access' } }).map((f) => [f.name, f.content]));
+    expect(files['install-ct-auth-macos.sh']).toContain('url=https://ai.acme.com\nidp_issuer=https://acme.okta.com/oauth2/default\nidp_client_id=0oa1b2c3\nidp_scope=openid email groups offline_access\n');
+    expect(files['install-controltower-windows.ps1']).toContain('idp_client_id=0oa1b2c3');
+    expect(idpProblem({ issuer: 'https://login.microsoftonline.com/tenant/v2.0', clientId: '4f1c-11aa' })).toBeUndefined();
+    expect(idpProblem({ issuer: 'http://idp.example.com', clientId: 'x' })).toContain('https');
+    expect(idpProblem({ issuer: 'https://idp.example.com', clientId: 'a b' })).toBeDefined();
+    expect(idpProblem({ issuer: 'https://idp.example.com', clientId: 'x', scope: 'openid; rm -rf' })).toBeDefined();
   });
 });

@@ -4,7 +4,7 @@ import type { AppContext } from '../../context.js';
 import { auditOrigin, requireAdmin } from '../../admin/auth.js';
 import { requireEnterprise } from './license.js';
 import { ACCESS_TTL_S, CLIENT_NAMES, CLIENTS, DEVICE_CODE_GRANT, isClient, type DeviceAuth } from '../devices.js';
-import { ROLLOUT_CLIENTS, helperScripts, rolloutFiles, rolloutUrlProblem, type RolloutClient } from '../laptops/templates.js';
+import { ROLLOUT_CLIENTS, helperScripts, idpProblem, rolloutFiles, rolloutUrlProblem, type RolloutClient, type RolloutOptions } from '../laptops/templates.js';
 
 /** The address laptops reach this Control Tower at: CT_PUBLIC_URL when set, else the address this request came in on. */
 function baseUrl(ctx: AppContext, req: FastifyRequest): string {
@@ -33,7 +33,8 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
     pub.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 16 * 1024 }, (_req, body, done) => done(null, Object.fromEntries(new URLSearchParams(String(body)))));
 
     pub.post('/device/code', async (req, reply) => {
-      const slow = await ctx.limiter.admit(`device:start:${req.ip}`, 1, { rpm: 20 });
+      // Per address: an office behind one NAT signs many laptops in at once on rollout day.
+      const slow = await ctx.limiter.admit(`device:start:${req.ip}`, 1, { rpm: 120 });
       if (!slow.ok) return oauthError(reply, 429, 'slow_down', 'Too many sign-ins started from here. Wait a minute.');
       if (!licensed()) return oauthError(reply, 403, 'unavailable', 'Laptop sign-in needs a Control Tower Enterprise license.');
       const client = field(req, 'client') || 'other';
@@ -235,13 +236,28 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
 
   // The files IT uploads to its MDM, for the clients chosen, with this Control Tower's address in them.
   app.get('/admin/api/devices/rollout', { preHandler: guard }, async (req, reply) => {
-    const q = req.query as { url?: string; clients?: string; mcp?: string; lockdown?: string };
+    const q = req.query as { url?: string; clients?: string; mcp?: string; lockdown?: string; idp_issuer_id?: string; idp_client_id?: string; idp_scope?: string; idp_token?: string };
     const url = (q.url?.trim() || baseUrl(ctx, req)).replace(/\/+$/, '');
     const problem = rolloutUrlProblem(url);
     if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
     const clients = (q.clients ? q.clients.split(',') : ROLLOUT_CLIENTS).filter((c): c is RolloutClient => (ROLLOUT_CLIENTS as string[]).includes(c));
     if (!clients.length) return reply.status(400).send({ error: { code: 'invalid', message: `Choose at least one of ${ROLLOUT_CLIENTS.join(', ')}.` } });
-    const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0' });
-    return { url, https: url.startsWith('https://'), clients, files };
+    // Signing in with the identity provider: one of Agent identity's trusted issuers, whose rules map people to keys.
+    let idp: RolloutOptions['idp'];
+    let issuerInfo: { id: string; name: string; issuer: string; principal_claim: string; rules: number; enabled: boolean } | undefined;
+    if (q.idp_issuer_id) {
+      const row = await ctx.db.read.selectFrom('token_issuers').selectAll().where('id', '=', q.idp_issuer_id).executeTakeFirst();
+      if (!row) return reply.status(400).send({ error: { code: 'invalid', message: 'No such trusted issuer: add your identity provider under Agent identity first.' } });
+      const clientId = (q.idp_client_id ?? '').trim();
+      const audiences = JSON.parse(row.audiences || '[]') as string[];
+      if (!clientId) return reply.status(400).send({ error: { code: 'invalid', message: 'Enter the client ID of the app laptops sign in with, registered at your identity provider.' } });
+      if ((q.idp_token ?? 'id_token') === 'id_token' && !audiences.includes(clientId)) return reply.status(400).send({ error: { code: 'invalid', message: `ID tokens for ${clientId} are meant for that app: add "${clientId}" to ${row.name}'s accepted audiences under Agent identity, or Control Tower will refuse them.` } });
+      idp = { issuer: row.issuer, clientId, scope: q.idp_scope?.trim() || undefined, token: q.idp_token === 'access_token' ? 'access_token' : 'id_token' };
+      const problem = idpProblem(idp);
+      if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
+      issuerInfo = { id: row.id, name: row.name, issuer: row.issuer, principal_claim: row.principal_claim, rules: (JSON.parse(row.rules || "[]") as unknown[]).length, enabled: !!row.enabled };
+    }
+    const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0', idp });
+    return { url, https: url.startsWith('https://'), clients, files, ...(issuerInfo ? { idp: issuerInfo } : {}) };
   });
 }

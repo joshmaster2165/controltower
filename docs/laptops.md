@@ -10,6 +10,8 @@ Put Control Tower in front of the AI tools on your people's computers. IT rolls 
 
 No shared key is handed out: nothing secret is in the files you deploy. People get short-lived tokens, and you can sign out any computer at once.
 
+People sign in one of two ways: **with Control Tower** (they approve their computer in its console), or **with your identity provider** directly (Okta, Entra ID…), so they need no Control Tower account. To make sure every computer uses Control Tower and nothing else, and to check that it does, see [Enforcing the gateway on every computer](enforcement.md).
+
 ![Laptops: which key each tool's calls are made as](images/laptops-rules.png)
 
 ## How it works
@@ -23,6 +25,8 @@ No shared key is handed out: nothing secret is in the files you deploy. People g
 4. Each new access token is checked first: the sign-in hasn't been revoked, the person is still active, and a rule still covers them. Tokens are signed, so the gateway checks them without a database lookup.
 
 The sign-in is the standard OAuth device flow (RFC 8628), like `gh auth login`. It works with any identity provider Control Tower's [single sign-on](sso.md) supports, OIDC or SAML, with no app registration for the laptops.
+
+Or skip Control Tower's sign-in: with **your identity provider** chosen under **Laptops › Roll it out**, ct-auth runs the same device flow against Okta or Entra ID itself and hands the tools its ID tokens, which Control Tower checks through a trusted issuer under [Agent identity](agent-identity.md). Its rules (from groups to keys) pick the key, and people need no Control Tower account. Setting it up: [Signing in with your identity provider](enforcement.md#signing-in-with-your-identity-provider).
 
 ## Set it up
 
@@ -127,6 +131,7 @@ People see their own computers on **Connect your computer**, and can sign them o
 | `ct-auth logout --client <tool>` | Sign out here, and end the sign-in in Control Tower |
 
 - **`--client`:** `claude-code`, `claude-desktop`, `codex` or `other`. Each tool signs in separately, so one can be signed out without the others.
+- **Signing in with your identity provider:** `idp_issuer=` and `idp_client_id=` in the configuration file (or `CT_IDP_ISSUER` and `CT_IDP_CLIENT_ID`). Optional: `idp_scope=` (default `openid email profile offline_access`), and `idp_token=access_token` to send the access token instead of the ID token. `logout` revokes the refresh token at the identity provider when it offers revocation.
 - **The address:** `--url`, else `CT_URL`, else the installed configuration file:
   - macOS: `/Library/Application Support/ControlTower/ct-auth.conf`
   - Linux: `/etc/controltower/ct-auth.conf`

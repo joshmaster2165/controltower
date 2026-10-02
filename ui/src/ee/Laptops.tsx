@@ -84,6 +84,12 @@ export function LaptopsPage() {
   const [shown, setShown] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [settings, setSettings] = useState<{ session_days: string; idle_days: string } | null>(null);
+  // How people sign in: approving each computer in Control Tower, or with the identity provider directly.
+  const [mode, setMode] = useState<'controltower' | 'idp'>('controltower');
+  const [issuers, setIssuers] = useState<Array<{ id: string; name: string; issuer: string; audiences: string[]; principal_claim: string; rules: unknown[] }>>([]);
+  const [issuerId, setIssuerId] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [idpInfo, setIdpInfo] = useState<{ name: string; principal_claim: string; rules: number } | null>(null);
 
   const load = useCallback(() => {
     void api
@@ -100,24 +106,30 @@ export function LaptopsPage() {
     load();
     void api.get<{ keys: typeof keys }>('/admin/api/keys').then((d) => setKeys(d.keys.filter((k) => !k.built_in && !k.demo)));
     void api.get<{ teams: typeof teams }>('/admin/api/teams').then((d) => setTeams(d.teams)).catch(() => undefined);
+    void api.get<{ issuers: typeof issuers }>('/admin/api/token-issuers').then((d) => setIssuers(d.issuers)).catch(() => undefined);
     const t = setInterval(load, 15_000);
     return () => clearInterval(t);
   }, [load]);
 
   useEffect(() => {
     if (!url || !clients.length) return setFiles([]);
-    const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0' });
+    if (mode === 'idp' && (!issuerId || !clientId)) return setFiles([]);
+    const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0', ...(mode === 'idp' ? { idp_issuer_id: issuerId, idp_client_id: clientId } : {}) });
     const t = setTimeout(() => {
       void api
-        .get<{ files: RolloutFile[] }>(`/admin/api/devices/rollout?${q}`)
+        .get<{ files: RolloutFile[]; idp?: { name: string; principal_claim: string; rules: number } }>(`/admin/api/devices/rollout?${q}`)
         .then((d) => {
           setFiles(d.files);
+          setIdpInfo(d.idp ?? null);
           setErr(null);
         })
-        .catch((e) => setErr(e instanceof ApiError ? e.message : String(e)));
+        .catch((e) => {
+          setFiles([]);
+          setErr(e instanceof ApiError ? e.message : String(e));
+        });
     }, 300);
     return () => clearTimeout(t);
-  }, [url, clients, mcp, lockdown]);
+  }, [url, clients, mcp, lockdown, mode, issuerId, clientId]);
 
   const run = async (fn: () => Promise<void>, done?: string) => {
     setErr(null);
@@ -172,7 +184,7 @@ export function LaptopsPage() {
 
       <section className="card laptops-section">
         <h2>1 · Which key each tool’s calls are made as</h2>
-        <p className="hint">The first rule that matches the person (one of their teams, or everyone) and the tool decides. The key’s models, tools, limits, budget and gates apply; who made each call is recorded too.</p>
+        <p className="hint">For people who sign in with Control Tower: the first rule that matches the person (one of their teams, or everyone) and the tool decides. The key’s models, tools, limits, budget and gates apply; who made each call is recorded too. (Signing in with your identity provider, its issuer’s rules under Agent identity decide instead.)</p>
         <table className="table">
           <thead>
             <tr>
@@ -251,7 +263,55 @@ export function LaptopsPage() {
 
       <section className="card laptops-section">
         <h2>2 · Roll it out</h2>
-        <p className="hint">These files install ct-auth and set up each tool to use Control Tower, every person signing in as themselves. They hold no secret: the address below is all they carry.</p>
+        <p className="hint">These files install ct-auth and set up each tool to use Control Tower, every person signing in as themselves. They hold no secret: the address below, and how people sign in, is all they carry.</p>
+        <fieldset className="field laptops-mode">
+          <legend>How people sign in</legend>
+          <label className="check">
+            <input type="radio" name="signin" checked={mode === 'controltower'} onChange={() => setMode('controltower')} />
+            <span>
+              <b>With Control Tower</b>
+              <span className="hint">Each person approves their computer in the console. They need a Control Tower account (single sign-on, the member role), and the rules above pick the key.</span>
+            </span>
+          </label>
+          <label className="check">
+            <input type="radio" name="signin" checked={mode === 'idp'} onChange={() => setMode('idp')} />
+            <span>
+              <b>With your identity provider</b>
+              <span className="hint">People sign in to Okta, Entra ID… directly, with no Control Tower account. A trusted issuer under Agent identity checks their tokens, and its rules pick the key.</span>
+            </span>
+          </label>
+        </fieldset>
+        {mode === 'idp' && (
+          <div className="laptops-options">
+            <div className="field" style={{ flex: '1 1 240px' }}>
+              <label htmlFor="idp-issuer">Identity provider (a trusted issuer)</label>
+              <select id="idp-issuer" className="input" value={issuerId} onChange={(e) => setIssuerId(e.target.value)}>
+                <option value="">Choose…</option>
+                {issuers.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name} ({i.issuer})
+                  </option>
+                ))}
+              </select>
+              {issuers.length === 0 && (
+                <span className="hint">
+                  None yet: add your identity provider under <a href="#/agent-identity">Agent identity</a>, with rules from its groups to keys.
+                </span>
+              )}
+            </div>
+            <div className="field" style={{ flex: '1 1 240px' }}>
+              <label htmlFor="idp-client">Client ID of the laptop app</label>
+              <input id="idp-client" className="input mono" value={clientId} onChange={(e) => setClientId(e.target.value.trim())} placeholder="0oa1b2c3d4… or an Entra application ID" />
+              <span className="hint">A public client with the device authorization grant turned on, and the same ID among the issuer’s accepted audiences.</span>
+            </div>
+            {idpInfo && (
+              <p className="hint" style={{ flex: "1 1 100%", margin: 0 }}>
+                {idpInfo.name}: {idpInfo.rules} {idpInfo.rules === 1 ? 'rule' : 'rules'} pick the key; calls are recorded under the token’s <span className="mono">{idpInfo.principal_claim}</span>
+                {idpInfo.principal_claim === 'sub' && <span className="laptops-warn"> (set “Who presented it” to email, or preferred_username for Entra ID, to see people by name)</span>}.
+              </p>
+            )}
+          </div>
+        )}
         <div className="laptops-options">
           <div className="field" style={{ flex: '1 1 320px' }}>
             <label htmlFor="rollout-url">The address laptops reach Control Tower at</label>

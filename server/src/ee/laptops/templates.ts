@@ -22,6 +22,33 @@ export interface RolloutOptions {
   mcp: boolean;
   /** Also stop the clients going anywhere else: other providers, other MCP servers, local extensions. */
   lockdown: boolean;
+  /**
+   * How people sign in: with Control Tower (they approve each computer in the console), or with your identity
+   * provider directly (its device sign-in; Control Tower checks the tokens through a trusted issuer, so people need
+   * no Control Tower account).
+   */
+  idp?: { issuer: string; clientId: string; scope?: string | undefined; token?: 'id_token' | 'access_token' | undefined } | undefined;
+}
+
+/** What's wrong with identity-provider settings, if anything (they go into a config file and scripts). */
+export function idpProblem(idp: NonNullable<RolloutOptions['idp']>): string | undefined {
+  const issuer = rolloutUrlProblem(idp.issuer);
+  if (issuer) return `The identity provider's issuer: ${issuer}`;
+  if (!idp.issuer.startsWith('https://') && !/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(idp.issuer)) return "The identity provider's issuer must be https.";
+  if (!/^[A-Za-z0-9._:/-]{1,200}$/.test(idp.clientId)) return 'Enter the client ID of the app registered at your identity provider (letters, digits and . _ : / - only).';
+  if (idp.scope !== undefined && !/^[A-Za-z0-9 ._:/-]{1,300}$/.test(idp.scope)) return 'Scopes are space-separated names, such as "openid email profile offline_access".';
+  return undefined;
+}
+
+/** ct-auth's config file: the address, and how to sign in. */
+function confText(o: RolloutOptions): string {
+  const lines = [`url=${o.url}`];
+  if (o.idp) {
+    lines.push(`idp_issuer=${o.idp.issuer}`, `idp_client_id=${o.idp.clientId}`);
+    if (o.idp.scope) lines.push(`idp_scope=${o.idp.scope}`);
+    if (o.idp.token && o.idp.token !== 'id_token') lines.push(`idp_token=${o.idp.token}`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 export type Platform = 'macos' | 'windows' | 'linux' | 'any';
@@ -245,7 +272,7 @@ function installMac(o: RolloutOptions): string {
     'set -eu',
     heredoc(UNIX_HELPER, helperScripts().sh, '755'),
     unixWrappers(),
-    heredoc(MAC_CONF, `url=${o.url}\n`, '644'),
+    heredoc(MAC_CONF, confText(o), '644'),
   ];
   // Claude Code's MCP servers with a sign-in helper can only come from a file (a profile can't name a command).
   if (has(o, 'claude-code') && o.mcp) parts.push(heredoc('/Library/Application Support/ClaudeCode/managed-mcp.json', json(claudeCodeMcp(o, UNIX_HELPER)), '644'));
@@ -263,7 +290,7 @@ function installLinux(o: RolloutOptions): string {
     'set -eu',
     heredoc(UNIX_HELPER, helperScripts().sh, '755'),
     unixWrappers(),
-    heredoc('/etc/controltower/ct-auth.conf', `url=${o.url}\n`, '644'),
+    heredoc('/etc/controltower/ct-auth.conf', confText(o), '644'),
   ];
   if (has(o, 'claude-code')) {
     parts.push(heredoc('/etc/claude-code/managed-settings.json', json(claudeCodeSettings(o, UNIX_HELPER)), '644'));
@@ -301,7 +328,7 @@ function installWindows(o: RolloutOptions): string {
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-claude-desktop.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client claude-desktop'`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-codex.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client codex'`,
     "New-Item -ItemType Directory -Path (Join-Path $env:ProgramData 'ControlTower') -Force | Out-Null",
-    `Set-Content -LiteralPath (Join-Path $env:ProgramData 'ControlTower\\ct-auth.conf') -Encoding ASCII -Value 'url=${o.url}'`,
+    `Write-File (Join-Path $env:ProgramData 'ControlTower\\ct-auth.conf') ${psHere(confText(o))}`,
   ];
   if (has(o, 'claude-code')) {
     ps.push(

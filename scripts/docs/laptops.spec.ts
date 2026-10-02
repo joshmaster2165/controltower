@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { REPO as REPO_ROOT, nav, shot, startServer } from './helpers';
+import path from 'node:path';
+import { OUT as OUT_DIR, REPO as REPO_ROOT, nav, shot, startServer } from './helpers';
 import { TEST_LICENSE_PUBLIC_KEY, testLicense } from '../../e2e/support/license';
 import { openAiUpstream } from '../../e2e/support/upstreams';
 
@@ -88,6 +89,22 @@ test('laptops: rules, rollout, approving a sign-in, spend by person', async ({ p
     await expect(page.locator('.laptops-section').nth(1).locator('pre').first()).toBeVisible();
     await shot(page, 'laptops-rollout', { clip: page.locator('.laptops-section').nth(1), pad: 8 });
     await page.getByRole('button', { name: 'Hide' }).click();
+    // Signing in with the identity provider instead: a trusted issuer (Okta), and the laptop app's client ID.
+    const { publicKey } = (await import('node:crypto')).generateKeyPairSync('rsa', { modulusLength: 2048 });
+    await api('POST', '/admin/api/token-issuers', { name: 'Okta', issuer: 'https://acme.okta.com/oauth2/default', jwks: { keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'okta-1', alg: 'RS256', use: 'sig' }] }, audiences: ['0oa9laptops'], principal_claim: 'email', rules: [{ claims: { groups: 'engineering' }, key_id: k.cc.id }, { claims: { groups: 'Everyone' }, key_id: k.all.id }] });
+    await page.reload();
+    await expect(page.getByText('4 signed in')).toBeVisible();
+    const roll = page.locator('.laptops-section').nth(1);
+    await roll.getByLabel('The address laptops reach Control Tower at').fill('https://ai.acme.com');
+    await roll.getByText('With your identity provider').click();
+    await roll.getByLabel('Identity provider (a trusted issuer)').selectOption({ label: 'Okta (https://acme.okta.com/oauth2/default)' });
+    await roll.getByLabel('Client ID of the laptop app').fill('0oa9laptops');
+    await expect(roll.getByText('2 rules pick the key')).toBeVisible();
+    await roll.locator('.laptops-mode').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+    const top = await roll.locator('.laptops-mode').boundingBox();
+    const bottom = await roll.locator('.laptops-mode + .laptops-options').boundingBox();
+    await page.screenshot({ path: path.join(OUT_DIR, 'laptops-idp.png'), clip: { x: top!.x - 12, y: top!.y - 12, width: Math.min(1260 - top!.x, 980), height: bottom!.y + bottom!.height - top!.y + 24 } });
     await page.locator('.laptops-section').nth(2).scrollIntoViewIfNeeded();
     await shot(page, 'laptops-computers', { clip: page.locator('.laptops-section').nth(2), pad: 8 });
 

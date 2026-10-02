@@ -2,6 +2,12 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Laptops: sign in with your identity provider.** ct-auth can sign people in to Okta, Entra ID or any OpenID Connect provider directly (its device flow) and hand the tools its ID tokens, which Control Tower checks through a trusted issuer under Agent identity. People need no Control Tower account; the issuer's rules (groups to keys) pick the key, and calls are recorded under the person's email. Choose it under **Laptops › Roll it out**. Tested end to end, refresh and sign-out included.
+- **Docs: [Enforcing the gateway on every computer](enforcement.md):** what each tool's managed settings enforce and what they can't, sign-in either way, blocking provider APIs at the network, and checking every computer (with a Jamf extension attribute).
+- Laptop sign-ins can start 120 times a minute from one address (was 20): an office behind one address signs everyone in on rollout day.
+
 ## 0.2.5 — 2 October 2026
 
 - **Laptops (Enterprise): Claude Code, Claude Desktop and Codex on people's computers, rolled out by MDM.** IT downloads the files from **Laptops** (a macOS profile and install script for Jamf, Intune or Kandji; an Intune script and registry file for Windows; a Linux script) and deploys them. Each tool then sends its model and MCP calls through Control Tower, signed in as the person. The first time, ct-auth opens **Connect your computer**, where they sign in as usual and approve (the OAuth device flow). Rules pick the key each tool's calls are made as, by team. Tokens last an hour; signing out a computer, or removing the person, applies at once. **Lock down** stops the tools using other providers or MCP servers. Tested with Claude Code and Codex themselves. See [Laptops](laptops.md).

@@ -210,15 +210,18 @@ end tell`);
   fs.writeFileSync(path.join(OUT, 'ax-tree.txt'), tree.out + tree.err);
   log(`ax tree: ${tree.out.split('\n')[0]} elements; ${tree.err.trim().slice(0, 200)}`);
   // Press things by name (looping: a "whose" query over Electron's tree fails), and list what's on screen.
-  const AX_ON = (proc: string) => `tell application "System Events" to tell process "${proc}"
+  const AX_ON = (proc: string) => `tell application "${proc}" to activate
+delay 1
+tell application "System Events" to tell process "${proc}"
+  set frontmost to true
   try
     set value of attribute "AXManualAccessibility" to true
   end try
 end tell
-delay 1.5
+delay 3
 `;
   const press = (name: string, proc = 'Claude') => osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
-  repeat with w in windows
+  repeat with w in {window 1}
     repeat with e in (entire contents of w)
       try
         if (description of e as text) is "${name}" or (name of e as text) is "${name}" then
@@ -233,7 +236,7 @@ end tell`);
   const dump = async (file: string, proc = 'Claude') => {
     const t = await osa(`${AX_ON(proc)}tell application "System Events" to tell process "${proc}"
   set out to ""
-  repeat with w in windows
+  repeat with w in {window 1}
     set out to out & "== window " & (name of w as text) & linefeed
     repeat with e in (entire contents of w)
       try

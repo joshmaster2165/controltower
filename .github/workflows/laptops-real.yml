@@ -1,0 +1,39 @@
+name: laptops on real machines
+
+# The Laptops rollout on real Windows and macOS machines: the install files run the way Intune and Jamf run them, then
+# the real Claude Code and Codex, configured by nothing else, call Control Tower as the person who signed in.
+# Manual, and weekly (the clients change often).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  real:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          CT_TEST_LICENSE_KEYS: '1'
+      - run: npm install -g @anthropic-ai/claude-code @openai/codex
+      - run: npx tsx scripts/laptops/real-machine.mts
+        env:
+          RESULTS_DIR: ${{ runner.temp }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: laptops-real-${{ matrix.os }}
+          path: ${{ runner.temp }}/laptops-real-results.json
+          if-no-files-found: ignore

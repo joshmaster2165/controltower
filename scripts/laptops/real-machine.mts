@@ -40,7 +40,8 @@ function run(line: string, env: Record<string, string | undefined> = {}, timeout
     const full: Record<string, string> = {};
     for (const [k, v] of Object.entries({ ...process.env, ...env })) if (v !== undefined) full[k] = v;
     for (const [k, v] of Object.entries(env)) if (v === undefined) delete full[k];
-    const p = spawn(line, { shell: true, env: full, cwd: TMP });
+    // No input: `codex exec` otherwise waits to read more of its prompt from stdin.
+    const p = spawn(line, { shell: true, env: full, cwd: TMP, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     p.stdout?.on('data', (d) => (out += d));

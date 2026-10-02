@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        # windows-2022: its Visual Studio lets better-sqlite3 build where no prebuilt binary fits.
+        os: [windows-2022, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:

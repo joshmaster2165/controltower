@@ -89,7 +89,8 @@ export function LaptopsPage() {
   const [issuers, setIssuers] = useState<Array<{ id: string; name: string; issuer: string; audiences: string[]; principal_claim: string; rules: unknown[] }>>([]);
   const [issuerId, setIssuerId] = useState('');
   const [clientId, setClientId] = useState('');
-  const [idpInfo, setIdpInfo] = useState<{ name: string; principal_claim: string; rules: number } | null>(null);
+  const [idpInfo, setIdpInfo] = useState<{ id: string; name: string; principal_claim: string; rules: number; people: boolean } | null>(null);
+  const [idpRefresh, setIdpRefresh] = useState(0);
 
   const load = useCallback(() => {
     void api
@@ -117,7 +118,7 @@ export function LaptopsPage() {
     const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0', ...(mode === 'idp' ? { idp_issuer_id: issuerId, idp_client_id: clientId } : {}) });
     const t = setTimeout(() => {
       void api
-        .get<{ files: RolloutFile[]; idp?: { name: string; principal_claim: string; rules: number } }>(`/admin/api/devices/rollout?${q}`)
+        .get<{ files: RolloutFile[]; idp?: { id: string; name: string; principal_claim: string; rules: number; people: boolean } }>(`/admin/api/devices/rollout?${q}`)
         .then((d) => {
           setFiles(d.files);
           setIdpInfo(d.idp ?? null);
@@ -129,7 +130,7 @@ export function LaptopsPage() {
         });
     }, 300);
     return () => clearTimeout(t);
-  }, [url, clients, mcp, lockdown, mode, issuerId, clientId]);
+  }, [url, clients, mcp, lockdown, mode, issuerId, clientId, idpRefresh]);
 
   const run = async (fn: () => Promise<void>, done?: string) => {
     setErr(null);
@@ -308,6 +309,17 @@ export function LaptopsPage() {
               <p className="hint" style={{ flex: "1 1 100%", margin: 0 }}>
                 {idpInfo.name}: {idpInfo.rules} {idpInfo.rules === 1 ? 'rule' : 'rules'} pick the key; calls are recorded under the token’s <span className="mono">{idpInfo.principal_claim}</span>
                 {idpInfo.principal_claim === 'sub' && <span className="laptops-warn"> (set “Who presented it” to email, or preferred_username for Entra ID, to see people by name)</span>}.
+                {idpInfo.people ? (
+                  ' Each person uses a seat while seen in the last 30 days.'
+                ) : (
+                  <>
+                    {' '}
+                    <span className="laptops-warn">Its tokens aren’t marked as people yet, so people signing in with it use no seat.</span>{' '}
+                    <button className="btn sm" onClick={() => void run(() => api.patch(`/admin/api/token-issuers/${idpInfo.id}`, { people: true }).then(() => setIdpRefresh((n) => n + 1)), `${idpInfo.name}'s tokens now count as people.`)}>
+                      Count them as people
+                    </button>
+                  </>
+                )}
               </p>
             )}
           </div>

@@ -140,7 +140,7 @@ export function LicenseBanner() {
   if (['valid', 'expiring', 'grace'].includes(l.status) && (l.seats_used ?? 0) > l.license.seats) {
     return (
       <div className="role-banner warn" role="alert">
-        {l.seats_used} people use single sign-on seats, more than the license’s {l.license.seats}. No one new can sign in through single sign-on until seats are added or people are removed. <a href="#/license">License</a>
+        {l.seats_used} people use seats, more than the license’s {l.license.seats}. No one new can sign in through single sign-on, or with your identity provider’s tokens on their computer, until seats are added or people are removed. <a href="#/license">License</a>
       </div>
     );
   }

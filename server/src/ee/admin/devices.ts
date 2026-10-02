@@ -244,7 +244,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
     if (!clients.length) return reply.status(400).send({ error: { code: 'invalid', message: `Choose at least one of ${ROLLOUT_CLIENTS.join(', ')}.` } });
     // Signing in with the identity provider: one of Agent identity's trusted issuers, whose rules map people to keys.
     let idp: RolloutOptions['idp'];
-    let issuerInfo: { id: string; name: string; issuer: string; principal_claim: string; rules: number; enabled: boolean } | undefined;
+    let issuerInfo: { id: string; name: string; issuer: string; principal_claim: string; rules: number; enabled: boolean; people: boolean } | undefined;
     if (q.idp_issuer_id) {
       const row = await ctx.db.read.selectFrom('token_issuers').selectAll().where('id', '=', q.idp_issuer_id).executeTakeFirst();
       if (!row) return reply.status(400).send({ error: { code: 'invalid', message: 'No such trusted issuer: add your identity provider under Agent identity first.' } });
@@ -255,7 +255,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
       idp = { issuer: row.issuer, clientId, scope: q.idp_scope?.trim() || undefined, token: q.idp_token === 'access_token' ? 'access_token' : 'id_token' };
       const problem = idpProblem(idp);
       if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
-      issuerInfo = { id: row.id, name: row.name, issuer: row.issuer, principal_claim: row.principal_claim, rules: (JSON.parse(row.rules || "[]") as unknown[]).length, enabled: !!row.enabled };
+      issuerInfo = { id: row.id, name: row.name, issuer: row.issuer, principal_claim: row.principal_claim, rules: (JSON.parse(row.rules || "[]") as unknown[]).length, enabled: !!row.enabled, people: !!row.people };
     }
     const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0', idp });
     return { url, https: url.startsWith('https://'), clients, files, ...(issuerInfo ? { idp: issuerInfo } : {}) };

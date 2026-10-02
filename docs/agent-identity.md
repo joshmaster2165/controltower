@@ -53,6 +53,17 @@ Once an agent uses tokens, stop its key's secret from working: on **Keys**, **re
 
 If tokens can't be used at all (every issuer is turned off, or the license has ended), tokens-only keys take their secret again, so no agent is locked out.
 
+## People or workloads
+
+Most issuers are for workloads: a Kubernetes service account, a CI job, an app with client credentials. Those use no seats.
+
+An issuer whose tokens are **people** is different. These are the people signing in on their computers with your identity provider directly ([Laptops](laptops.md)). Mark it under **Its tokens are people** (`people: true` in the API). Then:
+
+- each person it names uses a [seat](enterprise.md) while they've been seen in the last 30 days;
+- someone who also signs in with single sign-on counts once;
+- when every seat is taken, a new person's token is refused ("over the license's N seats"), and everyone already counted carries on;
+- the issuer's card shows how many people use a seat through it.
+
 ## Where tokens come from
 
 ### Kubernetes
@@ -164,7 +175,7 @@ Admins only.
 | Method | Path | |
 |---|---|---|
 | GET | `/admin/api/token-issuers` | Issuers, with their rules (and each rule's key name), key status, and tokens accepted and refused |
-| POST | `/admin/api/token-issuers` | `{name, issuer, audiences, rules, jwks_uri?, jwks?, principal_claim?, max_lifetime_s?}` |
+| POST | `/admin/api/token-issuers` | `{name, issuer, audiences, rules, jwks_uri?, jwks?, principal_claim?, max_lifetime_s?, people?}` |
 | PATCH | `/admin/api/token-issuers/:id` | Any of the above, and `enabled` |
 | DELETE | `/admin/api/token-issuers/:id` | |
 | POST | `/admin/api/token-issuers/:id/test` | Fetch the issuer's signing keys now |

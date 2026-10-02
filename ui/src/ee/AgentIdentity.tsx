@@ -19,6 +19,8 @@ interface Issuer {
   rules: Rule[];
   principal_claim: string;
   max_lifetime_s: number | null;
+  people: boolean;
+  people_seen: number;
   enabled: boolean;
   keys_status: 'ok' | 'error' | null;
   keys_error: string | null;
@@ -55,6 +57,7 @@ interface Draft {
   jwks: string;
   principal_claim: string;
   max_lifetime_s: string;
+  people: boolean;
   rules: Array<{ claims: Array<[string, string]>; key_id: string }>;
 }
 const emptyDraft = (p = PRESETS[0]!): Draft => ({
@@ -66,6 +69,7 @@ const emptyDraft = (p = PRESETS[0]!): Draft => ({
   jwks: '',
   principal_claim: p.principal ?? 'sub',
   max_lifetime_s: '86400',
+  people: false,
   rules: [{ claims: [[p.claim, p.example.startsWith('<') ? '' : p.example]], key_id: '' }],
 });
 const toDraft = (i: Issuer): Draft => ({
@@ -78,6 +82,7 @@ const toDraft = (i: Issuer): Draft => ({
   jwks: '',
   principal_claim: i.principal_claim,
   max_lifetime_s: i.max_lifetime_s ? String(i.max_lifetime_s) : '',
+  people: i.people,
   rules: i.rules.map((r) => ({ claims: Object.entries(r.claims), key_id: r.key_id })),
 });
 
@@ -134,6 +139,7 @@ export function AgentIdentityPage() {
       audiences: draft.audiences.split(',').map((a) => a.trim()).filter(Boolean),
       principal_claim: draft.principal_claim.trim() || 'sub',
       max_lifetime_s: draft.max_lifetime_s.trim() ? Number(draft.max_lifetime_s) : null,
+      people: draft.people,
       rules: draft.rules.map((r) => ({ claims: Object.fromEntries(r.claims.filter(([k, v]) => k.trim() && v.trim())), key_id: r.key_id })),
       jwks_uri: draft.keysFrom === 'uri' ? draft.jwks_uri.trim() : null,
       ...(draft.keysFrom === 'jwks' ? (draft.jwks.trim() ? { jwks: draft.jwks.trim() } : {}) : { jwks: null }),
@@ -225,6 +231,10 @@ export function AgentIdentityPage() {
             <label>
               Longest token lifetime (seconds)
               <input className="input" inputMode="numeric" value={draft.max_lifetime_s} placeholder="no limit" onChange={(e) => setDraft({ ...draft, max_lifetime_s: e.target.value.replace(/\D/g, '') })} />
+            </label>
+            <label className="check" style={{ gridColumn: '1 / -1' }}>
+              <input type="checkbox" checked={draft.people} onChange={(e) => setDraft({ ...draft, people: e.target.checked })} /> Its tokens are people, not workloads (people signing in on their computers, for{' '}
+              <a href="#/laptops">Laptops</a>): each person uses a seat, counted while seen in the last 30 days
             </label>
             {draft.keysFrom === 'jwks' && (
               <label style={{ gridColumn: '1 / -1' }}>
@@ -332,6 +342,7 @@ export function AgentIdentityPage() {
               <dt>Tokens</dt>
               <dd>
                 {i.accepted.toLocaleString()} accepted · {i.refused.toLocaleString()} refused
+                {i.people && ` · people: ${i.people_seen} using a seat`}
                 {i.last_used_at && <span className="sub">last used {ago(i.last_used_at)}</span>}
               </dd>
             </div>

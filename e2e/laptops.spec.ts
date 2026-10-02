@@ -325,7 +325,8 @@ test('signing in with the identity provider: no Control Tower account, the issue
   let issuerId = '';
   try {
     idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
-    const made = await admin.post('/admin/api/token-issuers', { name: 'Okta', issuer: idp.url, jwks_uri: `${idp.url}/jwks`, audiences: ['ct-laptops'], rules: [{ claims: { groups: 'eng' }, key_id: keys.eng!.id }], principal_claim: 'email' });
+    const made = await admin.post('/admin/api/token-issuers', { name: 'Okta', issuer: idp.url, jwks_uri: `${idp.url}/jwks`, audiences: ['ct-laptops'], rules: [{ claims: { groups: 'eng' }, key_id: keys.eng!.id }], principal_claim: 'email', people: true });
+    const seatsBefore = (await admin.get('/admin/api/license')).body.seats_used as number;
     expect(made.status, JSON.stringify(made.body)).toBe(201);
     issuerId = made.body.id;
     // The rollout files carry the identity provider; its client ID must be an accepted audience.
@@ -358,11 +359,15 @@ test('signing in with the identity provider: no Control Tower account, the issue
     const flightId = call.headers.get('x-ct-flight-id')!;
     await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.eng!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === flightId)?.principal).toBe('Okta · riley@laptops.test');
     expect((await sh(['status'])).stderr).toContain(`Signed in with ${idp.url} as riley@laptops.test`);
+    // Its tokens are people: Riley now uses a seat (once, however many tokens).
+    expect((await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
+    expect(((await admin.get('/admin/api/token-issuers')).body.issuers as any[]).find((i) => i.id === issuerId)).toMatchObject({ people: true, people_seen: 1 });
     // ID tokens last 5 minutes here, so the next call refreshes (the refresh token rotates) and gets a new one.
     const t2 = (await sh(['token'])).stdout.trim();
     expect(t2).not.toBe(t1);
     expect(idp.deviceGrants).toContain('refresh_token');
     expect((await chat(t2)).status).toBe(200);
+    expect((await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
     // MCP clients get the same token.
     expect(JSON.parse((await sh(['header'])).stdout).Authorization).toMatch(/^Bearer ey/);
     // Signing out revokes the refresh token at the identity provider.

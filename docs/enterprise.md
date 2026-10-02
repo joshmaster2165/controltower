@@ -33,7 +33,7 @@ Add the key in the console under **License**, or set `CT_LICENSE_KEY` on the ser
 
  Every instance sharing a database reads a key added in the console. With `CT_LICENSE_KEY`, set it on each instance.
 
-**Seats** are the people who sign in with single sign-on or are provisioned by SCIM. Someone who already signs in that way never counts twice. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats. If more people use seats than the license has (after seats were reduced, say), the console says so and no one new can sign in through single sign-on until seats are added or people removed. Seats can't be reduced below the number in use that the server last reported.
+**Seats** are the people who sign in with single sign-on or are provisioned by SCIM, plus people seen in the last 30 days signing in on their computers with your identity provider's tokens ([Laptops](laptops.md), through an [issuer marked as people](agent-identity.md#people-or-workloads)). Someone who comes in more than one way never counts twice. Workloads (agents with service-account or client-credentials tokens) don't use seats. When all seats are taken, new people are refused at sign-in with a clear message; people already signed in aren't affected. People with passwords don't use seats. If more people use seats than the license has (after seats were reduced, say), the console says so and no one new can sign in through single sign-on until seats are added or people removed. Seats can't be reduced below the number in use that the server last reported.
 
 **Requests a year:** see [below](#requests-a-year). Going over is a conversation at renewal; it never slows or stops traffic.
 

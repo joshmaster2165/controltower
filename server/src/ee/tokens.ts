@@ -44,6 +44,8 @@ export interface TokenIssuer {
   principalClaim: string;
   maxLifetimeS: number | undefined;
   enabled: boolean;
+  /** Its tokens are people signing in on their computers: each person uses a seat. */
+  people: boolean;
 }
 interface IssuerState {
   keys: ReturnType<typeof createLocalJWKSet> | undefined;
@@ -113,6 +115,8 @@ export class TokenAuth {
       /** Whether the license includes it: tokens are refused while it doesn't. */
       allowed: () => boolean;
       log: () => { warn(o: object, m: string): void };
+      /** For issuers marked as people: whether this person may have a seat (why not, or undefined). */
+      seat?: (issuer: TokenIssuer, who: string) => Promise<string | undefined>;
     },
   ) {}
 
@@ -138,6 +142,7 @@ export class TokenAuth {
       principalClaim: r.principal_claim,
       maxLifetimeS: r.max_lifetime_s ?? undefined,
       enabled: r.enabled === 1,
+      people: !!r.people,
     }));
     const old = this.state;
     this.state = new Map();
@@ -227,6 +232,11 @@ export class TokenAuth {
     if (!rule) return this.refuse(d, issuer, `no rule matches the token (sub "${String(payload.sub ?? '')}")`);
     if (!this.deps.keys().has(rule.key_id)) return this.refuse(d, issuer, 'the rule that matches names a key that no longer exists');
     const who = claimAt(payload as Record<string, unknown>, issuer.principalClaim) ?? payload.sub;
+    // People (laptops signing in to the identity provider directly) use seats: a new person only while one is free.
+    if (issuer.people && this.deps.seat) {
+      const why = await this.deps.seat(issuer, String(who ?? ''));
+      if (why) return this.refuse(d, issuer, why);
+    }
     const v: Verified = { keyId: rule.key_id, issuerId: issuer.id, principal: `${issuer.name} · ${String(who ?? '?').slice(0, 200)}`, exp: payload.exp! };
     if (this.verified.size >= CACHE_MAX) this.verified.delete(this.verified.keys().next().value!);
     this.verified.set(d, v);

@@ -58,6 +58,7 @@ import { AuditLog } from './ee/audit.js';
 import { AuditShipper } from './ee/siem.js';
 import { TokenAuth } from './ee/tokens.js';
 import { DeviceAuth } from './ee/devices.js';
+import { admitPerson } from './ee/seats.js';
 import { secretRefs } from './ee/secret-managers/index.js';
 import { KeyRotator } from './ee/rotation.js';
 import { Orgs } from './ee/orgs.js';
@@ -317,7 +318,7 @@ async function main(): Promise<void> {
   const auditShipper = new AuditShipper({ db, destinations: () => exporter.auditDestinations(), allowed: () => license.allows('siem_export'), instanceId: cluster.id, version: config.version, log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
   if (!region) auditShipper.start();
   // Agents' tokens from trusted issuers, instead of keys' secrets (Enterprise).
-  const tokens = new TokenAuth({ db: db.write, keys: () => registry.keysById, allowed: () => license.allows('jwt_auth'), log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger) });
+  const tokens = new TokenAuth({ db: db.write, keys: () => registry.keysById, allowed: () => license.allows('jwt_auth'), log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger), seat: (issuer, who) => admitPerson(db.write, license.seats, issuer.id, who) });
   await tokens.reload();
   tokens.start();
   registry.tokens = tokens;

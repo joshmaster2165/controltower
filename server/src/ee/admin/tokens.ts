@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { SEAT_WINDOW_MS } from '../seats.js';
 import { ulid } from 'ulid';
 import type { AppContext } from '../../context.js';
 import { requireAdmin } from '../../admin/auth.js';
@@ -26,6 +27,7 @@ export async function tokenIssuerRoutes(app: FastifyInstance, ctx: AppContext): 
     principal_claim?: string;
     max_lifetime_s?: number | null;
     enabled?: boolean;
+    people?: boolean;
   }
   /** The stored values for a body (whole, or the fields a change sets), or what's wrong with it. */
   const parse = (b: Body, partial: boolean): Record<string, unknown> | string => {
@@ -89,11 +91,15 @@ export async function tokenIssuerRoutes(app: FastifyInstance, ctx: AppContext): 
       out.max_lifetime_s = b.max_lifetime_s;
     }
     if (typeof b.enabled === 'boolean') out.enabled = b.enabled ? 1 : 0;
+    if (typeof b.people === 'boolean') out.people = b.people ? 1 : 0;
     return out;
   };
 
   const view = async () => {
     const rows = await ctx.db.read.selectFrom('token_issuers').selectAll().orderBy('created_at').execute();
+    // People using a seat through each issuer marked as people (seen in the last 30 days).
+    const counts = await ctx.db.read.selectFrom('seat_people').select('issuer_id').select((eb) => eb.fn.countAll<number>().as('n')).where('last_seen', '>=', Date.now() - SEAT_WINDOW_MS).groupBy('issuer_id').execute();
+    const seen = new Map(counts.map((c) => [c.issuer_id, Number(c.n)]));
     return rows.map((r) => {
       const live = tokens.stats(r.id);
       const rules = JSON.parse(r.rules) as TokenRule[];
@@ -108,6 +114,8 @@ export async function tokenIssuerRoutes(app: FastifyInstance, ctx: AppContext): 
         principal_claim: r.principal_claim,
         max_lifetime_s: r.max_lifetime_s,
         enabled: r.enabled === 1,
+        people: !!r.people,
+        people_seen: seen.get(r.id) ?? 0,
         keys_status: live?.keys_status ?? r.last_status,
         keys_error: live?.keys_error ?? r.last_error,
         accepted: live?.accepted ?? r.accepted_count,
@@ -143,6 +151,7 @@ export async function tokenIssuerRoutes(app: FastifyInstance, ctx: AppContext): 
         principal_claim: (v.principal_claim as string | undefined) ?? 'sub',
         max_lifetime_s: (v.max_lifetime_s as number | null | undefined) ?? 86_400,
         enabled: v.enabled === 0 ? 0 : 1,
+        people: v.people === 1 ? 1 : 0,
         last_status: null,
         last_error: null,
         accepted_count: 0,

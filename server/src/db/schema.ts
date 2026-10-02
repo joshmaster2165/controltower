@@ -561,6 +561,7 @@ export interface Database {
   device_codes: DeviceCodesTable;
   device_sessions: DeviceSessionsTable;
   device_rules: DeviceRulesTable;
+  seat_people: SeatPeopleTable;
 }
 
 /** Single sign-on requests already answered (SAML request ids): a response is accepted once. */
@@ -734,6 +735,8 @@ export interface TokenIssuersTable {
   rules: string;
   /** The claim that names who presented the token, recorded with each call (default `sub`). */
   principal_claim: string;
+  /** 1: its tokens are people (signing in on their computers), and each person uses a seat. */
+  people: Generated<number>;
   /** Tokens valid for longer than this (exp − iat) are refused. */
   max_lifetime_s: number | null;
   enabled: Bool;
@@ -872,4 +875,13 @@ export interface DeviceRulesTable {
   team_id: string | null;
   key_id: string;
   created_at: number;
+}
+
+/** People who use a seat through an identity provider's tokens (an issuer marked as people): seen in the last 30 days. */
+export interface SeatPeopleTable {
+  issuer_id: string;
+  /** Who the token names (its principal claim, lower case). */
+  who: string;
+  first_seen: number;
+  last_seen: number;
 }

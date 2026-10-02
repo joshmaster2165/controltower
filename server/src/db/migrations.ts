@@ -1027,3 +1027,20 @@ CREATE TABLE device_rules (
 );
 `,
 });
+
+migrations.push({
+  version: 36,
+  name: 'seat_people',
+  sqlite: `
+ALTER TABLE token_issuers ADD COLUMN people INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE seat_people (
+  issuer_id  TEXT NOT NULL,
+  who        TEXT NOT NULL,
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL,
+  PRIMARY KEY (issuer_id, who)
+);
+CREATE INDEX seat_people_seen ON seat_people (last_seen);
+CREATE INDEX seat_people_who ON seat_people (who);
+`,
+});

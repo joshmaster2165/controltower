@@ -89,6 +89,7 @@ Calls are made as a key you choose, and recorded as the person. There are two wa
 |---|---|---|
 | What people do | Approve their computer once in Control Tower's console (after its single sign-on) | Sign in to Okta, Entra ID… once, with the device code the tool shows |
 | Control Tower account needed | Yes: the **member** role, which sees only their teams | No |
+| Seats | Each person signing in with single sign-on uses one | Each person seen in the last 30 days uses one, once the issuer is marked as people (**Laptops** offers to) |
 | What picks the key | **Laptops** rules: tool × team → key | The trusted issuer's rules under [Agent identity](agent-identity.md): claims such as `groups` → key |
 | Calls recorded as | The person's email | The token's email (or `preferred_username` for Entra ID) |
 | Ending access | Signing out a computer, or removing the person, refuses their token at once | Disable the person at the identity provider: their tokens stop being renewed, and the last one expires within its lifetime (usually an hour) |
@@ -105,6 +106,7 @@ Calls are made as a key you choose, and recorded as the person. There are two wa
    - **Who presented it:** `email`, or `preferred_username` for Entra ID.
    - **Rules** from groups to keys: for example, `groups` matching `engineering` → `claude-code-engineering`.
    - The token lifetime limit (24 hours by default) is above the identity provider's.
+   - **Its tokens are people:** on, so each person uses a seat (see [people or workloads](agent-identity.md#people-or-workloads)).
 3. **Choose it** under **Laptops › Roll it out**: pick the issuer and enter the client ID. The rollout files then configure ct-auth with it (`idp_issuer=`, `idp_client_id=`).
 
    ![Signing in with your identity provider: the trusted issuer, and the laptop app's client ID](images/laptops-idp.png)

@@ -205,10 +205,12 @@ try {
     const unz = await run(`ditto -x -k ${q(zip)} /Applications`);
     app = '/Applications/Claude.app';
     c('Claude Desktop installs (from downloads.claude.ai)', unz.code === 0 && fs.existsSync(app), `${rel.releases[0]!.updateTo.version}${unz.code ? `: ${unz.err.slice(0, 200)}` : ''}`);
-    await run(`open ${q(app)} --args --remote-debugging-port=9222`);
+    await run(`open ${q(app)}`);
   } else {
     // The same installer Windows' package manager (winget) uses: per user, silent.
-    const manifest = await (await fetch('https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/a/Anthropic/Claude')).json() as Array<{ name: string }>;
+    const gh = process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : undefined;
+    const manifest = await (await fetch('https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/a/Anthropic/Claude', { headers: gh })).json() as Array<{ name: string }>;
+    if (!Array.isArray(manifest)) throw new Error(`GitHub's API: ${JSON.stringify(manifest).slice(0, 200)}`);
     const ver = manifest.map((m) => m.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1)!;
     const yaml = await (await fetch(`https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/a/Anthropic/Claude/${ver}/Anthropic.Claude.installer.yaml`)).text();
     const exeUrl = /InstallerUrl:\s*(https:\/\/downloads\.claude\.ai\/\S+x64\S+\.exe)/.exec(yaml)?.[1];
@@ -220,7 +222,7 @@ try {
     const candidates = [path.join(local, 'AnthropicClaude', 'claude.exe'), path.join(local, 'AnthropicClaude', 'Claude.exe'), path.join(local, 'Programs', 'Claude', 'Claude.exe')];
     app = candidates.find((f) => fs.existsSync(f)) ?? '';
     c('Claude Desktop installs (from downloads.claude.ai, the winget installer)', !!app, `${ver}${app ? ` at ${app}` : `: not found (installer exit ${inst.code})`}`);
-    if (app) spawn(app, ['--remote-debugging-port=9222'], { detached: true, stdio: 'ignore' }).unref();
+    if (app) spawn(app, [], { detached: true, stdio: 'ignore' }).unref();
   }
   // At launch, a gateway-mode Claude Desktop lists the gateway's models with its credential, and connects its MCP servers.
   let models: (typeof seen)[number] | undefined;
@@ -231,50 +233,78 @@ try {
     models ??= fresh.find((x) => x.path === '/v1/models');
     mcp ??= fresh.find((x) => x.path.startsWith('/mcp'));
   }
-  // Through its window (Electron, opened with a debugging port): the welcome screen's Continue, then one message.
+  // Through the OS's accessibility automation (Claude Desktop won't run with a debugging port): the welcome screen's
+  // Continue, then one message.
   const shots = process.env.RESULTS_DIR ?? TMP;
   const os_ = WIN ? 'windows' : 'macos';
+  const screenshot = async (name: string) => {
+    const f = path.join(shots, `claude-desktop-${os_}-${name}.png`);
+    if (MAC) await run(`screencapture -x ${q(f)}`);
+    else await run(`powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${f}')"`);
+  };
+  const ui = async (script: string) => {
+    const f = path.join(TMP, MAC ? 'ui.applescript' : 'ui.ps1');
+    fs.writeFileSync(f, script);
+    return run(MAC ? `osascript ${q(f)}` : `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ${q(f)}`, {}, 120_000);
+  };
   let drove = '';
   let chat: (typeof seen)[number] | undefined;
-  try {
-    const { chromium } = await import('@playwright/test');
-    let cdp: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
-    for (let i = 0; i < 30 && !cdp; i++) {
-      cdp = await chromium.connectOverCDP('http://127.0.0.1:9222').catch(() => undefined);
-      if (!cdp) await sleep(1000);
-    }
-    if (!cdp) throw new Error('its window could not be reached on the debugging port (the app may not allow it)');
-    const pages = cdp.contexts().flatMap((x) => x.pages());
-    let page = pages[0];
-    for (const pg of pages) if (await pg.getByRole('button', { name: 'Continue' }).count().catch(() => 0)) page = pg;
-    if (!page) throw new Error('no window');
-    await page.screenshot({ path: path.join(shots, `claude-desktop-${os_}-1-welcome.png`) }).catch(() => undefined);
-    const cont = page.getByRole('button', { name: 'Continue' });
-    if (await cont.count()) await cont.first().click();
-    for (let i = 0; i < 60 && !models; i++) {
-      await sleep(1000);
-      models ??= seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).find((x) => x.path === '/v1/models');
-    }
-    await sleep(3000);
-    await page.screenshot({ path: path.join(shots, `claude-desktop-${os_}-2-after-continue.png`) }).catch(() => undefined);
-    // The message box: a contenteditable or a textarea.
-    const box = page.locator('[contenteditable="true"], textarea').first();
-    await box.waitFor({ timeout: 30_000 });
-    await box.click();
-    await page.keyboard.type('Which gateway are you going through?');
-    await page.keyboard.press('Enter');
-    for (let i = 0; i < 60 && !chat; i++) {
-      await sleep(1000);
-      chat = seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).find((x) => x.method === 'POST' && x.path.startsWith('/v1/messages'));
-    }
-    await page.getByText('Connected through Control Tower').first().waitFor({ timeout: 30_000 }).catch(() => undefined);
-    await page.screenshot({ path: path.join(shots, `claude-desktop-${os_}-3-chat.png`) }).catch(() => undefined);
-    drove = (await page.getByText('Connected through Control Tower').count()) ? 'the answer is on screen' : 'no answer on screen';
-    await cdp.close().catch(() => undefined);
-  } catch (err) {
-    drove = `could not drive it: ${(err as Error).message.slice(0, 200)}`;
+  await screenshot('1-welcome');
+  const clicked = MAC
+    ? await ui(`tell application "Claude" to activate
+delay 2
+tell application "System Events" to tell process "Claude"
+  set found to false
+  repeat 30 times
+    try
+      set b to first UI element of (entire contents of window 1) whose role is "AXButton" and (title is "Continue" or description is "Continue" or name is "Continue")
+      click b
+      set found to true
+      exit repeat
+    end try
+    delay 1
+  end repeat
+  return found
+end tell`)
+    : await ui(`Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+$cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, 'Continue')
+$b = $null
+for ($i = 0; $i -lt 30 -and -not $b; $i++) { $b = [Windows.Automation.AutomationElement]::RootElement.FindFirst([Windows.Automation.TreeScope]::Descendants, $cond); if (-not $b) { Start-Sleep 1 } }
+if (-not $b) { 'false'; exit }
+try { $b.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { $b.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
+'true'`);
+  drove = /true/.test(clicked.out) ? 'clicked Continue' : `Continue not clicked: ${(clicked.err || clicked.out).trim().slice(0, 200)}`;
+  for (let i = 0; i < 60 && !models; i++) {
+    await sleep(1000);
+    models ??= seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).find((x) => x.path === '/v1/models');
   }
-  c('Claude Desktop sends a chat through Control Tower with ct-auth\'s token, and shows the answer', !!chat && chat.cred === 'ct_dt' && chat.status === 200 && drove === 'the answer is on screen', chat ? `${chat.method} ${chat.path}: ${chat.cred} → ${chat.status}; ${drove}` : `no chat request; ${drove}`);
+  await sleep(4000);
+  await screenshot('2-after-continue');
+  // The message box has the focus in a new chat: type, and send.
+  const typed = MAC
+    ? await ui(`tell application "Claude" to activate
+delay 1
+tell application "System Events"
+  keystroke "Which gateway are you going through?"
+  delay 0.5
+  key code 36
+end tell`)
+    : await ui(`Add-Type -AssemblyName System.Windows.Forms
+$ws = New-Object -ComObject WScript.Shell
+$null = $ws.AppActivate('Claude')
+Start-Sleep 1
+[System.Windows.Forms.SendKeys]::SendWait('Which gateway are you going through?')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`);
+  if (typed.code) drove += `; typing failed: ${(typed.err || typed.out).trim().slice(0, 160)}`;
+  for (let i = 0; i < 60 && !chat; i++) {
+    await sleep(1000);
+    chat = seen.slice(before).filter((x) => !/ct-auth/.test(x.ua)).find((x) => x.method === 'POST' && x.path.startsWith('/v1/messages'));
+  }
+  await sleep(5000);
+  await screenshot('3-chat');
+  drove += chat ? '; chat sent' : '; no chat request';
+  c('Claude Desktop sends a chat through Control Tower with ct-auth\'s token (see the screenshots for the answer)', !!chat && chat.cred === 'ct_dt' && chat.status === 200, chat ? `${chat.method} ${chat.path}: ${chat.cred} → ${chat.status}; ${drove}` : `no chat request; ${drove}`);
   const shot = path.join(shots, `claude-desktop-${os_}.png`);
   if (MAC) await run(`screencapture -x ${q(shot)}`);
   else await run(`powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${shot}')"`);

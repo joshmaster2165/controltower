@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.11 — 3 October 2026
 
 - **GitHub Copilot through Control Tower.** Copilot CLI and VS Code's chat (GitHub Copilot Chat) can now use Control Tower's models, without a GitHub account.
   - **Copilot CLI on laptops:** a new **GitHub Copilot CLI** choice on **Laptops** sets Copilot CLI's model provider to Control Tower with each person's sign-in (its credential command runs ct-auth). It sets the variables machine-wide on Windows, or in a file every shell reads on macOS and Linux, and with **Lock down**, `COPILOT_OFFLINE`.

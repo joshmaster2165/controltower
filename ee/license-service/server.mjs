@@ -173,6 +173,8 @@ async function stripe(method, path, body) {
 }
 let priceCache;
 async function prices() {
+  // No Stripe key: nothing is for sale yet (checkout says it's being set up), rather than an error from Stripe.
+  if (!STRIPE_KEY) return {};
   if (priceCache && priceCache.at > Date.now() - 10 * 60_000) return priceCache.prices;
   const q = new URLSearchParams();
   for (const k of Object.values(LOOKUP)) q.append('lookup_keys[]', k);
@@ -815,6 +817,8 @@ export function createServer() {
       return json(res, 404, { error: 'not_found' });
     } catch (err) {
       console.error(JSON.stringify({ error: err.message, path: u.pathname }));
+      // A person in a browser gets a page; Control Tower servers (renewals) get JSON.
+      if (String(req.headers.accept ?? '').includes('text/html')) return html(res, 502, note('Something went wrong', 'FAULT · 502', 'Nothing was charged. Try again in a minute, or start a free trial meanwhile: it has every feature.'));
       return json(res, err.status === 413 ? 413 : 502, { error: 'unavailable', message: 'Something went wrong. Try again, or contact sales.' });
     }
   });

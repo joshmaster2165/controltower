@@ -5,6 +5,8 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # Run by hand on any branch (to check work before it reaches main).
+  workflow_dispatch:
 
 jobs:
   test:

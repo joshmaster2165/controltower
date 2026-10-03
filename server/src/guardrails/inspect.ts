@@ -26,8 +26,10 @@ export async function inspect<R extends { id: string; name: string; config: Insp
   if (r.blocked || key?.id === GUARDRAIL_KEY_ID) return r;
   const served = await askServices(ctx, key, gates, direction, r, opts);
   if (served.blocked) return served;
-  const withModel = gates.filter((g) => g.rule.config.model_check?.model && (g.compiled.direction === 'both' || g.compiled.direction === direction));
-  if (!withModel.length) return served;
+  const applies = (g: Gate<R>) => g.compiled.direction === 'both' || g.compiled.direction === direction;
+  const withModel = gates.filter((g) => g.rule.config.model_check?.model && applies(g));
+  const withPolicies = gates.filter((g) => g.rule.config.policies?.length && applies(g));
+  if (!withModel.length && !withPolicies.length) return served;
   const text = textOfValue(served.value);
   if (!text.trim()) return served;
   for (const g of withModel) {
@@ -48,6 +50,29 @@ export async function inspect<R extends { id: string; name: string; config: Insp
     };
     served.outcomes.push(o);
     if (action === 'block') return { ...served, blocked: o };
+  }
+  // Policies in your own words: each asked of its model, all at once.
+  for (const g of withPolicies) {
+    const policies = g.rule.config.policies!;
+    const verdicts = await Promise.all(policies.map((p) => ctx.modelChecker.judge(p.model, p.instructions, text)));
+    for (const [i, v] of verdicts.entries()) {
+      if (v.verdict === 'clean') continue;
+      const p = policies[i]!;
+      const failed = v.verdict === 'error';
+      const gateAction: InspectAction = g.compiled.action === 'mask' ? 'block' : g.compiled.action;
+      const action: InspectAction = opts.streamed ? 'flag' : failed ? (p.on_error === 'block' ? 'block' : 'flag') : gateAction;
+      const o: GateOutcome<R> = {
+        ruleId: g.rule.id,
+        ruleName: g.rule.name,
+        action,
+        findings: { [`${failed ? 'policy_failed' : 'policy'}:${p.name}`]: 1 },
+        truncated: false,
+        reason: failed ? v.reason : `${g.rule.config.reason ? `${g.rule.config.reason}. ` : ''}${v.reason}`,
+        rule: g.rule,
+      };
+      served.outcomes.push(o);
+      if (action === 'block') return { ...served, blocked: o };
+    }
   }
   return served;
 }

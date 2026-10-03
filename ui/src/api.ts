@@ -339,6 +339,26 @@ export interface InspectConfig {
   /** Guardrail services to ask too (ids), and what to do when one can't be reached. */
   services?: string[] | undefined;
   services_on_error?: 'allow' | 'block' | undefined;
+  /** Your own guardrails (ids), built under Guardrails. */
+  guardrails?: string[] | undefined;
+}
+
+/** What one of your own guardrails checks. */
+export interface GuardrailChecks {
+  detectors?: string[];
+  keywords?: string[];
+  patterns?: Array<{ name: string; regex: string }>;
+  policy?: { model: string; instructions: string; on_error?: 'allow' | 'block' };
+}
+export interface OwnGuardrail {
+  id: string;
+  name: string;
+  description: string | null;
+  checks: GuardrailChecks;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+  used_by: Array<{ id: string; name: string }>;
 }
 
 export interface DetectorInfo {

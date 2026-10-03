@@ -268,6 +268,18 @@ export interface RulesTable {
   updated_at: number;
 }
 
+/** Your own guardrails: named sets of checks inspect gates use (guardrails/library.ts). */
+export interface GuardrailsTable {
+  id: string;
+  name: string;
+  description: string | null;
+  /** JSON GuardrailChecks: detectors, keywords, patterns, policy. */
+  checks: string;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface ApprovalsTable {
   id: string;
   flight_id: string;
@@ -540,6 +552,7 @@ export interface Database {
   zones: ZonesTable;
   rules: RulesTable;
   approvals: ApprovalsTable;
+  guardrails: GuardrailsTable;
   tickets: TicketsTable;
   grants: GrantsTable;
   traffic_hourly: TrafficHourlyTable;

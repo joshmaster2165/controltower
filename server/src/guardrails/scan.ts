@@ -1,3 +1,4 @@
+import vm from 'node:vm';
 import { DETECTOR_BY_ID, INJECTION_DETECTORS, PII_DETECTORS, SECRET_DETECTORS, type Detector } from './detectors.js';
 import type { ModelCheckConfig } from './model-check.js';
 
@@ -28,6 +29,21 @@ export interface InspectConfig {
   services?: string[];
   /** When a service can't be reached: let the content through, flagged (default), or block it. */
   services_on_error?: 'allow' | 'block';
+  /** Your own guardrails (ids; see library.ts): their checks join the gate's. */
+  guardrails?: string[];
+  /** Policies in your own words, judged by a model Control Tower serves (see model-check.ts). */
+  policies?: PolicyCheck[];
+}
+
+/** A policy in your own words: does the content break it? Asked of a model Control Tower serves. */
+export interface PolicyCheck {
+  /** Its name in findings: "board-figures". */
+  name: string;
+  model: string;
+  /** What isn't allowed, as you'd tell a person: "Revenue or pipeline figures for quarters not yet announced." */
+  instructions: string;
+  /** When the model can't be reached or answers nonsense: let the content through (default), or block it. */
+  on_error?: 'allow' | 'block';
 }
 
 export type Findings = Record<string, number>;
@@ -47,14 +63,29 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const patternVerdicts = new Map<string, string | null>();
+/**
+ * Why a regex can't be used, or null. Besides compiling, it must not run away: patterns run on everything agents send,
+ * on the gateway's thread, and one like (a+)+$ can take minutes on a line of text. It is tried, with a time limit, on
+ * long runs of the characters it names and of common ones; one that doesn't finish in time is refused.
+ */
 export function validatePattern(regex: string): string | null {
   if (regex.length > 500) return 'pattern is longer than 500 characters';
+  const known = patternVerdicts.get(regex);
+  if (known !== undefined) return known;
+  let verdict: string | null = null;
   try {
     new RegExp(regex, 'g');
-    return null;
+    const literal = [...new Set(regex.replace(/\\[dswbDSWB]|[\\^$.*+?()[\]{}|]/g, ''))].join('');
+    // Long runs of common characters, of each character the pattern names, and of all of them in turn.
+    const runs = [...new Set(['a', '1', ' ', 'aA1 _-.', '\n', 'x@y.', ...[...literal].slice(0, 30), literal || 'a'])].flatMap((c) => [c.repeat(Math.ceil(3000 / c.length)) + '!', c.repeat(Math.ceil(3000 / c.length))]);
+    vm.runInNewContext('for (const s of runs) { const re = new RegExp(src, "g"); re.test(s); }', { runs, src: regex }, { timeout: 250 });
   } catch (e) {
-    return (e as Error).message;
+    verdict = (e as { code?: string }).code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'this pattern can take too long on some text (it backtracks: look for nested repeats like (a+)+); simplify it' : (e as Error).message;
   }
+  if (patternVerdicts.size > 2000) patternVerdicts.clear();
+  patternVerdicts.set(regex, verdict);
+  return verdict;
 }
 
 export function compileInspector(cfg: InspectConfig): CompiledInspector {
@@ -165,7 +196,7 @@ export function describeFindings(f: Findings): string {
     .sort((a, b) => b[1] - a[1])
     .map(([id, n]) => {
       const svc = /^(presidio|lakera|bedrock|azure|openai|webhook):(.+)$/.exec(id);
-      const label = DETECTOR_BY_ID.get(id)?.label ?? MODEL_LABELS[id] ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : svc ? `${svc[2]!.replace(/_/g, ' ').toLowerCase()} (${SERVICE_LABELS[svc[1]!]})` : id);
+      const label = DETECTOR_BY_ID.get(id)?.label ?? MODEL_LABELS[id] ?? (id === 'keyword' ? 'blocked keyword' : id.startsWith('custom:') ? id.slice(7) : id.startsWith('policy:') ? `something the policy "${id.slice(7)}" doesn't allow` : id.startsWith('policy_failed:') ? `no answer from the policy check "${id.slice(14)}"` : svc ? `${svc[2]!.replace(/_/g, ' ').toLowerCase()} (${SERVICE_LABELS[svc[1]!]})` : id);
       return n > 1 ? `${n} × ${label}` : label;
     });
   return parts.join(', ');

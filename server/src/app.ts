@@ -45,6 +45,7 @@ import { replayRoutes } from './admin/replay.js';
 import { customerRoutes } from './admin/customers.js';
 import { exportDestinationRoutes } from './admin/exports.js';
 import { guardrailServiceRoutes } from './admin/guardrail-services.js';
+import { guardrailRoutes } from './admin/guardrails.js';
 import { userRoutes } from './admin/users.js';
 import { viewRoutes } from './admin/views.js';
 import { a2aAdminRoutes } from './admin/a2a.js';
@@ -240,6 +241,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await customerRoutes(a, full);
     if (full.exporter) await exportDestinationRoutes(a, full);
     if (full.guardrails) await guardrailServiceRoutes(a, full);
+    await guardrailRoutes(a, full);
     await userRoutes(a, full);
     await auditRoutes(a, full);
     await tokenIssuerRoutes(a, full);

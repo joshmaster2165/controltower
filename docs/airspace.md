@@ -125,6 +125,7 @@ Inspect gates run inside Control Tower, on the request before it leaves and on t
 | **Personal data** | Email addresses, phone numbers, and card numbers, IBANs and US Social Security numbers that pass their checksums or rules |
 | **Prompt injection** | Well-known phrasings: "ignore previous instructions", role overrides ("you are now…"), requests for the system prompt, fake chat-template markup, "send the credentials to…" |
 | **Keywords** | Your own words, whole-word |
+| **Your guardrails** | Named sets of detectors, keywords, patterns and policies in your own words that you build under **Guardrails** ([your own guardrails](guardrails.md#your-own-guardrails)) |
 
 Secrets and personal data are caught reliably in the formats listed. The injection patterns only catch the obvious phrasings — a paraphrase, another language or encoded text gets past them.
 

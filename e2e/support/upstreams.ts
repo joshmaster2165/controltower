@@ -55,13 +55,14 @@ const json = (res: http.ServerResponse, status: number, v: unknown) => {
 };
 
 /** OpenAI Chat Completions, as api.openai.com speaks it. `rateLimited` answers every chat call with 429. */
-export function openAiUpstream(opts: { models?: string[]; reply?: string; rateLimited?: boolean; failing?: boolean; port?: number } = {}): Promise<Upstream> {
+export function openAiUpstream(opts: { models?: string[]; reply?: string | ((body: any) => string); rateLimited?: boolean; failing?: boolean; port?: number } = {}): Promise<Upstream> {
   const models = opts.models ?? ['gpt-4.1-mini', 'text-embedding-3-small'];
-  const reply = opts.reply ?? 'Hello from the OpenAI-compatible upstream';
+  const fixed = typeof opts.reply === 'string' ? opts.reply : 'Hello from the OpenAI-compatible upstream';
   return serve((req, res, body) => {
     const path = (req.url ?? '').replace(/\?.*$/, '');
     if (req.method === 'GET' && path.endsWith('/models')) return json(res, 200, { object: 'list', data: models.map((id) => ({ id, object: 'model', owned_by: 'test' })) });
     if (path.endsWith('/embeddings')) return json(res, 200, { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] }], model: 'text-embedding-3-small', usage: { prompt_tokens: 3, total_tokens: 3 } });
+    const reply = typeof opts.reply === 'function' ? opts.reply(JSON.parse(body || '{}')) : fixed;
     if (path.endsWith('/responses')) return responsesApi(res, body, reply);
     if (!path.endsWith('/chat/completions')) return json(res, 404, { error: { message: 'not found' } });
     if (opts.failing) return json(res, 500, { error: { message: 'The server had an error while processing your request.', type: 'server_error' } });

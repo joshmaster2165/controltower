@@ -1,4 +1,23 @@
-# Guardrail services
+# Guardrails
+
+## Your own guardrails
+
+Build what your company knows to look for, in Control Tower, with no outside service. Under **Guardrails › Your guardrails › New guardrail**, a guardrail combines any of:
+
+| Check | What it does |
+|---|---|
+| **Built-in detectors** | Any of the 25, one by one: secrets and credentials (AWS, GitHub, Slack, Stripe, OpenAI, Anthropic, Google, npm and Control Tower keys, private keys, JWTs, connection strings), personal data (emails, phone, card numbers, US SSNs, IBANs, IP addresses), prompt injection phrasings |
+| **Keywords** | Your words and phrases: code names, customers, projects. Whole words, any case |
+| **Patterns** | Your regular expressions, each with a name: order numbers (`ORD-\d{6}`), internal hostnames, ticket IDs. A pattern that can run away on some text (nested repeats like `(a+)+`) is refused when you save it, so it can't stall the gateway |
+| **A policy in your own words** | "Revenue or pipeline figures for quarters not yet announced." A model Control Tower serves, which you pick, reads the content and says whether it breaks the rule, and why. Each check is a model call: it runs under the **guardrail** system key, so it's in Flights and the Ledger with its cost. If the model can't answer, the content goes through flagged, or is blocked, as you choose |
+
+**Try it** runs a guardrail, or one you haven't saved yet, on a sample text: what it finds, and the text as a *mask* gate would pass it on (a policy's finding withholds the text instead: a verdict can't be masked word by word).
+
+Then choose it in an inspect gate on the Airspace, under **Your guardrails**. The gate decides what happens on a finding (mask, block, flag) and in which direction (what agents send, what comes back). One guardrail can serve many gates, and a change to it changes all of them, at once, on every instance. A guardrail a gate uses can't be deleted. Findings are reported under the guardrail's name: `custom:launch-secrets_order`, `policy:board-figures`.
+
+In a policy file, or through the API, a gate names guardrails by id: `config: { guardrails: ["gr_…"], action: block }`. A gate can also carry its own checks: `patterns`, `keywords`, `detectors`, and `policies: [{ name, model, instructions }]`.
+
+## Guardrail services
 
 [Inspect gates](airspace.md#how-inspection-works) come with built-in detectors for secrets, personal data and prompt injection, and can ask a model. They can also ask guardrail services you already use, or run yourself. Add one under **Guardrails**, then choose it in an inspect gate. Whatever the service flags gets the gate's action: masked, blocked, or flagged.
 
@@ -63,6 +82,10 @@ If you set a secret, the request is signed `x-ct-signature: t=<unix time>,v1=<he
 For `mask`, return one text for each text you were sent, in the same order.
 
 ## API
+
+Your own guardrails: `GET`, `POST /admin/api/guardrails` (`{name, description?, checks: {detectors?, keywords?, patterns?, policy?: {model, instructions, on_error?}}}`), `PATCH`, `DELETE /admin/api/guardrails/:id` (`409` while a gate uses it), and `POST /admin/api/guardrails/test` (`{id}` or `{checks}`, and `text`) for what it finds and the masked text.
+
+Guardrail services:
 
 - `GET /admin/api/guardrail-services` lists services, with the gates that use each. Secrets are never returned.
 - `POST /admin/api/guardrail-services` adds one: `{name, kind, config}`, where `kind` is `presidio`, `lakera`, `bedrock`, `azure`, `openai_moderation` or `webhook`.

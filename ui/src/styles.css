@@ -437,6 +437,7 @@ table.matrix td.cell .v { font-size: 11.5px; font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--border-strong); background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; }
 .chip:hover { border-color: #aebbcd; }
+.chip.on { background: var(--accent-soft); border-color: rgba(31, 94, 255, 0.45); color: var(--accent-deep); }
 .chip.on.danger { background: #fdecef; border-color: rgba(211, 55, 78, 0.5); color: var(--danger); }
 .chip.on.warn { background: #fff4e0; border-color: rgba(217, 134, 11, 0.5); color: #9a5f06; }
 .chip.on.ok { background: #e7f6ef; border-color: rgba(26, 158, 107, 0.5); color: var(--ok); }
@@ -1080,3 +1081,9 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .page .owner-line:hover { color: var(--text); text-decoration: underline; }
 .owner-edit { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .owner-edit .input { max-width: 240px; }
+.own-guardrail .pattern-row { display: grid; grid-template-columns: minmax(120px, 0.6fr) 1.4fr auto; gap: 6px; margin-bottom: 6px; }
+.own-guardrail .policy-fields { display: grid; gap: 6px; margin: 6px 0 0 22px; }
+.own-guardrail .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 720px) { .own-guardrail .grid2, .own-guardrail .pattern-row { grid-template-columns: 1fr; } }
+.own-guardrail .field > .btn { align-self: flex-start; width: auto; }
+.services-add { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }

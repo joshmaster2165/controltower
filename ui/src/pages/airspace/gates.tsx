@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUsd } from '@controltower/shared';
 import { useStore } from '../../store';
-import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type GateLimits, type InspectConfig, type Rule, type Topology, type Zone } from '../../api';
+import { api, ApiError, type AlertChannel, type AlertRule, type DetectorInfo, type GateLimits, type InspectConfig, type Rule, type Topology, type Zone, type OwnGuardrail } from '../../api';
 import { AlertRuleForm, BellIcon, conditionText, defaultTriggers, notifyText } from '../Alerts';
 import { agentGroups, GROUP_PREFIX, groupStation, isGroup, isTeam, TEAM_PREFIX, teamStation } from '../../airspace/groups';
 import { type GateDraft, panelPos } from './shared';
@@ -235,6 +235,15 @@ interface ServiceInfo {
 }
 let serviceCache: ServiceInfo[] | null = null;
 /** Guardrail services configured (Presidio, Lakera, Bedrock, Azure, OpenAI moderation, URLs). */
+/** Your own guardrails (built under Guardrails), for choosing in a gate. */
+export function useOwnGuardrails(): OwnGuardrail[] {
+  const [g, setG] = useState<OwnGuardrail[]>([]);
+  useEffect(() => {
+    void api.get<{ guardrails: OwnGuardrail[] }>('/admin/api/guardrails').then((r) => setG(r.guardrails));
+  }, []);
+  return g;
+}
+
 export function useGuardrailServices(): ServiceInfo[] {
   const [s, setS] = useState<ServiceInfo[]>(serviceCache ?? []);
   useEffect(() => {
@@ -253,6 +262,7 @@ export function inspectSummary(c: InspectConfig): string {
     ids.includes('injection') || c.model_check ? `prompt injection${c.model_check ? ` (asking ${c.model_check.model})` : ''}` : '',
     ids.some((d) => d !== 'secrets' && d !== 'injection') || ids.includes('pii') ? 'personal data' : '',
     c.keywords?.length ? 'keywords' : '',
+    c.guardrails?.length ? `what ${c.guardrails.length === 1 ? 'your guardrail finds' : `${c.guardrails.length} of your guardrails find`}` : '',
     c.services?.length ? `what ${c.services.length === 1 ? 'a guardrail service' : `${c.services.length} guardrail services`} flag${c.services.length === 1 ? 's' : ''}` : '',
   ].filter(Boolean);
   const verb = c.action === 'mask' ? 'mask' : c.action === 'block' ? 'block' : 'flag';
@@ -263,6 +273,9 @@ export function inspectSummary(c: InspectConfig): string {
 export function InspectFields({ value, onChange }: { value: InspectConfig; onChange: (v: InspectConfig) => void }) {
   const detectors = useDetectors();
   const services = useGuardrailServices().filter((s) => s.enabled || value.services?.includes(s.id));
+  const own = useOwnGuardrails();
+  const mine = value.guardrails ?? [];
+  const toggleOwn = (id: string) => onChange({ ...value, guardrails: mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id] });
   const chosen = value.services ?? [];
   const toggleService = (id: string) => onChange({ ...value, services: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id] });
   const ids = value.detectors ?? [];
@@ -275,6 +288,22 @@ export function InspectFields({ value, onChange }: { value: InspectConfig; onCha
   const models = [...new Set([...(topology?.aliases ?? []).map((a) => a.name), ...(topology?.deployments ?? []).filter((d) => d.enabled).map((d) => d.public_name ?? d.upstream_model)])].sort();
   return (
     <div className="inspect-fields">
+      <div className="field">
+        <label>Your guardrails</label>
+        {own.length ? (
+          <div className="chips">
+            {own.map((g) => (
+              <button key={g.id} type="button" className={`chip ${mine.includes(g.id) ? 'on' : ''}`} onClick={() => toggleOwn(g.id)} title={g.description ?? ''}>
+                {g.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="dim">
+            None yet. Build one under <a href="#/guardrails">Guardrails</a>: code names, order numbers, a policy in your own words.
+          </div>
+        )}
+      </div>
       <div className="field">
         <label>Look for</label>
         <label className="check">
@@ -458,7 +487,7 @@ export function GateComposer({ x, y, draft, topology, zones, channels, onClose, 
     if (reason.trim()) config.reason = reason.trim();
     if (effect === 'require_approval') config.hold_ms = Math.max(0, Math.min(55, Number(hold) || 0)) * 1000;
     if (effect === 'inspect') {
-      if (!(inspect.detectors?.length || inspect.keywords?.length || inspect.model_check?.model || inspect.services?.length)) return { error: 'Pick at least one thing to look for.' };
+      if (!(inspect.detectors?.length || inspect.keywords?.length || inspect.model_check?.model || inspect.services?.length || inspect.guardrails?.length)) return { error: 'Pick at least one thing to look for.' };
       Object.assign(config, inspect);
     }
     if (effect === 'allow_with_limits') {

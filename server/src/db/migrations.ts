@@ -1075,3 +1075,19 @@ ALTER TABLE flights ADD COLUMN device TEXT;
 ALTER TABLE approvals ADD COLUMN device TEXT;
 `,
 });
+
+migrations.push({
+  version: 40,
+  name: 'guardrails',
+  sqlite: `
+CREATE TABLE guardrails (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT,
+  checks      TEXT NOT NULL,
+  created_by  TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+`,
+});

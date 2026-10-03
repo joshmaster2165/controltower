@@ -18,7 +18,17 @@ export function inspectConfigError(c: InspectConfig): string | null {
   }
   if (c.services !== undefined && (!Array.isArray(c.services) || !c.services.every((x) => typeof x === 'string' && x))) return 'services must be a list of guardrail service ids';
   if (c.services_on_error && !['allow', 'block'].includes(c.services_on_error)) return 'services_on_error must be allow | block';
-  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length || c.model_check?.model || c.services?.length)) return 'an inspect gate needs at least one detector, keyword, pattern, a model check or a guardrail service';
+  if (c.guardrails !== undefined && (!Array.isArray(c.guardrails) || !c.guardrails.every((x) => typeof x === 'string' && x))) return 'guardrails must be a list of guardrail ids';
+  if (c.policies !== undefined) {
+    if (!Array.isArray(c.policies)) return 'policies must be a list of {name, model, instructions}';
+    for (const p of c.policies) {
+      if (!p || typeof p.name !== 'string' || !p.name.trim()) return 'each policy needs a name';
+      if (typeof p.model !== 'string' || !p.model.trim()) return `policy "${p.name}" needs the model that judges it`;
+      if (typeof p.instructions !== 'string' || p.instructions.trim().length < 10) return `policy "${p.name}" needs its rule, in a sentence or two`;
+      if (p.on_error && !['allow', 'block'].includes(p.on_error)) return `policy "${p.name}": on_error must be allow | block`;
+    }
+  }
+  if (!(c.detectors?.length || c.keywords?.length || c.patterns?.length || c.model_check?.model || c.services?.length || c.guardrails?.length || c.policies?.length)) return 'an inspect gate needs at least one detector, keyword, pattern, guardrail, policy, a model check or a guardrail service';
   return null;
 }
 

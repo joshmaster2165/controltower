@@ -5,6 +5,7 @@ import { globMatch } from '../registry.js';
 import type { PolicyDecision, PolicyEngine, PolicyInput, PolicyTarget } from './engine.js';
 import { salientHash, scopeHash } from './hash.js';
 import { compileInspector, type CompiledInspector, type InspectConfig } from '../guardrails/scan.js';
+import { withGuardrails, type GuardrailChecks, type GuardrailRecord } from '../guardrails/library.js';
 
 /**
  * Zones group stations; rules are gates on the boundary between a source zone
@@ -132,6 +133,9 @@ function argOk(c: ArgConstraint, args: Record<string, unknown>): boolean {
 export class PolicyService implements PolicyEngine {
   zones = new Map<string, ZoneRecord>();
   rules: RuleRecord[] = [];
+  /** Your own guardrails, by id; and inspect gates with theirs added. */
+  guardrails = new Map<string, GuardrailRecord>();
+  private inspectRules = new Map<string, RuleRecord>();
 
   rule(id: string): RuleRecord | undefined {
     return this.rules.find((r) => r.id === id);
@@ -156,7 +160,8 @@ export class PolicyService implements PolicyEngine {
   }
 
   async reload(): Promise<void> {
-    const [zones, rules] = await Promise.all([this.db.selectFrom('zones').selectAll().execute(), this.db.selectFrom('rules').selectAll().execute()]);
+    const [zones, rules, guardrails] = await Promise.all([this.db.selectFrom('zones').selectAll().execute(), this.db.selectFrom('rules').selectAll().execute(), this.db.selectFrom('guardrails').selectAll().execute()]);
+    this.guardrails = new Map(guardrails.map((g) => [g.id, { id: g.id, name: g.name, description: g.description, checks: parseJson<GuardrailChecks>(g.checks, {}) }]));
     const zmap = new Map<string, ZoneRecord>();
     for (const z of zones) {
       const sel = parseJson<{ stations?: string[]; match?: ZoneMatch }>(z.selector, {});
@@ -187,7 +192,9 @@ export class PolicyService implements PolicyEngine {
         demo: r.demo === 1,
       }))
       .sort((a, b) => a.priority - b.priority);
-    this.compiled = new Map(this.rules.filter((r) => r.effect === 'inspect').map((r) => [r.id, compileInspector(r.config)]));
+    // An inspect gate's checks, with its guardrails' (by name, from the library) added.
+    this.inspectRules = new Map(this.rules.filter((r) => r.effect === 'inspect').map((r) => [r.id, { ...r, config: withGuardrails(r.config, this.guardrails) }]));
+    this.compiled = new Map([...this.inspectRules.values()].map((r) => [r.id, compileInspector(r.config)]));
     this.version++;
     for (const l of this.listeners) {
       try {
@@ -326,7 +333,7 @@ export class PolicyService implements PolicyEngine {
       // Inspect gates have no argument constraints; `needs_args` cannot occur.
       if (this.matchRule(r, key, target, src, dst, {}, onBehalfOf) !== 'match') continue;
       const compiled = this.compiled.get(r.id);
-      if (compiled) out.push({ rule: r, compiled });
+      if (compiled) out.push({ rule: this.inspectRules.get(r.id) ?? r, compiled });
     }
     return out;
   }

@@ -19,6 +19,12 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
   const guard = requireAdmin(ctx);
   const policy = ctx.policy as PolicyService;
   const approvals = ctx.approvals as ApprovalService;
+  /** A gate naming guardrails that don't exist (a typo, or one removed). */
+  const unknownGuardrails = (config: unknown): string | null => {
+    const ids = (config as { guardrails?: unknown } | undefined)?.guardrails;
+    const missing = Array.isArray(ids) ? ids.filter((id) => typeof id !== 'string' || !policy.guardrails.has(id)) : [];
+    return missing.length ? `unknown guardrail(s): ${missing.join(', ')}` : null;
+  };
 
   app.get('/admin/api/policy', { preHandler: guard }, async () => {
     const snap = policy.snapshot();
@@ -158,6 +164,8 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     }
     const bad = effect === 'inspect' ? inspectConfigError(b.config ?? {}) : effect === 'allow_with_limits' ? limitsConfigError(b.config ?? {}) : null;
     if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
+    const missing = unknownGuardrails(b.config);
+    if (missing) return reply.status(400).send({ error: { code: 'invalid', message: missing } });
     if (b.from_zone && !policy.zones.has(b.from_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'from_zone not found' } });
     if (b.to_zone && !policy.zones.has(b.to_zone)) return reply.status(400).send({ error: { code: 'invalid', message: 'to_zone not found' } });
     const id = `rule_${ulid()}`;
@@ -207,6 +215,8 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
       const eff = patch.effect ?? r.effect;
       const bad = eff === 'inspect' ? inspectConfigError(merged) : eff === 'allow_with_limits' ? limitsConfigError(merged) : null;
       if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
+      const missing = unknownGuardrails(merged);
+      if (missing) return reply.status(400).send({ error: { code: 'invalid', message: missing } });
       patch.config = JSON.stringify(merged);
     }
     if (typeof b.priority === 'number') patch.priority = b.priority;

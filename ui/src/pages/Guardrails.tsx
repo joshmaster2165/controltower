@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { api, ApiError } from '../api';
+import { OwnGuardrails } from './OwnGuardrails';
 
 type Kind = 'presidio' | 'lakera' | 'bedrock' | 'azure' | 'openai_moderation' | 'webhook';
 
@@ -132,17 +133,22 @@ export function GuardrailsPage() {
     <div className="page">
       <PageHeader
         title="Guardrails"
-        description="Guardrail services that inspect gates can ask, alongside the built-in detectors. Choose one in an inspect gate on the Airspace: what it flags is masked, blocked or flagged, as the gate says."
-        actions={
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(Object.keys(LABEL) as Kind[]).map((k) => (
-              <button key={k} className={`btn sm ${kind === k ? 'primary' : ''}`} onClick={() => (setKind(kind === k ? null : k), setValues({}), setErr(null))}>
-                + {LABEL[k]}
-              </button>
-            ))}
-          </div>
-        }
+        description="What inspect gates look for. Build your own here, with no outside service; or connect a guardrail service. Choose them in an inspect gate on the Airspace: what they find is masked, blocked or flagged, as the gate says."
       />
+      <OwnGuardrails />
+
+      <div className="section-title">
+        <h2>Guardrail services</h2>
+        <span className="count">optional</span>
+      </div>
+      <div className="services-add">
+        {(Object.keys(LABEL) as Kind[]).map((k) => (
+          <button key={k} className={`btn sm ${kind === k ? 'primary' : ''}`} onClick={() => (setKind(kind === k ? null : k), setValues({}), setErr(null))}>
+            + {LABEL[k]}
+          </button>
+        ))}
+      </div>
+
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
 
       {kind && (

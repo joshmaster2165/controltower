@@ -30,6 +30,7 @@ const SIDEBAR = [
       ['client-claude-desktop', 'Claude Desktop (GUI)'],
       ['client-codex-desktop', 'Codex (ChatGPT desktop)'],
       ['client-codex-cli', 'Codex (CLI)'],
+      ['client-copilot', 'GitHub Copilot (CLI, VS Code)'],
     ],
   },
   {

@@ -77,7 +77,8 @@ Claude Desktop reads its configuration when it starts, and re-checks it every 10
 ### Tools that can't be enforced this way
 
 - **Cursor:** its MDM policies have no gateway setting.
-- **VS Code with GitHub Copilot:** Copilot's own models can't be sent through a gateway.
+- **GitHub Copilot CLI:** [Laptops](laptops.md) points it at Control Tower with each person's sign-in, but only through environment variables (it has no managed settings for its model provider), which someone can unset in their own shell.
+- **VS Code with GitHub Copilot Chat:** Control Tower's models can be added ([GitHub Copilot](client-copilot.md)), but GitHub-hosted models stay in the picker unless your Copilot policies turn them off.
 - **Anything else** a person installs or writes.
 
 For all of these, use the network (layer 3).

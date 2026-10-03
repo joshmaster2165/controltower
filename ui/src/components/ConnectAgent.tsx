@@ -4,13 +4,14 @@ import { useStore } from '../store';
 import { CodeBlock } from './CodeBlock';
 import { ago } from '../format';
 
-type Tab = 'openai' | 'anthropic' | 'desktop' | 'codex' | 'mcp' | 'curl' | 'http' | 'a2a';
+type Tab = 'openai' | 'anthropic' | 'desktop' | 'codex' | 'copilot' | 'mcp' | 'curl' | 'http' | 'a2a';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'openai', label: 'OpenAI SDKs' },
   { id: 'anthropic', label: 'Claude Code · Anthropic' },
   { id: 'desktop', label: 'Claude Desktop' },
   { id: 'codex', label: 'Codex' },
+  { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'mcp', label: 'MCP clients' },
   { id: 'http', label: 'REST APIs' },
   { id: 'a2a', label: 'A2A agents' },
@@ -30,6 +31,8 @@ export function ConnectAgent({ keyId, secret }: { keyId: string; secret: string 
   const model =
     topology?.deployments.find((d) => !d.demo && d.enabled)?.public_name ?? topology?.deployments.find((d) => d.enabled)?.public_name ?? 'gpt-4.1-mini';
   // Codex speaks the Responses API; any model works (non-OpenAI ones are translated).
+  // Copilot speaks the Messages API to Control Tower: a Claude model first, any model works (others are translated).
+  const copilotModel = topology?.deployments.find((d) => d.enabled && !d.demo && /claude/i.test(d.public_name ?? d.upstream_model))?.public_name ?? model;
   const codexModel = topology?.deployments.find((d) => d.enabled && /^(gpt|o\d)/.test(d.public_name ?? d.upstream_model))?.public_name ?? 'gpt-5';
 
   // Watch for the first request made with this key.
@@ -133,6 +136,66 @@ url = "${origin}/mcp"
 bearer_token_env_var = "CONTROLTOWER_API_KEY"`}
           />
           <CodeBlock title="~/.codex/.env (or export it in your shell)" code={`CONTROLTOWER_API_KEY=${secret}`} />
+        </>
+      )}
+      {tab === 'copilot' && (
+        <>
+          <p className="connect-note">Copilot CLI and VS Code's chat, on Control Tower's models — no GitHub account needed for them. On the Messages API, a request a gate holds is told in the reply as it waits.</p>
+          <CodeBlock
+            title="Copilot CLI — in your shell or its profile"
+            code={`export COPILOT_PROVIDER_TYPE=anthropic
+export COPILOT_PROVIDER_BASE_URL=${origin}
+export COPILOT_PROVIDER_API_KEY=${secret}
+export COPILOT_MODEL=${copilotModel}
+export COPILOT_OFFLINE=true`}
+          />
+          <CodeBlock
+            title="Copilot CLI — ~/.copilot/mcp-config.json"
+            code={`{
+  "mcpServers": {
+    "controltower": {
+      "type": "http",
+      "url": "${origin}/mcp",
+      "headers": { "Authorization": "Bearer ${secret}" },
+      "tools": ["*"]
+    }
+  }
+}`}
+          />
+          <CodeBlock
+            title="VS Code — Manage Language Models → Add Models → Custom Endpoint (chatLanguageModels.json)"
+            code={`[
+  {
+    "name": "Control Tower",
+    "vendor": "customendpoint",
+    "apiKey": "\${input:controltowerKey}",
+    "apiType": "messages",
+    "models": [
+      {
+        "id": "${copilotModel}",
+        "name": "${copilotModel} (Control Tower)",
+        "url": "${origin}/v1/messages",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 8000
+      }
+    ]
+  }
+]`}
+          />
+          <CodeBlock
+            title="VS Code — mcp.json (MCP: Open User Configuration)"
+            code={`{
+  "servers": {
+    "controltower": {
+      "type": "http",
+      "url": "${origin}/mcp",
+      "headers": { "Authorization": "Bearer ${secret}" }
+    }
+  }
+}`}
+          />
         </>
       )}
       {tab === 'mcp' && (

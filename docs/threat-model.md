@@ -12,7 +12,7 @@ Control Tower is an enforcement point for traffic that goes **through** it. This
 
 ## People's computers
 
-[Laptops](laptops.md) rolls Claude Code, Claude Desktop and Codex out with their vendors' managed settings, which users can't override. Those settings send the tools' model and MCP calls through the gateway, signed in as the person, and with **Lock down** refuse other providers and MCP servers. They don't cover other tools: Cursor and GitHub Copilot can't be pointed at a gateway, and code that calls a provider's API directly never reaches one. Close that gap at the network: allow provider APIs only from Control Tower. [Enforcing the gateway on every computer](enforcement.md) sets out each layer and how to check it holds.
+[Laptops](laptops.md) rolls Claude Code, Claude Desktop and Codex out with their vendors' managed settings, which users can't override. Those settings send the tools' model and MCP calls through the gateway, signed in as the person, and with **Lock down** refuse other providers and MCP servers. GitHub Copilot CLI is pointed at the gateway too, through environment variables a person could unset; VS Code's chat can use Control Tower's models but keeps GitHub's. They don't cover other tools: Cursor can't be pointed at a gateway, and code that calls a provider's API directly never reaches one. Close that gap at the network: allow provider APIs only from Control Tower. [Enforcing the gateway on every computer](enforcement.md) sets out each layer and how to check it holds.
 
 ## Observed only (drawn dashed on the Airspace)
 

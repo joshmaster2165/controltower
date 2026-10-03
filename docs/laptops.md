@@ -1,4 +1,4 @@
-# Laptops: Claude Code, Claude Desktop and Codex, rolled out by MDM
+# Laptops: Claude Code, Claude Desktop, Codex and Copilot CLI, rolled out by MDM
 
 **Enterprise:** laptop sign-in needs a [Control Tower Enterprise](enterprise.md) license.
 
@@ -98,7 +98,8 @@ Claude Code and Codex wait for the approval and carry on. Claude Desktop runs ct
 | **Claude Desktop** | `inferenceProvider: gateway` with Control Tower's address: a managed source wins over local settings | `inferenceCredentialHelper` runs ct-auth | `managedMcpServers` gives Control Tower's endpoint. With **Lock down**, user-added local servers and desktop extensions are turned off |
 | **Codex** (CLI, IDE extension, app) | `requirements.toml` enforces `model_provider = "controltower"`: users can't switch provider | `auth.command` runs ct-auth | `managed_config.toml` adds Control Tower's endpoint. With **Lock down**, `requirements.toml` allows only that one |
 | **Cursor** | Not possible: Cursor's MDM policies have no setting for a gateway | — | Cursor's team dashboard has an MCP allowlist |
-| **VS Code + GitHub Copilot** | Not possible: Copilot's own models can't be sent through a gateway | — | VS Code's MCP policies (`ChatAllowedMcpServers`) |
+| **GitHub Copilot CLI** | `COPILOT_PROVIDER_*` variables, set machine-wide (Windows) or in a file every shell reads (macOS, Linux). With **Lock down**, `COPILOT_OFFLINE=true`: no GitHub sign-in, nothing but Control Tower. Variables are the only control Copilot CLI has: someone can unset them in their own shell | `COPILOT_PROVIDER_API_KEY_COMMAND` runs ct-auth | Not from the rollout: Copilot CLI's MCP settings can't run a sign-in helper. Give it Control Tower's endpoint with a key ([GitHub Copilot](client-copilot.md)) |
+| **VS Code + GitHub Copilot Chat** | Control Tower's models are added as a **Custom Endpoint**, with a key per person ([GitHub Copilot](client-copilot.md)); GitHub-hosted models stay available unless your Copilot policies turn them off | — (a key per person) | VS Code's MCP policies (`ChatAllowedMcpServers`, `ChatMCP`) |
 
 Managed settings stop someone using these tools any other way. They don't stop someone installing another tool, or calling a provider's API directly from their own code. That needs network controls: allow `api.anthropic.com` and `api.openai.com` only from Control Tower, at your proxy or firewall. See [what is enforced](threat-model.md).
 

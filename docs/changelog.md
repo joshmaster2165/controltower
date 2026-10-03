@@ -4,6 +4,11 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **GitHub Copilot through Control Tower.** Copilot CLI and VS Code's chat (GitHub Copilot Chat) can now use Control Tower's models, without a GitHub account.
+  - **Copilot CLI on laptops:** a new **GitHub Copilot CLI** choice on **Laptops** sets Copilot CLI's model provider to Control Tower with each person's sign-in (its credential command runs ct-auth). It sets the variables machine-wide on Windows, or in a file every shell reads on macOS and Linux, and with **Lock down**, `COPILOT_OFFLINE`.
+  - **Recognised as people's apps:** Control Tower recognises Copilot CLI and VS Code's chat. Refusals are words (Copilot CLI showed a 403 as "Authentication failed with provider"), and a held request is told in the reply as it waits.
+  - **Setup:** the **Connect** panel has a **GitHub Copilot** tab, and there's a new guide, [GitHub Copilot](client-copilot.md).
+  - **Tested for real:** Copilot CLI 1.0.91 by the Windows and macOS rollout, and VS Code 1.140 with Copilot Chat 0.68.
 - **Manage a subscription yourself.** A bought license's **License** page links to **Manage subscription** and **Change seats**. Managing emails the billing address a link to Stripe's billing portal (card, invoices, billing details, cancelling), so a copied license key alone can't change the bill. (The license service had a portal endpoint that no page linked to, and that opened the portal on the key alone.)
 
 ## 0.2.10 — 3 October 2026

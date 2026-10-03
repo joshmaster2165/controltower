@@ -367,6 +367,10 @@ test('GitHub Copilot CLI: opted into, its environment set for every shell, its t
     // Copilot with a plain key (no laptop sign-in) is recognised by its headers.
     const byHeader = await copilotChat(keys.all!.key, { 'x-initiator': 'user', 'x-interaction-type': 'conversation-user' });
     expect(byHeader.status).toBe(400);
+    // VS Code's chat too (it sends the same headers, and says it's VS Code).
+    const vscode = await copilotChat(keys.all!.key, { 'user-agent': 'GitHubCopilotChat/0.68.0', 'x-interaction-type': 'conversation-other' });
+    expect(vscode.status).toBe(400);
+    expect(((await vscode.json()) as any).error.message).toContain('Control Tower blocked this request');
   } finally {
     await admin.del(`/admin/api/rules/${rule}`);
   }

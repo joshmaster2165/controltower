@@ -57,7 +57,8 @@ const seen: Array<{ method: string; path: string; ua: string; hdrs: string }> = 
 const GW_PORT = 4952;
 const GW = `http://127.0.0.1:${GW_PORT}`;
 const recorder = http.createServer((req, res) => {
-  seen.push({ method: req.method ?? '', path: (req.url ?? '').split('?')[0]!, ua: String(req.headers['user-agent'] ?? ''), hdrs: Object.keys(req.headers).filter((h) => !/^(host|content-length|content-type|accept|accept-encoding|connection|authorization|x-api-key)$/.test(h)).map((h) => `${h}=${String(req.headers[h]).slice(0, 50)}`).join(' ') });
+  const cred = (h: string) => (req.headers[h] ? `${h}=${String(req.headers[h]).includes('ct_sk_') ? 'the key' : `"${String(req.headers[h]).slice(0, 12)}…"`}` : '');
+  seen.push({ method: req.method ?? '', path: (req.url ?? '').split('?')[0]!, ua: String(req.headers['user-agent'] ?? ''), hdrs: [cred('authorization'), cred('x-api-key')].filter(Boolean).join(' ') + ' ' + Object.keys(req.headers).filter((h) => !/^(host|content-length|content-type|accept|accept-encoding|connection|authorization|x-api-key)$/.test(h)).map((h) => `${h}=${String(req.headers[h]).slice(0, 50)}`).join(' ') });
   const up = http.request({ host: '127.0.0.1', port: PORT, path: req.url, method: req.method, headers: req.headers }, (r) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
@@ -97,8 +98,8 @@ try {
     path.join(user, 'chatLanguageModels.json'),
     JSON.stringify(
       [
-        { name: 'Control Tower', vendor: 'customendpoint', apiKey: key.key, apiType: 'chat-completions', models: [{ id: 'gpt-5', name: 'GPT-5 (Control Tower)', url: `${GW}/v1/chat/completions`, toolCalling: true, vision: false, maxInputTokens: 128000, maxOutputTokens: 8000 }] },
-        { name: 'Control Tower (Claude)', vendor: 'customendpoint', apiKey: key.key, apiType: 'messages', models: [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5 (Control Tower)', url: `${GW}/v1/messages`, toolCalling: true, vision: false, maxInputTokens: 200000, maxOutputTokens: 8000 }] },
+        { name: 'Control Tower', vendor: 'customendpoint', apiKey: key.key, apiType: 'chat-completions', models: [{ id: 'gpt-5', name: 'GPT-5 (Control Tower)', url: `${GW}/v1/chat/completions`, requestHeaders: { Authorization: `Bearer ${key.key}` }, toolCalling: true, vision: false, maxInputTokens: 128000, maxOutputTokens: 8000 }] },
+        { name: 'Control Tower (Claude)', vendor: 'customendpoint', apiKey: key.key, apiType: 'messages', models: [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5 (Control Tower)', url: `${GW}/v1/messages`, requestHeaders: { Authorization: `Bearer ${key.key}` }, toolCalling: true, vision: false, maxInputTokens: 200000, maxOutputTokens: 8000 }] },
       ],
       null,
       2,
@@ -147,10 +148,28 @@ exports.run = async () => {
       r.answers[m.id] = text;
     } catch (e) { r.errors.push(m.id + ': ' + (e && e.message)); r.answers[m.id] = 'ERROR ' + (e && e.message); }
   }
+  // MCP servers start when chat first needs them, after the person trusts them once: started here, trusted.
+  try { await Promise.race([vscode.commands.executeCommand('workbench.mcp.startServer', '*', { autoTrustChanges: true, promptType: 'never', waitForLiveTools: true }), sleep(30000)]); } catch (e) { r.errors.push('mcp start: ' + e.message); }
   for (let i = 0; i < 30 && !vscode.lm.tools.some((t) => /read_file/.test(t.name)); i++) await sleep(1000);
   r.tools = vscode.lm.tools.map((t) => t.name).filter((n) => /files|controltower/i.test(n));
   const tool = vscode.lm.tools.find((t) => /read_file/.test(t.name));
   if (tool) { try { const res = await vscode.lm.invokeTool(tool.name, { input: { path: 'README.md' }, toolInvocationToken: undefined }, new vscode.CancellationTokenSource().token); r.toolResult = res.content.map((p) => p.value || '').join(''); } catch (e) { r.errors.push('tool: ' + e.message); } }
+  // What a person sees: a gate that refuses, then one that holds until an approver says yes.
+  const admin = (method, p, body) => fetch(${JSON.stringify(CT)} + p, { method, headers: { authorization: 'Bearer ${AK}', ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }).then((x) => x.json());
+  const ask = async (m) => { try { const resp = await m.sendRequest([vscode.LanguageModelChatMessage.User('Draft the board update')], {}, new vscode.CancellationTokenSource().token); let t = ''; for await (const part of resp.text) t += part; return t; } catch (e) { return 'ERROR ' + (e && e.message); } };
+  const gpt = models.find((m) => m.id === 'gpt-5');
+  const claude = models.find((m) => m.id === 'claude-sonnet-4-5');
+  if (gpt) {
+    const deny = await admin('POST', '/admin/api/rules', { name: 'Not today', target_kind: 'model', effect: 'deny', priority: 1 });
+    r.denied = await ask(gpt);
+    await admin('DELETE', '/admin/api/rules/' + deny.id);
+  }
+  if (claude) {
+    const hold = await admin('POST', '/admin/api/rules', { name: 'Needs a manager', target_kind: 'model', effect: 'require_approval', config: { hold_ms: 120000 }, priority: 1 });
+    setTimeout(async () => { for (const a of (await admin('GET', '/admin/api/approvals?status=pending')).approvals || []) await admin('POST', '/admin/api/approvals/' + a.id + '/decide', { action: 'approve' }); }, 6000);
+    r.held = await ask(claude);
+    await admin('DELETE', '/admin/api/rules/' + hold.id);
+  }
   fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(r, null, 2));
 };
 `,
@@ -167,9 +186,11 @@ exports.run = async () => {
   c('VS Code chat answers through Control Tower on Chat Completions (gpt-5)', !!r && (r.answers['gpt-5'] ?? '').includes(REPLY), r ? (r.answers['gpt-5'] ?? 'no answer').slice(0, 200) : 'no result');
   c('VS Code chat answers through Control Tower on the Messages API (claude-sonnet-4-5)', !!r && (r.answers['claude-sonnet-4-5'] ?? '').includes(REPLY), r ? (r.answers['claude-sonnet-4-5'] ?? 'no answer').slice(0, 200) : 'no result');
   c('VS Code gets Control Tower\'s MCP tools (mcp.json), and a tool call goes through', !!r && r.tools.length > 0 && /contents of README\.md/.test(r.toolResult ?? ''), r ? `${r.tools.join(', ') || 'no tools'}; ${(r.toolResult ?? 'no tool result').slice(0, 120)}` : 'no result');
+  c('a refusal reaches the person in words (not as a failed sign-in)', !!r && /Control Tower blocked this request/.test((r as any).denied ?? ''), r ? String((r as any).denied ?? 'not asked').slice(0, 200) : 'no result');
+  c('a held request says so in the chat as it waits, then who approved, then the answer', !!r && /waiting for approval/.test((r as any).held ?? '') && /approved by/.test((r as any).held ?? '') && ((r as any).held ?? '').includes(REPLY), r ? String((r as any).held ?? 'not asked').replace(/\n+/g, ' ').slice(0, 300) : 'no result');
   for (const x of seen) console.log('seen', x.method, x.path, '|', x.ua, '|', x.hdrs);
   const flights = ((await api('GET', '/admin/api/flights?limit=50')).flights ?? []) as Array<{ kind: string; model_requested: string; status: string; client: string | null }>;
-  c('Control Tower records VS Code\'s calls', flights.filter((f) => /gpt-5|claude/.test(f.model_requested)).length >= 2, flights.map((f) => `${f.kind} ${f.model_requested} ${f.status} ${f.client ?? '-'}`).join(' | ').slice(0, 400));
+  c('Control Tower records VS Code\'s calls, as VS Code', flights.filter((f) => /gpt-5|claude/.test(f.model_requested) && f.client === 'vscode').length >= 2, flights.map((f) => `${f.kind} ${f.model_requested} ${f.status} ${f.client ?? '-'}`).join(' | ').slice(0, 400));
 } finally {
   const failed = checks.filter((x) => !x.pass).length;
   fs.writeFileSync(path.join(RESULTS, 'vscode-copilot-results.json'), JSON.stringify({ ran_at: new Date().toISOString(), checks, seen }, null, 2));

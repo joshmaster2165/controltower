@@ -14,7 +14,7 @@ import type { GatewayError } from './errors.js';
  */
 
 /** The apps people use, as a laptop's sign-in names them. */
-export const PERSON_APPS = new Set(['claude-desktop', 'claude-code', 'codex', 'copilot']);
+export const PERSON_APPS = new Set(['claude-desktop', 'claude-code', 'codex', 'copilot', 'vscode']);
 
 /** The app a call came from: the laptop's sign-in says, or failing that, the app's own User-Agent. */
 export function clientOf(req: FastifyRequest): string | undefined {
@@ -23,6 +23,8 @@ export function clientOf(req: FastifyRequest): string | undefined {
   // Claude Desktop runs Claude Code: claude-cli/2.1.286 (external, claude-desktop-3p, agent-sdk/0.3.286)
   if (/^claude-cli\//.test(ua)) return /claude-desktop/.test(ua) ? 'claude-desktop' : 'claude-code';
   if (/^codex[_ -]/i.test(ua)) return 'codex';
+  // VS Code's chat (GitHub Copilot Chat): GitHubCopilotChat/0.68.0
+  if (/^GitHubCopilotChat\//.test(ua)) return 'vscode';
   // GitHub Copilot CLI: its MCP calls say so; its model calls use the providers' own SDKs, with Copilot's headers.
   if (/^copilot-cli\b/i.test(ua) || req.headers['x-interaction-type'] !== undefined) return 'copilot';
   return undefined;

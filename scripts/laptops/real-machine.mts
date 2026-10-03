@@ -80,7 +80,8 @@ const recorder = http.createServer((req, res) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
   });
-  up.on('error', () => (res.writeHead(502), res.end()));
+  // (A reply already under way when Control Tower stops, at the end: just close it.)
+  up.on('error', () => (res.headersSent ? res.destroy() : (res.writeHead(502), res.end())));
   req.pipe(up);
 });
 await new Promise<void>((r) => recorder.listen(RECORD_PORT, '127.0.0.1', () => r()));

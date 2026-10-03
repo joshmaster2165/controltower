@@ -144,7 +144,10 @@ See [What a person sees](airspace.md#what-a-person-sees).
 
 ## Tested with
 
-Both are run for real against Control Tower each week: Copilot CLI 1.0.91 installed by the Laptops rollout on Windows and macOS (signed in with ct-auth, no GitHub account), and VS Code 1.140 with its built-in Copilot Chat 0.68 on Linux (Custom Endpoint models on both APIs, a refusal, and a held request approved while it waits).
+Both are run for real against Control Tower each week:
+
+- **Copilot CLI 1.0.91**, installed by the Laptops rollout on Windows and macOS: signed in with ct-auth, no GitHub account, its answers through Control Tower, recorded as the person. With a key, it lists Control Tower's MCP tools.
+- **VS Code 1.140 with its built-in Copilot Chat 0.68**, on Linux: Custom Endpoint models on both APIs, a refusal in words, and a held request approved while it waits. VS Code's MCP connection to Control Tower isn't covered by that run yet (unattended, VS Code doesn't start the servers in `mcp.json`); it uses the same MCP endpoint Claude Code, Codex and Copilot CLI are tested with.
 
 ## Troubleshooting
 

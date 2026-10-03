@@ -214,14 +214,34 @@ const T = {
     </div>`, { dark: true });
   },
 
-  /** carousel closer: headline, sub */
+  /** eyebrow, headline, sub, perks[{title, text}], who, contact — an offer/recruiting card (design partners, beta, hiring) */
+  offer(c, size) {
+    const perks = (c.perks ?? []).slice(0, 4);
+    const land = size === 'landscape' || size === 'wide';
+    return page(size, `<div class="wrap">
+      <div class="eyebrow">${esc(c.eyebrow ?? 'Now accepting')}</div>
+      <h1 style="--hs:${land ? 3 : size === 'square' ? 2.7 : 3.1}">${rich(c.headline)}</h1>
+      ${c.sub ? `<div class="sub" style="max-width:48ch;font-size:calc(var(--u)*${size === 'square' ? 1.05 : 1.25})">${rich(c.sub)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:${land ? 'repeat(4,1fr)' : '1fr 1fr'};gap:calc(var(--u)*.6);margin-top:calc(var(--u)*1.1)">${perks.map((p, i) => `
+        <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);border-radius:calc(var(--u)*.8);padding:calc(var(--u)*.75) calc(var(--u)*.9)">
+          <div style="font:600 calc(var(--u)*.65)/1 'Geist Mono';color:#7fa4ff;margin-bottom:.6em">0${i + 1}</div>
+          <div style="font-weight:650;font-size:calc(var(--u)*1.05);letter-spacing:-.01em">${rich(p.title)}</div>
+          ${p.text ? `<div style="color:#b9c6da;font-size:calc(var(--u)*.78);line-height:1.4;margin-top:.45em">${rich(p.text)}</div>` : ''}
+        </div>`).join('')}</div>
+      ${c.who ? `<div style="margin-top:calc(var(--u)*.9);font-size:calc(var(--u)*.85);color:#b9c6da"><span style="color:#fff;font-weight:600">Who it's for:</span> ${rich(c.who)}</div>` : ''}
+      <div class="foot"><div class="brand"><img src="${logo()}">Control Tower</div>${c.contact ? `<div class="star">✉ ${esc(c.contact)}</div>` : `<div class="star">★ ${REPO_SHORT}</div>`}</div>
+    </div>`, { dark: c.dark ?? true });
+  },
+
+  /** carousel closer: headline, sub, contact (optional email/URL shown instead of the GitHub pill) */
   cta(c, size) {
     return page(size, `<div class="wrap" style="justify-content:center;align-items:center;text-align:center">
       <img src="${logo()}" style="width:120px;height:120px;filter:drop-shadow(0 16px 40px rgba(31,94,255,.5))">
       <h1 style="--hs:3.6">${rich(c.headline ?? 'Star it. Fork it. *Ship safer agents.*')}</h1>
       <div class="sub" style="margin-inline:auto">${rich(c.sub ?? 'Open source, self-hosted, Apache-2.0.')}</div>
       <div style="margin-top:1.6em;display:grid;gap:14px;justify-items:center">
-        <div class="star" style="font-size:calc(var(--u)*1.3)">★ ${REPO_URL}</div>
+        <div class="star" style="font-size:calc(var(--u)*1.3)">${c.contact ? `✉ ${esc(c.contact)}` : `★ ${REPO_URL}`}</div>
+        ${c.contact ? `<div style="font:500 calc(var(--u)*1)/1 'Geist Mono';color:#b9c6da">★ ${REPO_URL}</div>` : ''}
         <div style="font:500 calc(var(--u)*1)/1 'Geist Mono';color:#b9c6da">agentcontroltower.app</div>
       </div>
     </div>`, { dark: true });

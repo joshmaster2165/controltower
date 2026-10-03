@@ -87,8 +87,8 @@ const PRESENTATION = () => {
       #rec-end h1 { font-size: 64px; letter-spacing: -.03em; margin: 22px 0 8px; font-weight: 700; }
       #rec-end p { font-size: 24px; color: #b9c6da; margin: 0 0 34px; }
       #rec-end .row { display: inline-flex; gap: 14px; }
-      #rec-end .pill { font: 500 22px/1 'Geist Mono', ui-monospace, monospace; padding: 16px 22px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
-      #rec-end .pill.star { background: linear-gradient(#3a72ff,#1f5eff); border-color: #4b7dff; box-shadow: 0 10px 30px rgba(31,94,255,.45); }`;
+      #rec-end .rec-pill { font: 500 22px/1 'Geist Mono', ui-monospace, monospace; padding: 16px 22px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
+      #rec-end .rec-pill.rec-star { background: linear-gradient(#3a72ff,#1f5eff); border-color: #4b7dff; box-shadow: 0 10px 30px rgba(31,94,255,.45); }`;
     document.head.appendChild(css);
     const c = document.createElement('div');
     c.id = 'rec-cursor';
@@ -152,13 +152,14 @@ export async function openStage({ ct, site, tmp }) {
       }, [n, esc(title), esc(sub)]);
     },
 
-    async endCard(headline = 'Control Tower', sub = 'See every agent. Gate every call. Open source.') {
-      await page.evaluate(([h, s, logo]) => {
+    /** Full-screen closing card; with `contact` (an email or URL) that becomes the main button instead of the GitHub star. */
+    async endCard(headline = 'Control Tower', sub = 'See every agent. Gate every call. Open source.', contact = null) {
+      await page.evaluate(([h, s, logo, contact]) => {
         let el = document.getElementById('rec-end');
         if (!el) { el = document.createElement('div'); el.id = 'rec-end'; document.body.appendChild(el); }
-        el.innerHTML = `<div class="box"><img src="${logo}"><h1>${h}</h1><p>${s}</p><div class="row"><span class="pill star">★ Star on GitHub</span><span class="pill">github.com/joshmaster2165/controltower</span></div></div>`;
+        el.innerHTML = `<div class="box"><img src="${logo}"><h1>${h}</h1><p>${s}</p><div class="row">${contact ? `<span class="rec-pill rec-star">✉ ${contact}</span><span class="rec-pill">★ github.com/joshmaster2165/controltower</span>` : '<span class="rec-pill rec-star">★ Star on GitHub</span><span class="rec-pill">github.com/joshmaster2165/controltower</span>'}</div></div>`;
         el.style.display = 'grid';
-      }, [esc(headline), esc(sub), 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(REPO, 'ui/public/logo.svg')).toString('base64')]);
+      }, [esc(headline), esc(sub), 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(REPO, 'ui/public/logo.svg')).toString('base64'), contact && esc(contact)]);
     },
 
     async glide(x, y, ms = 700) {

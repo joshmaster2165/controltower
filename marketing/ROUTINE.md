@@ -79,6 +79,7 @@ Save as `marketing/drafts/$TODAY.json`. Schema (see
     "headline": "Put a *human* between your agent and Salesforce",   // ≤ 55 chars, *word* = accent colour
     "sub": "optional, portrait only",
     "captions": [["Title", "subtitle"], ...],   // optional overrides, in order (see marketing/scenes.mjs)
+    "end_headline": "...", "end_sub": "...", "end_contact": "email or URL (replaces the star button)",   // optional end card
     "page": "mcp",                 // docs scene only: a docs/*.md basename
     "steps": [ ... ]               // steps scene only (see marketing/scenes.mjs)
   },
@@ -99,7 +100,8 @@ Card templates (fields): `feature` (eyebrow, headline, sub, bullets[], still),
 `stat` (eyebrow, value, label, sub), `release` (version, date, headline, highlights[]),
 `contribute` (eyebrow, headline, sub, issues[{number, title, labels[]}]),
 `statement` (eyebrow, statement, attribution), `code` (eyebrow, headline, code, sub),
-`cover` / `cta` (carousel first/last slide). Any card can set `"dark": true`.
+`offer` (eyebrow, headline, sub, perks[{title, text}], who, contact — recruiting: design partners, betas),
+`cover` / `cta` (carousel first/last slide; `cta` takes an optional `contact`). Any card can set `"dark": true`.
 `still` puts a live screenshot in the card: `airspace`, `airspace-trace`,
 `ledger`, `flights`, `inventory`, `tower`, `guardrails`, `mcp`, `keys`, `website`.
 

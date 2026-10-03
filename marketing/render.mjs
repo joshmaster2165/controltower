@@ -82,7 +82,7 @@ try {
     stage.rec.start();
     await scene.play(stage, v);
     await stage.caption(null);
-    await stage.endCard(v.end_headline ?? 'Control Tower', v.end_sub ?? 'See every agent. Gate every call. Open source.');
+    await stage.endCard(v.end_headline ?? 'Control Tower', v.end_sub ?? 'See every agent. Gate every call. Open source.', v.end_contact);
     await stage.wait(2800);
     const raw = path.join(TMP, 'raw.mp4');
     await stage.rec.stop(raw);

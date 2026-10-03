@@ -48,7 +48,10 @@ export function forPerson(ge: GatewayError, f: { client: string | undefined; dec
   } else if (ge.code === 'policy_denied') {
     // An approver's decision reads "Denied by <who>: <note>."; a gate's is its reason, or "Blocked by gate …".
     const byApprover = /^Denied by /.test(ge.message);
-    message = byApprover ? `${label}: your request was ${lowerFirst(ge.message.replace(/\.$/, ''))}${gate}.` : rule?.config.reason ? `${label} blocked this request${gate}: ${sentence(rule.config.reason)}` : `${label} blocked this request${gate}.`;
+    const withdrawn = /^Denied by Control Tower: /.test(ge.message);
+    message = withdrawn
+      ? `${label}: your request was withdrawn: ${ge.message.replace(/^Denied by Control Tower: /, '').replace(/\.$/, '')}.`
+      : byApprover ? `${label}: your request was ${lowerFirst(ge.message.replace(/\.$/, ''))}${gate}.` : rule?.config.reason ? `${label} blocked this request${gate}: ${sentence(rule.config.reason)}` : `${label} blocked this request${gate}.`;
   } else if (ct.status === 'expired') {
     message = `${label}: this request needed approval${gate}, and nobody approved it in time. Send your message again to ask again.`;
   } else {

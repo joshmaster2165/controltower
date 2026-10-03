@@ -39,6 +39,8 @@ export interface Approvals {
   hold(flight: Flight, decision: PolicyDecision, onHeld?: () => void): Promise<HoldOutcome>;
   redeem(token: string, keyId: string, scopeHash: string, sessionId: string | undefined): Promise<RedeemResult>;
   decide(approvalId: string, by: string, action: 'approve' | 'deny', opts?: { note?: string; window?: ApprovalWindow }): Promise<{ ok: boolean; status: string }>;
+  /** A person's access ended: their waiting requests are refused, and approvals they haven't used yet end. */
+  withdrawFor(person: string, reason: string): Promise<number>;
   readonly heldCount: number;
   drain(): void;
 }
@@ -112,7 +114,7 @@ export class ApprovalService implements Approvals {
 
     // A human already let this agent make more calls like this one: go straight through.
     if (d.ruleId) {
-      const w = await this.useWindow(key.id, d.ruleId, rule?.revision ?? null, flight.modelRequested, sh, chain, flight.id);
+      const w = await this.useWindow(key.id, d.ruleId, rule?.revision ?? null, flight.modelRequested, sh, chain, flight.id, flight.principal);
       if (w) {
         flight.approvalId = w.approvalId;
         this.version.bump();
@@ -145,8 +147,10 @@ export class ApprovalService implements Approvals {
       }
     }
 
-    // Admission control: over the cap we do not hold at all.
-    const perKey = this.heldByKey.get(key.id) ?? 0;
+    // Admission control: over the cap we do not hold at all. The cap is an agent's (its key), or, for a person, theirs:
+    // a company's laptops share one key, and one person waiting mustn't use up everyone's turn.
+    const capKey = flight.principal ? `${key.id}\u0000${flight.principal}` : key.id;
+    const perKey = this.heldByKey.get(capKey) ?? 0;
     const canHold = budget > 0 && this._held < this.opts.maxHeld && perKey < MAX_HELD_PER_KEY;
     const holdUntil = now + (canHold ? budget : 0);
 
@@ -198,14 +202,14 @@ export class ApprovalService implements Approvals {
     let status: 'approved' | 'denied' | 'expired' | 'timeout' | 'drained' = 'timeout';
     if (canHold) {
       this._held++;
-      this.heldByKey.set(key.id, perKey + 1);
+      this.heldByKey.set(capKey, perKey + 1);
       try {
         status = await this.wait(approval.id, budget, flight);
       } finally {
         this._held--;
-        const n = (this.heldByKey.get(key.id) ?? 1) - 1;
-        if (n <= 0) this.heldByKey.delete(key.id);
-        else this.heldByKey.set(key.id, n);
+        const n = (this.heldByKey.get(capKey) ?? 1) - 1;
+        if (n <= 0) this.heldByKey.delete(capKey);
+        else this.heldByKey.set(capKey, n);
         await this.db.updateTable('approvals').set((eb) => ({ waiters: eb('waiters', '-', 1) })).where('id', '=', approval.id).execute();
       }
     }
@@ -304,6 +308,19 @@ export class ApprovalService implements Approvals {
     for (const w of [...set]) w(status);
   }
 
+  async withdrawFor(person: string, reason: string): Promise<number> {
+    const waiting = await this.db.selectFrom('approvals').select('id').where('requester', '=', person).where('status', '=', 'pending').execute();
+    for (const a of waiting) await this.decide(a.id, 'Control Tower', 'deny', { note: reason });
+    await this.db
+      .updateTable('grants')
+      .set({ revoked_at: Date.now() })
+      .where('revoked_at', 'is', null)
+      .where('approval_id', 'in', (eb) => eb.selectFrom('approvals').select('id').where('requester', '=', person))
+      .execute();
+    this.version.bump();
+    return waiting.length;
+  }
+
   async decide(approvalId: string, by: string, action: 'approve' | 'deny', opts: { note?: string; window?: ApprovalWindow } = {}): Promise<{ ok: boolean; status: string }> {
     const now = Date.now();
     const status = action === 'approve' ? 'approved' : 'denied';
@@ -359,12 +376,12 @@ export class ApprovalService implements Approvals {
   }
 
   /** Take one use of an open approval window that covers this call, if there is one. */
-  private async useWindow(keyId: string, ruleId: string, ruleRevision: number | null, targetName: string, scopeHash: string, chain: string[], flightId: string): Promise<{ grantId: string; approvalId: string; by: string | undefined } | undefined> {
+  private async useWindow(keyId: string, ruleId: string, ruleRevision: number | null, targetName: string, scopeHash: string, chain: string[], flightId: string, principal: string | undefined): Promise<{ grantId: string; approvalId: string; by: string | undefined } | undefined> {
     const now = Date.now();
     const open = await this.db
       .selectFrom('grants')
       .innerJoin('approvals', 'approvals.id', 'grants.approval_id')
-      .select(['grants.id as id', 'grants.approval_id as approval_id', 'grants.any_args as any_args', 'grants.scope_hash as scope_hash', 'grants.chain as chain', 'approvals.resolved_by as by'])
+      .select(['grants.id as id', 'grants.approval_id as approval_id', 'grants.any_args as any_args', 'grants.scope_hash as scope_hash', 'grants.chain as chain', 'approvals.resolved_by as by', 'approvals.requester as requester'])
       .where('grants.is_window', '=', 1)
       .where('grants.key_id', '=', keyId)
       .where('grants.rule_id', '=', ruleId)
@@ -379,6 +396,9 @@ export class ApprovalService implements Approvals {
     for (const g of open) {
       if (!g.any_args && g.scope_hash !== scopeHash) continue;
       if ((g.chain ?? null) !== want) continue;
+      // A window opened for a person's request covers that person: others on the same key (a company's laptops share
+      // one) ask for themselves.
+      if (g.requester && g.requester !== principal) continue;
       const res = await this.db
         .updateTable('grants')
         .set((eb) => ({ uses_consumed: eb('uses_consumed', '+', 1), last_used_at: now, consumed_by_session: flightId }))

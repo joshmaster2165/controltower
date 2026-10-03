@@ -174,6 +174,13 @@ Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as t
 
 The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again (to the same model, through the same gate) goes through on that approval, once. That's the message they typed: Claude sends the whole conversation each time, which by then also holds the unanswered first try. Anyone else, or another message, is a new card. The card shows what they typed, without the context Claude Code adds to it.
 
+A person's approval is theirs, on a key a company's laptops share:
+
+- **Nobody approves their own request.** The person who asked can withdraw it (deny) but not approve it (`403 own_request`), whatever their role.
+- **Approve the next N** for a person's request covers that person's next calls, not everyone's on the key.
+- **Held calls are capped per person** (5 at a time), not per key, so one person waiting doesn't use up everyone's turn. An agent's key is capped as before.
+- **Removing someone** (in Control Tower, or through SCIM) withdraws their waiting requests at once (*your request was withdrawn: your access was removed*) and ends approvals they haven't used.
+
 Tool calls through MCP hear, while held, *Waiting for a human to approve this call in Control Tower (gate "…")*, and *Approved by …* once someone does. `CT_NOTICE_LABEL` changes the name these messages use (for example `Acme AI Gateway`).
 
 ### Retrying with a ticket

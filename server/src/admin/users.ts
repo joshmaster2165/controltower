@@ -74,6 +74,7 @@ export async function userRoutes(app: FastifyInstance, ctx: AppContext): Promise
     await ctx.db.write.deleteFrom('sessions').where('admin_id', '=', id).execute();
     // Their laptops' sign-ins end now too (their access tokens are refused at once).
     await ctx.devices?.revokePerson(id, `removed by ${req.admin?.email ?? 'an admin'}`);
+    await ctx.approvals.withdrawFor(user.email, 'your access was removed');
     await ctx.db.write.deleteFrom('admins').where('id', '=', id).execute();
     await ctx.db.write.deleteFrom('memberships').where('admin_id', '=', id).execute();
     await ctx.orgs?.reload();

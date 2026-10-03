@@ -493,3 +493,55 @@ test("a person's app is told in words what a gate decided; their held call is th
     for (const id of rules) await admin.del(`/admin/api/rules/${id}`);
   }
 });
+
+test("a person's approval is theirs: not their own to give, windows and the hold cap per person, and removed means withdrawn", async () => {
+  // Everyone's laptops on the team's one key, as a company would set it up.
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: teamId, key_id: keys.eng!.id }] });
+  const people = await Promise.all(['gil', 'hal', 'ivy', 'jon', 'kim', 'lee'].map((n) => person(`${n}@laptops.test`)));
+  const [gil, hal, ivy, jon] = people as [Person, Person, Person, Person];
+  const tokens = await Promise.all(people.map(async (p) => (await signIn(p, 'claude-desktop')).access_token));
+  const ask = (i: number, text: string) =>
+    fetch(`${CT}/v1/messages`, {
+      method: 'POST',
+      headers: { 'x-api-key': tokens[i]!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': 'claude-cli/2.1.286 (external, claude-desktop-3p)' },
+      body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content: text }] }),
+    }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+  const gate = (await admin.post('/admin/api/rules', { name: 'Team calls need a teammate', target_kind: 'model', match: { keys: [keys.eng!.id] }, effect: 'require_approval', config: { hold_ms: 15000 }, priority: 1 })).body.id as string;
+  const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.key_id === keys.eng!.id);
+  const cardOf = async (who: Person) => {
+    await expect.poll(async () => (await pending()).some((a) => a.requester === who.email)).toBe(true);
+    return (await pending()).find((a) => a.requester === who.email);
+  };
+  try {
+    // Gil can't approve his own request; Hal, a teammate, can, for Gil and the next calls like it: Gil's only.
+    const gils = ask(0, 'gil asks');
+    const card = await cardOf(gil);
+    const own = await gil.call('POST', `/admin/api/approvals/${card.id}/decide`, { action: 'approve' });
+    expect(own.status).toBe(403);
+    expect(own.body.error.code).toBe('own_request');
+    expect((await hal.call('POST', `/admin/api/approvals/${card.id}/decide`, { action: 'approve', window: { uses: 5, ttl_ms: 600000, any_args: true } })).status).toBe(200);
+    expect((await gils).status).toBe(200);
+    expect((await ask(0, 'gil asks something else')).status).toBe(200);
+    const ivys = ask(2, 'ivy asks');
+    const ivyCard = await cardOf(ivy);
+    expect(ivyCard).toBeTruthy();
+    await admin.post(`/admin/api/approvals/${ivyCard.id}/decide`, { action: 'deny' });
+    expect((await ivys).status).toBe(400);
+    for (const g of ((await admin.get('/admin/api/approval-windows')).body.windows as any[]).filter((w) => w.key_id === keys.eng!.id)) await admin.post(`/admin/api/grants/${g.id}/revoke`, {});
+
+    // Six people waiting at once on the one key: each waits (an agent's key holds five at a time; this is per person).
+    const all = people.map((_, i) => ask(i, `crowd ${i}`));
+    await expect.poll(async () => (await pending()).length).toBe(6);
+    // Jon is removed while he waits: his request is withdrawn at once, in words.
+    const jonCard = (await pending()).find((a) => a.requester === jon.email);
+    await admin.del(`/admin/api/users/${jon.id}`);
+    const removed = await all[3]!;
+    expect(removed.status).toBe(400);
+    expect(removed.body.error.message).toBe('Control Tower: your request was withdrawn: your access was removed.');
+    expect((await admin.get(`/admin/api/approvals/${jonCard.id}`)).body.approval).toMatchObject({ status: 'denied', resolved_by: 'Control Tower' });
+    for (const a of await pending()) await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'approve' });
+    expect((await Promise.all(all.filter((_, i) => i !== 3))).map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+  } finally {
+    await admin.del(`/admin/api/rules/${gate}`);
+  }
+});

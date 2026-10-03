@@ -274,7 +274,7 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const bad = windowError(b.window);
     if (bad) return reply.status(400).send({ error: { code: 'invalid', message: bad } });
     // A team's members decide its agents' held calls; approvers and admins decide any.
-    const held = await ctx.db.read.selectFrom('approvals').select('key_id').where('id', '=', id).executeTakeFirst();
+    const held = await ctx.db.read.selectFrom('approvals').select(['key_id', 'requester']).where('id', '=', id).executeTakeFirst();
     if (!held) {
       // A call held in a region is decided there, by this person, within their teams.
       const found = await findInRegions(ctx, req, `/admin/api/approvals/${encodeURIComponent(id)}`);
@@ -284,6 +284,11 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
       }
     }
     if (held && !approvesTeam(scopeOf(req), ctx.registry.keysById.get(held.key_id)?.team)) return reply.status(403).send({ error: { code: 'forbidden', message: "That call isn't from one of your teams' agents." } });
+    // Someone else approves a person's request: a gate that its own requester could open wouldn't be one. (Withdrawing
+    // it, by denying, is fine.)
+    if (held?.requester && b.action === 'approve' && req.admin?.email && held.requester.toLowerCase() === req.admin.email.toLowerCase()) {
+      return reply.status(403).send({ error: { code: 'own_request', message: 'This is your own request: someone else has to approve it.' } });
+    }
     const r = await approvals.decide(id, req.admin?.email ?? 'admin', b.action, { ...(b.note ? { note: b.note } : {}), ...(b.window ? { window: b.window } : {}) });
     if (!r.ok) return reply.status(409).send({ error: { code: 'conflict', message: r.status } });
     return r;

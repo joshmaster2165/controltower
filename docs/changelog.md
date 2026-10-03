@@ -8,6 +8,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 - **The Tower's cards name the person and their tool** (*Asked by dana@acme.com in Claude Desktop*), for calls from signed-in laptops and trusted tokens.
 - **Once approved, the same message again goes through.** A person's tool can't present a ticket, so after an approver says yes, the same person sending the same message (what they typed, to the same model, through the same gate) goes through on that approval, once. Cards show what the person typed, not the context Claude Code adds to it.
 - **MCP:** a held tool call's progress notes name the gate, and say who approved it.
+- **A person's approval is theirs** (found testing many people on one laptops key): the person who asked can't approve their own request (`403 own_request`); "approve the next N" for a person covers only them; held calls are capped at 5 per person, not per key (a sixth person waiting on a shared key was refused at once); and removing someone, in Control Tower or through SCIM, withdraws their waiting requests and ends approvals they haven't used.
 - **Laptops warns when Claude Desktop would find no model.** Claude Desktop lists the Claude models Control Tower serves, and won't start without one ("Gateway returned no usable models"); models added on first use aren't listed until someone uses them. **Laptops › Roll it out** now says so for the keys Claude Desktop would use.
 
 ## 0.2.9 — 2 October 2026

@@ -122,7 +122,10 @@ export async function scimRoutes(app: FastifyInstance, ctx: AppContext): Promise
       if (!Object.keys(patch).length) return;
       await w.updateTable('admins').set(patch).where('id', '=', adminId).execute();
       await w.deleteFrom('sessions').where('admin_id', '=', adminId).execute();
-      if (patch.disabled === 2) await ctx.devices?.revokePerson(adminId, 'no group gives them a role (SCIM)');
+      if (patch.disabled === 2) {
+        await ctx.devices?.revokePerson(adminId, 'no group gives them a role (SCIM)');
+        await ctx.approvals.withdrawFor(u.email, 'your access was removed');
+      }
       await audit(req, p, 'users.update', { type: 'users', id: adminId }, { reason: 'group membership changed', ...(patch.role ? { from: u.role, to: patch.role } : {}), ...(patch.disabled === 2 ? { access: 'none: in no group that gives a role' } : patch.disabled === 0 ? { access: 'restored by a group' } : {}) });
     };
     const needSeat = async (u: Person | undefined) => {
@@ -206,7 +209,10 @@ export async function scimRoutes(app: FastifyInstance, ctx: AppContext): Promise
       }
       await w.updateTable('admins').set(patch).where('id', '=', u.id).execute();
       if (patch.disabled === 1 || patch.email) await w.deleteFrom('sessions').where('admin_id', '=', u.id).execute();
-      if (patch.disabled === 1) await ctx.devices?.revokePerson(u.id, 'deactivated by the identity provider (SCIM)');
+      if (patch.disabled === 1) {
+        await ctx.devices?.revokePerson(u.id, 'deactivated by the identity provider (SCIM)');
+        await ctx.approvals.withdrawFor(u.email, 'your access was removed');
+      }
       await audit(req, p, 'users.update', { type: 'users', id: u.id }, { ...(patch.email ? { email: patch.email } : {}), ...(f.active !== undefined ? { active: f.active } : {}) });
     };
 
@@ -248,6 +254,7 @@ export async function scimRoutes(app: FastifyInstance, ctx: AppContext): Promise
       if (!mine(p, u)) throw new ScimError(404, 'No such user.');
       await w.deleteFrom('sessions').where('admin_id', '=', u.id).execute();
       await ctx.devices?.revokePerson(u.id, 'removed by the identity provider (SCIM)');
+      await ctx.approvals.withdrawFor(u.email, 'your access was removed');
       await w.deleteFrom('scim_group_members').where('admin_id', '=', u.id).execute();
       await w.deleteFrom('admins').where('id', '=', u.id).execute();
       await w.deleteFrom('memberships').where('admin_id', '=', u.id).execute();

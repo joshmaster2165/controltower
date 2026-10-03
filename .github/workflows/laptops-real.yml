@@ -40,4 +40,5 @@ jobs:
           path: |
             ${{ runner.temp }}/laptops-real-results.json
             ${{ runner.temp }}/claude-desktop-*.png
+            ${{ runner.temp }}/claude-desktop-*.txt
           if-no-files-found: ignore

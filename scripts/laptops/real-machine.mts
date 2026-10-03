@@ -359,25 +359,37 @@ ${body}`);
     steps.push(`menu ${(await uia(`Press (Claude) '(Open|Choose|Select|Add|Browse).*(folder|project)|^Folder'`)).out.trim()}`);
     await sleep(3000);
     await screenshot('5-folder-dialog');
-    // The folder picker: type the path where it has the focus, Enter; then its Select Folder button if it's still open.
-    const picked = await uia(`[System.Windows.Forms.SendKeys]::SendWait('${folder.replace(/'/g, "''")}')
-Start-Sleep -Milliseconds 800
+    // The folder picker: its address bar (Alt+D) to go to the folder, then Select Folder (which picks the folder shown).
+    const picked = await uia(`$out = ''
+$pick = $null
+foreach ($w in (Wins)) { foreach ($e in (All $w)) { if ($e.Current.Name -eq 'Select Folder' -and -not $e.Current.IsOffscreen) { $pick = $w; break } }; if ($pick) { break } }
+if ($pick) { $pick.SetFocus(); $out += "picker: $($pick.Current.Name)" } else { $out += 'no picker window' }
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('%d')
+Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait('${folder.replace(/'/g, "''")}')
+Start-Sleep -Milliseconds 600
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 Start-Sleep 2
-$out = 'typed'
-foreach ($w in (Wins)) { $r = Press $w '^Select Folder$'; if ($r -ne 'not found') { $out += "; $r"; break } }
+if ($pick) { $out += "; " + (Press $pick '^Select Folder$') }
 $out`);
     steps.push(`picker ${picked.out.trim()}`);
     await sleep(3000);
-    const trust = await uia(`Press (Claude) '^Trust'`);
-    if (!/not found/.test(trust.out)) steps.push(`trust ${trust.out.trim()}`);
+    // "Allow Claude to change files in …?": allow (or, in some versions, trust the workspace).
+    const trust = await uia(`Press (Claude) '^(Allow|Trust workspace|Trust)$'`);
+    steps.push(`allow ${trust.out.trim()}`);
     await sleep(2000);
     await screenshot('6-folder-open');
     await dump('c-after-folder');
     const rule = await api('POST', '/admin/api/rules', { name: 'Sonnet needs a manager', target_kind: 'model', match: { models: ['claude-sonnet-4-5'], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
     const sentAt = seen.length;
-    const sent = await uia(`$r = Press (Claude) '^(Prompt|Message|Reply)'
+    // The message box keeps the focus: clear what an earlier step typed, then the message.
+    const sent = await uia(`$w = Claude; if ($w) { $w.SetFocus() }
+$r = Press (Claude) '^(Prompt|Message|Reply|Ask|Type)'
 Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait('^a')
+[System.Windows.Forms.SendKeys]::SendWait('{DEL}')
+Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('Draft the board update')
 Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')

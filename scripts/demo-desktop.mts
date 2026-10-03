@@ -616,6 +616,8 @@ end tell`);
   await sleep(20_000);
   await clientSees('resent-after-approval');
   log(`calls: ${calls(m)}`);
+  for (const x of ((await api('GET', '/admin/api/approvals?status=all&limit=4')).approvals ?? []) as Array<{ id: string; status: string; requester: string | null; client: string | null; args_preview: { last_user_message?: string } | null }>)
+    log(`card ${x.id.slice(-6)}: ${x.status} ${x.requester} ${x.client} "${x.args_preview?.last_user_message ?? ''}"`);
   // Last (a secret in the conversation blocks every later call in it): blocked by an inspect gate.
   m = seen.length;
   await ask('Check this AWS key still works: AKIAIOSFODNN7EXAMPLE');

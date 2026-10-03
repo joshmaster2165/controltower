@@ -476,9 +476,11 @@ test("a person's app is told in words what a gate decided; their held call is th
     const [partner] = await pending();
     expect(partner.args_preview.last_user_message).toBe('draft the partner update');
     await admin.post(`/admin/api/approvals/${partner.id}/decide`, { action: 'approve' });
-    expect((await ask([typed('draft the partner update'), typed('draft the partner update')])).status).toBe(200);
+    // (Turns alternate, so Claude merges the unanswered try into the next message.)
+    const merged = (...ts: string[]) => ({ role: 'user', content: ts.flatMap((t) => typed(t).content) });
+    expect((await ask([merged('draft the partner update', 'draft the partner update')])).status).toBe(200);
     // Once: and a different message isn't covered.
-    expect((await ask([typed('draft the partner update'), typed('draft the partner update'), typed('draft the partner update')])).status).toBe(400);
+    expect((await ask([merged('draft the partner update', 'draft the partner update', 'draft the partner update')])).status).toBe(400);
     for (const c of await pending()) await admin.post(`/admin/api/approvals/${c.id}/decide`, { action: 'deny' });
     // Someone else sending the same words doesn't ride on Fay's approval.
     expect((await ask('draft the hiring plan')).status).toBe(400);

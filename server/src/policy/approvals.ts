@@ -492,9 +492,10 @@ function previewArgs(flight: Flight): Record<string, unknown> {
 }
 
 /**
- * What the person last typed: the last user message's text. Chat and Messages carry `messages`; the Responses API
- * carries `input` (a string or input items). Claude Code adds context of its own to that message
- * (`<system-reminder>…`): that isn't what they typed, unless it's all there is.
+ * What the person last typed: the last text in the last user message. Chat and Messages carry `messages`; the Responses
+ * API carries `input` (a string or input items). Claude Code adds context of its own to that message
+ * (`<system-reminder>…`): that isn't what they typed, unless it's all there is. And an unanswered try is merged into the
+ * next user message (turns must alternate), so the last text is the newest.
  */
 export function lastUserText(body: Record<string, unknown>): string {
   const input = body.input;
@@ -505,5 +506,5 @@ export function lastUserText(body: Record<string, unknown>): string {
   if (!Array.isArray(last?.content)) return last?.content != null ? JSON.stringify(last.content) : '';
   const texts = (last.content as Array<{ text?: unknown }>).map((p) => (typeof p?.text === 'string' ? p.text.trim() : '')).filter(Boolean);
   const own = texts.filter((t) => !t.startsWith('<system-reminder>'));
-  return (own.length ? own : texts).join(' ').trim();
+  return (own.length ? own : texts).pop() ?? '';
 }

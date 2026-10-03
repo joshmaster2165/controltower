@@ -106,7 +106,7 @@ try {
   s = await login('dev-password-123');
 
   // ---- What IT deploys ----
-  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-code,claude-desktop,codex&mcp=1&lockdown=1`);
+  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-code,claude-desktop,codex,copilot&mcp=1&lockdown=1`);
   const file = (n: string) => (roll.files as Array<{ name: string; content: string }>).find((f) => f.name === n)!.content;
   if (WIN) {
     // As Intune runs a platform script: Windows PowerShell 5.1, 64-bit, as an administrator.
@@ -165,6 +165,7 @@ try {
   await signIn('claude-code');
   await signIn('codex');
   await signIn('claude-desktop');
+  await signIn('copilot');
   if (WIN) {
     const dir = path.join(process.env.LOCALAPPDATA ?? '', 'ControlTower');
     const stored = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
@@ -194,6 +195,19 @@ try {
   c('Codex runs its MCP headers helper without errors, and reads no setting it ignores', !/headers helper exited/i.test(cx.err) && !/no longer supported/i.test(cx.out + cx.err), ((cx.out + cx.err).match(/.*(headers helper|no longer supported).*/i)?.[0] ?? 'no helper errors, no ignored settings').slice(0, 240));
   const cxv = await run('codex --version');
   console.log('codex', cxv.out.trim());
+
+  // GitHub Copilot CLI, with only what the rollout set: machine-wide variables on Windows (read as a new sign-in to
+  // Windows would), the file every shell reads on macOS (zsh reads it through /etc/zshenv). No GitHub account.
+  const copilotEnv: Record<string, string | undefined> = { ...clean, GITHUB_TOKEN: undefined, GH_TOKEN: undefined, COPILOT_GITHUB_TOKEN: undefined, COPILOT_HOME: path.join(TMP, 'copilot-home') };
+  if (WIN) {
+    for (const k of ['COPILOT_PROVIDER_TYPE', 'COPILOT_PROVIDER_BASE_URL', 'COPILOT_PROVIDER_API_KEY_COMMAND', 'COPILOT_MODEL', 'COPILOT_OFFLINE']) {
+      copilotEnv[k] = (await run(`powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('${k}', 'Machine')"`)).out.trim();
+    }
+  }
+  const cpl = await run(WIN ? 'copilot -p "Which gateway?" --allow-all-tools' : `zsh -c 'copilot -p "Which gateway?" --allow-all-tools'`, copilotEnv);
+  c('GitHub Copilot CLI answers through Control Tower (the rollout\'s environment, ct-auth\'s token, no GitHub account)', (cpl.out + cpl.err).includes('Connected through Control Tower'), (cpl.out + cpl.err).trim().slice(0, 400));
+  const cplv = await run('copilot --version', copilotEnv);
+  console.log('copilot', cplv.out.trim());
 
   // ---- Claude Desktop: installed from Anthropic's release server, opened with only the managed settings ----
   const before = seen.length;
@@ -441,11 +455,12 @@ foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send me
 
   // ---- In Control Tower: the calls, as the person ----
   await sleep(1500);
-  const flights = ((await api('GET', `/admin/api/flights?key_id=${key.id}&limit=100`)).flights ?? []) as Array<{ principal: string | null; model_requested: string }>;
+  const flights = ((await api('GET', `/admin/api/flights?key_id=${key.id}&limit=100`)).flights ?? []) as Array<{ principal: string | null; model_requested: string; client: string | null }>;
   const mine = flights.filter((f) => f.principal === 'dev@acme.example');
+  c('Control Tower records Copilot CLI\'s calls as the person, in Copilot', flights.some((f) => f.principal === 'dev@acme.example' && f.client === 'copilot'), [...new Set(flights.filter((f) => f.principal === 'dev@acme.example').map((f) => f.client ?? 'unknown'))].join(', '));
   c('Control Tower records both tools\' calls as the person', mine.some((f) => f.model_requested.startsWith('claude')) && mine.some((f) => f.model_requested.startsWith('gpt')), `${mine.length} calls as dev@acme.example: ${[...new Set(mine.map((f) => f.model_requested))].join(', ')}`);
   const devices = ((await api('GET', '/admin/api/devices')).sessions ?? []) as Array<{ client: string; device_name: string; status: string }>;
-  c('Laptops lists the computer, once per tool', devices.filter((d) => d.status === 'active').length === 3, devices.map((d) => `${d.client} on ${d.device_name}`).join(', '));
+  c('Laptops lists the computer, once per tool', devices.filter((d) => d.status === 'active').length === 4, devices.map((d) => `${d.client} on ${d.device_name}`).join(', '));
 } finally {
   const failed = checks.filter((x) => !x.pass).length;
   fs.writeFileSync(path.join(process.env.RESULTS_DIR ?? REPO, 'laptops-real-results.json'), JSON.stringify({ platform: process.platform, ran_at: new Date().toISOString(), checks }, null, 2));

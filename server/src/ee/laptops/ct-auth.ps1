@@ -35,7 +35,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 }
 if (-not $cmd) { $cmd = 'token' }
 if ($cmd -eq 'version') { "ct-auth $CtAuthVersion"; exit 0 }
-if (@('claude-code', 'claude-desktop', 'codex', 'other') -notcontains $client) { Die '--client is claude-code, claude-desktop, codex or other' }
+if (@('claude-code', 'claude-desktop', 'codex', 'copilot', 'other') -notcontains $client) { Die '--client is claude-code, claude-desktop, codex, copilot or other' }
 
 $onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 # Settings: the environment first, then the config file IT installed (apps run helpers with a bare environment).
@@ -63,7 +63,7 @@ if ($idp) {
   if (-not $idpClientId) { Die "idp_issuer is set but idp_client_id isn't: ask IT to fix the configuration" }
   $idpIssuer = $idpIssuer.TrimEnd('/')
 }
-$names = @{ 'claude-code' = 'Claude Code'; 'claude-desktop' = 'Claude Desktop'; 'codex' = 'Codex'; 'other' = 'this computer' }
+$names = @{ 'claude-code' = 'Claude Code'; 'claude-desktop' = 'Claude Desktop'; 'codex' = 'Codex'; 'copilot' = 'GitHub Copilot CLI'; 'other' = 'this computer' }
 $name = $names[$client]
 
 # ---- where tokens are kept ----

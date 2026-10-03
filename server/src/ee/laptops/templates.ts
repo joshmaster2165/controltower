@@ -9,10 +9,14 @@ import fs from 'node:fs';
  * The client settings follow each vendor's documented managed configuration: Claude Code's managed settings
  * (`com.anthropic.claudecode`, `HKLM\SOFTWARE\Policies\ClaudeCode`, managed-settings.json, managed-mcp.json), Claude
  * Desktop's (`com.anthropic.claudefordesktop`, `HKLM\SOFTWARE\Policies\Claude`, /etc/claude-desktop), and Codex's
- * requirements.toml and managed_config.toml (`com.openai.codex`).
+ * requirements.toml and managed_config.toml (`com.openai.codex`). GitHub Copilot CLI has no managed configuration for
+ * its model provider, only environment variables: they're set machine-wide (Windows), or in a file every shell reads
+ * (macOS and Linux).
  */
-export type RolloutClient = 'claude-code' | 'claude-desktop' | 'codex';
-export const ROLLOUT_CLIENTS: RolloutClient[] = ['claude-code', 'claude-desktop', 'codex'];
+export type RolloutClient = 'claude-code' | 'claude-desktop' | 'codex' | 'copilot';
+export const ROLLOUT_CLIENTS: RolloutClient[] = ['claude-code', 'claude-desktop', 'codex', 'copilot'];
+/** Chosen when nothing is: the clients rolled out before GitHub Copilot CLI joined (it's opted into). */
+export const DEFAULT_CLIENTS: RolloutClient[] = ['claude-code', 'claude-desktop', 'codex'];
 
 export interface RolloutOptions {
   /** The address laptops reach Control Tower at (https, in production). */
@@ -28,6 +32,13 @@ export interface RolloutOptions {
    * no Control Tower account).
    */
   idp?: { issuer: string; clientId: string; scope?: string | undefined; token?: 'id_token' | 'access_token' | undefined } | undefined;
+  /** The model GitHub Copilot CLI uses (it needs one named): one Control Tower serves. */
+  copilotModel?: string | undefined;
+}
+
+/** What's wrong with the Copilot model name, if anything (it goes into scripts). */
+export function copilotModelProblem(model: string): string | undefined {
+  return /^[A-Za-z0-9._:/@-]{1,120}$/.test(model) ? undefined : 'The Copilot model is a model name Control Tower serves, such as claude-sonnet-4-5 (letters, digits and . _ : / @ - only).';
 }
 
 /** What's wrong with identity-provider settings, if anything (they go into a config file and scripts). */
@@ -190,6 +201,31 @@ function codexManagedConfig(o: RolloutOptions, headersHelper: string): string {
   ].join('\n');
 }
 
+/**
+ * GitHub Copilot CLI's settings: its own model provider pointed at Control Tower (the Anthropic Messages API, so a
+ * held request is told in the reply as it waits), its credential from ct-auth through a helper with no arguments.
+ * Locked down, it talks to nothing but Control Tower (no GitHub sign-in, no telemetry).
+ */
+function copilotEnv(o: RolloutOptions, helper: string): Record<string, string> {
+  return {
+    COPILOT_PROVIDER_TYPE: 'anthropic',
+    COPILOT_PROVIDER_BASE_URL: o.url,
+    COPILOT_PROVIDER_API_KEY_COMMAND: helper,
+    COPILOT_MODEL: o.copilotModel ?? 'claude-sonnet-4-5',
+    ...(o.lockdown ? { COPILOT_OFFLINE: 'true' } : {}),
+  };
+}
+const COPILOT_MARK = '# Control Tower: GitHub Copilot CLI';
+/** The variables as sh lines, and the lines that make every shell read them (added once; run again, nothing doubles). */
+function copilotShell(o: RolloutOptions, envFile: string, rcFiles: string[]): string {
+  const sh = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
+  const lines = [`${COPILOT_MARK} (${o.url}). Written by the Control Tower install script.`, ...Object.entries(copilotEnv(o, '/usr/local/bin/ct-auth-copilot')).map(([k, v]) => `export ${k}=${sh(v)}`)];
+  const parts = [heredoc(envFile, `${lines.join('\n')}\n`, '644')];
+  // (Only where that shell is installed: its folder exists.)
+  for (const rc of rcFiles) parts.push(`if [ -d "$(dirname "${rc}")" ]; then touch "${rc}"; grep -qF '${COPILOT_MARK}' "${rc}" || printf '\\n%s\\n[ -r "%s" ] && . "%s"\\n' '${COPILOT_MARK}' '${envFile}' '${envFile}' >> "${rc}"; fi\n`);
+  return parts.join('');
+}
+
 // ---- macOS ----
 
 function plistEscape(s: string): string {
@@ -263,6 +299,7 @@ function unixWrappers(): string {
     heredoc('/usr/local/bin/ct-auth-claude-desktop', '#!/bin/sh\nexec /usr/local/bin/ct-auth token --client claude-desktop\n', '755'),
     heredoc('/usr/local/bin/ct-auth-mcp-claude-desktop', '#!/bin/sh\nexec /usr/local/bin/ct-auth header --client claude-desktop\n', '755'),
     heredoc('/usr/local/bin/ct-auth-mcp-codex', '#!/bin/sh\nexec /usr/local/bin/ct-auth header --client codex\n', '755'),
+    heredoc('/usr/local/bin/ct-auth-copilot', '#!/bin/sh\nexec /usr/local/bin/ct-auth token --client copilot\n', '755'),
   ].join('');
 }
 
@@ -279,6 +316,8 @@ function installMac(o: RolloutOptions): string {
   ];
   // Claude Code's MCP servers with a sign-in helper can only come from a file (a profile can't name a command).
   if (has(o, 'claude-code') && o.mcp) parts.push(heredoc('/Library/Application Support/ClaudeCode/managed-mcp.json', json(claudeCodeMcp(o, UNIX_HELPER)), '644'));
+  // GitHub Copilot CLI reads only environment variables: a file zsh and bash read for every shell.
+  if (has(o, 'copilot')) parts.push(copilotShell(o, '/Library/Application Support/ControlTower/copilot.env', ['/etc/zshenv', '/etc/profile', '/etc/bashrc']));
   parts.push('echo "Control Tower: ct-auth installed for ' + o.url + '"', '');
   return parts.join('\n');
 }
@@ -303,6 +342,10 @@ function installLinux(o: RolloutOptions): string {
   if (has(o, 'codex')) {
     parts.push(heredoc('/etc/codex/requirements.toml', codexRequirements(o, UNIX_HELPER, ['token', '--client', 'codex']), '644'));
     if (o.mcp) parts.push(heredoc('/etc/codex/managed_config.toml', codexManagedConfig(o, '/usr/local/bin/ct-auth-mcp-codex'), '644'));
+  }
+  if (has(o, 'copilot')) {
+    // /etc/profile.d covers login shells; bash.bashrc and zshenv the others.
+    parts.push(copilotShell(o, '/etc/controltower/copilot.env', ['/etc/profile.d/controltower-copilot.sh', '/etc/bash.bashrc', '/etc/zsh/zshenv']));
   }
   parts.push('echo "Control Tower: set up for ' + o.url + '"', '');
   return parts.join('\n');
@@ -331,6 +374,7 @@ function installWindows(o: RolloutOptions): string {
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-claude-desktop.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" token --client claude-desktop'`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-claude-desktop.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client claude-desktop'`,
     `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-mcp-codex.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" header --client codex'`,
+    `Set-Content -LiteralPath (Join-Path $dir 'ct-auth-copilot.cmd') -Encoding ASCII -Value '@powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0ct-auth.ps1" token --client copilot'`,
     "New-Item -ItemType Directory -Path (Join-Path $env:ProgramData 'ControlTower') -Force | Out-Null",
     `Write-File (Join-Path $env:ProgramData 'ControlTower\\ct-auth.conf') ${psHere(confText(o))}`,
   ];
@@ -371,6 +415,10 @@ function installWindows(o: RolloutOptions): string {
       );
     }
   }
+  if (has(o, 'copilot')) {
+    ps.push('', '# GitHub Copilot CLI: environment variables, machine-wide (it has no managed configuration for its model provider).');
+    for (const [k, v] of Object.entries(copilotEnv(o, `${WIN_DIR}\\ct-auth-copilot.cmd`))) ps.push(`[Environment]::SetEnvironmentVariable('${k}', ${psHere(v)}, 'Machine')`);
+  }
   ps.push('', `Write-Output 'Control Tower: set up for ${o.url}'`, '');
   return ps.join('\r\n');
 }
@@ -404,6 +452,10 @@ export function rolloutFiles(o: RolloutOptions): RolloutFile[] {
   if (has(o, 'codex')) {
     files.push({ name: 'codex/requirements.toml', platform: 'any', use: 'Codex admin-enforced requirements: the Control Tower provider.', content: codexRequirements(o, UNIX_HELPER, ['token', '--client', 'codex']), mime: 'text/plain' });
     if (o.mcp) files.push({ name: 'codex/managed_config.toml', platform: 'any', use: 'Codex managed defaults: Control Tower\'s MCP endpoint.', content: codexManagedConfig(o, '/usr/local/bin/ct-auth-mcp-codex'), mime: 'text/plain' });
+  }
+  if (has(o, 'copilot')) {
+    const env = copilotEnv(o, '/usr/local/bin/ct-auth-copilot');
+    files.push({ name: 'copilot/copilot.env', platform: 'any', use: 'GitHub Copilot CLI\'s environment variables (macOS and Linux paths), for your own packaging: set them for every shell.', content: `${Object.entries(env).map(([k, v]) => `export ${k}='${v}'`).join('\n')}\n`, mime: 'text/plain' });
   }
   files.push(
     { name: 'ct-auth', platform: 'any', use: 'The helper itself, for macOS and Linux (/usr/local/bin/ct-auth).', content: helperScripts().sh, mime: 'text/x-shellscript' },

@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$cmd" ] || cmd="token"
 [ "$cmd" = "version" ] && { printf 'ct-auth %s\n' "$CT_AUTH_VERSION"; exit 0; }
-case "$client" in claude-code|claude-desktop|codex|other) ;; *) die "--client is claude-code, claude-desktop, codex or other" ;; esac
+case "$client" in claude-code|claude-desktop|codex|copilot|other) ;; *) die "--client is claude-code, claude-desktop, codex, copilot or other" ;; esac
 
 # Settings: the environment first, then the config file your IT team installed (apps run helpers with a bare
 # environment, so a rollout relies on the file).
@@ -118,7 +118,7 @@ jwt_claims() {
 }
 
 name_of() {
-  case "$client" in claude-code) echo "Claude Code" ;; claude-desktop) echo "Claude Desktop" ;; codex) echo "Codex" ;; *) echo "this computer" ;; esac
+  case "$client" in claude-code) echo "Claude Code" ;; claude-desktop) echo "Claude Desktop" ;; codex) echo "Codex" ;; copilot) echo "GitHub Copilot CLI" ;; *) echo "this computer" ;; esac
 }
 
 # Where to sign in: Control Tower's endpoints, or the identity provider's (from its discovery document).

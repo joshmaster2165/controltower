@@ -16,9 +16,9 @@ import { randomToken, sha256Hex } from '../crypto/secrets.js';
  * their person deactivated (every instance reloads what's revoked within a minute, and at once through the cluster).
  */
 export const DEVICE_TOKEN_PREFIX = 'ct_dt_';
-export const CLIENTS = ['claude-code', 'claude-desktop', 'codex', 'other'] as const;
+export const CLIENTS = ['claude-code', 'claude-desktop', 'codex', 'copilot', 'other'] as const;
 export type DeviceClient = (typeof CLIENTS)[number];
-export const CLIENT_NAMES: Record<DeviceClient, string> = { 'claude-code': 'Claude Code', 'claude-desktop': 'Claude Desktop', codex: 'Codex', other: 'Another tool' };
+export const CLIENT_NAMES: Record<DeviceClient, string> = { 'claude-code': 'Claude Code', 'claude-desktop': 'Claude Desktop', codex: 'Codex', copilot: 'GitHub Copilot CLI', other: 'Another tool' };
 
 export const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const CODE_TTL_MS = 10 * 60_000;

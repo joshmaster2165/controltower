@@ -322,6 +322,57 @@ test('the install scripts write what they say (run into a scratch root), and the
   expect((await chat(token)).status).toBe(401);
 });
 
+test('GitHub Copilot CLI: opted into, its environment set for every shell, its token from ct-auth; told in words what a gate decided', async () => {
+  // Not in the default rollout: chosen, with a model it can call (here the only one, lap-model).
+  const plain = await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://ai.example.com')}`);
+  expect(plain.body.clients).not.toContain('copilot');
+  const r = await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://ai.example.com')}&clients=copilot`);
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
+  expect(r.body.copilot_model).toBe('lap-model');
+  expect(r.body.warnings.join(' ')).toContain("MCP settings can't run a sign-in helper");
+  const files = Object.fromEntries((r.body.files as any[]).map((f) => [f.name, f.content as string]));
+  expect(files['copilot/copilot.env']).toContain("export COPILOT_PROVIDER_BASE_URL='https://ai.example.com'");
+  expect(files['install-controltower-windows.ps1']).toContain("[Environment]::SetEnvironmentVariable('COPILOT_PROVIDER_API_KEY_COMMAND', @'\nC:\\Program Files\\ControlTower\\ct-auth-copilot.cmd\n'@, 'Machine')");
+  expect((await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://ai.example.com')}&clients=copilot&copilot_model=${encodeURIComponent("x'; rm -rf /")}`)).status).toBe(400);
+  // The Linux installer, into a scratch root, twice: the shells read the variables once, not twice.
+  const root = fs.mkdtempSync(path.join(tmp, 'copilot-'));
+  fs.mkdirSync(path.join(root, 'etc/profile.d'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'etc/bash.bashrc'), '# the distribution\'s own\n');
+  const script = files['install-controltower-linux.sh']!.replace(/(["'\s])\/(usr\/local\/bin|etc)\//g, `$1${root}/$2/`);
+  for (let i = 0; i < 2; i++) expect(spawnSync('sh', ['-c', script], { encoding: 'utf8' }).status).toBe(0);
+  const bashrc = fs.readFileSync(path.join(root, 'etc/bash.bashrc'), 'utf8');
+  expect(bashrc.startsWith("# the distribution's own\n")).toBe(true);
+  expect(bashrc.match(/Control Tower: GitHub Copilot CLI/g)?.length).toBe(1);
+  expect(fs.existsSync(path.join(root, 'etc/zsh/zshenv'))).toBe(false); // no zsh here: nothing made up for it
+  const env = spawnSync('sh', ['-c', `. "${root}/etc/profile.d/controltower-copilot.sh"; env`], { encoding: 'utf8' }).stdout;
+  expect(env).toContain('COPILOT_PROVIDER_TYPE=anthropic');
+  expect(env).toContain('COPILOT_MODEL=lap-model');
+  expect(env).toContain('COPILOT_OFFLINE=true');
+  expect(env).toContain(`COPILOT_PROVIDER_API_KEY_COMMAND=${root}/usr/local/bin/ct-auth-copilot`);
+  expect(fs.readFileSync(path.join(root, 'usr/local/bin/ct-auth-copilot'), 'utf8')).toContain('token --client copilot');
+
+  // A laptop signed in for Copilot: its calls are Copilot's, as the person, and a refusal is a 400 in words (Copilot
+  // shows a 403 as "Authentication failed with provider").
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  const tess = await person(`tess-${Date.now().toString(36)}@laptops.test`);
+  const token = (await signIn(tess, 'copilot')).access_token;
+  const copilotChat = (credential: string, headers: Record<string, string> = {}) =>
+    fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json', 'user-agent': 'OpenAI/JS 5.20.1', ...headers }, body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }) });
+  expect((await copilotChat(token)).status).toBe(200);
+  const rule = (await admin.post('/admin/api/rules', { name: 'Not on laptops today', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'deny', priority: 1 })).body.id as string;
+  try {
+    const refused = await copilotChat(token);
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as any).error.message).toContain('Control Tower blocked this request (gate “Not on laptops today”)');
+    // Copilot with a plain key (no laptop sign-in) is recognised by its headers.
+    const byHeader = await copilotChat(keys.all!.key, { 'x-initiator': 'user', 'x-interaction-type': 'conversation-user' });
+    expect(byHeader.status).toBe(400);
+  } finally {
+    await admin.del(`/admin/api/rules/${rule}`);
+  }
+  await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.all!.id}&limit=20`)).body.flights as any[]).find((f) => f.principal === tess.email)?.client).toBe('copilot');
+});
+
 test('signing in with the identity provider: no Control Tower account, the issuer\'s rules pick the key', async () => {
   const { testIdp } = await import('./support/oidc-idp');
   const idp = await testIdp({ clientId: 'ct-laptops' });

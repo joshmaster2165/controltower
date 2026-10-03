@@ -15,7 +15,7 @@ export interface RequesterNotify {
   decided(approvalId: string, status: 'approved' | 'denied' | 'expired', by: string | undefined, note: string | null | undefined): void;
 }
 
-const APPS: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex' };
+const APPS: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex', copilot: 'GitHub Copilot CLI' };
 
 export class RequesterMail implements RequesterNotify {
   constructor(

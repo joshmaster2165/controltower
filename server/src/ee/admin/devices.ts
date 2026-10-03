@@ -5,7 +5,7 @@ import type { AppContext } from '../../context.js';
 import { auditOrigin, requireAdmin } from '../../admin/auth.js';
 import { requireEnterprise } from './license.js';
 import { ACCESS_TTL_S, CLIENT_NAMES, CLIENTS, DEVICE_CODE_GRANT, isClient, type DeviceAuth } from '../devices.js';
-import { ROLLOUT_CLIENTS, helperScripts, idpProblem, rolloutFiles, rolloutUrlProblem, type RolloutClient, type RolloutOptions } from '../laptops/templates.js';
+import { DEFAULT_CLIENTS, ROLLOUT_CLIENTS, copilotModelProblem, helperScripts, idpProblem, rolloutFiles, rolloutUrlProblem, type RolloutClient, type RolloutOptions } from '../laptops/templates.js';
 
 /** The address laptops reach this Control Tower at: CT_PUBLIC_URL when set, else the address this request came in on. */
 function baseUrl(ctx: AppContext, req: FastifyRequest): string {
@@ -237,11 +237,11 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
 
   // The files IT uploads to its MDM, for the clients chosen, with this Control Tower's address in them.
   app.get('/admin/api/devices/rollout', { preHandler: guard }, async (req, reply) => {
-    const q = req.query as { url?: string; clients?: string; mcp?: string; lockdown?: string; idp_issuer_id?: string; idp_client_id?: string; idp_scope?: string; idp_token?: string };
+    const q = req.query as { url?: string; clients?: string; mcp?: string; lockdown?: string; idp_issuer_id?: string; idp_client_id?: string; idp_scope?: string; idp_token?: string; copilot_model?: string };
     const url = (q.url?.trim() || baseUrl(ctx, req)).replace(/\/+$/, '');
     const problem = rolloutUrlProblem(url);
     if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
-    const clients = (q.clients ? q.clients.split(',') : ROLLOUT_CLIENTS).filter((c): c is RolloutClient => (ROLLOUT_CLIENTS as string[]).includes(c));
+    const clients = (q.clients ? q.clients.split(',') : DEFAULT_CLIENTS).filter((c): c is RolloutClient => (ROLLOUT_CLIENTS as string[]).includes(c));
     if (!clients.length) return reply.status(400).send({ error: { code: 'invalid', message: `Choose at least one of ${ROLLOUT_CLIENTS.join(', ')}.` } });
     // Signing in with the identity provider: one of Agent identity's trusted issuers, whose rules map people to keys.
     let idp: RolloutOptions['idp'];
@@ -258,10 +258,25 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
       if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
       issuerInfo = { id: row.id, name: row.name, issuer: row.issuer, principal_claim: row.principal_claim, rules: (JSON.parse(row.rules || "[]") as unknown[]).length, enabled: !!row.enabled, people: !!row.people };
     }
-    const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0', idp });
+    // GitHub Copilot CLI needs a model named: the one asked for, or one the keys laptops use can call (a Claude model
+    // first: Copilot speaks the Messages API to Control Tower).
+    let copilotModel: string | undefined;
+    const warnings: string[] = [];
+    if (clients.includes('copilot')) {
+      const keyIds = idp ? [] : devices.ruleList.filter((r) => r.client === '*' || r.client === 'copilot').map((r) => r.keyId);
+      const keys = [...new Set(keyIds)].map((id) => ctx.registry.keysById.get(id)).filter((k): k is KeyRecord => !!k);
+      const pool = keys.length ? keys : [...ctx.registry.keysById.values()].filter((k) => !k.demo);
+      const models = [...new Set(pool.flatMap((k) => ctx.registry.visibleModels(k).map((m) => m.id)))];
+      copilotModel = q.copilot_model?.trim() || models.find((m) => /claude.*sonnet/i.test(m)) || models.find((m) => /claude/i.test(m)) || models[0];
+      if (!copilotModel) return reply.status(400).send({ error: { code: 'invalid', message: 'GitHub Copilot CLI needs a model to use: add one under Models, then choose it here.' } });
+      const problem = copilotModelProblem(copilotModel);
+      if (problem) return reply.status(400).send({ error: { code: 'invalid', message: problem } });
+      if (models.length && !models.includes(copilotModel)) warnings.push(`GitHub Copilot CLI is set to ${copilotModel}, which the keys laptops use can't call: choose one of ${models.slice(0, 6).join(', ')}.`);
+      warnings.push("GitHub Copilot CLI's model calls go through Control Tower as the person signed in; its MCP settings can't run a sign-in helper, so connect Copilot CLI to Control Tower's tools with a key (see the GitHub Copilot guide).");
+    }
+    const files = rolloutFiles({ url, clients, mcp: q.mcp !== '0', lockdown: q.lockdown !== '0', idp, copilotModel });
     // Claude Desktop lists the Claude models Control Tower serves (GET /v1/models) and won't start without one ("Gateway
     // returned no usable models"). Models added on first use aren't listed until then: say so before it's rolled out.
-    const warnings: string[] = [];
     if (clients.includes('claude-desktop')) {
       const claude = (k: KeyRecord) => ctx.registry.visibleModels(k).some((m) => /claude/i.test(m.id));
       const keyIds = idp ? [] : devices.ruleList.filter((r) => r.client === '*' || r.client === 'claude-desktop').map((r) => r.keyId);
@@ -271,6 +286,6 @@ export async function deviceRoutes(app: FastifyInstance, ctx: AppContext): Promi
       if (without.length) warnings.push(`Claude Desktop won't start for people whose key lists no Claude model (${without.join(', ')}): it shows "Gateway returned no usable models". Add a Claude model under Models (models added on first use aren't listed until someone uses them), or allow one on those keys.`);
       else if (!keys.length && !anyClaude) warnings.push('Claude Desktop won\'t start until Control Tower lists a Claude model: it shows "Gateway returned no usable models". Add one under Models before rolling it out.');
     }
-    return { url, https: url.startsWith('https://'), clients, files, warnings, ...(issuerInfo ? { idp: issuerInfo } : {}) };
+    return { url, https: url.startsWith('https://'), clients, files, warnings, ...(copilotModel ? { copilot_model: copilotModel } : {}), ...(issuerInfo ? { idp: issuerInfo } : {}) };
   });
 }

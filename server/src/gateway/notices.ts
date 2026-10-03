@@ -7,14 +7,14 @@ import type { GatewayError } from './errors.js';
  * What a person sees when Control Tower decides about their call.
  *
  * Agents read Control Tower's refusals as structured errors (403, a code, a ticket to retry with). A person in Claude
- * Desktop, Claude Code or Codex reads what their app shows them, and these apps treat a 403 as a sign-in problem
+ * Desktop, Claude Code, Codex or GitHub Copilot CLI reads what their app shows them, and these apps treat a 403 as a sign-in problem
  * ("Authentication failed", or waiting on a retry that never comes). So for those apps a refusal is sent as a 400,
  * which they show as it is, with a message written for the person: what decided, why, and what to do next. The codes
  * and the machine-readable details stay in the body.
  */
 
 /** The apps people use, as a laptop's sign-in names them. */
-export const PERSON_APPS = new Set(['claude-desktop', 'claude-code', 'codex']);
+export const PERSON_APPS = new Set(['claude-desktop', 'claude-code', 'codex', 'copilot']);
 
 /** The app a call came from: the laptop's sign-in says, or failing that, the app's own User-Agent. */
 export function clientOf(req: FastifyRequest): string | undefined {
@@ -23,6 +23,8 @@ export function clientOf(req: FastifyRequest): string | undefined {
   // Claude Desktop runs Claude Code: claude-cli/2.1.286 (external, claude-desktop-3p, agent-sdk/0.3.286)
   if (/^claude-cli\//.test(ua)) return /claude-desktop/.test(ua) ? 'claude-desktop' : 'claude-code';
   if (/^codex[_ -]/i.test(ua)) return 'codex';
+  // GitHub Copilot CLI: its MCP calls say so; its model calls use the providers' own SDKs, with Copilot's headers.
+  if (/^copilot-cli\b/i.test(ua) || req.headers['x-interaction-type'] !== undefined) return 'copilot';
   return undefined;
 }
 

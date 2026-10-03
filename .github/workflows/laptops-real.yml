@@ -28,7 +28,7 @@ jobs:
       - run: pnpm build
         env:
           CT_TEST_LICENSE_KEYS: '1'
-      - run: npm install -g @anthropic-ai/claude-code @openai/codex
+      - run: npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot
       - run: npx tsx scripts/laptops/real-machine.mts
         env:
           RESULTS_DIR: ${{ runner.temp }}

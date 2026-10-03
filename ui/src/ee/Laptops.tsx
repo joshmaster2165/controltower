@@ -30,6 +30,7 @@ const CLIENTS: Array<{ id: string; label: string }> = [
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'claude-desktop', label: 'Claude Desktop' },
   { id: 'codex', label: 'Codex' },
+  { id: 'copilot', label: 'GitHub Copilot CLI' },
 ];
 const RULE_CLIENTS = [{ id: '*', label: 'Any tool' }, ...CLIENTS, { id: 'other', label: 'Other (ct-auth by hand)' }];
 const PLATFORMS: Array<{ id: RolloutFile['platform']; label: string; steps: string[] }> = [
@@ -77,7 +78,10 @@ export function LaptopsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [url, setUrl] = useState('');
-  const [clients, setClients] = useState<string[]>(CLIENTS.map((c) => c.id));
+  // GitHub Copilot CLI is opted into: its settings go into every shell's environment.
+  const [clients, setClients] = useState<string[]>(CLIENTS.filter((c) => c.id !== 'copilot').map((c) => c.id));
+  const [copilotModel, setCopilotModel] = useState('');
+  const [copilotChosen, setCopilotChosen] = useState('');
   const [mcp, setMcp] = useState(true);
   const [lockdown, setLockdown] = useState(true);
   const [files, setFiles] = useState<RolloutFile[]>([]);
@@ -116,13 +120,14 @@ export function LaptopsPage() {
   useEffect(() => {
     if (!url || !clients.length) return setFiles([]);
     if (mode === 'idp' && (!issuerId || !clientId)) return setFiles([]);
-    const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0', ...(mode === 'idp' ? { idp_issuer_id: issuerId, idp_client_id: clientId } : {}) });
+    const q = new URLSearchParams({ url, clients: clients.join(','), mcp: mcp ? '1' : '0', lockdown: lockdown ? '1' : '0', ...(mode === 'idp' ? { idp_issuer_id: issuerId, idp_client_id: clientId } : {}), ...(clients.includes('copilot') && copilotModel.trim() ? { copilot_model: copilotModel.trim() } : {}) });
     const t = setTimeout(() => {
       void api
-        .get<{ files: RolloutFile[]; warnings?: string[]; idp?: { id: string; name: string; principal_claim: string; rules: number; people: boolean } }>(`/admin/api/devices/rollout?${q}`)
+        .get<{ files: RolloutFile[]; warnings?: string[]; copilot_model?: string; idp?: { id: string; name: string; principal_claim: string; rules: number; people: boolean } }>(`/admin/api/devices/rollout?${q}`)
         .then((d) => {
           setFiles(d.files);
           setWarnings(d.warnings ?? []);
+          setCopilotChosen(d.copilot_model ?? '');
           setIdpInfo(d.idp ?? null);
           setErr(null);
         })
@@ -132,7 +137,7 @@ export function LaptopsPage() {
         });
     }, 300);
     return () => clearTimeout(t);
-  }, [url, clients, mcp, lockdown, mode, issuerId, clientId, idpRefresh]);
+  }, [url, clients, mcp, lockdown, mode, issuerId, clientId, idpRefresh, copilotModel]);
 
   const run = async (fn: () => Promise<void>, done?: string) => {
     setErr(null);
@@ -350,6 +355,13 @@ export function LaptopsPage() {
               <input type="checkbox" checked={lockdown} onChange={(e) => setLockdown(e.target.checked)} /> Lock down: no other provider or MCP server
             </label>
           </fieldset>
+          {clients.includes('copilot') && (
+            <div className="field" style={{ flex: '0 1 240px' }}>
+              <label htmlFor="copilot-model">GitHub Copilot CLI’s model</label>
+              <input id="copilot-model" className="input mono" value={copilotModel} placeholder={copilotChosen || 'a model Control Tower serves'} onChange={(e) => setCopilotModel(e.target.value)} />
+              <span className="hint">Copilot CLI needs one named. Empty: {copilotChosen || 'chosen from your models'}.</span>
+            </div>
+          )}
         </div>
         {warnings.map((w) => (
           <div key={w} className="notice-row laptops-warning">

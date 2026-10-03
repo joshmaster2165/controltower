@@ -35,7 +35,7 @@ export function globList(xs: string[]): string {
 }
 
 /** The apps people use on their laptops, by the name a sign-in gives them. */
-export const CLIENT_NAMES: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex' };
+export const CLIENT_NAMES: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex', copilot: 'GitHub Copilot CLI' };
 
 /** A person's call as one line: who, in which app, on which computer. */
 export function personLine(who: string | null | undefined, client: string | null | undefined, device: string | null | undefined): string {

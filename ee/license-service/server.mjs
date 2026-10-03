@@ -640,7 +640,10 @@ export function createServer() {
         const paid = s.payment_status === 'paid' || s.payment_status === 'no_payment_required';
         if (s.status !== 'complete' || !s.subscription || !paid || owing(s.subscription)) return html(res, 402, note('Payment not complete yet', 'HOLDING · 402', 'This page checks again every few seconds: your key appears as soon as the payment clears.', { head: '<meta http-equiv="refresh" content="4">', back: false }));
         const customer = { name: s.customer_details?.name ?? s.customer?.name, email: s.customer_details?.email ?? s.customer?.email };
-        return html(res, 200, keyPage('You’re cleared', sign(licenseFor(s.subscription, customer)), `Your Control Tower Enterprise license, for ${customer.name ?? customer.email}. It renews with your subscription; servers that can reach this service pick up the renewed key themselves.`));
+        const issued = licenseFor(s.subscription, customer);
+        // Each time the page is opened (a reload logs it again): who bought what, until when.
+        console.log(JSON.stringify({ event: 'license_issued', license: issued.id, customer: issued.customer, email: issued.email, seats: issued.seats, until: new Date(issued.expires_at).toISOString(), live: s.livemode === true }));
+        return html(res, 200, keyPage('You’re cleared', sign(issued), `Your Control Tower Enterprise license, for ${customer.name ?? customer.email}. It renews with your subscription; servers that can reach this service pick up the renewed key themselves.`));
       }
 
       if (req.method === 'POST' && u.pathname === '/trial') {
@@ -730,6 +733,7 @@ export function createServer() {
         }
         const next = licenseFor(sub, { name: sub.customer?.name ?? lic.customer, email: sub.customer?.email ?? lic.email });
         if (next.expires_at === lic.expires_at && next.seats === lic.seats && next.period_start === lic.period_start) return json(res, 200, { status: 'unchanged' });
+        console.log(JSON.stringify({ event: 'license_renewed', license: next.id, customer: next.customer, seats: next.seats, until: new Date(next.expires_at).toISOString() }));
         return json(res, 200, { status: 'renewed', key: sign(next) });
       }
 

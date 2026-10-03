@@ -52,7 +52,9 @@ async function connectProvider(page: Page, card: string, fill: (form: Locator) =
   await expect(form).toContainText(`Connect ${card}`);
   await fill(form);
   await form.getByRole('button', { name: /Connect & test/ }).click();
-  await expect(page.getByText(/Connected in \d+ ms/).first()).toBeVisible({ timeout: 20_000 });
+  // On this provider's own card: earlier providers' cards already say "Connected", and matching theirs moved on before
+  // this one was saved (the model form then lacked it, on a slow run).
+  await expect(page.locator('div.card', { hasText: card }).getByText(/Connected in \d+ ms/).first()).toBeVisible({ timeout: 20_000 });
 }
 
 // Runs first, on a brand-new install.

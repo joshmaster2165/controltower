@@ -1,0 +1,36 @@
+name: clients for real
+
+# Real clients against a local Control Tower, with stand-in model providers: VS Code with GitHub Copilot Chat
+# (Custom Endpoint models and MCP, no GitHub account). Manual, and weekly (the clients change often).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1'
+
+jobs:
+  vscode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          CT_TEST_LICENSE_KEYS: '1'
+      - run: sudo apt-get update -q && sudo apt-get install -y -q xvfb libasound2t64 libgbm1 libnss3 libxkbfile1 libsecret-1-0
+      - run: xvfb-run -a npx tsx scripts/clients/vscode-copilot.mts
+        env:
+          RESULTS_DIR: ${{ runner.temp }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vscode-copilot
+          path: |
+            ${{ runner.temp }}/vscode-copilot-results.json
+            ${{ runner.temp }}/vscode-output.txt
+          if-no-files-found: ignore

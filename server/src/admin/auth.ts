@@ -313,7 +313,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext): Promise
     const body = (req.body ?? {}) as { email?: string; password?: string };
     const email = (body.email ?? '').trim().toLowerCase();
     // Guessing passwords is slowed to a crawl: per address, and per account (shared across instances with Redis).
-    for (const [scope, rpm] of [[`login:ip:${req.ip}`, ctx.config.loginRpm * 2], [`login:email:${email}`, ctx.config.loginRpm]] as const) {
+    for (const [scope, rpm] of [[`login:ip:${req.ip}`, ctx.config.loginIpRpm], [`login:email:${email}`, ctx.config.loginRpm]] as const) {
       const a = await ctx.limiter.admit(scope, 1, { rpm });
       if (!a.ok) {
         ctx.log.warn({ email, ip: req.ip }, 'sign-in attempts rate-limited');

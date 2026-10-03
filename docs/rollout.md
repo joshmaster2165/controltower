@@ -20,7 +20,7 @@ The MDM team (Jamf, Intune, Kandji, Group Policy) deploys the files the Control 
 
 1. **Decide how people sign in** (**Laptops › Roll it out**):
    - **With your identity provider:** people sign in to Okta or Entra ID directly and need no Control Tower account. Set it up as in [enforcing the gateway](enforcement.md#signing-in-with-your-identity-provider).
-   - **With Control Tower:** people approve their computer in Control Tower after its single sign-on, as members.
+   - **With Control Tower:** people approve their computer in Control Tower after its single sign-on, as members. Use [single sign-on](sso.md) for a rollout: with passwords, everyone behind an office's one address shares a limit of 60 sign-ins a minute (`CT_LOGIN_IP_RPM`).
 2. **Create the keys and rules.** For example:
    - a key per tool, such as `claude-code` and `claude-desktop`, with the models it may use, a budget and rate limits;
    - rules (or, signing in with your identity provider, the issuer's rules) mapping your groups to those keys;

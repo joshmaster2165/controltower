@@ -49,7 +49,7 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 
 ## Console sign-in and sessions
 
-- **Sign-in attempts** are limited to `CT_LOGIN_RPM` a minute per email (default 10), and twice that per address. Over it, `429 rate_limited` with `retry-after`. With [Redis](scaling.md), the count is shared across instances.
+- **Sign-in attempts** are limited to `CT_LOGIN_RPM` a minute per email (default 10), and `CT_LOGIN_IP_RPM` per address (default 60, so an office behind one address can sign in together; raise it for a bigger rollout, or use [single sign-on](sso.md), which isn't counted here). Over it, `429 rate_limited` with `retry-after`. With [Redis](scaling.md), the count is shared across instances.
 - **Sessions** end after `CT_SESSION_TTL_MS` (7 days), or sooner after `CT_SESSION_IDLE_MS` without use (12 hours). The database keeps only a hash of each session cookie.
 - **Cookies** are `HttpOnly`, `SameSite=Lax`, and `Secure` when the console is reached over HTTPS: `CT_PUBLIC_URL` starts with `https://`, or the request came in over HTTPS (directly, or through a proxy that sets `X-Forwarded-Proto`).
 - **Security headers:** the console, the admin API and the gateway send `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, and `Strict-Transport-Security` over HTTPS. Console pages add a Content Security Policy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`. Responses relayed from [HTTP APIs](http-apis.md) (`/http/…`) keep their own headers.
@@ -72,7 +72,8 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 | `CT_ADMIN_KEY` | — | [Admin key](#admin-key) |
 | `UI_USERNAME`, `UI_PASSWORD` | `admin`, the admin key | Console sign-in created from the admin key |
 | `CT_SETUP_TOKEN` | derived from the master key | The [setup code](#first-run-setup) the first-run page asks for |
-| `CT_LOGIN_RPM` | `10` | [Sign-in attempts](#console-sign-in-and-sessions) a minute per email; twice that per address |
+| `CT_LOGIN_RPM` | `10` | [Sign-in attempts](#console-sign-in-and-sessions) a minute per email |
+| `CT_LOGIN_IP_RPM` | `60` | Sign-in attempts a minute per address (everyone behind an office's one address counts together) |
 | `CT_CONFIG` | — | [Config file](config-file.md) applied at every start. Also `CONFIG_FILE_PATH` or `--config` |
 | `CT_POLICY` | — | [Policy file](policy-as-code.md#at-startup-gitops) applied at every start. Also `--policy` |
 | `CT_POLICY_MODE` | `merge` | `replace` makes the policy match the file exactly |

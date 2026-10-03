@@ -69,6 +69,8 @@ export interface Config {
   region: { name: string; controlPlaneUrl: string; token: string; pollMs: number } | undefined;
   /** Sign-in attempts a minute, per account (twice as many per address). */
   loginRpm: number;
+  /** Sign-in attempts a minute from one address (an office behind one address signs in together on rollout day). */
+  loginIpRpm: number;
   /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
   uiUsername: string;
   uiPassword: string | undefined;
@@ -168,6 +170,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
           }
         : undefined,
     loginRpm: int(env.CT_LOGIN_RPM, 10),
+    loginIpRpm: int(env.CT_LOGIN_IP_RPM, Math.max(60, int(env.CT_LOGIN_RPM, 10) * 2)),
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,
     notices,

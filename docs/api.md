@@ -62,7 +62,7 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 |---|---|---|
 | GET | `/status` | `{setup_complete}` without a session; signed in (or with the admin key), also the version and more |
 | POST | `/setup` | First run: create the admin (`{email, password, setup_code}`). `403 setup_code` without the [setup code](configuration.md#first-run-setup) from the server's log, `409 already_setup` once done; 10 attempts a minute per address |
-| POST | `/login` | Start a console session (`{email, password}`); `CT_LOGIN_RPM` attempts a minute per email, twice that per address (`429 rate_limited`) |
+| POST | `/login` | Start a console session (`{email, password}`); `CT_LOGIN_RPM` attempts a minute per email, `CT_LOGIN_IP_RPM` per address (`429 rate_limited`) |
 | POST | `/logout` | End it |
 | GET | `/me` | The signed-in person, their `role` and the CSRF token |
 | POST | `/me/password` | Change your own password (`{current, password}`) |

@@ -16,7 +16,7 @@ import { scrub } from '../providers/adapter.js';
 /** Settings whose values are safe to show; every other CT_* setting is reported as set or not. */
 const SHOWN = new Set([
   'CT_PORT', 'PORT', 'CT_HOST', 'CT_LOG_LEVEL', 'CT_MODE', 'CT_POLICY_MODE', 'CT_DEMO', 'CT_AUTO_MODELS', 'CT_RETENTION_DAYS', 'CT_EVENT_RETENTION_DAYS',
-  'CT_HOLD_BUDGET_MS', 'CT_MAX_HELD', 'CT_AUDIT_RETENTION_DAYS', 'CT_SESSION_TTL_MS', 'CT_SESSION_IDLE_MS', 'CT_LOGIN_RPM', 'CT_MODEL_HEALTH_INTERVAL_S', 'CT_PUSH_ALLOW_PRIVATE',
+  'CT_HOLD_BUDGET_MS', 'CT_MAX_HELD', 'CT_AUDIT_RETENTION_DAYS', 'CT_SESSION_TTL_MS', 'CT_SESSION_IDLE_MS', 'CT_LOGIN_RPM', 'CT_LOGIN_IP_RPM', 'CT_MODEL_HEALTH_INTERVAL_S', 'CT_PUSH_ALLOW_PRIVATE',
   'CT_A2A_PUSH_RELAY', 'CT_SHUTDOWN_GRACE_MS', 'CT_INSTANCE_TIMEOUT_MS', 'CT_DB_POOL', 'CT_IN_CONTAINER', 'NODE_ENV',
 ]);
 /** Settings outside CT_* worth knowing about (whether they're set, never their values). */

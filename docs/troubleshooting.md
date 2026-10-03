@@ -86,7 +86,7 @@ A2A refusals are JSON-RPC errors; the `reason` in `data` is the code in capitals
 |---|---|---|---|
 | `setup_code` | 403 | First-run setup without the right setup code | Copy it from the server's log (`docker logs <container>`), or open the **Open** link printed there — see [First-run setup](configuration.md#first-run-setup) |
 | `already_setup` | 409 | Setup has already been done | Sign in |
-| `rate_limited` | 429 | Too many sign-in or setup attempts (`CT_LOGIN_RPM` a minute per email, twice that per address) | Wait a minute (`retry-after` says how long) |
+| `rate_limited` | 429 | Too many sign-in or setup attempts (`CT_LOGIN_RPM` a minute per email, `CT_LOGIN_IP_RPM` per address) | Wait a minute (`retry-after` says how long) |
 | `unauthenticated` | 401 | No session, or it ended (7 days, or 12 hours unused) | Sign in again, or send the admin key as a bearer token |
 | `csrf` | 403 | A change without the `x-ct-csrf` header | Send the token from `GET /admin/api/me` |
 | `password_change_required` | 403 | Signed in with a one-time password | Choose your own password first |

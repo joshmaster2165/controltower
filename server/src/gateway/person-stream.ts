@@ -51,6 +51,17 @@ export class PersonStream {
     if (this.noticeOpen) this.event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: `${NOTICE_MARK}${line}\n\n` } });
   }
 
+  /** A reply with nothing in it (a background call answered without the model). */
+  empty(): void {
+    this.reply.hijack();
+    this.reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform', 'x-ct-flight-id': this.flightId });
+    this.event('message_start', { message: { id: `msg_ct_${this.flightId}`, type: 'message', role: 'assistant', model: this.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
+    this.event('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } });
+    this.event('message_stop', {});
+    this.closed = true;
+    this.reply.raw.end();
+  }
+
   /** Our lines are done; the model's answer comes next. */
   handOver(): void {
     if (this.ping) clearInterval(this.ping);

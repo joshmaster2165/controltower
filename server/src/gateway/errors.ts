@@ -169,5 +169,12 @@ export const E = {
     message,
     extra: { rule_id: ruleId, findings },
   }),
+  /** A person's app's background call (a suggestion) that a gate would hold: not held, answered empty. */
+  notHeld: (ruleId: string | undefined): GatewayError => ({
+    status: 403,
+    code: 'background_not_held',
+    message: 'A background call by the app (a suggestion of what to type next), not held for approval: answered empty.',
+    ...(ruleId ? { extra: { rule_id: ruleId } } : {}),
+  }),
   shuttingDown: (): GatewayError => ({ status: 503, code: 'shutting_down', message: 'Control Tower is restarting. Retry shortly.' }),
 };

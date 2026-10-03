@@ -329,10 +329,11 @@ const mariaSignsIn = async () => {
   await sleep(1500);
 };
 const waiting = async () => ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []) as Array<{ id: string }>;
-const heldCall = async (seconds = 30) => {
+// The card a message just made (not one left waiting from earlier).
+const heldCall = async (before = new Set<string>(), seconds = 30) => {
   for (let i = 0; i < seconds; i++) {
-    const w = await waiting();
-    if (w.length) return w[0];
+    const w = (await waiting()).filter((a) => !before.has(a.id));
+    if (w.length) return w[w.length - 1];
     await sleep(1000);
   }
   return undefined;
@@ -597,8 +598,9 @@ end tell`);
   let c: { id: string } | undefined;
   // Denied, with a note.
   m = seen.length;
+  let before = new Set((await waiting()).map((a) => a.id));
   await ask('Draft the board update for the investors');
-  c = await heldCall();
+  c = await heldCall(before);
   await sleep(5000);
   if (c) await decide(c.id, 'deny', 'Not before the audit closes');
   await sleep(10_000);
@@ -607,8 +609,9 @@ end tell`);
   // Nobody answers in time: the hold expires.
   log(`hold 20s: ${JSON.stringify(await api('PATCH', `/admin/api/rules/${holdRule}`, { config: { hold_ms: 20_000 } })).slice(0, 160)}`);
   m = seen.length;
+  before = new Set((await waiting()).map((a) => a.id));
   await ask('Draft the board update for the partners');
-  c = await heldCall();
+  c = await heldCall(before);
   await sleep(35_000);
   await clientSees('waiting-ticket');
   log(`calls: ${calls(m)}; card: ${c ? (await api('GET', `/admin/api/approvals/${c.id}`)).approval?.status : 'none'}`);

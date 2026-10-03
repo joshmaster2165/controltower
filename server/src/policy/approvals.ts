@@ -180,7 +180,13 @@ export class ApprovalService implements Approvals {
     const holdUntil = now + (canHold ? budget : 0);
 
     // Coalesce identical in-flight requests onto one card.
-    let approval = await this.db.selectFrom('approvals').selectAll().where('dedupe_key', '=', dk).where('status', '=', 'pending').executeTakeFirst();
+    // A person sending the same message again while their first try still waits joins that card: one decision, not two.
+    let approval = await this.db
+      .selectFrom('approvals')
+      .selectAll()
+      .where((eb) => (ps ? eb.or([eb('dedupe_key', '=', dk), eb.and([eb('person_scope', '=', ps), eb('requester', '=', flight.principal!)])]) : eb('dedupe_key', '=', dk)))
+      .where('status', '=', 'pending')
+      .executeTakeFirst();
     if (approval) {
       const until = Math.max(approval.hold_until ?? 0, holdUntil);
       await this.db.updateTable('approvals').set((eb) => ({ waiters: eb('waiters', '+', 1), hold_until: until })).where('id', '=', approval.id).execute();
@@ -564,6 +570,14 @@ export function lastUserText(body: Record<string, unknown>): string {
   const texts = (last.content as Array<{ text?: unknown }>).map((p) => (typeof p?.text === 'string' ? p.text.trim() : '')).filter(Boolean);
   const own = texts.filter((t) => !t.startsWith('<system-reminder>'));
   return (own.length ? own : texts).pop() ?? '';
+}
+
+/**
+ * A call a person's app makes in the background, that nobody is waiting on: Claude's guess at what they might type next
+ * ("[SUGGESTION MODE: …]"). A gate that would hold it doesn't put a card in front of an approver; it's answered empty.
+ */
+export function isBackgroundCall(body: Record<string, unknown>): boolean {
+  return lastUserText(body).startsWith('[SUGGESTION MODE:');
 }
 
 /** What the person typed in a message: its text, without the context their app adds (`<system-reminder>…`). */

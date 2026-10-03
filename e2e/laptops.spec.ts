@@ -766,6 +766,34 @@ test("a person waiting in Claude is told in the conversation: waiting, approved,
     expect(said(no.text).at(-1)).toContain('your request was denied by e2e@example.com: Not before the audit');
     expect(events(no.text).at(-1)?.type).toBe('message_stop');
 
+    // Nobody answers in time: the reply says so; approved later, the same message again (with our reply to the first
+    // try in the conversation, as Claude sends it back) goes through.
+    await admin.patch(`/admin/api/rules/${rules[0]}`, { config: { hold_ms: 1000 } });
+    const first = await stream([typed('Draft the partner newsletter')]);
+    expect(said(first.text).join('')).toContain('once they approve, send the same message again');
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'approve' });
+    const firstReply = said(first.text).map((l) => l.slice(2)).join('');
+    const again = await stream([typed('Draft the partner newsletter'), { role: 'assistant', content: [{ type: 'text', text: firstReply }] }, typed('Draft the partner newsletter')]);
+    const text = said(again.text).map((l) => l.slice(2)).join('');
+    expect(text).toContain('Board update: 42 deals');
+    expect(text).not.toContain('waiting for approval');
+
+    // Sent again before anyone decided: it joins the card already waiting, so the approver decides once.
+    const memo = await stream([typed('Draft the investor memo')]);
+    const memoReply = said(memo.text).map((l) => l.slice(2)).join('');
+    await stream([typed('Draft the investor memo'), { role: 'assistant', content: [{ type: 'text', text: memoReply }] }, typed('Draft the investor memo')]);
+    const memoCards = (await pending()).filter((a) => a.args_preview?.last_user_message === 'Draft the investor memo');
+    expect(memoCards.length).toBe(1);
+    await admin.post(`/admin/api/approvals/${memoCards[0].id}/decide`, { action: 'deny' });
+
+    // Claude's background guess at what to type next isn't put in front of an approver: it's answered empty.
+    const suggestion = await stream([typed('Draft the investor memo'), { role: 'assistant', content: [{ type: 'text', text: memoReply }] }, typed('[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]')]);
+    expect(suggestion.status).toBe(200);
+    expect(said(suggestion.text)).toEqual([]);
+    expect(suggestion.text).toContain('message_stop');
+    expect((await pending()).length).toBe(0);
+    await admin.patch(`/admin/api/rules/${rules[0]}`, { config: { hold_ms: 8000 } });
+
     // Blocked before anything is held: a reply in words, not an error box.
     rules.push((await admin.post('/admin/api/rules', { name: 'No keys to Claude', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input' }, priority: 1 })).body.id);
     const blocked = await stream([typed('Use AKIAIOSFODNN7EXAMPLE to deploy')]);

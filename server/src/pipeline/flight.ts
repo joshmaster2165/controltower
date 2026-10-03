@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { once } from 'node:events';
 import { capMaxTokens, gateLimitRefusal } from '../policy/limits.js';
+import { isBackgroundCall } from '../policy/approvals.js';
 import { inspect } from '../guardrails/inspect.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ulid } from 'ulid';
@@ -471,6 +472,10 @@ export class FlightRunner {
       throw E.policyDenied(decision.reason, decision.ruleId);
     }
     if (spec.inspect) await this.inspectInput(f, { key, target, onBehalfOf, decision, args: {} }, spec.inspect);
+    if (decision.effect === 'hold' && f.dialect === 'anthropic-messages' && !!f.client && PERSON_APPS.has(f.client) && isBackgroundCall(f.body)) {
+      f.status = 'denied';
+      throw E.notHeld(decision.ruleId);
+    }
     if (decision.effect === 'hold') {
       // A person waiting in Claude is told so in the conversation, as soon as the call waits (not for a step an earlier
       // approval already covers).
@@ -987,6 +992,12 @@ export class FlightRunner {
       return;
     }
     if (reply.sent || f.bytesWritten > 0) return;
+    // Claude's background suggestion, not held: an empty answer, so nothing shows.
+    if (ge.code === 'background_not_held' && !f.clientGone) {
+      if (f.stream) new PersonStream(reply, f.id, f.modelRequested).empty();
+      else await reply.status(200).send({ id: `msg_ct_${f.id}`, type: 'message', role: 'assistant', model: f.modelRequested, content: [], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } });
+      return;
+    }
     // A person's streamed Messages request refused (blocked, denied, not approved in time): a short reply in words,
     // shown in the conversation, instead of an error box.
     if (f.stream && f.dialect === 'anthropic-messages' && f.client && PERSON_APPS.has(f.client) && ['policy_denied', 'approval_required', 'content_blocked'].includes(ge.code) && !f.clientGone) {

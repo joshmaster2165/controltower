@@ -171,7 +171,15 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 
 ### What a person sees
 
-Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as the reason. So when the call comes from one of them (a [signed-in laptop](laptops.md) says which; otherwise their User-Agent), a refusal is a `400`, with the same `code` and `ct` fields and a message written for the person: what decided, which gate, its reason, and what to do. Blocked by a gate or an inspect gate, denied by an approver (with their note), still waiting, or expired: each says so. The card in the Tower names the person and the tool they asked from.
+**In the conversation.** When Claude Desktop or Claude Code asks (a streamed Messages request), Control Tower says what's happening in Claude's reply itself:
+
+- **Held:** the reply starts at once with *⏳ Control Tower: waiting for approval (gate "Sonnet needs a manager"). An approver has been asked; this carries on by itself once they approve.*, and stays open while they decide (no proxy times it out: it sends keep-alives).
+- **Approved:** *✓ Control Tower: approved by maria@acme.com.*, then the model's answer, in the same reply.
+- **Denied, not approved in time, or blocked:** a short reply saying what decided, which gate and why, instead of an error box.
+
+These lines carry an invisible mark. When the conversation comes back with the next message, Control Tower takes them out before the model, a gate or an approval sees it: the model never reads them. Calls that don't stream (a session's title, say), Codex, and agents get the error responses below.
+
+**As errors.** Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as the reason. So when the call comes from one of them (a [signed-in laptop](laptops.md) says which; otherwise their User-Agent), a refusal is a `400`, with the same `code` and `ct` fields and a message written for the person: what decided, which gate, its reason, and what to do. Blocked by a gate or an inspect gate, denied by an approver (with their note), still waiting, or expired: each says so. The card in the Tower names the person and the tool they asked from.
 
 The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again (to the same model, through the same gate) goes through on that approval, once. That's the message they typed: Claude sends the whole conversation each time, which by then also holds the unanswered first try. Anyone else, or another message, is a new card. The card shows what they typed, without the context Claude Code adds to it.
 

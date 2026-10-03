@@ -12,7 +12,8 @@ import type { NormalizedError, WireDialect } from '../providers/adapter.js';
 import type { PriceRef, Units } from '../pricing/index.js';
 import { computeCost, projectCost } from '../pricing/index.js';
 import { E, errorBody, errorFrame, type GatewayError } from '../gateway/errors.js';
-import { clientOf, forPerson } from '../gateway/notices.js';
+import { clientOf, forPerson, PERSON_APPS } from '../gateway/notices.js';
+import { PersonStream, stripNotices } from '../gateway/person-stream.js';
 import { extractApiKey, keyProblem } from '../gateway/key.js';
 import type { InspectGate, PolicyDecision, PolicyTarget } from '../policy/engine.js';
 import { MAX_SCAN_CHARS } from '../guardrails/scan.js';
@@ -106,6 +107,8 @@ export interface Flight {
   device: string | undefined;
   /** Its input was already inspected (before a hold). */
   inputInspected?: boolean;
+  /** A person's reply already started with Control Tower's own lines (see gateway/person-stream.ts). */
+  personStream?: PersonStream | undefined;
   /** What a non-token call was billed on. */
   units: Units | undefined;
   /** Answered from the response cache. */
@@ -130,6 +133,8 @@ export interface GateSpec {
   /** The request's fields inspect gates read: checked before any hold, so an approver is never shown (or asked to
    *  approve) what a gate would block, and sees what a gate masks masked. */
   inspect?: string[] | undefined;
+  /** A person's streamed Messages request may be told in the conversation itself (gateway/person-stream.ts). */
+  liveNotices?: boolean | undefined;
   /** The call's projected cost when it isn't priced by tokens. */
   project?: ((price: PriceRef) => number) | undefined;
 }
@@ -289,8 +294,11 @@ export class FlightRunner {
         if (body.input !== undefined && typeof body.input !== 'string' && !Array.isArray(body.input)) throw E.badRequest('Field input must be a string or an array of input items.');
       } else if (!Array.isArray(body.messages)) throw E.badRequest('Missing required field: messages (array).');
       f.estInput = estimateInputTokens(body);
+      // Control Tower's own lines in a conversation carried back to it are taken out before anything reads it.
+      if (dialect === 'anthropic-messages') stripNotices(body);
 
       const g = await this.gate(f, req, reply, {
+        liveNotices: dialect === 'anthropic-messages',
         keyOverride: runOpts.keyOverride,
         // The prompt's digest binds an approval to what was approved: a ticket can't carry a different prompt.
         args: () => ({ model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body), content: contentDigest(body, ['messages', 'system', 'instructions', 'input', 'prompt']) }),
@@ -464,10 +472,28 @@ export class FlightRunner {
     }
     if (spec.inspect) await this.inspectInput(f, { key, target, onBehalfOf, decision, args: {} }, spec.inspect);
     if (decision.effect === 'hold') {
-      const outcome = await ctx.approvals.hold(f, decision);
+      // A person waiting in Claude is told so in the conversation, as soon as the call waits (not for a step an earlier
+      // approval already covers).
+      const live = spec.liveNotices && f.stream && !spec.keyOverride && !!f.client && PERSON_APPS.has(f.client);
+      const label = ctx.config.noticeLabel;
+      const gateName = decision.ruleId ? ctx.policy.rule?.(decision.ruleId)?.name : undefined;
+      const onHeld = live
+        ? () => {
+            if (f.personStream || f.clientGone) return;
+            f.personStream = new PersonStream(reply, f.id, f.modelRequested);
+            f.personStream.open(`⏳ ${label}: waiting for approval${gateName ? ` (gate “${gateName}”)` : ''}. An approver has been asked; this carries on by itself once they approve.`);
+          }
+        : undefined;
+      const outcome = await ctx.approvals.hold(f, decision, onHeld);
       if (outcome.kind !== 'approved') {
         f.status = outcome.kind === 'denied' ? 'denied' : 'ticketed';
         throw outcome.error;
+      }
+      if (f.personStream) {
+        f.personStream.say(`✓ ${label}: approved${outcome.by ? ` by ${outcome.by}` : ''}.`);
+        f.personStream.handOver();
+        // What the client got starts with our lines: not an answer to keep and send again.
+        f.cacheStore = undefined;
       }
     }
     // An allow-with-limits gate: within its rate, and its cap on the reply's length.
@@ -482,6 +508,8 @@ export class FlightRunner {
   /** A cached answer for this request, sent — true when it was (the call is then done: no provider, no cost). */
   private async fromCache(f: Flight, req: FastifyRequest, reply: FastifyReply, g: Gated): Promise<boolean> {
     const ctx = this.ctx;
+    // A reply that already started with Control Tower's lines isn't answered from (or into) the cache.
+    if (f.personStream) return false;
     const head = f.route?.candidates[0];
     const cfg = f.route?.alias?.config.cache ?? (head ? capsOf(head).cache : undefined);
     if (!cfg?.ttl_s || !ctx.cache) return false;
@@ -753,15 +781,19 @@ export class FlightRunner {
   ): Promise<void> {
     const res = reply.raw;
     const cacheState = reply.getHeader('x-ct-cache');
-    reply.hijack();
-    res.writeHead(status, {
-      'content-type': contentType,
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-      'x-ct-flight-id': f.id,
-      ...(typeof cacheState === 'string' ? { 'x-ct-cache': cacheState } : {}),
-    });
+    // A person's reply that already started with Control Tower's lines: the model's answer follows them.
+    const fitted = f.personStream;
+    if (!fitted) {
+      reply.hijack();
+      res.writeHead(status, {
+        'content-type': contentType,
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+        'x-ct-flight-id': f.id,
+        ...(typeof cacheState === 'string' ? { 'x-ct-cache': cacheState } : {}),
+      });
+    }
     f.httpStatus = status;
     if (f.t.ttfb == null) f.t.ttfb = Date.now();
 
@@ -817,8 +849,10 @@ export class FlightRunner {
     // A model that caches answers keeps the stream as the client got it, to send again whole.
     const kept: Buffer[] | undefined = f.cacheStore ? [] : undefined;
     let keptBytes = 0;
-    const write = async (chunk: Uint8Array | string): Promise<void> => {
+    const write = async (raw: Uint8Array | string): Promise<void> => {
       if (res.writableEnded || res.destroyed) return;
+      const chunk = fitted ? fitted.fit(typeof raw === 'string' ? raw : Buffer.from(raw).toString('utf8')) : raw;
+      if (!chunk.length) return;
       f.bytesWritten += typeof chunk === 'string' ? chunk.length : chunk.byteLength;
       if (kept && keptBytes < 8 * 1024 * 1024) {
         const b = typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk);
@@ -889,6 +923,9 @@ export class FlightRunner {
       }
     } finally {
       if (keepalive) clearTimeout(keepalive);
+      // The model's answer didn't end the reply we started (it failed, or stopped short): end it properly.
+      if (fitted && !fitted.closed && !f.clientGone) fitted.finish(f.status === 'error' ? `${this.ctx.config.noticeLabel}: the model's answer was cut off (${f.error?.message ?? 'an error'}). Send your message again.` : undefined);
+      fitted?.stop();
       if (!res.writableEnded) res.end();
     }
     if (f.status === 'client_aborted' && f.usageSource !== 'provider') f.usageSource = 'estimated_partial';
@@ -944,7 +981,20 @@ export class FlightRunner {
       else f.status = 'error';
     }
 
+    // A person's reply already under way (it was held): end it with what happened, in words.
+    if (f.personStream && !f.personStream.closed) {
+      f.personStream.finish(forPerson(ge, f, this.ctx).message);
+      return;
+    }
     if (reply.sent || f.bytesWritten > 0) return;
+    // A person's streamed Messages request refused (blocked, denied, not approved in time): a short reply in words,
+    // shown in the conversation, instead of an error box.
+    if (f.stream && f.dialect === 'anthropic-messages' && f.client && PERSON_APPS.has(f.client) && ['policy_denied', 'approval_required', 'content_blocked'].includes(ge.code) && !f.clientGone) {
+      const ps = new PersonStream(reply, f.id, f.modelRequested);
+      ps.open(forPerson(ge, f, this.ctx).message);
+      ps.finish();
+      return;
+    }
     if (f.key && !f.started && f.route === undefined && ge.status !== 401) {
       // Authenticated but rejected before resolve: still show a pulse on the map.
       f.route = { alias: undefined, candidates: [], price: { source: 'none', key: '', entry: undefined }, projected: 0, budgetScopes: [] };

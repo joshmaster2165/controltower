@@ -702,3 +702,85 @@ test('people follow their own held requests: My requests, and an email when one 
     await smtp.close();
   }
 });
+
+test("a person waiting in Claude is told in the conversation: waiting, approved, then the answer; refusals are replies; our lines never reach the model", async () => {
+  const { anthropicUpstream } = await import('./support/upstreams');
+  const run = Date.now().toString(36);
+  const ant = await anthropicUpstream({ models: ['lap-claude'], reply: 'Board update: 42 deals worth $3.1M.' });
+  const prov = await admin.post('/admin/api/providers', { catalog_id: 'anthropic', name: `Anthropic ${run}`, slug: `ant-${run}`, base_url: ant.url, credentials: { api_key: 'sk-ant-test' } });
+  const pid = (prov.body.provider ?? prov.body).id as string;
+  await admin.post('/admin/api/deployments', { provider_id: pid, upstream_model: 'lap-claude', public_name: 'lap-claude' });
+  await admin.patch(`/admin/api/keys/${keys.all!.id}`, { allowed_models: ['lap-model', 'lap-claude'] });
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  const wes = await person(`wes-${run}@laptops.test`);
+  const token = (await signIn(wes, 'claude-desktop')).access_token;
+  const MARK = '⁣';
+  const typed = (t: string) => ({ role: 'user', content: [{ type: 'text', text: t }] });
+  const stream = (messages: unknown[], credential = token, ua = 'claude-cli/2.1.286 (external, claude-desktop-3p)') =>
+    fetch(`${CT}/v1/messages`, { method: 'POST', headers: { 'x-api-key': credential, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': ua }, body: JSON.stringify({ model: 'lap-claude', max_tokens: 50, stream: true, messages }) }).then(async (r) => ({ status: r.status, type: r.headers.get('content-type') ?? '', text: await r.text() }));
+  const events = (text: string) =>
+    text
+      .split('\n\n')
+      .filter((b) => b.includes('data:'))
+      .map((b) => JSON.parse(b.split('\n').find((l) => l.startsWith('data:'))!.slice(5)) as { type: string; index?: number; delta?: { text?: string } });
+  const said = (text: string) => events(text).filter((e) => e.type === 'content_block_delta').map((e) => `${e.index}:${e.delta?.text ?? ''}`);
+  const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.requester === wes.email);
+  const rules: string[] = [];
+  try {
+    rules.push((await admin.post('/admin/api/rules', { name: 'Claude needs a manager', target_kind: 'model', match: { keys: [keys.all!.id], models: ['lap-claude'] }, effect: 'require_approval', config: { hold_ms: 8000 }, priority: 2 })).body.id);
+
+    // Held: the reply starts at once, saying so; approved: it says who, and the model's answer follows.
+    const asked = stream([typed('Draft the board update')]);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'approve' });
+    const ok = await asked;
+    expect(ok.status).toBe(200);
+    expect(ok.type).toContain('text/event-stream');
+    const evs = events(ok.text);
+    expect(evs.filter((e) => e.type === 'message_start')).toHaveLength(1);
+    expect(evs.filter((e) => e.type === 'message_stop')).toHaveLength(1);
+    const lines = said(ok.text);
+    expect(lines[0]).toBe(`0:${MARK}⏳ Control Tower: waiting for approval (gate “Claude needs a manager”). An approver has been asked; this carries on by itself once they approve.\n\n`);
+    expect(lines[1]).toBe(`0:${MARK}✓ Control Tower: approved by e2e@example.com.\n\n`);
+    expect(lines.slice(2).every((l) => l.startsWith('1:'))).toBe(true);
+    expect(lines.slice(2).join('').replace(/1:/g, '')).toContain('Board update: 42 deals');
+
+    // The next turn carries our lines back: they're taken out before the model sees the conversation.
+    const answer = lines.map((l) => l.slice(2)).join('');
+    const before = ant.calls.length;
+    const next = stream([typed('Draft the board update'), { role: 'assistant', content: [{ type: 'text', text: answer }] }, typed('Shorter please')]);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'approve' });
+    expect((await next).status).toBe(200);
+    const sent = JSON.parse(ant.calls[before]!.body) as { messages: Array<{ role: string; content: unknown }> };
+    expect(JSON.stringify(sent.messages)).not.toContain(MARK);
+    expect(JSON.stringify(sent.messages)).not.toContain('waiting for approval');
+    expect(JSON.stringify(sent.messages)).toContain('Board update: 42 deals');
+
+    // Denied while waiting: the reply ends with who and why.
+    const denied = stream([typed('Draft the investor update')]);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'deny', note: 'Not before the audit' });
+    const no = await denied;
+    expect(no.status).toBe(200);
+    expect(said(no.text).at(-1)).toContain('your request was denied by e2e@example.com: Not before the audit');
+    expect(events(no.text).at(-1)?.type).toBe('message_stop');
+
+    // Blocked before anything is held: a reply in words, not an error box.
+    rules.push((await admin.post('/admin/api/rules', { name: 'No keys to Claude', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input' }, priority: 1 })).body.id);
+    const blocked = await stream([typed('Use AKIAIOSFODNN7EXAMPLE to deploy')]);
+    expect(blocked.status).toBe(200);
+    expect(said(blocked.text).join('')).toContain('Control Tower blocked this message: it contains AWS access key (gate “No keys to Claude”)');
+    expect((await pending()).length).toBe(0);
+
+    // An agent's key gets the error it always did.
+    const agent = await stream([typed('Use AKIAIOSFODNN7EXAMPLE to deploy')], keys.all!.key, 'my-agent/1.0');
+    expect(agent.status).toBe(400);
+    expect(agent.type).toContain('application/json');
+  } finally {
+    for (const id of rules) await admin.del(`/admin/api/rules/${id}`);
+    await admin.patch(`/admin/api/keys/${keys.all!.id}`, { allowed_models: ['lap-model'] });
+    await admin.del(`/admin/api/providers/${pid}`);
+    await ant.close();
+  }
+});

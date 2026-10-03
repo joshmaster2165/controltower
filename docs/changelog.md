@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.10 — 3 October 2026
 
 - **People are told what a gate decided, in words, in the tool they use.** Claude Desktop, Claude Code and Codex read a `403` as a failed sign-in: an expired approval showed "Authentication failed", and a denied one left Claude waiting with nothing to say (found by recording Claude Desktop through a gate). Their refusals are now a `400`, which they show, with a message for the person: what was blocked, which gate and its reason, who denied it and their note, whether it's still waiting or expired, and what to do. Agents get the same `403` as before. Control Tower knows the tool from the laptop's sign-in, or its User-Agent. `CT_NOTICE_LABEL` changes the name in these messages.
 - **The Tower's cards name the person and their tool** (*Asked by dana@acme.com in Claude Desktop*), for calls from signed-in laptops and trusted tokens.

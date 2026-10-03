@@ -385,15 +385,17 @@ $out`);
     const sentAt = seen.length;
     // The message box keeps the focus: clear what an earlier step typed, then the message.
     const sent = await uia(`$w = Claude; if ($w) { $w.SetFocus() }
-$r = Press (Claude) '^(Prompt|Message|Reply|Ask|Type)'
+$r = Press (Claude) '^Write your prompt'
 Start-Sleep -Milliseconds 600
 [System.Windows.Forms.SendKeys]::SendWait('^a')
 [System.Windows.Forms.SendKeys]::SendWait('{DEL}')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('Draft the board update')
 Start-Sleep -Milliseconds 500
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-"box: $r"`);
+# Sent with Start task (a new session's send button); Enter as well, for a session already under way.
+$s = Press (Claude) '^(Start task|Send|Send message)$'
+if ($s -eq 'not found') { [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
+"box: $r; send: $s"`);
     steps.push(sent.out.trim());
     let card: { id: string } | undefined;
     for (let i = 0; i < 60 && !card; i++) {

@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, ApiError, type Approval, type ApprovalWindowRow } from '../api';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
-import { ago } from '../format';
+import { ago, CLIENT_NAMES } from '../format';
 import { Icon } from '../components/Icon';
-
-const CLIENT_NAMES: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex' };
 
 export function scopeStatement(a: Approval): string {
   const t = a.target;
@@ -93,8 +91,10 @@ export function ApprovalCard({ a, onDecided }: { a: Approval; onDecided?: () => 
         <div className="requester-line">
           Asked by <b>{a.requester}</b>
           {a.client && <> in {CLIENT_NAMES[a.client] ?? a.client}</>}
+          {a.device && <> on {a.device}</>}
         </div>
       )}
+      {!a.requester && a.owner && <div className="requester-line">Agent owned by {a.owner}</div>}
       <BehalfLine a={a} />
       <div className="scope">{pending && more ? windowStatement(a, usesOk ? uses : 1, ms, anyArgs) : scopeStatement(a)}</div>
       {a.args_preview && (

@@ -102,6 +102,10 @@ export interface Flight {
   principal: string | undefined;
   /** The app a person made the call from (claude-desktop, claude-code, codex), when it's one: see gateway/notices.ts. */
   client: string | undefined;
+  /** The computer a signed-in laptop made the call from (its name). */
+  device: string | undefined;
+  /** Its input was already inspected (before a hold). */
+  inputInspected?: boolean;
   /** What a non-token call was billed on. */
   units: Units | undefined;
   /** Answered from the response cache. */
@@ -123,6 +127,9 @@ export interface GateSpec {
   servedBy?: ((p: ProviderRecord) => boolean) | undefined;
   /** Resolve the model some other way than by name (a provider's own model id). */
   resolve?: (() => Promise<ModelResolution>) | undefined;
+  /** The request's fields inspect gates read: checked before any hold, so an approver is never shown (or asked to
+   *  approve) what a gate would block, and sees what a gate masks masked. */
+  inspect?: string[] | undefined;
   /** The call's projected cost when it isn't priced by tokens. */
   project?: ((price: PriceRef) => number) | undefined;
 }
@@ -186,6 +193,7 @@ export function newFlight(kind: FlightKind, dialect: WireDialect, body: Record<s
     customer: undefined,
     principal: undefined,
     client: undefined,
+    device: undefined,
     units: undefined,
     cacheHit: false,
     plan: undefined,
@@ -286,6 +294,7 @@ export class FlightRunner {
         keyOverride: runOpts.keyOverride,
         // The prompt's digest binds an approval to what was approved: a ticket can't carry a different prompt.
         args: () => ({ model: f.modelRequested, max_tokens: body.max_tokens, stream: f.stream, tools: toolNames(body), content: contentDigest(body, ['messages', 'system', 'instructions', 'input', 'prompt']) }),
+        inspect: ['messages', 'system', 'instructions', 'input', 'prompt'],
       });
       capMaxTokens(body, g.decision);
 
@@ -332,6 +341,7 @@ export class FlightRunner {
     f.customer = meta.customer;
     f.principal = spec.keyOverride ? undefined : req.ctPrincipal;
     f.client = clientOf(req);
+    f.device = spec.keyOverride ? undefined : req.ctDevice;
     f.trace = meta.trace;
     if (f.customer && ctx.registry.customers.get(f.customer)?.blocked) throw E.customerBlocked(f.customer);
 
@@ -452,6 +462,7 @@ export class FlightRunner {
       f.status = 'denied';
       throw E.policyDenied(decision.reason, decision.ruleId);
     }
+    if (spec.inspect) await this.inspectInput(f, { key, target, onBehalfOf, decision, args: {} }, spec.inspect);
     if (decision.effect === 'hold') {
       const outcome = await ctx.approvals.hold(f, decision);
       if (outcome.kind !== 'approved') {
@@ -507,6 +518,8 @@ export class FlightRunner {
   /** Inspect gates on this path look at what the agent sends: the named fields of the body. */
   async inspectInput(f: Flight, g: Gated, fields: string[]): Promise<void> {
     const ctx = this.ctx;
+    if (f.inputInspected) return;
+    f.inputInspected = true;
     const gates = ctx.policy.inspectors?.(g.key, g.target, g.onBehalfOf) ?? [];
     if (!gates.length) return;
     f.inspectOut = gates.filter((x) => x.compiled.direction !== 'input');
@@ -562,6 +575,8 @@ export class FlightRunner {
       ...(f.tags.length ? { tags: f.tags } : {}),
       ...(f.customer ? { customer: f.customer } : {}),
       ...(f.principal ? { principal: f.principal } : {}),
+      ...(f.client ? { client: f.client } : {}),
+      ...(f.device ? { device: f.device } : {}),
       ...(f.trace ? { trace: f.trace } : {}),
       est_input_tokens: f.estInput,
       projected_nanousd: f.route.projected,

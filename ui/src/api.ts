@@ -86,6 +86,8 @@ export interface TopologyKey {
   demo: boolean;
   /** Acts only on behalf of other agents (calls without a delegation token are refused). */
   delegated_only?: boolean;
+  /** Who's responsible for the agent. */
+  owner?: string;
 }
 export interface TopologyProvider {
   id: string;
@@ -251,6 +253,9 @@ export interface FlightRow {
   customer?: string | null;
   /** Who presented the token the call was made with (issuer · subject), when the agent used one. */
   principal?: string | null;
+  /** From a signed-in laptop: the person's app and the computer it runs on. */
+  client?: string | null;
+  device?: string | null;
   /** JSON: what a non-token call was billed on. */
   units?: string | null;
   /** 1 when answered from Control Tower's response cache. */
@@ -265,6 +270,9 @@ export interface KeyRow {
   agent_id?: string;
   team?: string;
   project?: string;
+  /** Who's responsible for the agent (a person or a team address), and who created the key. */
+  owner?: string | null;
+  created_by?: string | null;
   tags: string[];
   allowed_models: string[];
   allowed_mcp: string[];
@@ -373,6 +381,9 @@ export interface Approval {
   /** The person who made the call, and the app they made it from, when it came from a signed-in laptop. */
   requester?: string | null;
   client?: string | null;
+  device?: string | null;
+  /** Who owns the agent (its key's owner). */
+  owner?: string | null;
 }
 
 /** An open approval window: an agent a human let through a gate for its next N calls. */

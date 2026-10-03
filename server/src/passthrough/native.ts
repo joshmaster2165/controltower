@@ -69,6 +69,7 @@ async function gemini(ctx: AppContext, runner: FlightRunner, req: FastifyRequest
     const g = await runner.gate(f, req, reply, {
       args: () => ({ model: f.modelRequested, endpoint: f.endpoint, content: contentDigest(f.body, ['contents', 'systemInstruction', 'content', 'requests']) }),
       servedBy: (p) => p.kind === 'gemini' || p.kind === 'vertex',
+      inspect: ['contents', 'systemInstruction', 'content', 'requests'],
     });
     await runner.inspectInput(f, g, ['contents', 'systemInstruction', 'content', 'requests']);
     const maxOut = Number((f.body.generationConfig as { maxOutputTokens?: number } | undefined)?.maxOutputTokens ?? 0) || 0;
@@ -164,6 +165,7 @@ async function bedrock(ctx: AppContext, runner: FlightRunner, req: FastifyReques
       args: () => ({ model: f.modelRequested, endpoint: f.endpoint, content: contentDigest(f.body, ['messages', 'system', 'prompt', 'inputText']) }),
       servedBy: (p) => p.kind === 'bedrock',
       resolve: () => resolveBedrock(ctx, f.modelRequested),
+      inspect: ['messages', 'system', 'prompt', 'inputText'],
     });
     await runner.inspectInput(f, g, ['messages', 'system', 'prompt', 'inputText']);
     const maxOut = Number((f.body.inferenceConfig as { maxTokens?: number } | undefined)?.maxTokens ?? f.body.max_tokens ?? 0) || 0;

@@ -57,8 +57,21 @@ export function KeysPage() {
   const [rotating, setRotating] = useState<string | null>(null);
   // Someone who manages only some teams (a team or organisation admin) makes keys for those teams.
   const scope = useStore((st) => st.me?.scope);
+  const myEmail = useStore((st) => st.me?.email);
+  const [ownerEdit, setOwnerEdit] = useState<{ id: string; value: string } | null>(null);
+  const saveOwner = async () => {
+    if (!ownerEdit) return;
+    try {
+      await api.patch(`/admin/api/keys/${ownerEdit.id}`, { owner: ownerEdit.value.trim() || null });
+      setOwnerEdit(null);
+      await load();
+      await refreshTopology();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  };
   const myTeams = scope && scope.manage !== 'all' ? scope.manage : undefined;
-  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
+  const [form, setForm] = useState({ name: '', agent_id: '', team: '', project: '', owner: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
   const refreshTopology = useStore((s) => s.refreshTopology);
 
   const load = async () => {
@@ -117,6 +130,7 @@ export function KeysPage() {
         ...(form.delegated_only ? { delegated_only: true } : {}),
         team: form.team || undefined,
         project: form.project || undefined,
+        owner: form.owner.trim() || undefined,
         allowed_models: form.allowed_models.split(',').map((s) => s.trim()).filter(Boolean),
         regions: form.regions.split(',').map((s) => s.trim()).filter(Boolean),
         limits: form.rpm ? { rpm: Number(form.rpm) } : {},
@@ -126,7 +140,7 @@ export function KeysPage() {
       const r = await api.post<{ id: string; name: string; key: string }>('/admin/api/keys', body);
       setCreated(r);
       setShowNew(false);
-      setForm({ name: '', agent_id: '', team: '', project: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
+      setForm({ name: '', agent_id: '', team: '', project: '', owner: '', allowed_models: '*', regions: '', rpm: '', budget: '', delegated_only: false });
       setExpiresIn(0);
       await load();
       await refreshTopology();
@@ -213,6 +227,10 @@ export function KeysPage() {
               <label>Project</label>
               <input className="input" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} placeholder="ap-automation" />
             </div>
+          </div>
+          <div className="field">
+            <label>Owner: who to ask about this agent (a person or a team address; you, if left empty)</label>
+            <input className="input" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder={myEmail ?? 'payments-oncall@acme.com'} />
           </div>
           <div className="field">
             <label>Allowed models (comma-separated globs)</label>
@@ -351,6 +369,29 @@ export function KeysPage() {
                       <span className="strong">{k.name}</span>
                       {k.demo && <span className="tag muted" style={{ marginLeft: 6 }}>demo</span>}
                       <span className="sub">{[k.team, k.project].filter(Boolean).join(' · ') || 'no team'}</span>
+                      {ownerEdit?.id === k.id ? (
+                        <form
+                          className="owner-edit"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void saveOwner();
+                          }}
+                        >
+                          <input className="input sm" autoFocus aria-label="Owner" value={ownerEdit.value} onChange={(e) => setOwnerEdit({ id: k.id, value: e.target.value })} placeholder="person or team address" />
+                          <button className="btn sm primary" type="submit">
+                            Save
+                          </button>
+                          <button className="btn sm ghost" type="button" onClick={() => setOwnerEdit(null)}>
+                            Cancel
+                          </button>
+                        </form>
+                      ) : (
+                        !k.built_in && (
+                          <button className="sub owner-line" type="button" title="Who to ask about this agent. Change it" onClick={() => setOwnerEdit({ id: k.id, value: k.owner ?? '' })}>
+                            {k.owner ? <>owner: {k.owner}</> : <span className="muted">no owner: set one</span>}
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 </td>

@@ -189,6 +189,7 @@ export class ApprovalService implements Approvals {
           requester: flight.principal ?? null,
           client: flight.client ?? null,
           person_scope: ps,
+          device: flight.device ?? null,
         })
         .execute();
       approval = (await this.db.selectFrom('approvals').selectAll().where('id', '=', id).executeTakeFirst())!;

@@ -12,6 +12,7 @@ import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { namespaced } from '../mcp/registry.js';
 import { ctKey, downstreamHeaders, httpOperation, isTextual, routeLabel, upstreamHeaders, upstreamUrl } from './route.js';
 import { DELEGATION_HEADER, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { clientOf } from '../gateway/notices.js';
 
 /**
  * The HTTP gateway: plain REST APIs, gated like tools. An agent calls
@@ -88,7 +89,7 @@ export class HttpGateway {
     const started = (): void => {
       if (f.started) return;
       f.started = true;
-      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), ...(req.ctPrincipal ? { principal: req.ctPrincipal } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
+      ctx.bus.emit({ t: 'flight.started', flight_id: f.id, ts: f.t.start, key_id: key.id, key_name: key.name, agent_id: key.agentId, team: key.team, project: key.project, kind: 'http.request', dialect: 'http', stream: false, model_requested: full, mcp_server_id: api?.id, tool: route, ...(f.chain.length ? { on_behalf_of: f.chain } : {}), ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}), ...(req.ctPrincipal ? { principal: req.ctPrincipal } : {}), ...(clientOf(req) ? { client: clientOf(req) } : {}), ...(req.ctDevice ? { device: req.ctDevice } : {}), est_input_tokens: f.estInput, projected_nanousd: 0 });
     };
     const complete = (status: Status, http: number, error?: { code: string; message: string }, outBytes = 0): void => {
       f.t.end = Date.now();
@@ -136,6 +137,18 @@ export class HttpGateway {
       if (decision.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, { rule_id: decision.ruleId });
       const overGate = await gateLimitRefusal(ctx, decision, key);
       if (overGate) return refuse(overGate.status, 'rejected', overGate.code, overGate.message, decision.ruleId ? { rule_id: decision.ruleId } : {});
+      // ---- inspect what is being sent (before any hold: an approver never sees, or approves, what a gate blocks) ----
+      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
+      let outBody: Buffer | undefined = raw && method !== 'GET' && method !== 'HEAD' ? raw : undefined;
+      if (gates.length && body !== undefined) {
+        const r = await inspect(ctx, key, gates, 'input', body);
+        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
+        if (r.blocked) return refuse(400, 'denied', 'content_blocked', blockedMessage(r.blocked, 'request'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
+        if (r.value !== body) outBody = Buffer.from(typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
+        // What a gate masked is masked on an approval card too.
+        if (r.value !== body) f.body = { ...f.body, arguments: { ...((f.body.arguments as Record<string, unknown>) ?? {}), body: r.value } };
+      }
+
       if (decision.effect === 'hold') {
         const outcome = await ctx.approvals.hold(f, decision);
         if (outcome.kind === 'denied') return refuse(403, 'denied', 'policy_denied', outcome.error.message, { rule_id: decision.ruleId });
@@ -144,16 +157,6 @@ export class HttpGateway {
           if (typeof ct.ticket === 'string') reply.header('x-ct-approval-ticket', ct.ticket);
           return refuse(403, 'ticketed', 'approval_required', outcome.error.message, { ...ct, how_to_resume: 'Retry this exact request with the header x-ct-approval: <ticket> once a human approves.' });
         }
-      }
-
-      // ---- inspect what is being sent ----
-      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
-      let outBody: Buffer | undefined = raw && method !== 'GET' && method !== 'HEAD' ? raw : undefined;
-      if (gates.length && body !== undefined) {
-        const r = await inspect(ctx, key, gates, 'input', body);
-        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the request');
-        if (r.blocked) return refuse(400, 'denied', 'content_blocked', blockedMessage(r.blocked, 'request'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
-        if (r.value !== body) outBody = Buffer.from(typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
       }
 
       // ---- forward ----

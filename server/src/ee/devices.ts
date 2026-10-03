@@ -51,6 +51,8 @@ export interface DeviceToken {
   /** The person, by email: recorded on each call as who made it. */
   principal: string;
   client: string;
+  /** The computer it was signed in on, as the person named it (tokens minted before 0.2.10 don't say). */
+  deviceName?: string | undefined;
   exp: number;
 }
 
@@ -143,7 +145,7 @@ export class DeviceAuth {
 
   mint(t: Omit<DeviceToken, 'exp'>, now = Date.now()): { token: string; exp: number } {
     const exp = now + ACCESS_TTL_S * 1000;
-    const payload = Buffer.from(JSON.stringify({ s: t.sessionId, k: t.keyId, p: t.principal, c: t.client, e: exp })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ s: t.sessionId, k: t.keyId, p: t.principal, c: t.client, ...(t.deviceName ? { d: t.deviceName.slice(0, 80) } : {}), e: exp })).toString('base64url');
     return { token: `${DEVICE_TOKEN_PREFIX}${payload}.${this.sign(payload)}`, exp };
   }
 
@@ -155,7 +157,7 @@ export class DeviceAuth {
     const want = Buffer.from(this.sign(payload));
     const got = Buffer.from(sig);
     if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return undefined;
-    let p: { s?: unknown; k?: unknown; p?: unknown; c?: unknown; e?: unknown };
+    let p: { s?: unknown; k?: unknown; p?: unknown; c?: unknown; d?: unknown; e?: unknown };
     try {
       p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     } catch {
@@ -163,7 +165,7 @@ export class DeviceAuth {
     }
     if (typeof p.s !== 'string' || typeof p.k !== 'string' || typeof p.p !== 'string' || typeof p.e !== 'number') return undefined;
     if (p.e <= now || this.revoked.has(p.s) || !this.deps.allowed()) return undefined;
-    return { sessionId: p.s, keyId: p.k, principal: p.p, client: typeof p.c === 'string' ? p.c : 'other', exp: p.e };
+    return { sessionId: p.s, keyId: p.k, principal: p.p, client: typeof p.c === 'string' ? p.c : 'other', ...(typeof p.d === 'string' && p.d ? { deviceName: p.d } : {}), exp: p.e };
   }
 
   /** The key an access token's calls are made as (it must still exist and be usable). */
@@ -253,7 +255,7 @@ export class DeviceAuth {
       .insertInto('device_sessions')
       .values({ id, admin_id: person.id, client: row.client, device_name: row.device_name, refresh_hash: sha256Hex(refresh), created_at: now, last_used_at: now, last_ip: ip.slice(0, 64), expires_at: now + this.settings.sessionDays * DAY, revoked_at: null, revoked_by: null, key_id: k.key.id })
       .execute();
-    const a = this.mint({ sessionId: id, keyId: k.key.id, principal: person.email, client: row.client }, now);
+    const a = this.mint({ sessionId: id, keyId: k.key.id, principal: person.email, client: row.client, deviceName: row.device_name }, now);
     return { ok: true, access_token: a.token, token_type: 'Bearer', expires_in: ACCESS_TTL_S, refresh_token: refresh, key_name: k.key.name, person: person.email };
   }
 
@@ -274,7 +276,7 @@ export class DeviceAuth {
     const k = await this.keyForPerson(person.id, s.client);
     if ('problem' in k) return { ok: false, error: 'access_denied', error_description: k.problem };
     await db.updateTable('device_sessions').set({ last_used_at: now, last_ip: ip.slice(0, 64), key_id: k.key.id }).where('id', '=', s.id).execute();
-    const a = this.mint({ sessionId: s.id, keyId: k.key.id, principal: person.email, client: s.client }, now);
+    const a = this.mint({ sessionId: s.id, keyId: k.key.id, principal: person.email, client: s.client, deviceName: s.device_name }, now);
     return { ok: true, access_token: a.token, token_type: 'Bearer', expires_in: ACCESS_TTL_S, key_name: k.key.name, person: person.email, sessionId: s.id };
   }
 

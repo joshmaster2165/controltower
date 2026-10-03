@@ -549,3 +549,57 @@ test("a person's approval is theirs: not their own to give, windows and the hold
     await admin.del(`/admin/api/rules/${gate}`);
   }
 });
+
+test('who an agent belongs to: its owner, and the person, app and computer behind each call; secrets never reach a card', async () => {
+  // An agent's owner: the person who made it unless given; changed later; on the map and on its cards.
+  const mine = await admin.post('/admin/api/keys', { name: `owned-${Date.now().toString(36)}` });
+  const given = await admin.post('/admin/api/keys', { name: `team-owned-${Date.now().toString(36)}`, owner: 'payments-oncall@acme.test' });
+  try {
+    const listed = (await admin.get('/admin/api/keys')).body.keys as any[];
+    expect(listed.find((k) => k.id === mine.body.id)).toMatchObject({ owner: 'e2e@example.com', created_by: 'e2e@example.com' });
+    expect(listed.find((k) => k.id === given.body.id)).toMatchObject({ owner: 'payments-oncall@acme.test' });
+    expect((await admin.patch(`/admin/api/keys/${mine.body.id}`, { owner: 'dana@acme.test' })).status).toBe(200);
+    expect(((await admin.get('/admin/api/topology')).body.keys as any[]).find((k) => k.id === mine.body.id)?.owner).toBe('dana@acme.test');
+    expect((await admin.patch(`/admin/api/keys/${mine.body.id}`, { owner: null })).status).toBe(200);
+    expect(((await admin.get('/admin/api/keys')).body.keys as any[]).find((k) => k.id === mine.body.id)?.owner).toBeNull();
+  } finally {
+    await admin.del(`/admin/api/keys/${mine.body.id}`);
+    await admin.del(`/admin/api/keys/${given.body.id}`);
+  }
+
+  // A laptop's calls: the person, the app and the computer, on the flight and on the card.
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  await admin.patch(`/admin/api/keys/${keys.all!.id}`, { owner: 'it@acme.test' });
+  const nia = await person(`nia-${Date.now().toString(36)}@laptops.test`);
+  const s = await form('/device/code', { client: 'claude-desktop', device_name: "Nia's ThinkPad" });
+  await nia.call('POST', '/admin/api/me/devices/approve', { user_code: s.body.user_code });
+  const token = (await poll(s.body.device_code)).body.access_token as string;
+  const ask = (content: string) =>
+    fetch(`${CT}/v1/messages`, { method: 'POST', headers: { 'x-api-key': token, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content }] }) }).then(async (r) => ({ status: r.status, flight: r.headers.get('x-ct-flight-id'), body: (await r.json()) as any }));
+  const ok = await ask('hello');
+  expect(ok.status).toBe(200);
+  await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.all!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === ok.flight)).toMatchObject({ principal: nia.email, client: 'claude-desktop', device: "Nia's ThinkPad" });
+
+  const rules: string[] = [];
+  try {
+    rules.push((await admin.post('/admin/api/rules', { name: 'Everything held', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'require_approval', config: { hold_ms: 1500 }, priority: 2 })).body.id);
+    rules.push((await admin.post('/admin/api/rules', { name: 'No credentials', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'inspect', config: { detectors: ['secrets'], action: 'block', direction: 'input' }, priority: 1 })).body.id);
+    rules.push((await admin.post('/admin/api/rules', { name: 'No emails', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'inspect', config: { detectors: ['email'], action: 'mask', direction: 'input' }, priority: 1 })).body.id);
+    const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.key_id === keys.all!.id);
+    // A secret is blocked before any hold: no card shows it, and nobody is asked to approve it.
+    const before = (await pending()).length;
+    const leak = await ask('deploy with AKIAIOSFODNN7EXAMPLE');
+    expect(leak.status).toBe(400);
+    expect(leak.body.error.code).toBe('content_blocked');
+    expect((await pending()).length).toBe(before);
+    // What a gate masks is masked on the card; the card names the person, the app, the computer and the agent's owner.
+    expect((await ask('email the board at board@acme.test')).status).toBe(400);
+    const card = (await pending()).find((a) => a.requester === nia.email);
+    expect(card).toMatchObject({ requester: nia.email, client: 'claude-desktop', device: "Nia's ThinkPad", owner: 'it@acme.test' });
+    expect(card.args_preview.last_user_message).not.toContain('board@acme.test');
+    for (const a of await pending()) await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'deny' });
+  } finally {
+    for (const id of rules) await admin.del(`/admin/api/rules/${id}`);
+    await admin.patch(`/admin/api/keys/${keys.all!.id}`, { owner: null });
+  }
+});

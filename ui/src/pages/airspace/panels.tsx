@@ -333,6 +333,12 @@ export function Tooltip({ hover }: { hover: HoverInfo }) {
           <span>{kindLabel(s)}</span>
           <b>{STATE_LABEL[s.state]}</b>
         </div>
+        {s.owners && (
+          <div className="r">
+            <span>owner{s.owners.length > 1 ? 's' : ''}</span>
+            <b>{s.owners.length > 2 ? `${s.owners.slice(0, 2).join(', ')} +${s.owners.length - 2}` : s.owners.join(', ')}</b>
+          </div>
+        )}
         <div className="r">
           <span>last minute</span>
           <b>{s.rpm} flights</b>

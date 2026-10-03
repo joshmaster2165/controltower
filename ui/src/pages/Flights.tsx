@@ -4,7 +4,7 @@ import { RegionsNotice } from '../components/RegionsNotice';
 import { useStore } from '../store';
 import { PageHeader } from '../components/PageHeader';
 import { Icon } from '../components/Icon';
-import { ago, ms, num, usd } from '../format';
+import { ago, ms, num, usd, personLine } from '../format';
 import { agentColor, hex } from '../airspace/colors';
 
 const OUTCOME: Record<string, { label: string; cls: string }> = {
@@ -247,7 +247,12 @@ export function FlightsPage() {
                     <Target name={f.model_requested} />
                     {f.endpoint && <span className="sub mono">{f.endpoint}</span>}
                     {f.customer && <span className="sub">for customer {f.customer}</span>}
-                    {f.principal && <span className="sub" title="The token the agent authenticated with">token: {f.principal}</span>}
+                    {f.principal &&
+                      (f.client || f.device ? (
+                        <span className="sub" title="The person, their app and their computer (a signed-in laptop)">by {personLine(f.principal, f.client, f.device)}</span>
+                      ) : (
+                        <span className="sub" title="The token the agent authenticated with">token: {f.principal}</span>
+                      ))}
                     {tagsOf(f.tags).length > 0 && (
                       <span className="sub">
                         {tagsOf(f.tags).map((t) => (

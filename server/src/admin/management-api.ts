@@ -171,6 +171,7 @@ export async function managementApiRoutes(app: FastifyInstance, ctx: AppContext)
           enabled: (f.enabled as number | undefined) ?? 1,
           expires_at: (f.expires_at as number | null | undefined) ?? null,
           created_by: req.admin?.email ?? null,
+          owner: (typeof b.owner === 'string' && b.owner.trim().slice(0, 200)) || (req.admin?.email?.includes('@') ? req.admin.email : null),
           demo: 0,
           created_at: now,
           last_used_at: null,

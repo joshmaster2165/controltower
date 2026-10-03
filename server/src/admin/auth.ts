@@ -120,6 +120,9 @@ declare module 'fastify' {
     ctPrincipal?: string;
     /** The app a signed-in laptop made the call from (claude-desktop, claude-code, codex), from its token. */
     ctClient?: string;
+    /** The computer a signed-in laptop is (its name), and its sign-in session. */
+    ctDevice?: string;
+    ctSession?: string;
   }
 }
 

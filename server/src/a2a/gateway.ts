@@ -225,16 +225,7 @@ export class A2aGateway {
       if (decision.effect === 'deny') return refuse(403, 'denied', 'policy_denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, decision.ruleId ? { rule_id: decision.ruleId } : {});
       const overGate = await gateLimitRefusal(ctx, decision, key);
       if (overGate) return refuse(overGate.status, 'rejected', overGate.code, overGate.message, decision.ruleId ? { rule_id: decision.ruleId } : {});
-      if (decision.effect === 'hold') {
-        const outcome = await ctx.approvals.hold(f, decision);
-        if (outcome.kind === 'denied') return refuse(403, 'denied', 'policy_denied', outcome.error.message);
-        if (outcome.kind === 'ticketed') {
-          const ct = (outcome.error.extra?.ct as Record<string, unknown> | undefined) ?? {};
-          return refuse(403, 'ticketed', 'approval_required', `${outcome.error.message} Retry this exact call with metadata.ct_approval (or the x-ct-approval header) set to the ticket.`, ct.ticket ? { ticket: String(ct.ticket), request_id: String(ct.request_id ?? '') } : {});
-        }
-      }
-
-      // ---- inspect the message ----
+      // ---- inspect the message (before any hold: an approver never sees, or approves, what a gate blocks) ----
       const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
       let outParams: Json = params;
       if (gates.length && info.message) {
@@ -242,6 +233,16 @@ export class A2aGateway {
         emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the message');
         if (r.blocked) return refuse(400, 'denied', 'content_blocked', blockedMessage(r.blocked, 'request'), { rule_id: r.blocked.ruleId });
         if (r.value !== params.message) outParams = { ...params, message: r.value };
+        if (r.value !== params.message) f.body = { ...f.body, arguments: { ...((f.body.arguments as Record<string, unknown>) ?? {}), message: r.value } };
+      }
+
+      if (decision.effect === 'hold') {
+        const outcome = await ctx.approvals.hold(f, decision);
+        if (outcome.kind === 'denied') return refuse(403, 'denied', 'policy_denied', outcome.error.message);
+        if (outcome.kind === 'ticketed') {
+          const ct = (outcome.error.extra?.ct as Record<string, unknown> | undefined) ?? {};
+          return refuse(403, 'ticketed', 'approval_required', `${outcome.error.message} Retry this exact call with metadata.ct_approval (or the x-ct-approval header) set to the ticket.`, ct.ticket ? { ticket: String(ct.ticket), request_id: String(ct.request_id ?? '') } : {});
+        }
       }
 
       // ---- push notifications come back through Control Tower: the agent gets a relay address, not the caller's webhook ----

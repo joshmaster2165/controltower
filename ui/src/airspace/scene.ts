@@ -175,6 +175,8 @@ export interface StationView {
   protocol?: Station['protocol'];
   /** Agent stations standing for more than one key: a whole team, or an agent's copies. */
   grouping?: 'team' | 'group' | undefined;
+  /** Who's responsible for the agent (its keys' owners). */
+  owners?: string[] | undefined;
 }
 
 export interface LaneView {
@@ -2221,7 +2223,8 @@ export class AirspaceScene {
     }
     let observed24h = 0;
     for (const e of this.obsEdges) if ((s.kind === 'agent' && e.key_id === s.id) || (s.kind === 'observed' && e.target_id === s.id)) observed24h += e.count_24h;
-    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs, protocol: s.protocol, grouping: s.team ? 'team' : s.copies ? 'group' : undefined };
+    const owners = s.kind === 'agent' ? [...new Set((this.stationKeys.get(s.id) ?? []).map((k) => k.owner).filter((o): o is string => !!o))] : [];
+    return { id: s.id, kind: s.kind, label: s.label, sub: s.sub, color: s.color, rpm: s.recent.length, held: s.held, state: this.stateOf(s, now), requests24h, cost24h, errors24h, denied24h, observed24h, obs: s.obs, protocol: s.protocol, grouping: s.team ? 'team' : s.copies ? 'group' : undefined, ...(owners.length ? { owners } : {}) };
   }
 
   // -------------------------------------------------------------------- draw

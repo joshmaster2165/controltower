@@ -15,6 +15,7 @@ Every agent gets its own key. The key is how Control Tower knows *who* is callin
 | **Name (agent)** | The agent's name on the map and in every report |
 | **Agent ID** | Optional. Keys with the same agent ID are [copies of one agent](#many-copies-of-one-agent). Defaults to the name |
 | **Team**, **Project** | Labels for grouping spend, for zones (a zone can match every key of a team) and for alerts |
+| **Owner** | Who to ask about the agent: a person or a team address. You, if left empty. Shown under the agent on **Keys** (click it to change it), on the map, and on the agent's held calls in the Tower |
 | **Allowed models** | Comma-separated globs, e.g. `gpt-4.1*, claude-haiku-*`. They are matched against the name the agent sends, so a pinned name like `openai/gpt-4.1-mini` needs a glob such as `*gpt-4.1*`. Empty means any model. Other models get `403 model_not_allowed` |
 | **Requests per minute** | Rate limit; over it, `429 rate_limit_exceeded` |
 | **Monthly budget USD (optional)** | Hard budget; once spent, `429 budget_exceeded` until the next period |

@@ -23,6 +23,7 @@ In the gate editor, **Guardrail services** lists the services you have added. Ch
 - **Order:** the gate's built-in detectors run first. A gate's services are then asked at the same time, before any model check.
 - **Mask it:** works with services that say exactly what to mask: Presidio, and your own URL when it returns the masked texts. With other services, a mask gate withholds the content instead: the call is refused with `400 content_blocked`. When several services mask, each works on what the one before it masked.
 - **Block:** the call is refused with `400 content_blocked`, naming the service and what it found. Nothing reaches the model or tool.
+- **Before any approval:** what an agent sends is inspected before an approval gate holds it. A blocked call never reaches the Tower, so no approver sees (or approves) the secret in it; masked content is masked on the card too.
 - **Flag only:** the call goes through, and the finding shows on the map, in Flights and in [alerts](alerts.md).
 - **If a service can't be reached** (a 10 s limit), the content goes through, flagged as unreachable. Set the gate to block instead when that matters more than availability.
 - **Streams:** on a reply that is already streaming, services can only flag, like the built-in detectors.

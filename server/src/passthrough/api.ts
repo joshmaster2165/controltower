@@ -95,6 +95,7 @@ export async function runApi(runner: FlightRunner, ctx: AppContext, req: Fastify
       args: () => ({ model: f.modelRequested, endpoint: spec.endpoint, ...pick(body, ['size', 'n', 'quality', 'voice', 'response_format', 'top_n']), content: contentDigest(body, spec.inspect) }),
       servedBy: (p) => OPENAI_WIRE.has(p.kind),
       project: (price) => projectApi(spec, body, price.entry, f.estInput),
+      inspect: spec.inspect,
     });
     await runner.inspectInput(f, g, spec.inspect);
     // Inspection may have masked a field: carry it into the upload too.

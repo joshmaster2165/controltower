@@ -1063,3 +1063,15 @@ ALTER TABLE approvals ADD COLUMN person_scope TEXT;
 CREATE INDEX approvals_person_scope ON approvals (person_scope);
 `,
 });
+
+migrations.push({
+  version: 39,
+  name: 'owners_and_endpoints',
+  sqlite: `
+ALTER TABLE api_keys ADD COLUMN owner TEXT;
+UPDATE api_keys SET owner = created_by WHERE created_by LIKE '%@%';
+ALTER TABLE flights ADD COLUMN client TEXT;
+ALTER TABLE flights ADD COLUMN device TEXT;
+ALTER TABLE approvals ADD COLUMN device TEXT;
+`,
+});

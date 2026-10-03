@@ -14,6 +14,7 @@ import type { PolicyTarget } from '../policy/engine.js';
 import { describeFindings } from '../guardrails/scan.js';
 import { blockedMessage, emitInspectOutcomes } from '../guardrails/emit.js';
 import { DELEGATION_HEADER, DELEGATION_META, headerToken, flagIgnoredToken, loopsBack, resolveDelegation, tokenFor } from '../policy/delegation.js';
+import { clientOf } from '../gateway/notices.js';
 
 /**
  * The MCP gateway. Agents point their MCP client at /mcp (all servers, tools
@@ -289,6 +290,8 @@ export class McpGateway {
         ...(f.chain.length ? { on_behalf_of: f.chain } : {}),
         ...(f.parentFlightId ? { parent_flight_id: f.parentFlightId } : {}),
         ...(req.ctPrincipal ? { principal: req.ctPrincipal } : {}),
+        ...(clientOf(req) ? { client: clientOf(req) } : {}),
+        ...(req.ctDevice ? { device: req.ctDevice } : {}),
         est_input_tokens: f.estInput,
         projected_nanousd: 0,
       });
@@ -385,6 +388,21 @@ export class McpGateway {
         complete('denied', 403, { code: 'policy_denied', message: decision.reason ?? 'blocked' });
         return blocked('denied', `${decision.reason ?? 'Blocked by Control Tower policy.'} Do not attempt to work around this restriction.`, { rule_id: decision.ruleId });
       }
+      // ---- inspect the arguments (before any hold: an approver never sees, or approves, what a gate blocks) ----
+      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
+      let callArgs = args;
+      if (gates.length) {
+        const r = await inspect(ctx, key, gates, 'input', args);
+        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool arguments');
+        if (r.blocked) {
+          complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });
+          return blocked('content_blocked', blockedMessage(r.blocked, 'tool arguments'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
+        }
+        callArgs = r.value as Record<string, unknown>;
+        // What a gate masked is masked on an approval card too.
+        if (callArgs !== args) f.body = { ...f.body, arguments: callArgs };
+      }
+
       if (decision.effect === 'hold') {
         // A client following progress hears why nothing is happening, every 5 s until a human answers.
         // The first note goes out once the approval card exists, so whoever reads it can find the card.
@@ -403,19 +421,6 @@ export class McpGateway {
           return blocked(String(ct.status ?? 'pending'), outcome.error.message, { ...ct, how_to_resume: 'Retry this exact tool call with _meta.ct_approval set to the ticket (or the x-ct-approval HTTP header).' });
         }
         progress?.({ message: `Approved by ${outcome.by ?? 'an approver'} in ${label}` });
-      }
-
-      // ---- inspect the arguments ----
-      const gates = ctx.policy.inspectors?.(key, target, onBehalfOf) ?? [];
-      let callArgs = args;
-      if (gates.length) {
-        const r = await inspect(ctx, key, gates, 'input', args);
-        emitInspectOutcomes(ctx.bus, f.id, r.outcomes, 'in the tool arguments');
-        if (r.blocked) {
-          complete('denied', 400, { code: 'content_blocked', message: describeFindings(r.blocked.findings) });
-          return blocked('content_blocked', blockedMessage(r.blocked, 'tool arguments'), { rule_id: r.blocked.ruleId, findings: r.blocked.findings });
-        }
-        callArgs = r.value as Record<string, unknown>;
       }
 
       // ---- dispatch ----

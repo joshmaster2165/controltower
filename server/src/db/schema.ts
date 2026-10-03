@@ -120,6 +120,8 @@ export interface ApiKeysTable {
   enabled: Bool;
   expires_at: number | null;
   created_by: string | null;
+  /** The person (or team address) responsible for the agent: who to ask about it. */
+  owner?: string | null;
   demo: Bool;
   delegated_only: Generated<number>;
   /** Only tokens from a trusted issuer are accepted, not the secret (while the license includes it). */
@@ -202,6 +204,9 @@ export interface FlightsTable {
   customer: string | null;
   /** Who presented the token the call was made with (issuer · subject), when it wasn't a key's secret. */
   principal: string | null;
+  /** The person's app (claude-desktop, claude-code, codex) and computer, for calls from signed-in laptops. */
+  client?: string | null;
+  device?: string | null;
   /** JSON: what a non-token call was billed on ({images, characters, seconds, queries}). */
   units: string | null;
   cache_hit: Bool | null;
@@ -293,6 +298,8 @@ export interface ApprovalsTable {
   client: string | null;
   /** From a person's app: who, as which key, to what, through which gate, and what they typed (sending it again matches). */
   person_scope: string | null;
+  /** The computer they asked from (a signed-in laptop's name). */
+  device?: string | null;
 }
 
 export interface TicketsTable {

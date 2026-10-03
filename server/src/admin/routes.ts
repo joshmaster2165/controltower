@@ -178,6 +178,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         agent_id: k.agentId,
         team: k.team,
         project: k.project,
+        ...(k.owner ? { owner: k.owner } : {}),
         tags: k.tags,
         enabled: k.enabled,
         demo: k.demo,
@@ -309,6 +310,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
           agent_id: k.agentId,
           team: k.team,
           project: k.project,
+          owner: k.owner ?? null,
+          created_by: k.createdBy ?? null,
           tags: k.tags,
           allowed_models: k.allowedModels,
           allowed_mcp: k.allowedMcp,
@@ -338,6 +341,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
       agent_id?: string;
       team?: string;
       project?: string;
+      owner?: string;
       tags?: string[];
       allowed_models?: string[];
       allowed_mcp?: string[];
@@ -377,6 +381,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
         tokens_only: b.tokens_only ? 1 : 0,
         regions: regionsJson(b.regions),
         created_by: req.admin?.email ?? null,
+        // Who's responsible for it: given, or else the person creating it.
+        owner: ownerOf(b.owner) ?? (req.admin?.email?.includes('@') ? req.admin.email : null),
         demo: 0,
         created_at: now,
         last_used_at: null,
@@ -397,6 +403,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
     if (typeof b.enabled === 'boolean') patch.enabled = b.enabled ? 1 : 0;
     if (typeof b.team === 'string' || b.team === null) patch.team = b.team || null;
     if (typeof b.project === 'string' || b.project === null) patch.project = b.project || null;
+    if (typeof b.owner === 'string' || b.owner === null) patch.owner = ownerOf(b.owner) ?? null;
     if (typeof b.agent_id === 'string') patch.agent_id = b.agent_id || null;
     if (Array.isArray(b.allowed_models)) patch.allowed_models = JSON.stringify(b.allowed_models);
     if (Array.isArray(b.allowed_mcp)) patch.allowed_mcp = JSON.stringify(b.allowed_mcp);
@@ -642,4 +649,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext): Promis
 function regionsJson(v: string[] | null | undefined): string | null {
   const list = (v ?? []).filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim());
   return list.length ? JSON.stringify(list) : null;
+}
+
+/** An agent's owner as given: a person's or a team's address (or a name), trimmed; empty means none. */
+function ownerOf(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null;
 }

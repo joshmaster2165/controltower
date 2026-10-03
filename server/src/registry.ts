@@ -26,6 +26,9 @@ export interface KeyRecord {
   agentId: string | undefined;
   team: string | undefined;
   project: string | undefined;
+  /** Who's responsible for the agent (a person or a team address); who created the key. */
+  owner?: string | undefined;
+  createdBy?: string | undefined;
   tags: string[];
   allowedModels: string[];
   allowedMcp: string[];
@@ -181,6 +184,8 @@ export class Registry {
         agentId: k.agent_id ?? undefined,
         team: k.team ?? undefined,
         project: k.project ?? undefined,
+        owner: k.owner ?? undefined,
+        createdBy: k.created_by ?? undefined,
         tags: parseJson<string[]>(k.tags, []),
         allowedModels: parseJson<string[]>(k.allowed_models, ['*']),
         allowedMcp: parseJson<string[]>(k.allowed_mcp, ['*']),

@@ -91,6 +91,8 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
       if (t) {
         req.ctPrincipal = t.principal;
         req.ctClient = t.client;
+        req.ctSession = t.sessionId;
+        if (t.deviceName) req.ctDevice = t.deviceName;
       }
       return;
     }

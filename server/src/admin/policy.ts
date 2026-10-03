@@ -238,6 +238,7 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     const rows = await qb.execute();
     const local = rows.map((a) => ({
       ...a,
+      owner: ctx.registry.keysById.get(a.key_id)?.owner ?? null,
       target: JSON.parse(a.target) as unknown,
       args_preview: a.args_preview ? (JSON.parse(a.args_preview) as unknown) : null,
       demo: a.demo === 1,

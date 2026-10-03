@@ -33,3 +33,11 @@ export function globList(xs: string[]): string {
   if (xs.length === 1 && xs[0] === '*') return 'all';
   return xs.join(', ');
 }
+
+/** The apps people use on their laptops, by the name a sign-in gives them. */
+export const CLIENT_NAMES: Record<string, string> = { 'claude-desktop': 'Claude Desktop', 'claude-code': 'Claude Code', codex: 'Codex' };
+
+/** A person's call as one line: who, in which app, on which computer. */
+export function personLine(who: string | null | undefined, client: string | null | undefined, device: string | null | undefined): string {
+  return [who, client ? `in ${CLIENT_NAMES[client] ?? client}` : '', device ? `on ${device}` : ''].filter(Boolean).join(' ');
+}

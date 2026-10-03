@@ -108,7 +108,7 @@ Claude Desktop can also sign people in to your identity provider itself (`infere
 
 ## Day to day
 
-**Signed-in computers.** **Laptops** lists every signed-in computer: whose it is, the tool, the computer's name and address, the key, and when it was last used. **Sign out** ends a sign-in at once: its access token stops working, and the computer has to sign in again.
+**Signed-in computers.** **Laptops** lists every signed-in computer: whose it is, the tool, the computer's name and address, the key, and when it was last used. Each call from one carries the same: **Flights** shows *by dana@acme.com in Claude Desktop on Dana's MacBook*, and a held call's card in the Tower says who asked, in which tool, on which computer. **Sign out** ends a sign-in at once: its access token stops working, and the computer has to sign in again.
 
 ![Signed-in computers](images/laptops-computers.png)
 

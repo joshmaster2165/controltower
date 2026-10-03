@@ -52,6 +52,7 @@ const MEMBER_READS = new Set([
   'GET /admin/api/me',
   'GET /admin/api/me/devices',
   'GET /admin/api/me/devices/pending',
+  'GET /admin/api/me/requests',
   'GET /admin/api/status',
   'GET /admin/api/license',
   'GET /admin/api/keys',

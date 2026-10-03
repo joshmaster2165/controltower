@@ -36,7 +36,7 @@ describe("what a person's app is told", () => {
     expect(expired.message).toBe('Control Tower: this request needed approval (gate “Sonnet needs a manager”), and nobody approved it in time. Send your message again to ask again.');
     expect(expired.extra).toMatchObject({ ct: { status: 'expired', request_id: 'apr_1' } });
     const waiting = forPerson(E.approvalRequired('CONTROL_TOWER_APPROVAL_REQUIRED …', { ct: { v: 1, status: 'pending', console_url: 'https://ct.acme.com/#/tower/apr_2' } }), desktop, ctx('Acme AI Gateway'));
-    expect(waiting.message).toBe('Acme AI Gateway: this request needs approval (gate “Sonnet needs a manager”). An approver has been asked; once they approve, send the same message again. Status: https://ct.acme.com/#/tower/apr_2');
+    expect(waiting.message).toBe('Acme AI Gateway: this request needs approval (gate “Sonnet needs a manager”). An approver has been asked; once they approve, send the same message again. Status: https://ct.acme.com/#/requests');
   });
 
   it('turns any other 403 into a 400, and leaves sign-in failures alone', () => {

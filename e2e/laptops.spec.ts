@@ -650,3 +650,55 @@ test("an approved request covers the next steps of its task, for that person; so
     await admin.del(`/admin/api/rules/${gate}`);
   }
 });
+
+test('people follow their own held requests: My requests, and an email when one waits and when it is decided', async () => {
+  const { smtpCapture } = await import('./support/smtp');
+  const smtp = await smtpCapture();
+  const ch = await admin.post('/admin/api/alert-channels', { kind: 'email', name: 'Mail for people', to: 'nobody@acme.test', smtp: { host: '127.0.0.1', port: smtp.port, from: 'Control Tower <tower@acme.test>' } });
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  const run = Date.now().toString(36);
+  const [quin, vee] = await Promise.all([person(`quin-${run}@laptops.test`), person(`vee-${run}@laptops.test`)]);
+  const s = await form('/device/code', { client: 'claude-desktop', device_name: "Quin's MacBook" });
+  await quin!.call('POST', '/admin/api/me/devices/approve', { user_code: s.body.user_code });
+  const token = (await poll(s.body.device_code)).body.access_token as string;
+  const ask = (content: string) =>
+    fetch(`${CT}/v1/messages`, { method: 'POST', headers: { 'x-api-key': token, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': 'claude-cli/2.1.286 (external, claude-desktop-3p)' }, body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content }] }) }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+  const gate = (await admin.post('/admin/api/rules', { name: 'Quin needs a yes', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'require_approval', config: { hold_ms: 1000 }, priority: 1 })).body.id as string;
+  const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.requester === quin!.email);
+  const mailsTo = (who: string) => smtp.messages.filter((m) => (m.to as any)?.value?.some((v: any) => v.address === who));
+  try {
+    // Approved straight away: no email (they saw the answer arrive).
+    const quick = ask('quick one');
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'approve' });
+    expect((await quick).status).toBe(200);
+
+    // Left waiting: told where to follow it; an email once it has waited; then how it ended.
+    const r = await ask('Draft the board update on Q3');
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toMatch(/Status: http:\/\/[^ ]+\/#\/requests$/);
+    await expect.poll(() => mailsTo(quin!.email).length, { timeout: 15_000 }).toBe(1);
+    const waiting = mailsTo(quin!.email)[0]!;
+    expect(waiting.subject).toBe('Your request is waiting for approval');
+    expect(waiting.text).toContain('Gate: Quin needs a yes');
+    expect(waiting.text).toContain("From: Claude Desktop on Quin's MacBook");
+    expect(waiting.text).not.toContain('board update');
+    const mine = (await quin!.call('GET', '/admin/api/me/requests')).body.requests as any[];
+    expect(mine[0]).toMatchObject({ status: 'pending', gate: 'Quin needs a yes', what: 'Draft the board update on Q3', client: 'claude-desktop', device: "Quin's MacBook" });
+    expect(mine.map((x) => x.status)).toEqual(['pending', 'approved']);
+    // Vee sees none of Quin's.
+    expect((await vee!.call('GET', '/admin/api/me/requests')).body.requests).toHaveLength(0);
+
+    await admin.post(`/admin/api/approvals/${(await pending())[0].id}/decide`, { action: 'deny', note: 'Not before the audit' });
+    await expect.poll(() => mailsTo(quin!.email).length).toBe(2);
+    const decided = mailsTo(quin!.email)[1]!;
+    expect(decided.subject).toBe('Your request was denied by e2e@example.com');
+    expect(decided.text).toContain('Their note: Not before the audit');
+    expect(((await quin!.call('GET', '/admin/api/me/requests')).body.requests as any[])[0]).toMatchObject({ status: 'denied', resolved_by: 'e2e@example.com', note: 'Not before the audit' });
+    expect(smtp.messages.every((m) => !(m.to as any)?.value?.some((v: any) => v.address === 'nobody@acme.test'))).toBe(true);
+  } finally {
+    await admin.del(`/admin/api/rules/${gate}`);
+    if (ch.body.id) await admin.del(`/admin/api/alert-channels/${ch.body.id}`);
+    await smtp.close();
+  }
+});

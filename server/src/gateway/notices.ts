@@ -56,7 +56,9 @@ export function forPerson(ge: GatewayError, f: { client: string | undefined; dec
     message = `${label}: this request needed approval${gate}, and nobody approved it in time. Send your message again to ask again.`;
   } else {
     // Still waiting for an approver: the card stays open, and once approved, sending the same message again goes through.
-    message = `${label}: this request needs approval${gate}. An approver has been asked; once they approve, send the same message again.${ct.console_url ? ` Status: ${ct.console_url}` : ''}`;
+    // The person follows it on My requests (the Tower is the approvers').
+    const status = ct.console_url ? ct.console_url.replace(/#\/tower\/.*$/, '#/requests') : '';
+    message = `${label}: this request needs approval${gate}. An approver has been asked; once they approve, send the same message again.${status ? ` Status: ${status}` : ''}`;
   }
   return { ...ge, status: 400, type: 'invalid_request_error', message };
 }

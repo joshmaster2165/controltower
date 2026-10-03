@@ -82,6 +82,8 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 | `CT_AUTO_MODELS` | `1` | Add a model the first time a connected provider is asked for it; `0` requires every model under **Models** |
 | `CT_MODE` | `on` | `off` stops enforcing gates (everything is allowed and still recorded) — a kill switch |
 | `CT_HOLD_BUDGET_MS` | `20000` | How long a request waits at an approval gate before becoming a ticket |
+| `CT_NOTIFY_REQUESTERS` | on | Email the person whose request a gate held, once it has waited, and when it's decided (`0` turns it off); see [what a person sees](airspace.md#what-a-person-sees) |
+| `CT_NOTIFY_REQUESTERS_AFTER_S` | `60` | How long a request waits before its person is emailed |
 | `CT_NOTICE_LABEL` | `Control Tower` | The name used in the messages people read in Claude Desktop, Claude Code and Codex when a gate decides ([what a person sees](airspace.md#what-a-person-sees)) |
 | `CT_A2A_PUSH_RELAY` | `on` | `off` lets A2A agents send push notifications straight to the caller's webhook instead of through Control Tower |
 | `CT_PUSH_ALLOW_PRIVATE` | — | `1` lets relayed push notifications go to private, loopback and link-local addresses |

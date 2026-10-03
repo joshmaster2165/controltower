@@ -9,6 +9,7 @@ import { ProvidersPage } from './pages/Providers';
 import { ModelsPage } from './pages/Models';
 import { PlaygroundPage } from './pages/Playground';
 import { TowerPage } from './pages/Tower';
+import { MyRequestsPage } from './pages/MyRequests';
 import { McpPage } from './pages/Mcp';
 import { HttpApisPage } from './pages/HttpApis';
 import { A2aAgentsPage } from './pages/A2aAgents';
@@ -36,6 +37,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
     items: [
       { id: 'airspace', label: 'Airspace', icon: 'map', hint: 'The live map of agents, models, tools and gates' },
       { id: 'tower', label: 'Tower', icon: 'tower', hint: 'Requests waiting for a human decision' },
+      { id: 'requests', label: 'My requests', icon: 'check', hint: 'What you asked for that needed approval, and how it ended' },
       { id: 'alerts', label: 'Alerts', icon: 'bell', hint: 'Alert inbox, rules and channels' },
     ],
   },
@@ -122,7 +124,7 @@ export function App() {
   // A region's console shows what it serves; its configuration is changed on the control plane.
   const role = status?.region ? 'viewer' : (me.role ?? 'admin');
   // Someone scoped to teams (a member) sees their teams' agents: the pages that show them, and Teams.
-  const MEMBER_PAGES = new Set(['airspace', 'tower', 'flights', 'ledger', 'keys', 'teams']);
+  const MEMBER_PAGES = new Set(['airspace', 'tower', 'flights', 'ledger', 'keys', 'teams', 'requests']);
   const hasTeams = !!me.scope && (me.scope.teams.length > 0 || me.scope.manage === 'all' || me.scope.manage.length > 0 || me.scope.org_admin === 'all' || me.scope.org_admin.length > 0);
   const navShows = (id: string) =>
     id === 'regions'
@@ -290,6 +292,7 @@ export function App() {
           <>
         {route === 'airspace' && <AirspacePage />}
         {route === 'tower' && <TowerPage />}
+        {route === 'requests' && <MyRequestsPage />}
         {route === 'flights' && <FlightsPage />}
         {route === 'keys' && <KeysPage />}
         {route === 'providers' && <ProvidersPage />}

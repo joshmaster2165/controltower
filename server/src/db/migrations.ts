@@ -1091,3 +1091,11 @@ CREATE TABLE guardrails (
 );
 `,
 });
+
+migrations.push({
+  version: 41,
+  name: 'approval_notified',
+  sqlite: `
+ALTER TABLE approvals ADD COLUMN notified_at INTEGER;
+`,
+});

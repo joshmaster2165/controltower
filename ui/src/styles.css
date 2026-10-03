@@ -99,7 +99,7 @@ code { background: #eef2f8; padding: 1px 5px; border-radius: 4px; }
 .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
 .status.ok::before { background: var(--ok); }
 .status.error::before, .status.denied::before, .status.rejected::before { background: var(--danger); }
-.status.ticketed::before, .status.client_aborted::before { background: var(--warn); }
+.status.ticketed::before, .status.client_aborted::before, .status.warn::before { background: var(--warn); }
 
 .center { min-height: 100%; display: grid; place-items: center; padding: 24px; background: linear-gradient(180deg, #f8fafd 0%, #eef2f8 100%); }
 .auth { width: 400px; padding: 26px; }
@@ -1087,3 +1087,4 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 @media (max-width: 720px) { .own-guardrail .grid2, .own-guardrail .pattern-row { grid-template-columns: 1fr; } }
 .own-guardrail .field > .btn { align-self: flex-start; width: auto; }
 .services-add { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.my-requests .what { display: block; max-width: 520px; overflow-wrap: anywhere; }

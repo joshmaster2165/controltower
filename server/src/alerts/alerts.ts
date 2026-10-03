@@ -832,6 +832,13 @@ export class AlertService {
     return this.deliver(c, p);
   }
 
+  /** The server to email people through: CT_SMTP_URL, or else an email channel's own. */
+  emailServer(): SmtpConfig | undefined {
+    if (this.opts.smtp) return this.opts.smtp;
+    for (const c of this.channels.values()) if (c.kind === 'email' && c.enabled && c.config.smtp) return c.config.smtp;
+    return undefined;
+  }
+
   /** Whether email channels can rely on CT_SMTP_URL instead of their own server. */
   get hasDefaultSmtp(): boolean {
     return !!this.opts.smtp;

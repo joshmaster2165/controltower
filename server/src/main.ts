@@ -70,6 +70,7 @@ import { RegionLink } from './ee/multi-region/link.js';
 import { LimitExchange, SharedLimiter } from './ee/multi-region/shared-limits.js';
 import { UsageSync } from './ee/multi-region/usage-sync.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
+import { RequesterMail } from './policy/requester-mail.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -261,6 +262,19 @@ async function main(): Promise<void> {
     },
     log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger),
   });
+  // The person who asked hears about their own held request by email (when it waits, and how it ended).
+  approvals.setNotifier(
+    new RequesterMail({
+      db: db.write,
+      smtp: () => alerts.emailServer(),
+      publicUrl: config.publicUrl ?? `http://localhost:${config.port}`,
+      label: config.noticeLabel,
+      afterMs: config.notifyRequestersAfterMs,
+      enabled: config.notifyRequesters,
+      ruleName: (id) => policy.rules.find((r) => r.id === id)?.name,
+      log: () => logRef ?? (console as unknown as import('fastify').FastifyBaseLogger),
+    }),
+  );
   await alerts.reload();
   // A referenced secret read for the first time, or changed in its manager (rotated): reload what holds credentials.
   secretRefs.onChange(async () => {

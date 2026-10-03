@@ -236,6 +236,36 @@ export async function policyRoutes(app: FastifyInstance, ctx: AppContext): Promi
     return { ok: true };
   });
 
+  // ---- my requests: what I asked for that a gate held, and how each ended (everyone may read their own) ----
+  app.get('/admin/api/me/requests', { preHandler: guard }, async (req) => {
+    const me = req.admin?.email?.toLowerCase();
+    if (!me) return { requests: [] };
+    const rows = await ctx.db.read.selectFrom('approvals').selectAll().where('requester', '=', me).orderBy('requested_at', 'desc').limit(100).execute();
+    const now = Date.now();
+    return {
+      requests: rows.map((a) => {
+        const target = JSON.parse(a.target) as { kind?: string; name?: string };
+        const preview = a.args_preview ? (JSON.parse(a.args_preview) as { last_user_message?: string; method?: string; path?: string }) : {};
+        return {
+          id: a.id,
+          status: a.status,
+          // Still waiting at the gate (its app is holding on), or waiting with nobody holding on.
+          waiting: a.status === 'pending' && (a.hold_until ?? 0) > now && a.waiters > 0,
+          gate: a.rule_id ? (policy.rules.find((r) => r.id === a.rule_id)?.name ?? null) : null,
+          target: target.name ?? '',
+          kind: target.kind ?? 'model',
+          what: preview.last_user_message ?? (preview.method ? `${preview.method} ${preview.path ?? ''}` : null),
+          client: a.client,
+          device: a.device ?? null,
+          requested_at: a.requested_at,
+          resolved_at: a.resolved_at,
+          resolved_by: a.resolved_by,
+          note: a.note,
+        };
+      }),
+    };
+  });
+
   // ---- approvals ----
   app.get('/admin/api/approvals', { preHandler: guard }, async (req) => {
     const q = req.query as { status?: string; limit?: string };

@@ -10,6 +10,7 @@ import type { FlightBus } from '../events/bus.js';
 import type { Versioned } from '../util/versioned.js';
 import { dedupeKey, opaqueToken, personScope } from './hash.js';
 import { PERSON_APPS } from '../gateway/notices.js';
+import type { RequesterNotify } from './requester-mail.js';
 import { isToolKind } from '@controltower/shared';
 
 /**
@@ -216,6 +217,7 @@ export class ApprovalService implements Approvals {
           device: flight.device ?? null,
         })
         .execute();
+      if (flight.principal) this.notify?.held(id);
       approval = (await this.db.selectFrom('approvals').selectAll().where('id', '=', id).executeTakeFirst())!;
     }
     flight.approvalId = approval.id;
@@ -346,6 +348,12 @@ export class ApprovalService implements Approvals {
     return waiting.length;
   }
 
+  private notify: RequesterNotify | undefined;
+  /** Who to tell the person who asked (emails; see requester-mail.ts). */
+  setNotifier(n: RequesterNotify): void {
+    this.notify = n;
+  }
+
   async decide(approvalId: string, by: string, action: 'approve' | 'deny', opts: { note?: string; window?: ApprovalWindow } = {}): Promise<{ ok: boolean; status: string }> {
     const now = Date.now();
     const status = action === 'approve' ? 'approved' : 'denied';
@@ -394,6 +402,7 @@ export class ApprovalService implements Approvals {
       await this.db.updateTable('approvals').set({ grant_id: grantId }).where('id', '=', approvalId).execute();
     }
     this.wake(approvalId, status);
+    this.notify?.decided(approvalId, status, by, opts.note);
     this.onDecided?.(approvalId, status);
     this.version.bump();
     this.getLog().info({ approvalId, by, action }, 'approval decided');
@@ -508,7 +517,10 @@ export class ApprovalService implements Approvals {
       .where('status', '=', 'pending')
       .where('expires_at', '<=', now)
       .execute();
-    for (const e of expired) this.wake(e.id, 'expired');
+    for (const e of expired) {
+      this.wake(e.id, 'expired');
+      this.notify?.decided(e.id, 'expired', undefined, null);
+    }
     this.version.bump();
   }
 }

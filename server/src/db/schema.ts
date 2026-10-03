@@ -312,6 +312,8 @@ export interface ApprovalsTable {
   person_scope: string | null;
   /** The computer they asked from (a signed-in laptop's name). */
   device?: string | null;
+  /** When the person who asked was emailed that it was waiting (they're then told how it ended too). */
+  notified_at?: number | null;
 }
 
 export interface TicketsTable {

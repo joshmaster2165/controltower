@@ -384,7 +384,8 @@ $out`);
     const rule = await api('POST', '/admin/api/rules', { name: 'Sonnet needs a manager', target_kind: 'model', match: { models: ['claude-sonnet-4-5'], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
     const sentAt = seen.length;
     // The message box keeps the focus: clear what an earlier step typed, then the message.
-    const sent = await uia(`$w = Claude; if ($w) { $w.SetFocus() }
+    // (Maximized first: the runner's screen is narrower than Claude's window, which put its send button off screen.)
+    const sent = await uia(`$w = Claude; if ($w) { try { $w.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern).SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized) } catch {}; Start-Sleep 1; $w.SetFocus() }
 $r = Press (Claude) '^Write your prompt'
 Start-Sleep -Milliseconds 600
 [System.Windows.Forms.SendKeys]::SendWait('^a')
@@ -392,11 +393,17 @@ Start-Sleep -Milliseconds 600
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('Draft the board update')
 Start-Sleep -Milliseconds 500
-# Sent with Start task (a new session's send button); Enter as well, for a session already under way.
-$s = Press (Claude) '^(Start task|Send|Send message)$'
-if ($s -eq 'not found') { [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
-"box: $r; send: $s"`);
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+"box: $r; sent with Enter"`);
     steps.push(sent.out.trim());
+    // Enter didn't start it: the send button (Start task), clicked where it is.
+    for (let i = 0; i < 6 && !seen.slice(sentAt).some((x) => x.path.startsWith('/v1/messages')); i++) await sleep(1000);
+    if (!seen.slice(sentAt).some((x) => x.path.startsWith('/v1/messages'))) {
+      const clicked = await uia(`$w = Claude
+foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send message)$') { $r = $e.Current.BoundingRectangle; if ($r.Width -gt 0) { [M]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); "clicked $($e.Current.Name) at $([int]$r.X),$([int]$r.Y)"; break } } }`);
+      steps.push(clicked.out.trim() || 'no send button');
+      await screenshot('6b-after-send');
+    }
     let card: { id: string } | undefined;
     for (let i = 0; i < 60 && !card; i++) {
       await sleep(1000);

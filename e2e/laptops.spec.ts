@@ -332,7 +332,7 @@ test('GitHub Copilot CLI: opted into, its environment set for every shell, its t
   expect(r.body.warnings.join(' ')).toContain("MCP settings can't run a sign-in helper");
   const files = Object.fromEntries((r.body.files as any[]).map((f) => [f.name, f.content as string]));
   expect(files['copilot/copilot.env']).toContain("export COPILOT_PROVIDER_BASE_URL='https://ai.example.com'");
-  expect(files['install-controltower-windows.ps1']).toContain("[Environment]::SetEnvironmentVariable('COPILOT_PROVIDER_API_KEY_COMMAND', @'\nC:\\Program Files\\ControlTower\\ct-auth-copilot.cmd\n'@, 'Machine')");
+  expect(files['install-controltower-windows.ps1']).toContain("[Environment]::SetEnvironmentVariable('COPILOT_PROVIDER_API_KEY_COMMAND', @'\n\"C:\\Program Files\\ControlTower\\ct-auth-copilot.cmd\"\n'@, 'Machine')");
   expect((await admin.get(`/admin/api/devices/rollout?url=${encodeURIComponent('https://ai.example.com')}&clients=copilot&copilot_model=${encodeURIComponent("x'; rm -rf /")}`)).status).toBe(400);
   // The Linux installer, into a scratch root, twice: the shells read the variables once, not twice.
   const root = fs.mkdtempSync(path.join(tmp, 'copilot-'));

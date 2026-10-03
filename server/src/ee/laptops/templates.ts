@@ -417,7 +417,8 @@ function installWindows(o: RolloutOptions): string {
   }
   if (has(o, 'copilot')) {
     ps.push('', '# GitHub Copilot CLI: environment variables, machine-wide (it has no managed configuration for its model provider).');
-    for (const [k, v] of Object.entries(copilotEnv(o, `${WIN_DIR}\\ct-auth-copilot.cmd`))) ps.push(`[Environment]::SetEnvironmentVariable('${k}', ${psHere(v)}, 'Machine')`);
+    // (The helper's path quoted: Copilot runs the command through the shell, and the path has a space in it.)
+    for (const [k, v] of Object.entries(copilotEnv(o, `"${WIN_DIR}\\ct-auth-copilot.cmd"`))) ps.push(`[Environment]::SetEnvironmentVariable('${k}', ${psHere(v)}, 'Machine')`);
   }
   ps.push('', `Write-Output 'Control Tower: set up for ${o.url}'`, '');
   return ps.join('\r\n');

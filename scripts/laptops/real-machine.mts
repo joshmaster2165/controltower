@@ -204,6 +204,10 @@ try {
       copilotEnv[k] = (await run(`powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('${k}', 'Machine')"`)).out.trim();
     }
   }
+  // The credential command as Copilot runs it (through the shell): a token, or why not.
+  const keyCmd = WIN ? copilotEnv.COPILOT_PROVIDER_API_KEY_COMMAND ?? '' : '/usr/local/bin/ct-auth-copilot';
+  const kc = await run(keyCmd, copilotEnv);
+  c('Copilot CLI\'s credential command prints a token for the person', kc.code === 0 && /^ct_dt_/.test(kc.out.trim()), `${keyCmd}: exit ${kc.code}${kc.code ? `; ${(kc.err || kc.out).trim().slice(0, 200)}` : `; ${kc.out.trim().slice(0, 6)}… (${kc.out.trim().length} chars)`}`);
   const cpl = await run(WIN ? 'copilot -p "Which gateway?" --allow-all-tools' : `zsh -c 'copilot -p "Which gateway?" --allow-all-tools'`, copilotEnv);
   c('GitHub Copilot CLI answers through Control Tower (the rollout\'s environment, ct-auth\'s token, no GitHub account)', (cpl.out + cpl.err).includes('Connected through Control Tower'), (cpl.out + cpl.err).trim().slice(0, 400));
   const cplv = await run('copilot --version', copilotEnv);

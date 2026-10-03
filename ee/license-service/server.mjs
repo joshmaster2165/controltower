@@ -78,7 +78,8 @@ async function sendTrialEmail(to, company, link) {
     body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject: 'Your Control Tower Enterprise trial key', html, text }),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!r.ok) throw new Error(`the email service answered ${r.status}`);
+  // Resend says why it refused (an unverified domain, a key limited to another domain): keep that for the log.
+  if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
 }
 
 /**
@@ -104,7 +105,8 @@ async function sendSeatEmail(to, seats, current, link) {
     body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject: `Confirm ${seats} seats for Control Tower Enterprise`, html, text }),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!r.ok) throw new Error(`the email service answered ${r.status}`);
+  // Resend says why it refused (an unverified domain, a key limited to another domain): keep that for the log.
+  if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
 }
 /** The subscription's seats: those included plus the seat item's quantity. */
 const seatsOf = (sub) => INCLUDED_SEATS + (sub.items.data.find((i) => i.price.lookup_key?.startsWith('ct_enterprise_seat'))?.quantity ?? 0);

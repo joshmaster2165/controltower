@@ -9,6 +9,8 @@ export function scopeStatement(a: Approval): string {
   const t = a.target;
   const behalf = t.on_behalf_of?.length ? `, made for ${t.on_behalf_of[0]}` : '';
   if (t.kind === 'tool') return `Approve this ONE call to ${t.name} with exactly these arguments${behalf}`;
+  // A person's request covers the next steps of its task (their app calling tools): see the gate's task_minutes.
+  if (a.requester && a.client) return `Approve this request from ${a.requester} to ${t.name}, and the steps their ${CLIENT_NAMES[a.client] ?? a.client} takes next to finish it`;
   return `Approve this ONE request from ${a.key_name} to ${t.name}${t.zone_to ? ` (${t.zone_to})` : ''}${behalf}`;
 }
 

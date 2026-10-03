@@ -126,8 +126,32 @@ export class ApprovalService implements Approvals {
     // A person whose call was approved after they stopped waiting: sending it again goes through on that approval, once
     // (their app can't present a ticket). The same call, or from a person's app (Claude, Codex), the same message: those
     // resend the whole conversation, which now also holds the first, unanswered try.
-    const typed = flight.client && PERSON_APPS.has(flight.client) ? lastUserText(flight.body) : '';
+    const personApp = !!flight.client && PERSON_APPS.has(flight.client) && !isToolKind(flight.kind);
+    const followUp = personApp && isFollowUp(flight.body);
+    const typed = personApp ? (followUp ? taskText(flight.body) : lastUserText(flight.body)) : '';
     const ps = flight.principal && typed ? personScope({ requester: flight.principal, keyId: key.id, targetName: flight.modelRequested, ruleId: d.ruleId, ruleRevision: rule?.revision, text: typed }) : null;
+    // The next steps of an approved task: the app working on what the person asked (calling tools, reading their
+    // results), not something new they typed. They go through for the gate's task_minutes (30 by default; 0: every
+    // step asks), for that person, on that message.
+    const taskMs = Math.min(480, Math.max(0, Number(rule?.config.task_minutes ?? 30) || 0)) * 60_000;
+    if (followUp && ps && taskMs > 0) {
+      const task = await this.db
+        .selectFrom('approvals')
+        .select(['id', 'grant_id', 'resolved_by'])
+        .where('person_scope', '=', ps)
+        .where('status', '=', 'approved')
+        .where('requester', '=', flight.principal!)
+        .where('resolved_at', '>=', now - taskMs)
+        .orderBy('resolved_at', 'desc')
+        .executeTakeFirst();
+      if (task) {
+        flight.approvalId = task.id;
+        this.version.bump();
+        const by = task.resolved_by ?? undefined;
+        this.bus.emit({ t: 'flight.resolved', flight_id: flight.id, ts: now, approval_id: task.id, outcome: 'approved', by, ...(task.grant_id ? { grant_id: task.grant_id } : {}) });
+        return { kind: 'approved', grantId: task.grant_id ?? '', by };
+      }
+    }
     if (flight.principal) {
       const done = await this.db
         .selectFrom('approvals')
@@ -528,4 +552,40 @@ export function lastUserText(body: Record<string, unknown>): string {
   const texts = (last.content as Array<{ text?: unknown }>).map((p) => (typeof p?.text === 'string' ? p.text.trim() : '')).filter(Boolean);
   const own = texts.filter((t) => !t.startsWith('<system-reminder>'));
   return (own.length ? own : texts).pop() ?? '';
+}
+
+/** What the person typed in a message: its text, without the context their app adds (`<system-reminder>…`). */
+function ownTexts(content: unknown): string[] {
+  if (typeof content === 'string') return content.trim() && !content.trim().startsWith('<system-reminder>') ? [content.trim()] : [];
+  if (!Array.isArray(content)) return [];
+  return (content as Array<{ text?: unknown }>).map((p) => (typeof p?.text === 'string' ? p.text.trim() : '')).filter((t) => t && !t.startsWith('<system-reminder>'));
+}
+
+/**
+ * A step the app takes on its own, in a task the person started: the newest message carries tools' results, nothing
+ * they typed. Messages: a `tool` message (Chat), or a user message of `tool_result` blocks (Messages); the Responses
+ * API: a tool's output item last.
+ */
+export function isFollowUp(body: Record<string, unknown>): boolean {
+  const list = (Array.isArray(body.messages) ? body.messages : Array.isArray(body.input) ? body.input : []) as Array<{ role?: string; type?: string; content?: unknown }>;
+  const last = list[list.length - 1];
+  if (!last) return false;
+  if (last.role === 'tool') return true;
+  if (typeof last.type === 'string' && /(_call_output|tool_result)$/.test(last.type)) return true;
+  if (last.role === 'user' && Array.isArray(last.content)) {
+    const blocks = last.content as Array<{ type?: string }>;
+    return blocks.some((b) => b?.type === 'tool_result') && ownTexts(last.content).length === 0;
+  }
+  return false;
+}
+
+/** The task a step belongs to: what the person last typed, anywhere in the conversation. */
+export function taskText(body: Record<string, unknown>): string {
+  const list = (Array.isArray(body.messages) ? body.messages : Array.isArray(body.input) ? body.input : []) as Array<{ role?: string; content?: unknown }>;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.role !== 'user') continue;
+    const own = ownTexts(list[i]!.content);
+    if (own.length) return own[own.length - 1]!;
+  }
+  return '';
 }

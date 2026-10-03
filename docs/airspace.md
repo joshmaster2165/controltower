@@ -174,6 +174,8 @@ Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as t
 
 The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again (to the same model, through the same gate) goes through on that approval, once. That's the message they typed: Claude sends the whole conversation each time, which by then also holds the unanswered first try. Anyone else, or another message, is a new card. The card shows what they typed, without the context Claude Code adds to it.
 
+**A task's next steps.** Claude Code and Codex make several model calls for one request: they call tools (read a file, run a command), then send the results back to the model. Once a person's request is approved, those next steps go through without a card, for 30 minutes: calls whose newest message carries only tools' results, in the conversation that was approved, by the same person, to the same model through the same gate. Something new they type asks again. Set the gate's `task_minutes` to change the 30 minutes, or to `0` to ask at every step. (Tool calls through MCP are each the action itself, and each asks.)
+
 A person's approval is theirs, on a key a company's laptops share:
 
 - **Nobody approves their own request.** The person who asked can withdraw it (deny) but not approve it (`403 own_request`), whatever their role.

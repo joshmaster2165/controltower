@@ -60,6 +60,8 @@ export interface RuleMatch {
 export interface RuleConfig extends InspectConfig {
   reason?: string;
   hold_ms?: number;
+  /** A person's approved request covers the next steps of its task (their app calling tools) for this long. 0: each asks. */
+  task_minutes?: number;
   binding?: 'exact' | 'salient' | 'window';
   bind_fields?: string[];
   window?: { uses?: number; ttl_ms?: number };

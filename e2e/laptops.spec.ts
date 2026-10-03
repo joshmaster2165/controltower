@@ -603,3 +603,50 @@ test('who an agent belongs to: its owner, and the person, app and computer behin
     await admin.patch(`/admin/api/keys/${keys.all!.id}`, { owner: null });
   }
 });
+
+test("an approved request covers the next steps of its task, for that person; something new they type asks again", async () => {
+  await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
+  const run = Date.now().toString(36);
+  const [ola, pat] = await Promise.all([person(`ola-${run}@laptops.test`), person(`pat-${run}@laptops.test`)]);
+  const [olaT, patT] = (await Promise.all([signIn(ola!, 'claude-code'), signIn(pat!, 'claude-code')])).map((x) => x.access_token) as [string, string];
+  const send = (token: string, messages: unknown[]) =>
+    fetch(`${CT}/v1/messages`, { method: 'POST', headers: { 'x-api-key': token, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': 'claude-cli/2.1.286 (external, cli)' }, body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages }) }).then((r) => r.status);
+  const reminder = { type: 'text', text: '<system-reminder>context</system-reminder>' };
+  const typed = (t: string) => ({ role: 'user', content: [reminder, { type: 'text', text: t }] });
+  const toolUse = (id: string) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'Read', input: { file_path: `${id}.md` } }] });
+  const toolResult = (id: string) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'text' }, reminder] });
+  const gate = (await admin.post('/admin/api/rules', { name: 'Each task needs a yes', target_kind: 'model', match: { keys: [keys.all!.id] }, effect: 'require_approval', config: { hold_ms: 8000 }, priority: 1 })).body.id as string;
+  const pending = async () => ((await admin.get('/admin/api/approvals?status=pending')).body.approvals as any[]).filter((a) => a.key_id === keys.all!.id);
+  try {
+    const asked = [typed('Summarize the Q3 files')];
+    const first = send(olaT, asked);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    const [card] = await pending();
+    await admin.post(`/admin/api/approvals/${card.id}/decide`, { action: 'approve' });
+    expect(await first).toBe(200);
+    // Claude Code reads files, then answers: each step goes straight through.
+    const step1 = [...asked, toolUse('a'), toolResult('a')];
+    const step2 = [...step1, toolUse('b'), toolResult('b')];
+    expect(await send(olaT, step1)).toBe(200);
+    expect(await send(olaT, step2)).toBe(200);
+    expect((await pending()).length).toBe(0);
+    // Pat's steps on the same words aren't Ola's task.
+    const patSteps = send(patT, step1);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    for (const a of await pending()) await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'deny' });
+    expect(await patSteps).toBe(400);
+    // Something new Ola types is a new request: it asks again.
+    const next = send(olaT, [...step2, { role: 'assistant', content: 'Done.' }, typed('Now email it to the board')]);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    for (const a of await pending()) await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'deny' });
+    expect(await next).toBe(400);
+    // A gate can ask at every step instead.
+    await admin.patch(`/admin/api/rules/${gate}`, { config: { hold_ms: 8000, task_minutes: 0 } });
+    const each = send(olaT, [...step2, toolUse('c'), toolResult('c')]);
+    await expect.poll(async () => (await pending()).length).toBe(1);
+    for (const a of await pending()) await admin.post(`/admin/api/approvals/${a.id}/decide`, { action: 'deny' });
+    expect(await each).toBe(400);
+  } finally {
+    await admin.del(`/admin/api/rules/${gate}`);
+  }
+});

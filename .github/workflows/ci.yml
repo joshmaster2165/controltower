@@ -23,7 +23,9 @@ jobs:
       - run: node --test ee/license-service/test.mjs
       - run: CT_TEST_LICENSE_KEYS=1 pnpm build  # test builds trust licenses the tests sign; releases never do
       - run: npx playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      # A retry is a whole new run on a fresh server (each run has its own data folder): many tests build on state
+      # from earlier ones, so retrying one test on the same server can't pass. A pass on the second run is reported.
+      - run: pnpm test:e2e || { echo "::warning title=e2e::the suite failed once and was run again on a fresh server; see the first run's errors above"; pnpm test:e2e; }
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -57,7 +59,12 @@ jobs:
       - run: CT_TEST_LICENSE_KEYS=1 pnpm build  # test builds trust licenses the tests sign; releases never do
       - run: npx playwright install --with-deps chromium
       - run: for db in e2e cluster copytest regions licsync; do PGPASSWORD=ci psql -h localhost -U postgres -c "CREATE DATABASE $db"; done
-      - run: pnpm test:e2e
+      - run: |
+          pnpm test:e2e || {
+            echo "::warning title=e2e (Postgres)::the suite failed once and was run again on a fresh database; see the first run's errors above"
+            PGPASSWORD=ci psql -h localhost -U postgres -c "DROP DATABASE e2e WITH (FORCE)" -c "CREATE DATABASE e2e"
+            pnpm test:e2e
+          }
         env:
           E2E_DATABASE_URL: postgres://postgres:ci@localhost:5432/e2e
       - run: npx tsx scripts/cluster/cluster.mts

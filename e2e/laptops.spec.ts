@@ -326,8 +326,10 @@ test('signing in with the identity provider: no Control Tower account, the issue
   const { testIdp } = await import('./support/oidc-idp');
   const idp = await testIdp({ clientId: 'ct-laptops' });
   let issuerId = '';
+  // (A new person each run: a retry finds the first run's Riley already holding a seat.)
+  const riley = `riley-${Date.now().toString(36)}@laptops.test`;
   try {
-    idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
+    idp.user = { sub: 'okta-riley', email: riley, groups: ['eng'] };
     const made = await admin.post('/admin/api/token-issuers', { name: 'Okta', issuer: idp.url, jwks_uri: `${idp.url}/jwks`, audiences: ['ct-laptops'], rules: [{ claims: { groups: 'eng' }, key_id: keys.eng!.id }], principal_claim: 'email', people: true });
     const seatsBefore = (await admin.get('/admin/api/license')).body.seats_used as number;
     expect(made.status, JSON.stringify(made.body)).toBe(201);
@@ -353,15 +355,15 @@ test('signing in with the identity provider: no Control Tower account, the issue
     const login = await sh(['login']);
     expect(login.status, login.stderr).toBe(0);
     expect(login.stderr).toContain('Sign in with your work account');
-    expect(login.stderr).toContain('Signed in as riley@laptops.test');
+    expect(login.stderr).toContain(`Signed in as ${riley}`);
     const t1 = (await sh(['token'])).stdout.trim();
     // Its token is the identity provider's ID token: the issuer's rule makes it the engineering key, recorded as Riley.
     expect(t1.split('.')).toHaveLength(3);
     const call = await chat(t1);
     expect(call.status, await call.clone().text()).toBe(200);
     const flightId = call.headers.get('x-ct-flight-id')!;
-    await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.eng!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === flightId)?.principal).toBe('Okta · riley@laptops.test');
-    expect((await sh(['status'])).stderr).toContain(`Signed in with ${idp.url} as riley@laptops.test`);
+    await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.eng!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === flightId)?.principal).toBe(`Okta · ${riley}`);
+    expect((await sh(['status'])).stderr).toContain(`Signed in with ${idp.url} as ${riley}`);
     // Its tokens are people: Riley now uses a seat (once, however many tokens).
     await expect.poll(async () => (await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
     expect(((await admin.get('/admin/api/token-issuers')).body.issuers as any[]).find((i) => i.id === issuerId)).toMatchObject({ people: true, people_seen: 1 });
@@ -384,7 +386,7 @@ test('signing in with the identity provider: no Control Tower account, the issue
 
     // The same with the Windows helper, where PowerShell is available.
     if (spawnSync('pwsh', ['-v']).status !== 0) return;
-    idp.user = { sub: 'okta-riley', email: 'riley@laptops.test', groups: ['eng'] };
+    idp.user = { sub: 'okta-riley', email: riley, groups: ['eng'] };
     const ps = path.resolve('server/src/ee/laptops/ct-auth.ps1');
     const psEnv = { ...env, CT_AUTH_DIR: path.join(tmp, 'idp-ps-store') };
     // Asynchronously: the identity provider runs in this process, and a blocking call would stop it answering.

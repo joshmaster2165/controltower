@@ -351,6 +351,9 @@ ${body}`);
     const claudeText = async () => (await uia(`$w = Claude; if ($w) { (All $w | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) -join "\`n" }`)).out;
     const dump = async (name: string) => fs.writeFileSync(path.join(shots, `claude-desktop-windows-uia-${name}.txt`), await claudeText());
     const steps: string[] = [];
+    // The Code tab, pressed even when it looks selected (a new window can open on Cowork's "New task").
+    steps.push(`code tab ${(await uia(`Press (Claude) '^Code$'`)).out.trim()}`);
+    await sleep(2500);
     await dump('a-before-folder');
     steps.push(`folder button ${(await uia(`Press (Claude) 'Project or folder'`)).out.trim()}`);
     await sleep(2500);
@@ -402,7 +405,9 @@ Start-Sleep -Milliseconds 500
       const clicked = await uia(`$w = Claude
 foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send message)$') { $r = $e.Current.BoundingRectangle; if ($r.Width -gt 0) { [M]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); "clicked $($e.Current.Name) at $([int]$r.X),$([int]$r.Y)"; break } } }`);
       steps.push(clicked.out.trim() || 'no send button');
+      await sleep(3000);
       await screenshot('6b-after-send');
+      await dump('c2-after-send');
     }
     let card: { id: string } | undefined;
     for (let i = 0; i < 60 && !card; i++) {

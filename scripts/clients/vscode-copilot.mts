@@ -183,9 +183,11 @@ exports.run = async () => {
   fs.mkdirSync(path.join(work, '.vscode'), { recursive: true });
   // The same server in the project's own mcp.json too (the other place VS Code reads them from).
   fs.writeFileSync(path.join(work, '.vscode', 'mcp.json'), JSON.stringify({ servers: { 'controltower-project': { type: 'http', url: `${GW}/mcp`, headers: { Authorization: `Bearer ${key.key}` } } } }, null, 2));
-  const vs = await run(electron, ['--no-sandbox', '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--user-data-dir', userData, '--extensions-dir', exts, '--verbose', `--extensionDevelopmentPath=${probe}`, work], { CT_PROBE_ERR: path.join(TMP, 'probe-error.txt') }, 300_000);
+  const vs = await run(electron, ['--no-sandbox', '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--user-data-dir', userData, '--extensions-dir', exts, '--verbose', '--log', 'trace', `--extensionDevelopmentPath=${probe}`, work], { CT_PROBE_ERR: path.join(TMP, 'probe-error.txt') }, 300_000);
   if (fs.existsSync(path.join(TMP, 'probe-error.txt'))) console.log('probe error:', fs.readFileSync(path.join(TMP, 'probe-error.txt'), 'utf8'));
   fs.writeFileSync(path.join(RESULTS, 'vscode-output.txt'), vs.out);
+  // VS Code's own logs (MCP servers, the chat), for when something doesn't work.
+  fs.cpSync(path.join(userData, 'logs'), path.join(RESULTS, 'vscode-logs'), { recursive: true });
   const r = fs.existsSync(out) ? (JSON.parse(fs.readFileSync(out, 'utf8')) as { models: Array<{ id: string; vendor: string }>; answers: Record<string, string>; tools: string[]; toolResult: string | null; errors: string[] }) : null;
   if (!r) console.log(vs.out.slice(-3000));
   c('VS Code lists Control Tower\'s models (Custom Endpoint, no GitHub account)', !!r && r.models.length === 2, r ? `copilot-chat ${JSON.stringify((r as any).chat)}; ${r.models.map((m) => `${m.vendor}/${m.id}`).join(', ')}${r.errors.length ? `; ${r.errors.join('; ').slice(0, 300)}` : ''}` : `no result; exit ${vs.code}`);

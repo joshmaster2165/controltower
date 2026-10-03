@@ -33,4 +33,5 @@ jobs:
           path: |
             ${{ runner.temp }}/vscode-copilot-results.json
             ${{ runner.temp }}/vscode-output.txt
+            ${{ runner.temp }}/vscode-logs/
           if-no-files-found: ignore

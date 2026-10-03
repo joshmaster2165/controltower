@@ -407,11 +407,11 @@ test("a person's app is told in words what a gate decided; their held call is th
   const fay = await person('fay@laptops.test');
   const t = await signIn(fay, 'claude-desktop');
   // Claude Desktop's calls: its token, and the User-Agent it sends.
-  const ask = (text: string, as: { credential?: string; ua?: string } = {}) =>
+  const ask = (text: string | unknown[], as: { credential?: string; ua?: string } = {}) =>
     fetch(`${CT}/v1/messages`, {
       method: 'POST',
       headers: { 'x-api-key': as.credential ?? t.access_token, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'user-agent': as.ua ?? 'claude-cli/2.1.286 (external, claude-desktop-3p, agent-sdk/0.3.286)' },
-      body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: [{ role: 'user', content: text }] }),
+      body: JSON.stringify({ model: 'lap-model', max_tokens: 5, messages: typeof text === 'string' ? [{ role: 'user', content: text }] : text }),
     }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
   const agent = { credential: keys.all!.key, ua: 'my-agent/1.0' };
   const rules: string[] = [];
@@ -469,11 +469,24 @@ test("a person's app is told in words what a gate decided; their held call is th
     await admin.post(`/admin/api/approvals/${later.id}/decide`, { action: 'approve' });
     expect((await ask('draft the investor update')).status).toBe(200);
     expect((await ask('draft the investor update')).status).toBe(400);
+    // Claude sends the whole conversation again, now with the unanswered first try in it, and its own context added
+    // to the message: what she typed is what matches. The card shows what she typed.
+    const typed = (t: string) => ({ role: 'user', content: [{ type: 'text', text: '<system-reminder>Today is Friday.</system-reminder>' }, { type: 'text', text: t }] });
+    expect((await ask([typed('draft the partner update')])).status).toBe(400);
+    const [partner] = await pending();
+    expect(partner.args_preview.last_user_message).toBe('draft the partner update');
+    await admin.post(`/admin/api/approvals/${partner.id}/decide`, { action: 'approve' });
+    expect((await ask([typed('draft the partner update'), typed('draft the partner update')])).status).toBe(200);
+    // Once: and a different message isn't covered.
+    expect((await ask([typed('draft the partner update'), typed('draft the partner update'), typed('draft the partner update')])).status).toBe(400);
+    for (const c of await pending()) await admin.post(`/admin/api/approvals/${c.id}/decide`, { action: 'deny' });
     // Someone else sending the same words doesn't ride on Fay's approval.
+    expect((await ask('draft the hiring plan')).status).toBe(400);
+    const [hiring] = await pending();
+    await admin.post(`/admin/api/approvals/${hiring.id}/decide`, { action: 'approve' });
     const other = await signIn(eve, 'claude-desktop');
-    const [again] = await pending();
-    await admin.post(`/admin/api/approvals/${again.id}/decide`, { action: 'approve' });
-    expect((await ask('draft the investor update', { credential: other.access_token })).status).toBe(400);
+    expect((await ask('draft the hiring plan', { credential: other.access_token })).status).toBe(400);
+    expect((await ask('draft the hiring plan')).status).toBe(200);
   } finally {
     for (const id of rules) await admin.del(`/admin/api/rules/${id}`);
   }

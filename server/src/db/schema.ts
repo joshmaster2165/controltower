@@ -291,6 +291,8 @@ export interface ApprovalsTable {
   requester: string | null;
   /** The app they made it from: claude-desktop, claude-code, codex. */
   client: string | null;
+  /** From a person's app: who, as which key, to what, through which gate, and what they typed (sending it again matches). */
+  person_scope: string | null;
 }
 
 export interface TicketsTable {

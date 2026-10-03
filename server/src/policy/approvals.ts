@@ -8,7 +8,8 @@ import type { PolicyDecisionFull } from './policy.js';
 import { E, type GatewayError } from '../gateway/errors.js';
 import type { FlightBus } from '../events/bus.js';
 import type { Versioned } from '../util/versioned.js';
-import { dedupeKey, opaqueToken } from './hash.js';
+import { dedupeKey, opaqueToken, personScope } from './hash.js';
+import { PERSON_APPS } from '../gateway/notices.js';
 import { isToolKind } from '@controltower/shared';
 
 /**
@@ -120,19 +121,22 @@ export class ApprovalService implements Approvals {
       }
     }
 
-    // A person whose call was approved after they stopped waiting: the same call again goes through on that approval
-    // (their app can't present a ticket; the approval was for them, for exactly this).
+    // A person whose call was approved after they stopped waiting: sending it again goes through on that approval, once
+    // (their app can't present a ticket). The same call, or from a person's app (Claude, Codex), the same message: those
+    // resend the whole conversation, which now also holds the first, unanswered try.
+    const typed = flight.client && PERSON_APPS.has(flight.client) ? lastUserText(flight.body) : '';
+    const ps = flight.principal && typed ? personScope({ requester: flight.principal, keyId: key.id, targetName: flight.modelRequested, ruleId: d.ruleId, ruleRevision: rule?.revision, text: typed }) : null;
     if (flight.principal) {
       const done = await this.db
         .selectFrom('approvals')
-        .select(['id', 'grant_id', 'resolved_by'])
-        .where('dedupe_key', '=', dk)
+        .select(['id', 'grant_id', 'resolved_by', 'scope_hash'])
+        .where((eb) => (ps ? eb.or([eb('dedupe_key', '=', dk), eb('person_scope', '=', ps)]) : eb('dedupe_key', '=', dk)))
         .where('status', '=', 'approved')
         .where('requester', '=', flight.principal)
         .where('grant_id', 'is not', null)
         .orderBy('resolved_at', 'desc')
         .executeTakeFirst();
-      if (done?.grant_id && (await this.consumeGrant(done.grant_id, key.id, sh, undefined)).ok) {
+      if (done?.grant_id && (await this.consumeGrant(done.grant_id, key.id, done.scope_hash, undefined)).ok) {
         flight.approvalId = done.id;
         this.version.bump();
         const by = done.resolved_by ?? undefined;
@@ -180,6 +184,7 @@ export class ApprovalService implements Approvals {
           hold_until: holdUntil,
           requester: flight.principal ?? null,
           client: flight.client ?? null,
+          person_scope: ps,
         })
         .execute();
       approval = (await this.db.selectFrom('approvals').selectAll().where('id', '=', id).executeTakeFirst())!;
@@ -479,14 +484,26 @@ function previewArgs(flight: Flight): Record<string, unknown> {
     const text = (msg.parts ?? []).map((p) => (typeof p?.text === 'string' ? p.text : '')).join(' ').trim();
     return { method: flight.body.method, ...(text ? { message: text.slice(0, 2000) } : {}), ...(msg.taskId ? { task_id: msg.taskId } : a.id ? { task_id: a.id } : {}), ...(msg.contextId ? { context_id: msg.contextId } : {}) };
   }
-  // Chat and Messages carry `messages`; the Responses API carries `input` (a string or input items).
-  const input = flight.body.input;
-  const msgs = (Array.isArray(flight.body.messages) ? flight.body.messages : Array.isArray(input) ? input : []) as Array<{ role?: string; content?: unknown }>;
-  const last = msgs.filter((m) => m.role === 'user').pop();
-  const partsText = (c: unknown) => (Array.isArray(c) ? c.map((p: { text?: unknown }) => (typeof p?.text === 'string' ? p.text : '')).join(' ').trim() : '');
-  const text = typeof input === 'string' ? input : typeof last?.content === 'string' ? last.content : partsText(last?.content) || (last?.content != null ? JSON.stringify(last.content) : '');
+  const text = lastUserText(flight.body);
   const tools = Array.isArray(flight.body.tools) ? (flight.body.tools as Array<{ function?: { name?: string }; name?: string; type?: string }>).map((t) => t.function?.name ?? t.name ?? t.type).filter(Boolean) : [];
   const maxTokens = flight.body.max_tokens ?? flight.body.max_output_tokens;
   const instructions = typeof flight.body.instructions === 'string' ? flight.body.instructions.slice(0, 200) : undefined;
   return { model: flight.modelRequested, stream: flight.stream, max_tokens: maxTokens, ...(instructions ? { instructions } : {}), last_user_message: text.slice(0, 500), tools };
+}
+
+/**
+ * What the person last typed: the last user message's text. Chat and Messages carry `messages`; the Responses API
+ * carries `input` (a string or input items). Claude Code adds context of its own to that message
+ * (`<system-reminder>…`): that isn't what they typed, unless it's all there is.
+ */
+export function lastUserText(body: Record<string, unknown>): string {
+  const input = body.input;
+  if (typeof input === 'string') return input;
+  const msgs = (Array.isArray(body.messages) ? body.messages : Array.isArray(input) ? input : []) as Array<{ role?: string; content?: unknown }>;
+  const last = msgs.filter((m) => m.role === 'user').pop();
+  if (typeof last?.content === 'string') return last.content;
+  if (!Array.isArray(last?.content)) return last?.content != null ? JSON.stringify(last.content) : '';
+  const texts = (last.content as Array<{ text?: unknown }>).map((p) => (typeof p?.text === 'string' ? p.text.trim() : '')).filter(Boolean);
+  const own = texts.filter((t) => !t.startsWith('<system-reminder>'));
+  return (own.length ? own : texts).join(' ').trim();
 }

@@ -172,7 +172,7 @@ The card shows exactly what would happen — the agent, the model or tool, and t
 
 Claude Desktop, Claude Code and Codex show a `403` as a failed sign-in, not as the reason. So when the call comes from one of them (a [signed-in laptop](laptops.md) says which; otherwise their User-Agent), a refusal is a `400`, with the same `code` and `ct` fields and a message written for the person: what decided, which gate, its reason, and what to do. Blocked by a gate or an inspect gate, denied by an approver (with their note), still waiting, or expired: each says so. The card in the Tower names the person and the tool they asked from.
 
-The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again goes through on that approval, once. Anyone else, or another message, is a new card.
+The tool can't send a ticket, so a person's call is matched another way: once someone approves their held call, the **same person** sending the **same message** again (to the same model, through the same gate) goes through on that approval, once. That's the message they typed: Claude sends the whole conversation each time, which by then also holds the unanswered first try. Anyone else, or another message, is a new card. The card shows what they typed, without the context Claude Code adds to it.
 
 Tool calls through MCP hear, while held, *Waiting for a human to approve this call in Control Tower (gate "…")*, and *Approved by …* once someone does. `CT_NOTICE_LABEL` changes the name these messages use (for example `Acme AI Gateway`).
 

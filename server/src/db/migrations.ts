@@ -1054,3 +1054,12 @@ ALTER TABLE approvals ADD COLUMN client TEXT;
 CREATE INDEX approvals_requester ON approvals (requester, status);
 `,
 });
+
+migrations.push({
+  version: 38,
+  name: 'approval_person_scope',
+  sqlite: `
+ALTER TABLE approvals ADD COLUMN person_scope TEXT;
+CREATE INDEX approvals_person_scope ON approvals (person_scope);
+`,
+});

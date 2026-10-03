@@ -44,6 +44,11 @@ export function scopeHash(parts: { keyId: string; targetKind: string; targetName
   return sha256(canonicalJson(parts));
 }
 
+/** A person's request, as they'd send it again: who, as which key, to what, through which gate, and what they typed. */
+export function personScope(parts: { requester: string; keyId: string; targetName: string; ruleId: string | undefined; ruleRevision: number | undefined; text: string }): string {
+  return sha256(canonicalJson(parts));
+}
+
 export function dedupeKey(parts: { revision: number; keyId: string; targetName: string; argHash: string; chain?: string[] }): string {
   return sha256(canonicalJson(parts));
 }

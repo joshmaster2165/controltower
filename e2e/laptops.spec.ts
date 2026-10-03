@@ -363,14 +363,14 @@ test('signing in with the identity provider: no Control Tower account, the issue
     await expect.poll(async () => ((await admin.get(`/admin/api/flights?key_id=${keys.eng!.id}&limit=20`)).body.flights as any[]).find((f) => f.id === flightId)?.principal).toBe('Okta · riley@laptops.test');
     expect((await sh(['status'])).stderr).toContain(`Signed in with ${idp.url} as riley@laptops.test`);
     // Its tokens are people: Riley now uses a seat (once, however many tokens).
-    expect((await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
+    await expect.poll(async () => (await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
     expect(((await admin.get('/admin/api/token-issuers')).body.issuers as any[]).find((i) => i.id === issuerId)).toMatchObject({ people: true, people_seen: 1 });
     // ID tokens last 5 minutes here, so the next call refreshes (the refresh token rotates) and gets a new one.
     const t2 = (await sh(['token'])).stdout.trim();
     expect(t2).not.toBe(t1);
     expect(idp.deviceGrants).toContain('refresh_token');
     expect((await chat(t2)).status).toBe(200);
-    expect((await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
+    await expect.poll(async () => (await admin.get('/admin/api/license')).body.seats_used).toBe(seatsBefore + 1);
     // MCP clients get the same token.
     expect(JSON.parse((await sh(['header'])).stdout).Authorization).toMatch(/^Bearer ey/);
     // Signing out revokes the refresh token at the identity provider.
@@ -404,7 +404,8 @@ test('signing in with the identity provider: no Control Tower account, the issue
 
 test("a person's app is told in words what a gate decided; their held call is theirs on the card, and goes through once approved", async () => {
   await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: keys.all!.id }] });
-  const fay = await person('fay@laptops.test');
+  // (Fresh names: a retry of this file finds the first attempt's people still there.)
+  const fay = await person(`fay-${Date.now().toString(36)}@laptops.test`);
   const t = await signIn(fay, 'claude-desktop');
   // Claude Desktop's calls: its token, and the User-Agent it sends.
   const ask = (text: string | unknown[], as: { credential?: string; ua?: string } = {}) =>
@@ -452,7 +453,7 @@ test("a person's app is told in words what a gate decided; their held call is th
     const waiting = ask('draft the board update');
     await expect.poll(async () => (await pending()).length).toBe(1);
     const [card] = await pending();
-    expect(card).toMatchObject({ requester: 'fay@laptops.test', client: 'claude-desktop' });
+    expect(card).toMatchObject({ requester: fay.email, client: 'claude-desktop' });
     await admin.post(`/admin/api/approvals/${card.id}/decide`, { action: 'deny', note: 'Not before the audit closes' });
     const no = await waiting;
     expect(no.status).toBe(400);
@@ -497,7 +498,8 @@ test("a person's app is told in words what a gate decided; their held call is th
 test("a person's approval is theirs: not their own to give, windows and the hold cap per person, and removed means withdrawn", async () => {
   // Everyone's laptops on the team's one key, as a company would set it up.
   await admin.put('/admin/api/devices/rules', { rules: [{ client: '*', team_id: teamId, key_id: keys.eng!.id }] });
-  const people = await Promise.all(['gil', 'hal', 'ivy', 'jon', 'kim', 'lee'].map((n) => person(`${n}@laptops.test`)));
+  const run = Date.now().toString(36);
+  const people = await Promise.all(['gil', 'hal', 'ivy', 'jon', 'kim', 'lee'].map((n) => person(`${n}-${run}@laptops.test`)));
   const [gil, hal, ivy, jon] = people as [Person, Person, Person, Person];
   const tokens = await Promise.all(people.map(async (p) => (await signIn(p, 'claude-desktop')).access_token));
   const ask = (i: number, text: string) =>

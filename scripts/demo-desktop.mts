@@ -167,7 +167,10 @@ const duration = async (f: string) => Number((await run(`ffprobe -v error -show_
 // capturing). If it can't capture the screen, screencapture's chunks.
 let ff: ChildProcess | undefined;
 let ffT0 = 0;
+// NO_VIDEO=1: screenshots and what Claude shows, no recording (a check of the real app, not a demo).
+const NO_VIDEO = process.env.NO_VIDEO === '1';
 const startRecording = async () => {
+  if (NO_VIDEO) return;
   log(`screens: ${(await run('ffmpeg -hide_banner -f avfoundation -list_devices true -i ""')).err.split('\n').filter((l) => /screen/i.test(l)).join(' | ')}`);
   let err = '';
   ff = spawn('ffmpeg', ['-y', '-f', 'avfoundation', '-capture_cursor', '1', '-framerate', '30', '-i', 'Capture screen 0:none', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22', '-pix_fmt', 'yuv420p', RAW], { stdio: ['pipe', 'ignore', 'pipe'] });

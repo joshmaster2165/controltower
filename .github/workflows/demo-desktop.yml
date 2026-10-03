@@ -9,6 +9,10 @@ on:
         type: choice
         options: [full, approvals]
         default: full
+      video:
+        description: 'record a video (off: screenshots and what Claude shows only)'
+        type: boolean
+        default: true
 
 jobs:
   record:
@@ -30,6 +34,7 @@ jobs:
         env:
           RESULTS_DIR: ${{ runner.temp }}/demo
           SCENARIO: ${{ inputs.scenario }}
+          NO_VIDEO: ${{ inputs.video && '0' || '1' }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:

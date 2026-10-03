@@ -358,3 +358,29 @@ test('prices: graduated seat tiers give the volume discount', async () => {
   assert.equal(total(py, sy, 25), 600000 + 20 * 60000);
   assert.equal(total(py, sy, 30), 600000 + 20 * 60000 + 5 * 45000);
 });
+
+test('manage: the license key asks, the billing email gets a link to the billing portal; the key alone opens nothing', async () => {
+  stripe.subStatus = 'active';
+  stripe.invoice = undefined;
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(await (await fetch(`${base}/success?session_id=cs_test_1`)).text())[1];
+  assert.match(await (await fetch(`${base}/manage`)).text(), /Manage your subscription/);
+  // The key alone never reaches the portal: the old endpoint now sends the email too.
+  for (const path of ['/manage', '/portal']) {
+    const r = await fetch(`${base}${path}`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.88' }, body: new URLSearchParams({ key }), redirect: 'manual' });
+    assert.equal(r.status, 200);
+    assert.match(await r.text(), /b•••@acme\.com/);
+  }
+  const mail = emails.at(-1);
+  assert.deepEqual(mail.to, ['buyer@acme.com']);
+  const t = new URL(/https:\/\/license\.example\.com\/manage\/open\?t=[^"\s]+/.exec(mail.html)[0]).searchParams.get('t');
+  const open = await fetch(`${base}/manage/open?t=${encodeURIComponent(t)}`, { redirect: 'manual' });
+  assert.equal(open.status, 303);
+  assert.equal(open.headers.get('location'), 'https://billing.stripe.com/p/session/x');
+  // A portal link can't be edited to open someone else's subscription.
+  const [k, b, sig] = t.split('.');
+  const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(b, 'base64url')), sub: 'sub_other' })).toString('base64url');
+  assert.equal((await fetch(`${base}/manage/open?t=${k}.${edited}.${sig}`, { redirect: 'manual' })).status, 400);
+  // A trial key has no subscription to manage.
+  const trial = await fetch(`${base}/manage`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.89' }, body: new URLSearchParams({ key: 'ctl1.bad.key' }) });
+  assert.equal(trial.status, 400);
+});

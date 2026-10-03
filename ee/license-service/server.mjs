@@ -10,7 +10,8 @@
 //   GET  /trial/confirm   the link from that email: the trial key
 //   POST /refresh         {key} → a renewed key for an active subscription (Control Tower calls this daily)
 //   GET  /seats           change seats: the license key asks, the billing email confirms (GET /seats/confirm)
-//   POST /portal          {key} → Stripe's customer portal (card, invoices, cancel)
+//   GET  /manage          manage the subscription: the license key asks, the billing email gets a link to Stripe's
+//                         billing portal (card, invoices, cancel; GET /manage/open)
 //
 // Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, STRIPE_API_VERSION, STRIPE_PORTAL_CONFIGURATION,
 // RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
@@ -106,6 +107,25 @@ async function sendSeatEmail(to, seats, current, link) {
     signal: AbortSignal.timeout(15_000),
   });
   // Resend says why it refused (an unverified domain, a key limited to another domain): keep that for the log.
+  if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+}
+/** A link to Stripe's billing portal (card, invoices, cancelling), sent to the subscription's billing email. */
+const portalRequest = (sub, now) => sign({ sub, act: 'portal', iat: now, exp: now + PORTAL_LINK_MS }, SIGNING, 'cts1');
+const PORTAL_LINK_MS = 3600_000;
+async function sendPortalEmail(to, link) {
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#0f1b2d">
+<div style="font-weight:600;font-size:17px">Control Tower</div>
+<h1 style="font-size:26px;font-weight:500;letter-spacing:-.02em;margin:28px 0 12px">Manage your subscription</h1>
+<p style="color:#5b6b82;line-height:1.6;margin:0 0 24px">Someone with your Control Tower Enterprise license key asked to manage its subscription: your card, invoices and billing details, or cancelling.</p>
+<a href="${link}" style="display:inline-block;background:#1f5eff;color:#fff;text-decoration:none;font-weight:600;padding:13px 20px;border-radius:10px">Manage my subscription</a>
+<p style="color:#8a98ad;font-size:13px;line-height:1.6;margin:24px 0 0">The link works for an hour. If this wasn't you, ignore this email: nothing changes. Questions: billing@agentcontroltower.app</p></div>`;
+  const text = `Manage your Control Tower Enterprise subscription (card, invoices, billing details, cancelling).\n\nOpen it (the link works for an hour):\n${link}\n\nIf this wasn't you, ignore this email.`;
+  const r = await fetch(`${EMAIL_API}/emails`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject: 'Manage your Control Tower Enterprise subscription', html, text }),
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
 }
 /** The subscription's seats: those included plus the seat item's quantity. */
@@ -417,7 +437,7 @@ function page(title, body, { head = '' } = {}) {
 <style>${CSS}</style></head><body>
 <div class="topbar">License keys are checked on your own server<span class="long"> — no connection needed</span> · <a href="${SITE}">agentcontroltower.app →</a></div>
 <header class="nav"><div class="frame"><a class="brand" href="${SITE}">${LOGO}Control Tower</a><span class="chip">Enterprise</span>
-<nav class="nav-links"><a href="${SITE}/#map">Airspace</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/enterprise.html">How licensing works</a><a href="${SITE}/docs/">Docs</a></nav>
+<nav class="nav-links"><a href="${SITE}/#map">Airspace</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/enterprise.html">How licensing works</a><a href="${SITE}/docs/">Docs</a><a href="/manage">Manage</a></nav>
 <div class="nav-right"><a class="btn alt" href="/#trial">Start a trial</a><a class="btn primary" href="/#buy">Buy</a></div></div></header>
 ${body}
 <footer><div class="frame pad"><span class="brand">${LOGO}Control Tower</span><nav><a href="${SITE}">Home</a><a href="${SITE}/pricing.html">Pricing</a><a href="${SITE}/docs/">Docs</a><a href="${SITE}/docs/enterprise.html">Enterprise</a><a href="${SITE}/terms.html">Terms</a><a href="${SITE}/privacy.html">Privacy</a><a href="${SITE}/refunds.html">Refunds</a><a href="https://github.com/joshmaster2165/controltower">GitHub</a></nav><span class="sp"></span><span>Enterprise under the Elastic License 2.0</span></div></footer>
@@ -523,14 +543,29 @@ function seatsPage() {
   );
 }
 
-function inboxPage(email, what = 'see your trial key') {
+/** Manage the subscription: paste the license key; the billing email gets a link to Stripe's billing portal. */
+function managePage() {
+  return page(
+    'Manage your subscription',
+    `<main class="msg" style="max-width:620px;text-align:left"><span class="code" style="color:var(--accent);background:var(--soft);border-color:#cddcff">BILLING</span><h1>Manage your subscription</h1>
+<p>Update your card, see invoices, change billing details or cancel. Paste the license key from Control Tower’s <b>License</b> page: we email a link to the billing address on your subscription, so a copied key can’t change your bill.</p>
+<form method="post" action="/manage" class="card" style="display:grid;gap:14px">
+<label class="seats" for="key" style="margin:0"><span>License key</span></label>
+<textarea id="key" name="key" required rows="4" style="font:12.5px/1.5 var(--mono);border:1px solid var(--line-2);border-radius:10px;padding:12px;width:100%;resize:vertical" placeholder="ctl1.…"></textarea>
+<button class="btn primary lg full">Email me a link ${ARROW}</button>
+<p class="fine" style="margin:0">Changing the number of seats? Use <a href="/seats" style="color:var(--accent)">Change seats</a>. Cancelling takes effect at the end of the period you’ve paid for.</p>
+</form></main>`,
+  );
+}
+
+function inboxPage(email, what = 'see your trial key', within = '24 hours') {
   return page(
     'Check your inbox',
     `<section class="clear" style="min-height:calc(100vh - 230px)"><div class="frame pad">
 <svg class="tower-sm rise" viewBox="0 0 120 180" aria-hidden="true">${TOWER('t3')}</svg>
 <div class="eyebrow rise" style="--d:80ms;margin-top:14px">Awaiting clearance</div>
 <h1 class="rise" style="--d:120ms">Check your inbox</h1>
-<p class="lede rise" style="--d:180ms">We sent a link to <b style="color:#fff">${esc(email)}</b>. Open it within 24 hours to ${esc(what)}${what === 'see your trial key' ? ', ready to paste into Control Tower' : ''}.</p>
+<p class="lede rise" style="--d:180ms">We sent a link to <b style="color:#fff">${esc(email)}</b>. Open it within ${within} to ${esc(what)}${what === 'see your trial key' ? ', ready to paste into Control Tower' : ''}.</p>
 <div class="pill rise" style="--d:260ms"><span><i></i>LINK TRANSMITTED</span></div>
 <p class="note rise" style="--d:320ms;color:#7d8fb1">Nothing there? Check spam, or ask again in a few minutes.</p>
 </div></section>`,
@@ -558,7 +593,7 @@ function keyPage(title, key, text) {
 <div class="stampbox"><span class="stamp">CLEARED</span></div>
 </div></div>
 <div class="keybox"><label for="k">Your license key</label><textarea id="k" readonly spellcheck="false">${esc(key)}</textarea>
-<div class="keyrow"><button type="button" class="btn primary" id="copy">Copy key</button><a class="btn onDark" href="${SITE}/docs/enterprise.html">How licensing works</a><span class="muted">Keep it like a password.</span></div>
+<div class="keyrow"><button type="button" class="btn primary" id="copy">Copy key</button><a class="btn onDark" href="${SITE}/docs/enterprise.html">How licensing works</a><a class="btn onDark" href="/manage">Manage subscription</a><span class="muted">Keep it like a password.</span></div>
 </div>
 </div></section>
 <section class="sec"><div class="frame pad">
@@ -812,11 +847,31 @@ export function createServer() {
         return html(res, 200, note(`${r.seats} seats from ${day(now.end_date * 1000)}`, 'SCHEDULED', `Your license keeps ${current} seats until your next renewal on ${day(now.end_date * 1000)}; from then it has ${r.seats}, and your servers pick up the new key by themselves.`, { back: false }));
       }
 
-      if (req.method === 'POST' && u.pathname === '/portal') {
+      if (req.method === 'GET' && u.pathname === '/manage') return html(res, 200, managePage());
+
+      if (req.method === 'POST' && (u.pathname === '/manage' || u.pathname === '/portal')) {
+        if (limited(ip, 'manage', 10, 3600_000)) return html(res, 429, note('Too many attempts', 'HOLD · 429', 'Try again in a while.'));
         const b = await body(req);
-        const lic = verify(b.key);
-        if (!lic?.sub) return html(res, 400, note('No subscription to manage', 'UNKNOWN · 400', 'That license has no subscription to manage.'));
-        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}`);
+        const lic = verify(String(b.key ?? '').trim());
+        if (!lic?.sub) return html(res, 400, note('That key has no subscription', 'UNKNOWN · 400', 'Paste the license key from Control Tower’s License page. A trial, or a key we issued by hand, has no subscription to manage: write to billing@agentcontroltower.app.'));
+        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer`);
+        const email = sub.customer?.email;
+        if (!RESEND_KEY || !email) return html(res, 503, note('Write to us to manage it', 'STANDBY · 503', 'Email billing@agentcontroltower.app and we’ll help.'));
+        try {
+          await sendPortalEmail(email, `${PUBLIC_URL}/manage/open?t=${encodeURIComponent(portalRequest(sub.id, Date.now()))}`);
+        } catch (err) {
+          console.error(JSON.stringify({ error: `portal email not sent: ${err.message}`, license: lic.id }));
+          return html(res, 502, note('We couldn’t send the email', 'NO CONTACT · 502', 'Try again in a minute, or write to billing@agentcontroltower.app.'));
+        }
+        console.log(JSON.stringify({ event: 'portal_requested', license: lic.id }));
+        return html(res, 200, inboxPage(masked(email), 'manage your subscription', 'an hour'));
+      }
+
+      if (req.method === 'GET' && u.pathname === '/manage/open') {
+        const r = verify(u.searchParams.get('t') ?? '', PUBLIC, 'cts1');
+        if (!r?.sub || r.act !== 'portal') return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Open the link from your email as it is.'));
+        if (Date.now() > r.exp) return html(res, 410, note('That link has expired', 'EXPIRED · 410', 'Links work for an hour. Ask again from the manage page.', { back: false }));
+        const sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(r.sub)}`);
         const portal = await stripe('POST', '/v1/billing_portal/sessions', { customer: sub.customer, return_url: `${PUBLIC_URL}/`, ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}) });
         return redirect(res, portal.url);
       }

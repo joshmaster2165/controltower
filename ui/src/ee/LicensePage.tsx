@@ -11,7 +11,7 @@ export interface LicenseInfo {
   seats_used?: number;
   /** Requests this license year against the allowance (warns; never limits). */
   usage?: { allowance: number; used: number; share: number; period_start: number; period_end: number; projected: number | null; level: 'ok' | 'warn' | 'over'; by_month: Array<{ month: string; requests: number }> };
-  license?: { id: string; customer: string; email: string; plan: 'enterprise' | 'trial'; seats: number; requests_per_year: number; features: string[]; issued_at: number; expires_at: number };
+  license?: { id: string; customer: string; email: string; plan: 'enterprise' | 'trial'; seats: number; requests_per_year: number; features: string[]; issued_at: number; expires_at: number; subscription?: boolean };
   /** Whether the server's clock reads more than two days before the latest time it has seen (reported, never acted on). */
   clock?: { behind: boolean; high_water: number | null; behind_ms: number };
 }
@@ -202,9 +202,20 @@ export function LicensePage() {
         description="Control Tower is free and open source. Enterprise adds single sign-on, SCIM, the audit log, secret managers, organisations and more, with support, under a license key checked on this server: no connection needed."
         actions={
           l.store_url ? (
-            <a className="btn" href={l.store_url} target="_blank" rel="noreferrer">
-              Plans and free trial
-            </a>
+            lic?.subscription ? (
+              <>
+                <a className="btn" href={`${l.store_url}/seats`} target="_blank" rel="noreferrer">
+                  Change seats
+                </a>
+                <a className="btn" href={`${l.store_url}/manage`} target="_blank" rel="noreferrer">
+                  Manage subscription
+                </a>
+              </>
+            ) : (
+              <a className="btn" href={l.store_url} target="_blank" rel="noreferrer">
+                Plans and free trial
+              </a>
+            )
           ) : undefined
         }
       />

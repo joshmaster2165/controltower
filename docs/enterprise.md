@@ -81,6 +81,8 @@ The license keeps working, so a clock that was simply wrong never switches anyth
 
 Plans, checkout and trial keys are at the **[license service](https://license.agentcontroltower.app)** (also linked from **License** in the console). The key is shown as soon as payment completes. Once a day, a server that can reach the license service picks up a renewed key by itself: after each renewal, and when seats change. From a day before the end date until the renewal arrives, it checks every hour. Air-gapped servers set `CT_LICENSE_SERVER=off`, and their key keeps working until its end date.
 
+**Managing a subscription.** On a bought license, the console's **License** page links to **Change seats** and **Manage subscription**. Both ask for the license key, then email the subscription's billing address: a link to confirm a seat change, or a link to Stripe's billing portal (update the card, see invoices, change billing details, cancel), good for an hour. A copied license key alone can't change the bill.
+
 **What payment does to a license:**
 
 | What happens | The license |

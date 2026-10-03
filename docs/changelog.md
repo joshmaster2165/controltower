@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Manage a subscription yourself.** A bought license's **License** page links to **Manage subscription** and **Change seats**. Managing emails the billing address a link to Stripe's billing portal (card, invoices, billing details, cancelling), so a copied license key alone can't change the bill. (The license service had a portal endpoint that no page linked to, and that opened the portal on the key alone.)
+
 ## 0.2.10 — 3 October 2026
 
 - **People are told what a gate decided, in words, in the tool they use.** Claude Desktop, Claude Code and Codex read a `403` as a failed sign-in: an expired approval showed "Authentication failed", and a denied one left Claude waiting with nothing to say (found by recording Claude Desktop through a gate). Their refusals are now a `400`, which they show, with a message for the person: what was blocked, which gate and its reason, who denied it and their note, whether it's still waiting or expired, and what to do. Agents get the same `403` as before. Control Tower knows the tool from the laptop's sign-in, or its User-Agent. `CT_NOTICE_LABEL` changes the name in these messages.

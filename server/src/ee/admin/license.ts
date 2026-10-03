@@ -51,6 +51,8 @@ export function publicLicense(ctx: AppContext) {
             features: l.features,
             issued_at: l.issued_at,
             expires_at: l.expires_at,
+            // Bought (a subscription to manage), not a trial or a key issued by hand.
+            subscription: !!l.sub,
           },
         }
       : {}),

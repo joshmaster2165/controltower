@@ -316,6 +316,93 @@ Start-Sleep -Milliseconds 500
   // (A model request: the typed message itself waits for a project folder on the Code tab, and Cowork needs hardware
   // virtualization these machines don't have. The screenshots show where it got to.)
   c('Claude Desktop makes model requests through Control Tower with ct-auth\'s token', !!chat && chat.cred === 'ct_dt' && chat.status === 200, chat ? `${chat.method} ${chat.path}: ${chat.cred} → ${chat.status}; ${drove}` : `no chat request; ${drove}`);
+
+  // ---- Windows: a held message, told in Claude's conversation (the Mac is covered by scripts/demo-desktop.mts) ----
+  // The Code tab sends a message once a project folder is open: open one, put a hold gate on Sonnet for this key, send,
+  // and read what Claude shows (its window's text, through UI Automation) while it waits and once approved.
+  if (WIN) {
+    const folder = path.join(TMP, 'acme-reports');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'README.md'), '# Q3 pipeline\n\n42 open deals, $3.1M.\n');
+    // UI Automation over Claude's window: its elements' names, or press the first whose name matches.
+    const uia = (body: string) =>
+      ui(`Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes,System.Windows.Forms
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class M { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);
+public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(2,0,0,0,0); mouse_event(4,0,0,0,0); } }
+"@
+function Wins { Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { [Windows.Automation.AutomationElement]::FromHandle($_.MainWindowHandle) } }
+function Claude { Get-Process claude -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1 | ForEach-Object { [Windows.Automation.AutomationElement]::FromHandle($_.MainWindowHandle) } }
+function All($w) { $w.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) }
+function Press($w, $re) {
+  foreach ($e in (All $w)) {
+    $n = $e.Current.Name
+    if ($n -and $n -match $re -and -not $e.Current.IsOffscreen) {
+      try { $e.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke(); return "invoked: $n" } catch {}
+      $r = $e.Current.BoundingRectangle
+      if ($r.Width -gt 0) { [M]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); return "clicked: $n" }
+    }
+  }
+  return 'not found'
+}
+${body}`);
+    const claudeText = async () => (await uia(`$w = Claude; if ($w) { (All $w | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) -join "\`n" }`)).out;
+    const dump = async (name: string) => fs.writeFileSync(path.join(shots, `claude-desktop-windows-uia-${name}.txt`), await claudeText());
+    const steps: string[] = [];
+    await dump('a-before-folder');
+    steps.push(`folder button ${(await uia(`Press (Claude) 'Project or folder'`)).out.trim()}`);
+    await sleep(2500);
+    await screenshot('4-folder-menu');
+    await dump('b-folder-menu');
+    steps.push(`menu ${(await uia(`Press (Claude) '(Open|Choose|Select|Add|Browse).*(folder|project)|^Folder'`)).out.trim()}`);
+    await sleep(3000);
+    await screenshot('5-folder-dialog');
+    // The folder picker: type the path where it has the focus, Enter; then its Select Folder button if it's still open.
+    const picked = await uia(`[System.Windows.Forms.SendKeys]::SendWait('${folder.replace(/'/g, "''")}')
+Start-Sleep -Milliseconds 800
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep 2
+$out = 'typed'
+foreach ($w in (Wins)) { $r = Press $w '^Select Folder$'; if ($r -ne 'not found') { $out += "; $r"; break } }
+$out`);
+    steps.push(`picker ${picked.out.trim()}`);
+    await sleep(3000);
+    const trust = await uia(`Press (Claude) '^Trust'`);
+    if (!/not found/.test(trust.out)) steps.push(`trust ${trust.out.trim()}`);
+    await sleep(2000);
+    await screenshot('6-folder-open');
+    await dump('c-after-folder');
+    const rule = await api('POST', '/admin/api/rules', { name: 'Sonnet needs a manager', target_kind: 'model', match: { models: ['claude-sonnet-4-5'], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
+    const sentAt = seen.length;
+    const sent = await uia(`$r = Press (Claude) '^(Prompt|Message|Reply)'
+Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait('Draft the board update')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+"box: $r"`);
+    steps.push(sent.out.trim());
+    let card: { id: string } | undefined;
+    for (let i = 0; i < 60 && !card; i++) {
+      await sleep(1000);
+      card = ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []).find((a: { requester: string | null }) => a.requester === 'dev@acme.example');
+    }
+    await sleep(4000);
+    await screenshot('7-waiting');
+    await dump('d-waiting');
+    const waiting = await claudeText();
+    c('Claude Desktop on Windows: a held message says so in the conversation, while it waits', !!card && /waiting for approval/.test(waiting), card ? `card ${card.id.slice(-6)}; ${(waiting.match(/.*waiting for approval.*/)?.[0] ?? 'no "waiting" line in the window').slice(0, 200)}; ${steps.join('; ')}` : `nothing held (${seen.slice(sentAt).filter((x) => x.path.startsWith('/v1/messages')).length} model calls); ${steps.join('; ')}`);
+    if (card) {
+      await api('POST', `/admin/api/approvals/${card.id}/decide`, { action: 'approve' });
+      await sleep(8000);
+      await screenshot('8-approved');
+      await dump('e-approved');
+      const after = await claudeText();
+      c('Claude Desktop on Windows: once approved, it says who approved, then the answer follows', /approved by/.test(after) && after.includes(REPLY), (after.match(/.*approved by.*/)?.[0] ?? 'no "approved by" line').slice(0, 200));
+    }
+    await api('DELETE', `/admin/api/rules/${rule.id}`);
+  }
   const shot = path.join(shots, `claude-desktop-${os_}.png`);
   if (MAC) await run(`screencapture -x ${q(shot)}`);
   else await run(`powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${shot}')"`);

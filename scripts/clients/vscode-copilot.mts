@@ -149,8 +149,12 @@ exports.run = async () => {
     } catch (e) { r.errors.push(m.id + ': ' + (e && e.message)); r.answers[m.id] = 'ERROR ' + (e && e.message); }
   }
   // MCP servers start when chat first needs them, after the person trusts them once: started here, trusted.
-  try { await Promise.race([vscode.commands.executeCommand('workbench.mcp.startServer', '*', { autoTrustChanges: true, promptType: 'never', waitForLiveTools: true }), sleep(30000)]); } catch (e) { r.errors.push('mcp start: ' + e.message); }
-  for (let i = 0; i < 30 && !vscode.lm.tools.some((t) => /read_file/.test(t.name)); i++) await sleep(1000);
+  // (Again until its tools appear: the servers in mcp.json are read a moment after start-up.)
+  for (let i = 0; i < 20 && !vscode.lm.tools.some((t) => /read_file/.test(t.name)); i++) {
+    try { await Promise.race([vscode.commands.executeCommand('workbench.mcp.startServer', '*', { autoTrustChanges: true, promptType: 'never', waitForLiveTools: true }), sleep(10000)]); } catch (e) { r.errors.push('mcp start: ' + e.message); }
+    await sleep(1500);
+  }
+  r.toolCount = vscode.lm.tools.length;
   r.tools = vscode.lm.tools.map((t) => t.name).filter((n) => /files|controltower/i.test(n));
   const tool = vscode.lm.tools.find((t) => /read_file/.test(t.name));
   if (tool) { try { const res = await vscode.lm.invokeTool(tool.name, { input: { path: 'README.md' }, toolInvocationToken: undefined }, new vscode.CancellationTokenSource().token); r.toolResult = res.content.map((p) => p.value || '').join(''); } catch (e) { r.errors.push('tool: ' + e.message); } }
@@ -176,7 +180,9 @@ exports.run = async () => {
   );
   const electron = path.join(app, 'code');
   const work = path.join(TMP, 'work');
-  fs.mkdirSync(work, { recursive: true });
+  fs.mkdirSync(path.join(work, '.vscode'), { recursive: true });
+  // The same server in the project's own mcp.json too (the other place VS Code reads them from).
+  fs.writeFileSync(path.join(work, '.vscode', 'mcp.json'), JSON.stringify({ servers: { 'controltower-project': { type: 'http', url: `${GW}/mcp`, headers: { Authorization: `Bearer ${key.key}` } } } }, null, 2));
   const vs = await run(electron, ['--no-sandbox', '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--user-data-dir', userData, '--extensions-dir', exts, '--verbose', `--extensionDevelopmentPath=${probe}`, work], { CT_PROBE_ERR: path.join(TMP, 'probe-error.txt') }, 300_000);
   if (fs.existsSync(path.join(TMP, 'probe-error.txt'))) console.log('probe error:', fs.readFileSync(path.join(TMP, 'probe-error.txt'), 'utf8'));
   fs.writeFileSync(path.join(RESULTS, 'vscode-output.txt'), vs.out);
@@ -185,7 +191,7 @@ exports.run = async () => {
   c('VS Code lists Control Tower\'s models (Custom Endpoint, no GitHub account)', !!r && r.models.length === 2, r ? `copilot-chat ${JSON.stringify((r as any).chat)}; ${r.models.map((m) => `${m.vendor}/${m.id}`).join(', ')}${r.errors.length ? `; ${r.errors.join('; ').slice(0, 300)}` : ''}` : `no result; exit ${vs.code}`);
   c('VS Code chat answers through Control Tower on Chat Completions (gpt-5)', !!r && (r.answers['gpt-5'] ?? '').includes(REPLY), r ? (r.answers['gpt-5'] ?? 'no answer').slice(0, 200) : 'no result');
   c('VS Code chat answers through Control Tower on the Messages API (claude-sonnet-4-5)', !!r && (r.answers['claude-sonnet-4-5'] ?? '').includes(REPLY), r ? (r.answers['claude-sonnet-4-5'] ?? 'no answer').slice(0, 200) : 'no result');
-  c('VS Code gets Control Tower\'s MCP tools (mcp.json), and a tool call goes through', !!r && r.tools.length > 0 && /contents of README\.md/.test(r.toolResult ?? ''), r ? `${r.tools.join(', ') || 'no tools'}; ${(r.toolResult ?? 'no tool result').slice(0, 120)}` : 'no result');
+  c('VS Code gets Control Tower\'s MCP tools (mcp.json), and a tool call goes through', !!r && r.tools.length > 0 && /contents of README\.md/.test(r.toolResult ?? ''), r ? `${r.tools.join(', ') || 'no tools'} (${(r as any).toolCount} tools in all); ${(r.toolResult ?? 'no tool result').slice(0, 120)}${r.errors.filter((e) => /mcp|tool/.test(e)).length ? `; ${r.errors.filter((e) => /mcp|tool/.test(e)).join('; ').slice(0, 200)}` : ''}` : 'no result');
   c('a refusal reaches the person in words (not as a failed sign-in)', !!r && /Control Tower blocked this request/.test((r as any).denied ?? ''), r ? String((r as any).denied ?? 'not asked').slice(0, 200) : 'no result');
   c('a held request says so in the chat as it waits, then who approved, then the answer', !!r && /waiting for approval/.test((r as any).held ?? '') && /approved by/.test((r as any).held ?? '') && ((r as any).held ?? '').includes(REPLY), r ? String((r as any).held ?? 'not asked').replace(/\n+/g, ' ').slice(0, 300) : 'no result');
   for (const x of seen) console.log('seen', x.method, x.path, '|', x.ua, '|', x.hdrs);

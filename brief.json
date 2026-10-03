@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-03",
+  "angle": "take",
+  "title": "Inspect before you ask a human",
+  "why": "Saturday is a take. 0.2.7–0.2.9 are patch fixes to the laptops feature we posted as a release yesterday, so a second release post would repeat the angle. This take comes from a fix on main this week: inspect gates now run before an approval gate holds a call, so an approver never sees a secret they'd be asked to wave through.",
+  "cards": [
+    {
+      "template": "statement",
+      "size": "square",
+      "dark": true,
+      "eyebrow": "A take on agent approvals",
+      "statement": "If a secret reaches the approval card, the approval step *already leaked it*.",
+      "attribution": "Control Tower: inspect first, then ask a human",
+      "alt": "Dark card with the statement: If a secret reaches the approval card, the approval step already leaked it."
+    },
+    {
+      "template": "feature",
+      "size": "square",
+      "still": "tower",
+      "eyebrow": "On main this week",
+      "headline": "Inspect first. *Then* ask a human.",
+      "bullets": [
+        "Inspect gates read the call before an approval holds it",
+        "A blocked secret never reaches an approver's card",
+        "Masked content stays masked on the card"
+      ],
+      "alt": "The Control Tower's Tower page, where held agent calls wait for approval, with three points: inspection runs before the hold, blocked secrets never reach the approver, masked content stays masked."
+    }
+  ],
+  "linkedin": {
+    "text": "Your approval step might be the leak.\n\nHere's the order most people build agent controls in: a human approves risky tool calls, and a secret scanner runs on whatever gets through. Sounds layered. But the approver reads the call first. If the agent pasted an AWS key into a Jira comment, the person on call just saw it on their approval card. Now the key is in a notification, maybe a Slack message, maybe a screenshot.\n\nWe hit this ourselves testing Control Tower against real MCP servers and HTTP APIs. So we changed the order. On main this week, inspect gates read what an agent sends before an approval gate holds it, on every path: models, MCP tools, HTTP APIs, other agents. A call with a secret is refused at once. Masked content is masked on the card too. Approvers only see what they're allowed to approve.\n\nThe take: an approval is a decision, not a filter. Run the checks a machine can do first, and spend a human's attention only on what's left.\n\nControl Tower is an open-source, self-hosted gateway for AI agents, models and MCP tools: https://github.com/joshmaster2165/controltower\n\nIf you think about agent controls this way too, a ⭐ helps others find it.\n\n#AIAgents #MCP #OpenSource",
+    "media": "cards"
+  },
+  "x": {
+    "posts": [
+      "Hot take: if your agent's tool call carries a secret and a human approves it, the approval step already leaked it.\n\nThe approver read the card. The key is now in their notifications.\n\nRun the machine checks first. Ask a human second.",
+      "We found this testing against real MCP servers. So in Control Tower, inspect gates now run before an approval gate holds a call, on models, MCP tools, HTTP APIs and agents.\n\nA secret gets refused at once. Masked content stays masked on the approver's card.",
+      "Open-source, self-hosted gateway for AI agents and MCP. A ⭐ helps other engineers find it:\nhttps://github.com/joshmaster2165/controltower"
+    ],
+    "media": "cards"
+  },
+  "notes": "The inspect-before-approval change is in the changelog's Unreleased section (on main, not yet in a tagged release), so the copy says 'on main this week' rather than naming a version. Detail is from docs/changelog.md and docs/guardrails.md ('Before any approval'). The Jira/AWS key example is illustrative; the secrets detector does match AWS key formats (docs/airspace.md)."
+}

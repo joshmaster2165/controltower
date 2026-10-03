@@ -87,9 +87,7 @@ try {
   c('VS Code downloads (stable, from update.code.visualstudio.com)', dl.code === 0 && fs.existsSync(cli), dl.out.trim().slice(-200) || 'ok');
   const ver = await run(cli, ['--version', '--user-data-dir', userData]);
   console.log('VS Code', ver.out.trim().split('\n').slice(0, 2).join(' '));
-  const inst = await run(cli, ['--install-extension', 'GitHub.copilot-chat', '--force', '--user-data-dir', userData, '--extensions-dir', exts]);
-  const listed = await run(cli, ['--list-extensions', '--show-versions', '--user-data-dir', userData, '--extensions-dir', exts]);
-  c('the GitHub Copilot Chat extension installs from the Marketplace', /github\.copilot-chat@/i.test(listed.out), `${listed.out.trim().replace(/\n/g, ', ') || inst.out.trim().slice(-200)}`);
+  // (GitHub Copilot Chat is built into VS Code: nothing to install.)
 
   // ---- The settings a person (or IT) puts in place: models and tools at Control Tower ----
   const user = path.join(userData, 'User');
@@ -106,21 +104,26 @@ try {
     ),
   );
   fs.writeFileSync(path.join(user, 'mcp.json'), JSON.stringify({ servers: { controltower: { type: 'http', url: `${GW}/mcp`, headers: { Authorization: `Bearer ${key.key}` } } } }, null, 2));
-  fs.writeFileSync(path.join(user, 'settings.json'), JSON.stringify({ 'security.workspace.trust.enabled': false, 'chat.mcp.autostart': 'newAndOutdated', 'telemetry.telemetryLevel': 'off', 'extensions.autoUpdate': false }, null, 2));
+  fs.writeFileSync(path.join(user, 'settings.json'), JSON.stringify({ 'security.workspace.trust.enabled': false, 'chat.mcp.autostart': 'newAndOutdated', 'chat.disableAIFeatures': false, 'telemetry.telemetryLevel': 'off', 'extensions.autoUpdate': false, 'update.mode': 'none' }, null, 2));
 
   // ---- A throwaway extension that asks through vscode.lm, as any chat feature would ----
+  // (A development extension in an ordinary VS Code start, not an extension test run: a test run leaves the built-in
+  // Copilot Chat disabled.)
   const probe = path.join(TMP, 'probe');
   fs.mkdirSync(probe, { recursive: true });
-  fs.writeFileSync(path.join(probe, 'package.json'), JSON.stringify({ name: 'ct-probe', publisher: 'controltower', version: '0.0.1', engines: { vscode: '^1.95.0' }, main: './extension.js', activationEvents: ['*'] }));
-  fs.writeFileSync(path.join(probe, 'extension.js'), 'exports.activate = () => {};\n');
+  fs.writeFileSync(path.join(probe, 'package.json'), JSON.stringify({ name: 'ct-probe', publisher: 'controltower', version: '0.0.1', engines: { vscode: '^1.95.0' }, main: './extension.js', activationEvents: ['onStartupFinished'] }));
+  fs.writeFileSync(path.join(probe, 'extension.js'), "const vscode = require('vscode');\nexports.activate = () => { require('./run.js').run().catch((e) => require('fs').writeFileSync(process.env.CT_PROBE_ERR || '/tmp/ct-probe-err', String(e && e.stack))).finally(() => setTimeout(() => vscode.commands.executeCommand('workbench.action.quit'), 1000)); };\n");
   const out = path.join(TMP, 'probe-result.json');
   fs.writeFileSync(
     path.join(probe, 'run.js'),
     `const vscode = require('vscode');
 const fs = require('fs');
 exports.run = async () => {
-  const r = { models: [], answers: {}, tools: [], toolResult: null, errors: [] };
+  const r = { models: [], answers: {}, tools: [], toolResult: null, errors: [], chat: null };
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const chat = vscode.extensions.getExtension('GitHub.copilot-chat');
+  r.chat = chat ? { version: chat.packageJSON.version, active: chat.isActive } : 'not present';
+  if (chat && !chat.isActive) { try { await chat.activate(); r.chat.activated = true; } catch (e) { r.errors.push('activate copilot-chat: ' + e.message); } }
   let models = [];
   for (let i = 0; i < 90 && !models.length; i++) { try { models = await vscode.lm.selectChatModels({ vendor: 'customendpoint' }); } catch (e) { r.errors.push('select: ' + e.message); } if (!models.length) await sleep(1000); }
   if (!models.length) { const all = await vscode.lm.selectChatModels({}); r.errors.push('no customendpoint models; all: ' + all.map((m) => m.vendor + '/' + m.id).join(', ')); }
@@ -141,11 +144,14 @@ exports.run = async () => {
 `,
   );
   const electron = path.join(app, 'code');
-  const vs = await run(electron, ['--no-sandbox', '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--user-data-dir', userData, '--extensions-dir', exts, `--extensionDevelopmentPath=${probe}`, `--extensionTestsPath=${path.join(probe, 'run.js')}`], {}, 300_000);
+  const work = path.join(TMP, 'work');
+  fs.mkdirSync(work, { recursive: true });
+  const vs = await run(electron, ['--no-sandbox', '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--user-data-dir', userData, '--extensions-dir', exts, '--verbose', `--extensionDevelopmentPath=${probe}`, work], { CT_PROBE_ERR: path.join(TMP, 'probe-error.txt') }, 300_000);
+  if (fs.existsSync(path.join(TMP, 'probe-error.txt'))) console.log('probe error:', fs.readFileSync(path.join(TMP, 'probe-error.txt'), 'utf8'));
   fs.writeFileSync(path.join(RESULTS, 'vscode-output.txt'), vs.out);
   const r = fs.existsSync(out) ? (JSON.parse(fs.readFileSync(out, 'utf8')) as { models: Array<{ id: string; vendor: string }>; answers: Record<string, string>; tools: string[]; toolResult: string | null; errors: string[] }) : null;
   if (!r) console.log(vs.out.slice(-3000));
-  c('VS Code lists Control Tower\'s models (Custom Endpoint, no GitHub account)', !!r && r.models.length === 2, r ? `${r.models.map((m) => `${m.vendor}/${m.id}`).join(', ')}${r.errors.length ? `; ${r.errors.join('; ').slice(0, 300)}` : ''}` : `no result; exit ${vs.code}`);
+  c('VS Code lists Control Tower\'s models (Custom Endpoint, no GitHub account)', !!r && r.models.length === 2, r ? `copilot-chat ${JSON.stringify((r as any).chat)}; ${r.models.map((m) => `${m.vendor}/${m.id}`).join(', ')}${r.errors.length ? `; ${r.errors.join('; ').slice(0, 300)}` : ''}` : `no result; exit ${vs.code}`);
   c('VS Code chat answers through Control Tower on Chat Completions (gpt-5)', !!r && (r.answers['gpt-5'] ?? '').includes(REPLY), r ? (r.answers['gpt-5'] ?? 'no answer').slice(0, 200) : 'no result');
   c('VS Code chat answers through Control Tower on the Messages API (claude-sonnet-4-5)', !!r && (r.answers['claude-sonnet-4-5'] ?? '').includes(REPLY), r ? (r.answers['claude-sonnet-4-5'] ?? 'no answer').slice(0, 200) : 'no result');
   c('VS Code gets Control Tower\'s MCP tools (mcp.json), and a tool call goes through', !!r && r.tools.length > 0 && /contents of README\.md/.test(r.toolResult ?? ''), r ? `${r.tools.join(', ') || 'no tools'}; ${(r.toolResult ?? 'no tool result').slice(0, 120)}` : 'no result');

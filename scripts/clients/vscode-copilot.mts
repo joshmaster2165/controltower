@@ -8,6 +8,7 @@
  * CT_TEST_LICENSE_KEYS=1 pnpm build). Never on a laptop someone is using: it opens VS Code.
  */
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -104,6 +105,17 @@ try {
     ),
   );
   fs.writeFileSync(path.join(user, 'mcp.json'), JSON.stringify({ servers: { controltower: { type: 'http', url: `${GW}/mcp`, headers: { Authorization: `Bearer ${key.key}` } } } }, null, 2));
+  // Chat set up once already, as a person does the first time ("Set up chat", then their own models): VS Code keeps the
+  // built-in Copilot Chat turned off in a profile where that hasn't happened. Its record, in the profile's state.
+  const Sqlite = createRequire(path.join(REPO, 'server', 'package.json'))('better-sqlite3') as new (file: string) => { exec(sql: string): void; prepare(sql: string): { run(...a: unknown[]): void }; close(): void };
+  fs.mkdirSync(path.join(user, 'globalStorage'), { recursive: true });
+  const state = new Sqlite(path.join(user, 'globalStorage', 'state.vscdb'));
+  state.exec('CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)');
+  const put = state.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
+  put.run('chat.setupContext', JSON.stringify({ entitlement: 1, completed: true, installed: true }));
+  put.run('chat.setupContext.migrated.v1', 'true');
+  put.run('builtinChatExtensionEnablementMigration', 'true');
+  state.close();
   fs.writeFileSync(path.join(user, 'settings.json'), JSON.stringify({ 'security.workspace.trust.enabled': false, 'chat.mcp.autostart': 'newAndOutdated', 'chat.disableAIFeatures': false, 'telemetry.telemetryLevel': 'off', 'extensions.autoUpdate': false, 'update.mode': 'none' }, null, 2));
 
   // ---- A throwaway extension that asks through vscode.lm, as any chat feature would ----

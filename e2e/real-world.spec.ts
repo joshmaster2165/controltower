@@ -368,6 +368,9 @@ test('Agent groups: a gate or zone on an agent covers every copy of it, and noth
       const all = [...(s?.stations.values() ?? [])];
       return { group: all.find((x) => x.id === 'group:rw-worker')?.copies ?? 0, copiesDrawnAlone: all.filter((x) => /^rw-worker-/.test(x.label)).length };
     });
+  // The map draws teams once there are more agents than fit, and agents other tests made count too: ask for agents.
+  const byAgent = page.getByRole('radio', { name: 'Agents' });
+  if (await byAgent.waitFor({ timeout: 5000 }).then(() => true).catch(() => false)) await byAgent.click();
   await expect.poll(station).toEqual({ group: 3, copiesDrawnAlone: 0 });
 
   // Teams: a second team makes the Teams view available; each team is one station until opened.

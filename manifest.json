@@ -1,0 +1,165 @@
+{
+  "brief": {
+    "date": "2026-10-03",
+    "angle": "design-partners",
+    "title": "Design partners wanted",
+    "why": "Recruiting ad requested by Josh: find teams running agents in production to partner on Control Tower. CTA is partners@agentcontroltower.app.",
+    "video": {
+      "scene": "trace",
+      "headline": "Running AI agents in production? *Let's talk.*",
+      "captions": [
+        [
+          "Do you know where your agents go?",
+          "Every model, MCP tool and API they reach, on one live map"
+        ],
+        [
+          "We're looking for design partners",
+          "Teams running agents for real: free Enterprise, direct line to the builder"
+        ]
+      ],
+      "end_headline": "Become a design partner",
+      "end_sub": "Free Enterprise · a direct line to the builder · a say in the roadmap",
+      "end_contact": "partners@agentcontroltower.app"
+    },
+    "cards": [
+      {
+        "template": "offer",
+        "size": "square",
+        "eyebrow": "Design partners wanted",
+        "headline": "Your agents. Our gateway. *Built together.*",
+        "sub": "We're looking for a small group of teams running AI agents in production to shape what Control Tower becomes.",
+        "perks": [
+          {
+            "title": "Free Enterprise",
+            "text": "SSO, SCIM, audit log to your SIEM, agent identity, secret managers"
+          },
+          {
+            "title": "Direct line to the builder",
+            "text": "Talk to the person who writes the code. Fixes ship fast."
+          },
+          {
+            "title": "Shape the roadmap",
+            "text": "Your agent estate decides what gets built next"
+          },
+          {
+            "title": "Hands-on setup",
+            "text": "We wire up your agents, MCP servers and first gates with you"
+          }
+        ],
+        "who": "platform, security and AI teams with agents calling models and MCP tools.",
+        "contact": "partners@agentcontroltower.app",
+        "alt": "Design partners wanted: free Enterprise, a direct line to the builder, a say in the roadmap and hands-on setup. Email partners@agentcontroltower.app."
+      },
+      {
+        "template": "feature",
+        "size": "square",
+        "still": "airspace",
+        "eyebrow": "What you'd be shaping",
+        "headline": "See every agent. *Gate* every call.",
+        "bullets": [
+          "Agents, models, MCP tools and APIs on one live map",
+          "Block, require approval or inspect, per path",
+          "Open source, self-hosted, Apache-2.0"
+        ],
+        "alt": "The Control Tower Airspace: a live map of agents, models, MCP tool servers and APIs."
+      }
+    ],
+    "carousel": [
+      {
+        "template": "cover",
+        "eyebrow": "Design partners wanted",
+        "headline": "Running AI agents in production? *Build this with us.*",
+        "sub": "Control Tower is looking for design partners."
+      },
+      {
+        "template": "statement",
+        "eyebrow": "The problem",
+        "statement": "Your agents call models, MCP tools and APIs all day. *Who decided they could?*"
+      },
+      {
+        "template": "feature",
+        "still": "airspace-trace",
+        "eyebrow": "Control Tower",
+        "headline": "One gateway. A live map. *Gates* on every path.",
+        "bullets": [
+          "Click an agent to trace everything it reaches",
+          "Require a human before a risky tool call"
+        ]
+      },
+      {
+        "template": "offer",
+        "size": "portrait",
+        "eyebrow": "What partners get",
+        "headline": "Free Enterprise. *A real say.*",
+        "perks": [
+          {
+            "title": "Free Enterprise",
+            "text": "SSO, SCIM, audit to SIEM, agent identity"
+          },
+          {
+            "title": "Direct line",
+            "text": "To the person who writes the code"
+          },
+          {
+            "title": "Roadmap",
+            "text": "Your agent estate drives what's next"
+          },
+          {
+            "title": "Setup help",
+            "text": "Agents, MCP servers and first gates, together"
+          }
+        ],
+        "who": "teams with agents calling models and MCP tools for real."
+      },
+      {
+        "template": "cta",
+        "headline": "Become a *design partner*",
+        "sub": "Tell us what your agents do. We'll take it from there.",
+        "contact": "partners@agentcontroltower.app"
+      }
+    ],
+    "linkedin": {
+      "text": "We're looking for design partners for Control Tower.\n\nIf your team runs AI agents that call models, MCP tools and internal APIs, you probably have the same questions we kept hearing:\n→ Which agents reach which systems?\n→ What is each one costing us?\n→ Who approved that tool call?\n\nControl Tower is an open-source, self-hosted gateway that puts every agent flow on one live map, and lets you put gates on the paths that matter: block, require a human's approval, or inspect.\n\nWe want a small group of teams to build the next part of it with us. Design partners get:\n• Control Tower Enterprise free: SSO, SCIM, audit log to your SIEM, agent identity, secret managers\n• A direct line to the person writing the code\n• A real say in the roadmap\n• Hands-on help wiring up your agents, MCP servers and first gates\n\nInterested? Email partners@agentcontroltower.app with a few lines about what your agents do.\n\nThe code: https://github.com/joshmaster2165/controltower\n\n#AIAgents #MCP #PlatformEngineering",
+      "media": "video",
+      "document_title": "Design partners wanted: Control Tower"
+    },
+    "x": {
+      "posts": [
+        "We're looking for design partners 🛰️\n\nIf you run AI agents in production, calling models + MCP tools + internal APIs, Control Tower maps every flow and lets you gate the risky ones.\n\nBuild the next part of it with us.",
+        "Partners get:\n• Enterprise free (SSO, SCIM, audit → SIEM, agent identity)\n• A direct line to the person writing the code\n• A real say in the roadmap\n• Hands-on setup help\n\n✉️ partners@agentcontroltower.app",
+        "Open source, self-hosted, Apache-2.0:\nhttps://github.com/joshmaster2165/controltower"
+      ],
+      "media": "video"
+    },
+    "notes": "Needs the partners@agentcontroltower.app mailbox/alias to exist before this goes out. Alternatives in the issue: switch linkedin-media to carousel, or x-media to cards (offer card + map)."
+  },
+  "made": {
+    "video": {
+      "wide": "video-wide.mp4",
+      "square": "video-square.mp4",
+      "preview": "preview.gif",
+      "poster": "poster.jpg",
+      "seconds": 17
+    },
+    "cards": [
+      {
+        "file": "card-1.png",
+        "alt": "Design partners wanted: free Enterprise, a direct line to the builder, a say in the roadmap and hands-on setup. Email partners@agentcontroltower.app."
+      },
+      {
+        "file": "card-2.png",
+        "alt": "The Control Tower Airspace: a live map of agents, models, MCP tool servers and APIs."
+      }
+    ],
+    "carousel": {
+      "pdf": "carousel.pdf",
+      "slides": [
+        "carousel-1.png",
+        "carousel-2.png",
+        "carousel-3.png",
+        "carousel-4.png",
+        "carousel-5.png"
+      ]
+    }
+  }
+}

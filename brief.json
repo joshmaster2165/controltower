@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-04",
+  "angle": "release",
+  "title": "v0.2.11: GitHub Copilot through your gateway",
+  "why": "v0.2.10 and v0.2.11 shipped on 3 October and haven't had a post (yesterday was a take and a design-partner call), so a release beats Sunday's take. The last release post (v0.2.6, 2 Oct) was about the laptops rollout; this one leads with something any developer can try with five environment variables: Copilot CLI and VS Code's chat on your own gateway, with refusals and held requests told in the reply instead of an auth error.",
+  "cards": [
+    {
+      "template": "release",
+      "size": "square",
+      "version": "0.2.11",
+      "date": "3 October 2026",
+      "headline": "GitHub Copilot, *through your gateway*",
+      "highlights": [
+        "Copilot CLI and VS Code's chat on Control Tower's models",
+        "No GitHub account needed for those models",
+        "Refusals in words, not \"Authentication failed\"",
+        "Held requests say so in the reply while they wait",
+        "Run for real against both, every week"
+      ],
+      "alt": "Release card for Control Tower v0.2.11: Copilot CLI and VS Code's chat use Control Tower's models with no GitHub account needed for them, refusals are shown in words instead of an authentication error, held requests say so in the reply while they wait, and both clients are tested for real each week."
+    },
+    {
+      "template": "code",
+      "size": "square",
+      "dark": true,
+      "eyebrow": "Copilot CLI, five variables",
+      "headline": "Point Copilot at *your* gateway",
+      "code": "export COPILOT_PROVIDER_TYPE=anthropic\nexport COPILOT_PROVIDER_BASE_URL=http://localhost:4000\nexport COPILOT_PROVIDER_API_KEY=ct_sk_…\nexport COPILOT_MODEL=claude-sonnet-4-5\nexport COPILOT_OFFLINE=true",
+      "sub": "Every call lands on the map under its key, counted in the Ledger, behind your gates.",
+      "alt": "Code card: five environment variables point GitHub Copilot CLI at a Control Tower gateway on localhost:4000 with a Control Tower key, the claude-sonnet-4-5 model and COPILOT_OFFLINE=true. Every call is recorded under its key, counted in the Ledger and subject to gates."
+    },
+    {
+      "template": "statement",
+      "size": "square",
+      "eyebrow": "What we found recording real clients",
+      "statement": "A gate said *no*. The developer saw \"Authentication failed\". A refusal nobody can read is just a bug report.",
+      "attribution": "Control Tower changelog, 0.2.10–0.2.11",
+      "alt": "Statement card: a gate refused a request, but the developer's tool showed 'Authentication failed'; a refusal nobody can read is just a bug report. From the Control Tower changelog, versions 0.2.10 and 0.2.11."
+    }
+  ],
+  "linkedin": {
+    "text": "Your gateway blocked a request. Your developer saw \"Authentication failed\". Who files the ticket?\n\nThat's what we found recording real clients through Control Tower. Claude Code, Claude Desktop and Codex read a 403 as a bad sign-in, so a gate's \"no\" looked like a broken key. Copilot CLI showed it as \"Authentication failed with provider\".\n\nControl Tower v0.2.11 is out. GitHub Copilot CLI and VS Code's chat (Copilot Chat) can now use Control Tower's models, without a GitHub account for those models. Five environment variables for the CLI, a Custom Endpoint in VS Code. Every call is then on the map under its key, counted in the Ledger, and subject to your gates. Both take Control Tower's /mcp endpoint too, so your tool servers come with the same rules.\n\nAnd Control Tower recognises these as a person's apps. A blocked message says which gate and why. A held one says \"waiting for approval\" in the reply and stays open; once approved, the answer follows in the same reply.\n\nBoth are run for real each week: Copilot CLI 1.0.91 on Windows and macOS, VS Code 1.140 with Copilot Chat 0.68.\n\nOpen source, self-hosted, one docker run: https://github.com/joshmaster2165/controltower\n\nA ⭐ helps others find it.\n\n#AIAgents #DeveloperTools #OpenSource",
+    "media": "cards"
+  },
+  "x": {
+    "posts": [
+      "Control Tower v0.2.11: GitHub Copilot CLI and VS Code's chat can run on your own gateway's models.\n\nNo GitHub account needed for them. Five env vars for the CLI, a Custom Endpoint in VS Code. Every call on the map, in the Ledger, behind your gates.",
+      "The part I like most: a gate's \"no\" used to show up in Copilot CLI as \"Authentication failed with provider\".\n\nNow it says which gate and why. A held request says \"waiting for approval\" in the reply, then the answer follows once someone approves.",
+      "Self-hosted, open source, one docker run. Tested for real against both clients every week.\n\nA star helps others find it ⭐ https://github.com/joshmaster2165/controltower"
+    ],
+    "media": "cards"
+  },
+  "notes": "All claims from docs/changelog.md (0.2.10, 0.2.11) and docs/client-copilot.md. 'No GitHub account' applies to the models added through Control Tower; Copilot's own GitHub-hosted models, inline completions and other GitHub features still use GitHub (the doc's 'What stays with GitHub'), so the copy scopes it to 'those models'. Held-request wording in the reply is on the Messages API, which the code card uses. The 'Authentication failed with provider' quote is from the changelog. The Laptops rollout of Copilot CLI is Enterprise and isn't mentioned. Release follows the 2 Oct release post within three days because two releases shipped since with no post. Cards only: no recorder scene covers Copilot."
+}

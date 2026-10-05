@@ -1,0 +1,67 @@
+{
+  "brief": {
+    "date": "2026-10-05",
+    "angle": "feature",
+    "title": "What is each agent costing you?",
+    "why": "Monday is a feature day. The last week covered gates, laptops, Copilot and a take on inspection; the Ledger and budgets haven't been featured yet, and 'which agent spent that?' is a question every team running agents asks.",
+    "video": {
+      "scene": "ledger",
+      "headline": "Which agent *spent* that?",
+      "sub": "Spend per agent, team and model, with budgets that refuse the next call.",
+      "captions": [
+        [
+          "Which agent spent that?",
+          "Spend, tokens and latency per agent, team and model"
+        ],
+        [
+          "One ledger across providers",
+          "Hard budgets refuse the next call with a 429"
+        ]
+      ]
+    },
+    "cards": [
+      {
+        "template": "feature",
+        "size": "square",
+        "still": "ledger",
+        "eyebrow": "The Ledger",
+        "headline": "Know what *each agent* costs",
+        "bullets": [
+          "Spend per agent, team and model",
+          "Budgets per key, team and project",
+          "Hard budgets refuse with a 429"
+        ],
+        "alt": "The Control Tower Ledger: spend, requests and tokens broken down by agent and model, with a budgets card."
+      }
+    ],
+    "linkedin": {
+      "text": "Your provider's invoice says what you spent. It doesn't say which agent spent it.\n\nIn Control Tower every agent has its own key, and every call through the gateway is priced once, at the rate in force when it was routed. The Ledger adds it up: spend, requests, tokens and errors per agent and per model or tool server, for the last hour, day, week or month. Usage a provider didn't report is estimated and marked as such.\n\nThen you can put a number on it. Budgets go on a key, a team or a project. A hard budget refuses the next call with 429 budget_exceeded; a soft one alerts instead. Every call is checked against every budget that covers it, so the tightest wins, and against what's already in flight, so a burst of parallel requests can't run far past the cap.\n\nWhen one agent calls another, the spend counts against the agent that started the chain.\n\nOpen source and self-hosted: https://github.com/joshmaster2165/controltower. A ⭐ helps others find it.\n\n#AIAgents #OpenSource #PlatformEngineering",
+      "media": "video"
+    },
+    "x": {
+      "posts": [
+        "Your provider's invoice tells you what you spent.\n\nIt doesn't tell you which agent spent it.\n\nControl Tower's Ledger does: spend, tokens and errors per agent, team and model, every call priced at the rate in force when it was routed.",
+        "Then put a cap on it. Budgets per key, team or project.\n\nHard budget used up → the next call gets 429 budget_exceeded. Checked against what's already in flight, so parallel calls can't blow far past it.\n\nAgent calls agent? Spend counts against the one that started the chain.",
+        "Open source, self-hosted, one docker run to try with a demo fleet.\n\nA ⭐ helps other engineers find it: https://github.com/joshmaster2165/controltower"
+      ],
+      "media": "video"
+    },
+    "notes": "Recording uses the synthetic demo fleet; the copy quotes no spend figures."
+  },
+  "made": {
+    "video": {
+      "wide": "video-wide.mp4",
+      "square": "video-square.mp4",
+      "preview": "preview.gif",
+      "poster": "poster.jpg",
+      "seconds": 24
+    },
+    "cards": [
+      {
+        "file": "card-1.png",
+        "alt": "The Control Tower Ledger: spend, requests and tokens broken down by agent and model, with a budgets card."
+      }
+    ],
+    "carousel": null
+  }
+}

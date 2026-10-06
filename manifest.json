@@ -1,0 +1,172 @@
+{
+  "brief": {
+    "date": "2026-10-06",
+    "angle": "how-it-works",
+    "title": "Agents calling agents: follow the chain",
+    "why": "Tuesday is how-it-works. The last three posts were a feature (Ledger), a release (v0.2.11) and a take; agent-to-agent delegation is a documented, engineer-shaped mechanism (signed tokens, on-behalf-of gates) we haven't explained yet, and it's a real permission gap people hit as they chain agents.",
+    "cards": [
+      {
+        "template": "diagram",
+        "size": "square",
+        "eyebrow": "How it works",
+        "headline": "Gates on *whom* a call is for",
+        "sub": "support-bot asks research-agent. Everything research-agent then does is recorded as done for support-bot.",
+        "agents": [
+          "support-bot",
+          "research-agent"
+        ],
+        "destinations": [
+          {
+            "name": "research-agent MCP",
+            "kind": "agent"
+          },
+          {
+            "name": "Claude",
+            "kind": "model"
+          },
+          {
+            "name": "Ledger MCP",
+            "kind": "mcp"
+          }
+        ],
+        "gates": [
+          {
+            "to": "research-agent MCP",
+            "action": "allow"
+          },
+          {
+            "to": "Ledger MCP",
+            "action": "deny"
+          }
+        ],
+        "alt": "Diagram: support-bot and research-agent route through Control Tower. support-bot may call research-agent's MCP server; research-agent reaches Claude, but the Ledger MCP server is denied for calls made on behalf of support."
+      },
+      {
+        "template": "code",
+        "size": "square",
+        "eyebrow": "The called agent's side",
+        "headline": "Pass the token *on*",
+        "code": "token = req.headers.get(\"x-ct-delegation\")\nclient = OpenAI(\n    base_url=\"http://localhost:4000/v1\",\n    api_key=RESEARCH_AGENT_KEY,\n    default_headers={\"x-ct-delegation\": token},\n)\n# every call now counts as made for the caller",
+        "sub": "Signed, issued to one agent, expires in 15 minutes.",
+        "alt": "Python code: an agent behind an HTTP API reads the x-ct-delegation header from the request it received and sends it back on its own OpenAI-compatible calls to Control Tower."
+      }
+    ],
+    "carousel": [
+      {
+        "template": "cover",
+        "eyebrow": "How it works",
+        "headline": "Your agents call *other agents*. Who are they acting for?",
+        "sub": "How Control Tower follows the chain."
+      },
+      {
+        "template": "statement",
+        "eyebrow": "1 / The gap",
+        "statement": "support-bot may not touch finance tools. research-agent may. support-bot can *ask research-agent*."
+      },
+      {
+        "template": "diagram",
+        "eyebrow": "2 / The token",
+        "headline": "Every hop carries *who started it*",
+        "sub": "When one agent calls another through an MCP tool, an HTTP API or A2A, Control Tower hands the called agent a signed delegation token.",
+        "agents": [
+          "support-bot",
+          "research-agent"
+        ],
+        "destinations": [
+          {
+            "name": "research-agent MCP",
+            "kind": "agent"
+          },
+          {
+            "name": "Claude",
+            "kind": "model"
+          },
+          {
+            "name": "Ledger MCP",
+            "kind": "mcp"
+          }
+        ],
+        "gates": [
+          {
+            "to": "research-agent MCP",
+            "action": "allow"
+          },
+          {
+            "to": "Ledger MCP",
+            "action": "deny"
+          }
+        ],
+        "alt": "Diagram: support-bot calls research-agent's MCP server through Control Tower; research-agent's own calls reach Claude, and the Ledger MCP server is denied for calls made on behalf of support."
+      },
+      {
+        "template": "code",
+        "eyebrow": "3 / Pass it on",
+        "headline": "One header on the called agent",
+        "code": "token = req.headers.get(\"x-ct-delegation\")\nclient = OpenAI(\n    base_url=\"http://localhost:4000/v1\",\n    api_key=RESEARCH_AGENT_KEY,\n    default_headers={\"x-ct-delegation\": token},\n)",
+        "sub": "Its model, MCP and HTTP calls are now recorded as made *for* support-bot."
+      },
+      {
+        "template": "code",
+        "eyebrow": "4 / The gate",
+        "headline": "Match on *on_behalf_of*",
+        "code": "gates:\n  - name: No finance on behalf of support\n    match:\n      on_behalf_of: [team:support]\n      servers: [ledger]\n    effect: deny",
+        "sub": "Anywhere up the chain, however many agents deep."
+      },
+      {
+        "template": "feature",
+        "eyebrow": "5 / No way around it",
+        "headline": "The guardrails on the chain",
+        "bullets": [
+          "Keys that act only for others are refused without a valid token",
+          "A calls B calls A: refused as a loop",
+          "Chains stop at 8 agents deep",
+          "Tokens are signed, expire in 15 min, never logged",
+          "Spend counts against the caller's budget too"
+        ]
+      },
+      {
+        "template": "cta"
+      }
+    ],
+    "linkedin": {
+      "text": "Your support bot can't touch the finance tools. Can the research agent it calls?\n\nThat's the gap with agents calling agents. Each agent has its own key and its own permissions, so a public-facing bot with narrow access can ask a more privileged agent to do what it was never allowed to do itself.\n\nHow Control Tower closes it:\n\n1. support-bot calls research-agent through an MCP tool (or an HTTP API, or A2A). On the way, Control Tower hands research-agent a signed delegation token.\n2. research-agent sends that token back as an x-ct-delegation header on its own model and tool calls.\n3. Every one of those calls is now recorded as made for support-bot, and a gate can match on it: on_behalf_of: [team:support], servers: [ledger], effect: deny. Anywhere up the chain.\n\nMark the called agent's key as acting only on behalf of others and calls without a valid token are refused, so leaving the token off doesn't get around the gate.\n\nThe rest is plumbing you'd want anyway: A calls B calls A is refused as a loop, chains stop at 8 agents deep, tokens expire after 15 minutes, and what research-agent spends for support-bot counts against support-bot's budget too.\n\nOpen source and self-hosted. A ⭐ helps others find it:\nhttps://github.com/joshmaster2165/controltower\n\n#AIAgents #MCP #OpenSource",
+      "media": "carousel",
+      "document_title": "Agents calling agents: who are they acting for?"
+    },
+    "x": {
+      "posts": [
+        "Your support bot can't touch the finance tools.\n\nBut it can ask the research agent, which can.\n\nAgents calling agents is where per-agent permissions quietly stop meaning anything. Here's how Control Tower follows the chain:",
+        "When one agent calls another through Control Tower (an MCP tool, an HTTP API or A2A), the called agent gets a signed delegation token.\n\nIt sends it back as x-ct-delegation on its own calls, and each of those is recorded as made for the caller.",
+        "So a gate can match whom a call is for, anywhere up the chain:\n\non_behalf_of: [team:support] → deny ledger\n\nKeys that act only for others are refused without a valid token. Loops are refused, chains stop at 8 deep, tokens expire in 15 min.",
+        "Open-source, self-hosted AI gateway for agents, models and MCP tools. A star helps the next platform team find it:\nhttps://github.com/joshmaster2165/controltower"
+      ],
+      "media": "cards"
+    },
+    "notes": "All mechanics from docs/agent-to-agent.md (delegation token, x-ct-delegation, delegated_only keys, on_behalf_of gates, delegation_loop, 8-deep limit, 15-minute expiry, never logged, spend counted against both budgets). Agent names are the doc's own examples, not customers."
+  },
+  "made": {
+    "video": null,
+    "cards": [
+      {
+        "file": "card-1.png",
+        "alt": "Diagram: support-bot and research-agent route through Control Tower. support-bot may call research-agent's MCP server; research-agent reaches Claude, but the Ledger MCP server is denied for calls made on behalf of support."
+      },
+      {
+        "file": "card-2.png",
+        "alt": "Python code: an agent behind an HTTP API reads the x-ct-delegation header from the request it received and sends it back on its own OpenAI-compatible calls to Control Tower."
+      }
+    ],
+    "carousel": {
+      "pdf": "carousel.pdf",
+      "slides": [
+        "carousel-1.png",
+        "carousel-2.png",
+        "carousel-3.png",
+        "carousel-4.png",
+        "carousel-5.png",
+        "carousel-6.png",
+        "carousel-7.png"
+      ]
+    }
+  }
+}

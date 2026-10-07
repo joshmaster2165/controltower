@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.12 — 7 October 2026
 
 - **Compliance: EU AI Act, NIST AI RMF and ISO/IEC 42001** (Enterprise). A new **Compliance** page sets your AI coding assistants and agents against the three frameworks, from your own records.
   - **Status for each requirement:** met, partly met, a gap, or the organisation's. It's computed from your inventory, permissions, gates, approvals, logs, retention, audit trail, single sign-on and alerts, with what to do about each gap.

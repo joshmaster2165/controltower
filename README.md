@@ -16,7 +16,8 @@
 
 <p align="center">
   <img src="docs/media/controltower-demo.gif" alt="The Control Tower console: a live map of agents, models, MCP tool servers and APIs; clicking an agent traces its connections; dragging from the agent to a Salesforce tool adds a require-approval gate; the next call holds at the gate and is approved in the Tower." width="100%"><br/>
-  <sub>The real console with the demo fleet: <b>see</b> every flow, <b>trace</b> an agent, <b>draw a gate</b>, <b>approve</b> the held call. Recorded with <code>pnpm demo:gif</code>.</sub>
+  <sub>The real console with the demo fleet: <b>see</b> every flow, <b>trace</b> an agent, <b>draw a gate</b>, <b>approve</b> the held call. Recorded with <code>pnpm demo:gif</code>.</sub><br/>
+  <sub>▶ <a href="https://agentcontroltower.app/#watch"><b>Watch the two-minute tour</b></a>: gates and approvals, every call on record, guardrails, laptops, the audit log and compliance evidence (EU AI Act, NIST AI RMF, ISO/IEC 42001).</sub>
 </p>
 
 ---

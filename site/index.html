@@ -354,6 +354,7 @@ pre.args .s { color: #9fe0bf; }
 .browser-h i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); }
 .browser-h span { margin-left: 10px; font: 400 11.5px/1 var(--mono); color: var(--faint); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser img { width: 100%; height: auto; aspect-ratio: 1152 / 688; background: var(--bg); }
+.browser video.tour { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: var(--bg); }
 .wsteps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; counter-reset: ws; }
 .wsteps li { counter-increment: ws; color: var(--dim); font-size: 14px; padding-top: 14px; border-top: 2px solid var(--line); }
 .wsteps li::before { content: '0' counter(ws); display: block; font: 500 11px/1 var(--mono); color: var(--accent); margin-bottom: 8px; }
@@ -997,19 +998,19 @@ ct_approvals_pending 1</pre>
 <section class="frame pad watch" id="watch">
   <span class="rail">05</span>
   <span class="eyebrow reveal">See it run</span>
-  <h3 class="reveal">Thirty seconds in the real console.</h3>
-  <p class="reveal">No mock-ups: this is Control Tower with its demo fleet. An agent is traced across the map, a gate is dragged onto its path to a Salesforce tool, and the next call waits at the gate until a human approves it.</p>
+  <h3 class="reveal">Two minutes in the real console.</h3>
+  <p class="reveal">No mock-ups: a deployed Control Tower, recorded live, with agents and people sending real traffic through it. Trace an agent across the map, gate its path to a tool, approve the held call, then the records behind it: every call, guardrails, laptops, the inventory, the audit log and compliance evidence.</p>
   <div class="tilt" data-scroll>
     <div class="browser">
-      <div class="browser-h"><i></i><i></i><i></i><span>localhost:4000/#/airspace</span></div>
-      <img src="media/controltower-demo.gif" width="1152" height="688" loading="lazy" decoding="async" alt="The Control Tower console: a live map of agents, models, MCP tool servers and APIs; clicking an agent traces its connections; dragging from the agent to a Salesforce tool adds a require-approval gate; the next call holds and is approved in the Tower.">
+      <div class="browser-h"><i></i><i></i><i></i><span>Control Tower · recorded live</span></div>
+      <video class="tour" src="media/controltower-tour.mp4" poster="media/controltower-tour.jpg" width="1920" height="1080" muted playsinline controls preload="none" aria-label="A tour of the Control Tower console: the live map of agents, models, tool servers and APIs; tracing an agent; adding a require-approval gate and approving the held call in the Tower; the Flights log; guardrails; laptop sign-in for Claude Code, Codex and Copilot; the inventory; the hash-chained audit log; and compliance status and evidence for the EU AI Act, NIST AI RMF and ISO/IEC 42001."></video>
     </div>
   </div>
   <ol class="wsteps">
-    <li class="reveal"><b>See every flow</b>Agents, models, tool servers and APIs, live.</li>
-    <li class="reveal"><b>Trace an agent</b>Where it goes, what it costs, what fails.</li>
-    <li class="reveal"><b>Draw a gate</b>Block, require approval or inspect a path.</li>
-    <li class="reveal"><b>Approve the call</b>It waits at the gate; a human says yes.</li>
+    <li class="reveal"><b>See every flow</b>Agents, assistants, models, tools and APIs, live.</li>
+    <li class="reveal"><b>Gate a path</b>Block, inspect or require a person's approval.</li>
+    <li class="reveal"><b>Keep the record</b>Every call, refusal and approval, tamper-evident.</li>
+    <li class="reveal"><b>Show the evidence</b>EU AI Act, NIST AI RMF, ISO/IEC 42001.</li>
   </ol>
 </section>
 
@@ -1078,6 +1079,12 @@ ct_approvals_pending 1</pre>
 </footer>
 
 <script>
+// The tour plays (muted) when it comes into view, and pauses when it leaves; its controls are there to restart or unmute.
+(() => {
+  const v = document.querySelector('video.tour');
+  if (!v || !('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  new IntersectionObserver(([e]) => { if (e.isIntersecting) { v.preload = 'auto'; v.play().catch(() => {}); } else v.pause(); }, { threshold: 0.4 }).observe(v);
+})();
 (() => {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const $ = (s, r = document) => r.querySelector(s);

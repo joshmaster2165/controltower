@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-07",
+  "angle": "education",
+  "title": "Prompt injection arrives in tool results",
+  "why": "Wednesday is education. The last three days were a feature video (ledger), a how-it-works diagram (agents calling agents) and a release; none taught threat modelling. Indirect prompt injection (OWASP LLM01) is the risk agent builders underestimate most, and our own docs are unusually honest about it: detection is a second line, narrow tools and approvals are the first.",
+  "cards": [
+    {
+      "template": "statement",
+      "size": "square",
+      "eyebrow": "Agent security",
+      "statement": "The injection isn't in the prompt. It's in the *tool result*.",
+      "attribution": "OWASP LLM01, the indirect kind",
+      "alt": "Text card: The injection isn't in the prompt. It's in the tool result. OWASP LLM01, the indirect kind."
+    },
+    {
+      "template": "diagram",
+      "size": "square",
+      "eyebrow": "Defence in layers",
+      "headline": "Narrow it. *Inspect* it. Hold writes.",
+      "sub": "Allowlists decide which tools exist for the agent. Inspect gates read results before it does. Writes wait for a person.",
+      "agents": [
+        "support-triage",
+        "pr-reviewer"
+      ],
+      "destinations": [
+        {
+          "name": "Web fetch MCP",
+          "kind": "mcp"
+        },
+        {
+          "name": "GitHub MCP",
+          "kind": "mcp"
+        },
+        {
+          "name": "Billing API",
+          "kind": "api"
+        },
+        {
+          "name": "Claude",
+          "kind": "model"
+        }
+      ],
+      "gates": [
+        {
+          "to": "Web fetch MCP",
+          "action": "inspect"
+        },
+        {
+          "to": "GitHub MCP",
+          "action": "approve"
+        },
+        {
+          "to": "Billing API",
+          "action": "deny"
+        }
+      ],
+      "alt": "Diagram: two agents route through Control Tower. Results from a web-fetch MCP server are inspected, GitHub MCP calls need approval, a billing API is denied, and model calls go to Claude."
+    }
+  ],
+  "carousel": [
+    {
+      "template": "cover",
+      "headline": "Prompt injection arrives in the *tool result*",
+      "sub": "A threat model for agents that read things"
+    },
+    {
+      "template": "statement",
+      "eyebrow": "1 / Where it comes from",
+      "statement": "Your agent reads a GitHub issue, a web page, a support ticket. Whoever wrote it *wrote to your agent*."
+    },
+    {
+      "template": "statement",
+      "eyebrow": "2 / Why the prompt filter misses it",
+      "statement": "Checking what the user typed is half the job. The instructions show up *after* the tool call, in the result the agent trusts."
+    },
+    {
+      "template": "statement",
+      "eyebrow": "3 / Detection is a second line",
+      "statement": "Patterns catch \"ignore previous instructions\". A paraphrase, another language or encoded text *gets past them*."
+    },
+    {
+      "template": "statement",
+      "eyebrow": "4 / So assume it gets through",
+      "statement": "The real question: once an agent is convinced, *what can it reach?*"
+    },
+    {
+      "template": "feature",
+      "still": "guardrails",
+      "eyebrow": "5 / Layers that hold",
+      "headline": "Narrow, inspect, *hold the writes*",
+      "bullets": [
+        "Per-key tool allowlists: unlisted tools aren't shown",
+        "Inspect tool results before the agent reads them",
+        "Writes and deletes wait for a person"
+      ]
+    },
+    {
+      "template": "code",
+      "eyebrow": "6 / As policy",
+      "headline": "Check *every* tool result",
+      "code": "- name: Check tool results for injection\n  match: { tools: [\"*\"] }\n  effect: inspect\n  config:\n    detectors: [injection]\n    model_check: { model: gpt-4.1-mini, on_error: allow }\n    action: block\n    direction: output",
+      "sub": "Pattern checks are free; the model check catches paraphrases for one call."
+    },
+    {
+      "template": "cta"
+    }
+  ],
+  "linkedin": {
+    "text": "Your prompt filter checks what the user typed. The attack arrives in what the agent read.\n\nThat's indirect prompt injection (OWASP LLM01), and agents that call tools are built for it. The agent fetches a web page, opens a GitHub issue, pulls a support ticket. Whoever wrote that text is now writing to your agent, inside a tool result it treats as data.\n\nThree things we learned building defences for it into Control Tower:\n\n1. Inspect results, not just requests. Our inspect gates run on tool results and MCP resources before the agent reads them, and mask or block.\n\n2. Don't trust detection alone. Pattern checks catch \"ignore previous instructions\". A paraphrase, another language or encoded text gets past them. Asking a model catches more, at the cost of a call. Either way it's a second line.\n\n3. Design for the agent that's already convinced. Give each agent its own key with only the tools it needs (the rest aren't even listed to it), and hold writes and deletes for a person to approve.\n\nThe carousel has the threat model and the policy.\n\nControl Tower is an open-source, self-hosted gateway for agents, models and MCP tools. Our OWASP LLM Top 10 mapping, limits included, is in the docs. A ⭐ helps others find it: https://github.com/joshmaster2165/controltower\n\n#AIAgents #MCP #OpenSource",
+    "media": "carousel",
+    "document_title": "Prompt injection arrives in the tool result"
+  },
+  "x": {
+    "posts": [
+      "Your prompt filter checks what the user typed.\n\nThe injection arrives in what the agent read: the web page, the GitHub issue, the support ticket. Inside a tool result it treats as data.\n\nA short threat model 🧵",
+      "Detection helps, but it's a second line. Patterns catch \"ignore previous instructions\". Paraphrases, other languages and encoded text get past them. A model check catches more, at the cost of a call.",
+      "So design for the agent that's already convinced:\n\n• only the tools it needs (the rest aren't even listed)\n• inspect tool results before it reads them\n• writes and deletes wait for a human",
+      "Control Tower does all three as an open-source, self-hosted gateway for agents and MCP. Our OWASP LLM Top 10 mapping, limits included, is in the repo:\nhttps://github.com/joshmaster2165/controltower"
+    ],
+    "media": "cards"
+  },
+  "notes": "All claims from docs/owasp-llm-top-10.md and docs/airspace.md (How inspection works). The policy snippet is copied from docs/airspace.md. Card 1 goes on the first X post; the diagram card can go on post 3."
+}

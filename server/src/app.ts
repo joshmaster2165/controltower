@@ -19,6 +19,7 @@ import { orgRoutes } from './ee/admin/orgs.js';
 import { regionRoutes } from './ee/admin/regions.js';
 import { ControlPlane } from './ee/multi-region/control-plane.js';
 import { auditRoutes } from './ee/admin/audit.js';
+import { complianceRoutes } from './ee/admin/compliance.js';
 import { ssoRoutes } from './ee/admin/sso.js';
 import { deviceRoutes } from './ee/admin/devices.js';
 import { licenseRoutes } from './ee/admin/license.js';
@@ -244,6 +245,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await guardrailRoutes(a, full);
     await userRoutes(a, full);
     await auditRoutes(a, full);
+    await complianceRoutes(a, full);
     await tokenIssuerRoutes(a, full);
     await secretManagerRoutes(a, full);
     await keyRotationRoutes(a, full, full.instanceId ?? 'local');

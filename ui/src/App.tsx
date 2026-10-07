@@ -19,6 +19,7 @@ import { ExportsPage } from './pages/Exports';
 import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
 import { AuditPage } from './ee/Audit';
+import { CompliancePage } from './ee/Compliance';
 import { AgentIdentityPage } from './ee/AgentIdentity';
 import { SecretManagersPage } from './ee/SecretManagers';
 import { TeamsPage } from './ee/Teams';
@@ -67,6 +68,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'teams', label: 'Teams', icon: 'agents', hint: 'Organisations, teams and their admins' },
       { id: 'regions', label: 'Regions', icon: 'globe', hint: 'Regions served from this control plane' },
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
+      { id: 'compliance', label: 'Compliance', icon: 'shield', hint: 'EU AI Act, NIST AI RMF and ISO/IEC 42001: status and evidence' },
       { id: 'license', label: 'License', icon: 'shield', hint: 'Control Tower Enterprise' },
     ],
   },
@@ -129,7 +131,7 @@ export function App() {
   const navShows = (id: string) =>
     id === 'regions'
       ? role === 'admin' && !status?.region
-      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'agent-identity', 'secret-managers', 'laptops'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
+      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'compliance', 'agent-identity', 'secret-managers', 'laptops'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
   const manages = me.scope && me.scope.manage !== 'all' ? me.scope.manage : [];
 
   const logout = async () => {
@@ -307,6 +309,7 @@ export function App() {
         {route === 'guardrails' && <GuardrailsPage />}
         {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'audit' && role === 'admin' && <AuditPage />}
+        {route === 'compliance' && role === 'admin' && <CompliancePage />}
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
         {route === 'laptops' && role === 'admin' && <LaptopsPage />}

@@ -15,6 +15,7 @@ const NAMES: Record<Feature, string> = {
   multi_region: 'The multi-region control plane',
   siem_export: 'Sending the audit log to a SIEM',
   laptops: 'Laptop sign-in',
+  compliance: 'Compliance evidence (EU AI Act, NIST AI RMF, ISO/IEC 42001)',
 };
 
 /** preHandler: 402 unless the license in force includes the feature. */

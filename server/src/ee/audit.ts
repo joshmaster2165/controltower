@@ -154,7 +154,8 @@ export class AuditLog {
     if (q.until) s = s.where('ts', '<', q.until);
     if (q.before) s = s.where('seq', '<', q.before);
     if (q.actor) s = s.where('actor_email', '=', q.actor.toLowerCase());
-    if (q.action) s = s.where('action', 'like', `${q.action.replace(/[%_]/g, '')}%`);
+    // A prefix, with LIKE's wildcards taken literally (action names have underscores: auth.sign_in).
+    if (q.action) s = s.where(sql<boolean>`action LIKE ${`${q.action.replace(/[\\%_]/g, (c) => `\\${c}`)}%`} ESCAPE '\\'`);
     if (q.outcome) s = s.where('outcome', '=', q.outcome);
     return s.orderBy('seq', 'desc').limit(Math.min(Math.max(q.limit ?? 100, 1), 1000)).execute();
   }

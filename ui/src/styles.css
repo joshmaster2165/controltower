@@ -1088,3 +1088,9 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .own-guardrail .field > .btn { align-self: flex-start; width: auto; }
 .services-add { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .my-requests .what { display: block; max-width: 520px; overflow-wrap: anywhere; }
+
+/* Compliance: requirements wrap; the status stays on one line, at the top. */
+.compliance-table td { white-space: normal; vertical-align: top; }
+.table.compliance-table td .sub { display: block; white-space: normal; }
+.compliance-table td:last-child { white-space: nowrap; }
+.compliance-detail .status { font-weight: 600; }

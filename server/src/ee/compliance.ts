@@ -166,7 +166,8 @@ export async function runChecks(ctx: AppContext, days: number): Promise<{ checks
   const sinks = await db.selectFrom('export_destinations').select(['name', 'kind', 'send_audit', 'enabled']).where('enabled', '=', 1).where('send_audit', '=', 1).execute();
   const revoked = await count(db.selectFrom('device_sessions').select((eb) => eb.fn.countAll<number>().as('n')).where('revoked_at', '>=', since).executeTakeFirst());
   const verify = ctx.audit ? await ctx.audit.verify() : undefined;
-  const providers = [...new Set(inventory.models.map((m) => m.provider_kind || m.provider).filter(Boolean))].sort();
+  // By name ("Anthropic", "Azure OpenAI (prod)"): what an assessor recognises, more than the API it speaks.
+  const providers = [...new Set(inventory.models.map((m) => m.provider || m.provider_kind).filter(Boolean))].sort();
 
   const checks = {} as Record<CheckId, CheckResult>;
   const put = (c: Omit<CheckResult, 'id'> & { id: CheckId }) => void (checks[c.id] = c);

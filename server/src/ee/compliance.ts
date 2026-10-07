@@ -136,7 +136,8 @@ export const frameworkById = (id: string) => FRAMEWORKS.find((f) => f.id === id)
 const DAY = 86_400_000;
 const pct = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-const unrestricted = (list: string[]) => !list.length || list.includes('*');
+/** An allow-list that lets everything through: one with `*` in it (an empty list allows nothing). */
+const unrestricted = (list: string[]) => list.includes('*');
 
 /** The checks, computed from this installation's data for the last `days` days. */
 export async function runChecks(ctx: AppContext, days: number): Promise<{ checks: Record<CheckId, CheckResult>; evidence: Evidence }> {
@@ -393,7 +394,7 @@ export function evidenceMarkdown(report: FrameworkReport, evidence: Evidence, by
   }
   out.push('## Records', '');
   out.push(`### Agents and assistants (${evidence.agents.length})`, '', '| Agent | Team | Owner | Active | Models | Tools |', '|---|---|---|---|---|---|');
-  for (const a of evidence.agents) out.push(`| ${md(a.name)} | ${md(a.team ?? '—')} | ${md(a.owner ?? '—')} | ${a.enabled ? 'yes' : 'no'} | ${md(a.models.join(', ') || '*')} | ${md(a.tools.join(', ') || '*')} |`);
+  for (const a of evidence.agents) out.push(`| ${md(a.name)} | ${md(a.team ?? '—')} | ${md(a.owner ?? '—')} | ${a.enabled ? 'yes' : 'no'} | ${md(a.models.join(', ') || 'none')} | ${md(a.tools.join(', ') || 'none')} |`);
   out.push('');
   if (evidence.apps.length) {
     out.push('### Apps people used', '', '| App | Calls |', '|---|---|');

@@ -39,6 +39,14 @@ test('each framework\'s requirements, checked against this installation, and mov
   const before = await eu();
   const art12 = before.report.requirements.find((q: any) => q.ref === 'Art. 12');
   expect(art12.results.map((c: any) => c.id)).toEqual(['logging', 'audit_trail']);
+  // An agent limited to one model and no tools at all is least-privileged (an empty list allows nothing).
+  const lpFacts = async () => ((await admin.get('/admin/api/compliance?framework=eu-ai-act&days=90')).body.checks as any[]).find((c) => c.id === 'least_privilege').facts;
+  const f0 = await lpFacts();
+  const tight = (await admin.post('/admin/api/keys', { name: `tight-agent-${run}`, allowed_models: ['gpt-4.1-mini'], allowed_mcp: [] })).body.id;
+  const f1 = await lpFacts();
+  expect(f1.models_and_tools_limited).toBe(f0.models_and_tools_limited + 1);
+  expect(f1.unrestricted).toBe(f0.unrestricted);
+  await admin.del(`/admin/api/keys/${tight}`);
   // An agent that may use any model and tool: least privilege says so, and what to do. (Its owner is whoever made it.)
   const lp = (before.checks as any[]).find((c) => c.id === 'least_privilege');
   expect(lp.status).not.toBe('met');

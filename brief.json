@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-08",
+  "angle": "release",
+  "title": "v0.2.12: compliance evidence from your own records",
+  "why": "v0.2.12 shipped on 7 October and the last post (6 Oct) predates it, so a release beats Thursday's build-in-public, and it carries the build-in-public bit too: the empty-allow-list fix found and landed on main the day after. The previous release post (4 Oct) was about Copilot; this one is for whoever has to answer an assessor, pitched at engineers: the status is computed from the gateway's records, with concrete checks and a hashed evidence pack.",
+  "cards": [
+    {
+      "template": "release",
+      "size": "square",
+      "version": "0.2.12",
+      "date": "7 October 2026",
+      "headline": "Compliance, *from your own records*",
+      "highlights": [
+        "EU AI Act, NIST AI RMF and ISO/IEC 42001",
+        "Met, partly met, a gap, or the organisation's",
+        "Computed from inventory, gates, approvals and logs",
+        "Evidence pack as Markdown or JSON",
+        "Each download audit-logged with its SHA-256"
+      ],
+      "alt": "Release card for Control Tower v0.2.12, 7 October 2026: a Compliance page sets AI agents and coding assistants against the EU AI Act, NIST AI RMF and ISO/IEC 42001. Each requirement is met, partly met, a gap or the organisation's, computed from the inventory, gates, approvals and logs. The evidence pack downloads as Markdown or JSON, and each download is recorded in the audit log with its SHA-256."
+    },
+    {
+      "template": "code",
+      "size": "square",
+      "dark": true,
+      "eyebrow": "Compliance API (Enterprise)",
+      "headline": "The register, *as JSON*",
+      "code": "GET /admin/api/compliance\n    ?framework=eu-ai-act&days=90\n\nGET /admin/api/compliance/evidence\n    ?framework=iso-42001&days=90&format=json\n\n# response header: x-ct-sha256",
+      "sub": "framework: eu-ai-act, nist-ai-rmf or iso-42001. Each export is in the audit log with its hash.",
+      "alt": "Code card: two Control Tower admin API calls, one returning the compliance register for the EU AI Act over 90 days and one downloading the ISO/IEC 42001 evidence pack as JSON, with the x-ct-sha256 response header. The framework can be eu-ai-act, nist-ai-rmf or iso-42001, and each export is recorded in the audit log with its hash."
+    },
+    {
+      "template": "statement",
+      "size": "square",
+      "eyebrow": "Found the day after release",
+      "statement": "An agent allowed *no* tools showed as wide open. An empty allow-list allows nothing.",
+      "attribution": "Control Tower, fixed on main 7 October",
+      "alt": "Statement card: the day after release, an agent limited to no tools showed as wide open in the compliance check; an empty allow-list allows nothing, and that is now fixed on main."
+    }
+  ],
+  "linkedin": {
+    "text": "Your assessor asks which AI agents you run, who owns each one, and who approved what they did. Where does the answer come from?\n\nControl Tower v0.2.12 answers it from the gateway's own records. A new Compliance page (Enterprise) sets your coding assistants and agents against the EU AI Act, NIST AI RMF and ISO/IEC 42001. Each requirement is met, partly met, a gap, or the organisation's, computed from what Control Tower already sees: inventory, permissions, gates, approvals, logs, retention, the audit trail, single sign-on and alerts.\n\nConcrete checks: every agent has an owner. Every active agent is limited to named models and tools. At least two people can approve, and nobody approves their own request. Calls are kept at least six months. The audit log's hash chain verifies.\n\nThe evidence pack is Markdown or JSON, and each download goes in the audit log with its SHA-256, so the assessor's copy can be checked.\n\nBuilding in public: the day after release, an agent limited to no tools showed as wide open. An empty allow-list allows nothing; fixed on main.\n\nEvidence for an assessment, not a certification or legal advice. The gateway underneath is open source and self-hosted: https://github.com/joshmaster2165/controltower\n\nA ⭐ helps others find it.\n\n#AIGovernance #AIAgents #OpenSource",
+    "media": "cards"
+  },
+  "x": {
+    "posts": [
+      "Control Tower v0.2.12: a Compliance page that sets your AI agents and coding assistants against the EU AI Act, NIST AI RMF and ISO/IEC 42001.\n\nNot a questionnaire. Each requirement's status is computed from what the gateway already records.",
+      "The checks are boring on purpose:\n\nEvery agent has an owner.\nEvery active agent is limited to named models and tools.\n2+ approvers, nobody approves their own request.\nCalls kept 6+ months.\nThe audit log's hash chain verifies.",
+      "The evidence pack is Markdown or JSON, and each download goes in the audit log with its SHA-256.\n\nFound the day after release: an agent allowed no tools showed as wide open. An empty allow-list allows nothing. Fixed on main.",
+      "Compliance is in Enterprise; the gateway underneath is open source and self-hosted.\n\nA star helps others find it ⭐ https://github.com/joshmaster2165/controltower"
+    ],
+    "media": "cards"
+  },
+  "notes": "All claims from docs/changelog.md (0.2.12), docs/compliance.md and commit 50cedae. Compliance is Enterprise (ELv2) and the copy says so; the open-source gateway is what records the inventory, gates, approvals and hash-chained audit log it reads. The empty-allow-list fix (50cedae) is on main but not yet in a release, so the copy says 'fixed on main', not a version. 'Calls kept six months' = the Log retention check (CT_RETENTION_DAYS 183 or more, or 0). 'Not a certification or legal advice' is from the doc. Cards only: no recorder scene or still covers the Compliance page."
+}

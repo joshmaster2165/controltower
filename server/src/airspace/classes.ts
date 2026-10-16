@@ -71,7 +71,8 @@ export function defaultClass(s: SystemFacts): { class: TrustClass; reason: strin
     if ((s.subkind === 'openai-compatible' || s.subkind === 'ollama') && internalHost(s.url)) return { class: 'C', reason: 'A model running inside the company' };
     return { class: 'D', reason: 'A model provider outside the company: prompts leave it' };
   }
-  if (PRODUCTION.test(text)) return { class: 'A', reason: 'Its name says production or infrastructure' };
+  // By name only: hosts often carry an environment's name (svc-production-1234.example.app) whatever the system is.
+  if (PRODUCTION.test(s.name)) return { class: 'A', reason: 'Its name says production or infrastructure' };
   if (RESTRICTED.test(text) || s.subkind === 'database') return { class: 'B', reason: 'It holds customer, payment or other restricted data' };
   if (s.kind === 'observed') {
     if (s.subkind === 'model') return { class: 'D', reason: 'A model provider, called directly' };

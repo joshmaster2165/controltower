@@ -17,6 +17,9 @@ describe('trust classes', () => {
     expect(defaultClass({ id: 'provider:o', kind: 'model', name: 'Local', url: 'http://ollama:11434', subkind: 'ollama' }).class).toBe('C');
     expect(defaultClass({ id: 'tool:k8s', kind: 'mcp', name: 'k8s-prod', url: 'https://mcp.example.com' }).class).toBe('A');
     expect(defaultClass({ id: 'tool:crm', kind: 'mcp', name: 'Salesforce', url: 'https://mcp.salesforce.com' }).class).toBe('B');
+    // A host named for its environment isn't production; the name decides.
+    expect(defaultClass({ id: 'tool:led', kind: 'http', name: 'Billing ledger', url: 'https://ledger-production-b625.up.railway.app' }).class).toBe('B');
+    expect(defaultClass({ id: 'tool:wh', kind: 'http', name: 'Partner webhook', url: 'https://hooks-production.example.app' }).class).toBe('D');
     expect(defaultClass({ id: 'tool:gh', kind: 'mcp', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp' }).class).toBe('C');
     expect(defaultClass({ id: 'tool:w', kind: 'http', name: 'Weather', url: 'https://api.weather.com' }).class).toBe('D');
     expect(defaultClass({ id: 'observed:x', kind: 'observed', name: 'pastebin.com', url: 'pastebin.com', subkind: 'http' }).class).toBe('E');

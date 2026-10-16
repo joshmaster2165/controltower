@@ -1099,3 +1099,13 @@ migrations.push({
 ALTER TABLE approvals ADD COLUMN notified_at INTEGER;
 `,
 });
+
+migrations.push({
+  version: 42,
+  name: 'trust_classes',
+  sqlite: `
+CREATE TABLE trust_classes (
+  system_id TEXT PRIMARY KEY, class TEXT NOT NULL, set_by TEXT, updated_at INTEGER NOT NULL
+);
+`,
+});

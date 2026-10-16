@@ -51,7 +51,7 @@ The filter is live: an idle agent that makes a call, or an idle destination that
 
 ## Matrix: every agent against every destination
 
-**Map / Matrix** in the map controls turns the Airspace into a grid: a row per agent (or per team, at the organization level), a column per model, tool server and outside system, and a cell per connection. The map shows the shape of the traffic; the matrix shows every connection at once — at a thousand agents it is still one row each.
+**Matrix** in the map controls turns the Airspace into a grid: a row per agent (or per team, at the organization level), a column per model, tool server and outside system, and a cell per connection. The map shows the shape of the traffic; the matrix shows every connection at once — at a thousand agents it is still one row each.
 
 - **Calls / Spend / Blocked** shade the cells by the last day's volume. A green dot means the connection is live now.
 - The corner marker says what can stop it: a solid square is a gate that can deny, hold or limit; a ring is inspection only; a red outline is nothing. The header counts the connections in use that no gate can stop, and **Ungated only** keeps just the agents with one.
@@ -59,6 +59,43 @@ The filter is live: an idle agent that makes a call, or an idle destination that
 - Outside systems are striped: they are reported, not proxied, so they can't be gated.
 
 The matrix follows the view you are in and the Teams / Agents choice.
+
+## Classes: how deep agents reach, and where data could leave
+
+**Classes** in the map controls draws your systems as nested trust classes, like controlled airspace: the further in, the more it matters.
+
+| Class | What's in it | By default |
+|---|---|---|
+| **A · Production** | Live systems: deploys, infrastructure, production data stores | A name that says production, deploys, Kubernetes, Terraform, infrastructure, CI/CD or a cloud account |
+| **B · Restricted data** | Customer, payment, financial and personal records | A CRM, support desk, billing, payments, finance, HR or health system, or any database |
+| **C · Internal** | The company's own tools and code, and its agents | Code hosts, wikis, chat, monitoring, and anything on a private address (`10.x`, `*.internal`, a name with no dot), including models you run yourself |
+| **D · Vendors & SaaS** | Outside the company | Model providers, and other SaaS APIs |
+| **E · Public internet** | Unknown or public hosts | A host seen outside the gateway that nothing else describes |
+
+Agents sit in C. A line from an agent to a system is drawn inward (rising into B and A) or outward (leaving C through its wall), so you can see how deep each agent reaches (each agent's chip says *reaches B*) and which ways out it has. Where a line crosses the border, a diamond means something stands on it: an inspection gate (blue), an approval (amber) or a block (red, dotted). A dashed violet line goes around the gateway: it was [reported](http-apis.md), not proxied.
+
+**Exfiltration risk** (the panel on the right) is each agent that reaches an inner class and can send to an outer one: data could come from the inner system and leave by the outer one.
+
+| Level | When |
+|---|---|
+| **Critical** | Production or restricted data within reach, and calls outside the company that go around the gateway |
+| **High** | The same, out through the gateway with nothing on the way: no inspection, approval or block |
+| **Medium** | Internal systems within reach, and calls to the public internet with nothing on the way |
+| **Checked** | A way out with something on it, listed so you can see what covers it |
+
+Click a risk to light its path. As an admin, **Mask personal data and secrets on this path** adds an inspection gate on exactly that agent → destination path (personal data and credentials are masked before they leave). A risk that goes around the gateway can't be gated there: bring that traffic inside first.
+
+Click a system to see why it is in its class and which agents reach it. An admin can set any system's class, and set it back to its default; people with other roles see the classes but can't change them. Members see their own teams' agents.
+
+## Coverage: each team, and how much of its traffic is governed
+
+**Coverage** draws each team as a constellation: a star per agent, sized by its calls, inside a circle sized by the team's traffic. The ring around it is the team's AI traffic, split three ways:
+
+- **Gated** (blue): through the gateway, on a path a gate stands on (an approval, a block, limits or an inspection).
+- **Through the gateway, no gate** (dark blue): logged, counted and held to the agent's key (its models, tools and budget), but no gate.
+- **Around the gateway** (violet): seen outside it, where no gate can stand.
+
+A thin green arc outside the ring is how many of the team's people are [signed in from their computers](laptops.md). Click a team for its agents, each with its own split; click an agent to see it on the map. The panel on the right ranks the least-covered teams. Both views cover the last hour, day or week.
 
 ## What needs attention
 

@@ -59,6 +59,15 @@
         ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; node ee/license-service/preview.mjs"
       ],
       "port": 4810
+    },
+    {
+      "name": "controltower-demo-check",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        ". ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1; CT_DEMO=1 CT_PORT=4620 CT_DATA_DIR=data/demo-check-$(date +%s) CT_ADMIN_KEY=check-admin-key-0123456789 CT_UI_DIR=ui/dist CT_LOG_LEVEL=warn node server/dist/server.mjs"
+      ],
+      "port": 4620
     }
   ]
 }

@@ -19,9 +19,13 @@ import { MapSearch } from './airspace/MapSearch';
 import { ViewEditor } from './airspace/ViewEditor';
 import { AttentionPanel, type Attention } from './airspace/Attention';
 import { MatrixView } from './airspace/Matrix';
+import { ClassesView } from './airspace/Classes';
+import { CoverageView } from './airspace/Coverage';
 import type { MatrixData } from '../airspace/scene';
 
 const MODE_KEY = 'ct.airspace.mode';
+/** The map, or a view over it: the matrix, trust classes, coverage by team. */
+type Mode = 'map' | 'matrix' | 'classes' | 'coverage';
 
 const LEVEL_KEY = 'ct.airspace.level';
 
@@ -90,9 +94,10 @@ export function AirspacePage() {
   const [viewCounters, setViewCounters] = useState({ flights: 0, errors: 0, denied: 0, cost_nanousd: 0 });
   const [editing, setEditing] = useState<AirspaceView | 'new' | null>(null);
   // Map or matrix (every agent against every destination). The matrix is recomputed every second.
-  const [mode, setModeState] = useState<'map' | 'matrix'>(() => {
+  const [mode, setModeState] = useState<Mode>(() => {
     try {
-      return localStorage.getItem(MODE_KEY) === 'matrix' ? 'matrix' : 'map';
+      const m = localStorage.getItem(MODE_KEY);
+      return m === 'matrix' || m === 'classes' || m === 'coverage' ? m : 'map';
     } catch {
       return 'map';
     }
@@ -100,7 +105,7 @@ export function AirspacePage() {
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [matrix, setMatrix] = useState<MatrixData | null>(null);
-  const setMode = (m: 'map' | 'matrix') => {
+  const setMode = (m: Mode) => {
     setModeState(m);
     modeRef.current = m;
     if (m === 'matrix') setMatrix(sceneRef.current?.matrix() ?? null);
@@ -508,7 +513,7 @@ export function AirspacePage() {
   const shownCounters = view ? viewCounters : counters;
 
   return (
-    <div className={`airspace ${mode === 'matrix' ? 'matrix-mode' : ''}`} ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
+    <div className={`airspace ${mode !== 'map' ? 'matrix-mode' : ''}`} ref={hostRef} style={{ cursor: drawMode ? 'crosshair' : 'default' }}>
       {/* The top bar: counters and tools, then the map controls, on one left edge; clear of a side panel. */}
       <div className="air-top" ref={topBarRef} style={{ right: showTower || focusId || attentionOpen ? 388 : 16 }}>
         <div className={`hud ${view ? 'in-view' : ''}`}>
@@ -628,6 +633,8 @@ export function AirspacePage() {
               [
                 ['map', 'Map', 'Agents, the tower and destinations, with their connections'],
                 ['matrix', 'Matrix', 'Every agent against every destination: volume, live connections and which have a gate'],
+                ['classes', 'Classes', 'Trust classes, production to the public internet: how deep each agent reaches, and where data could leave'],
+                ['coverage', 'Coverage', 'Each team as a constellation, ringed by how much of its traffic a gate stands on'],
               ] as const
             ).map(([id, label, hint]) => (
               <button key={id} role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''} title={hint} onClick={() => setMode(id)}>
@@ -642,6 +649,8 @@ export function AirspacePage() {
               <span className="sep" />
             </>
           )}
+          {(mode === 'map' || mode === 'matrix') && (
+            <>
           {level.teams >= 2 && (
             <>
               <div className="seg sm layer-seg" role="radiogroup" aria-label="Draw agents by">
@@ -677,7 +686,9 @@ export function AirspacePage() {
               {hidden.agents + hidden.dests} idle · Show all
             </button>
           )}
-          <span className="sep" />
+            </>
+          )}
+          {mode === 'map' && <span className="sep" />}
           {mode === 'map' && (
           <>
           <div className="seg sm layer-seg" role="radiogroup" aria-label="Show connections">
@@ -869,6 +880,16 @@ export function AirspacePage() {
           }}
         />
       )}
+
+      {(mode === 'classes' || mode === 'coverage') && (() => {
+        const open = (keyId: string) => {
+          setMode('map');
+          const id = sceneRef.current?.reveal(`key:${keyId}`, 372);
+          if (id) revealed(id);
+        };
+        const r = showTower || focusId || attentionOpen ? 388 : 16;
+        return mode === 'classes' ? <ClassesView right={r} isAdmin={isAdmin} onOpenAgent={open} /> : <CoverageView right={r} onOpenAgent={open} />;
+      })()}
 
       {topology && isAdmin && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
       <div className={`legend ${legendOpen ? '' : 'closed'}`}>

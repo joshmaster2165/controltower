@@ -269,6 +269,15 @@ export interface RulesTable {
 }
 
 /** Your own guardrails: named sets of checks inspect gates use (guardrails/library.ts). */
+/** A system's trust class, set by an admin (the rest are defaults: server/src/airspace/classes.ts). */
+export interface TrustClassesTable {
+  /** provider:<id>, tool:<mcp/http/a2a id>, observed:<target id> */
+  system_id: string;
+  class: string;
+  set_by: string | null;
+  updated_at: number;
+}
+
 export interface GuardrailsTable {
   id: string;
   name: string;
@@ -555,6 +564,7 @@ export interface Database {
   rules: RulesTable;
   approvals: ApprovalsTable;
   guardrails: GuardrailsTable;
+  trust_classes: TrustClassesTable;
   tickets: TicketsTable;
   grants: GrantsTable;
   traffic_hourly: TrafficHourlyTable;

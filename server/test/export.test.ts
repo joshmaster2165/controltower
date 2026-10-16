@@ -10,8 +10,8 @@ const inv: DataflowInventory = {
   models: [{ id: 'd', name: 'smart', upstream: 'gpt-4o', provider: 'OpenAI', provider_kind: 'openai', zones: [], requests: 10 }],
   mcp_servers: [{ id: 'm', name: 'CRM', url: 'https://crm.example.com/mcp', health: 'ok', zones: ['CRM'], tools: [{ name: 'delete_contact', operation: 'admin' }] }],
   paths: [
-    { agent: 'sdr-agent', agent_id: 'k', team: 'sales', kind: 'model', target: 'smart', target_id: 'd', provider: 'OpenAI', tool: null, operation: null, requests: 10, errors: 1, blocked: 0, held: 0, spend_nanousd: 2_500_000_000, tokens: 900, last_seen: Date.UTC(2026, 8, 23, 11, 0), access: 'allow', access_gate: null, inspected_by: ['Block secrets'], key_permits: true, for_agents: [] },
-    { agent: 'sdr-agent', agent_id: 'k', team: 'sales', kind: 'tool', target: 'CRM', target_id: 'm', provider: 'MCP', tool: 'delete_contact', operation: 'admin', requests: 2, errors: 0, blocked: 0, held: 2, spend_nanousd: 0, tokens: 0, last_seen: Date.UTC(2026, 8, 23, 11, 30), access: 'hold', access_gate: 'Deletes need approval, "always"', inspected_by: [], key_permits: false, for_agents: [] },
+    { agent: 'sdr-agent', agent_id: 'k', team: 'sales', kind: 'model', target: 'smart', target_id: 'd', provider: 'OpenAI', tool: null, operation: null, requests: 10, errors: 1, blocked: 0, held: 0, spend_nanousd: 2_500_000_000, tokens: 900, last_seen: Date.UTC(2026, 8, 23, 11, 0), access: 'allow', access_gate: null, inspected_by: ['Block secrets'], inspects_sent: ['Block secrets'], key_permits: true, for_agents: [] },
+    { agent: 'sdr-agent', agent_id: 'k', team: 'sales', kind: 'tool', target: 'CRM', target_id: 'm', provider: 'MCP', tool: 'delete_contact', operation: 'admin', requests: 2, errors: 0, blocked: 0, held: 2, spend_nanousd: 0, tokens: 0, last_seen: Date.UTC(2026, 8, 23, 11, 30), access: 'hold', access_gate: 'Deletes need approval, "always"', inspected_by: [], inspects_sent: [], key_permits: false, for_agents: [] },
   ],
   gates: [{ id: 'g', name: 'Deletes | approval', effect: 'require_approval', covers: 'any agent → CRM', enabled: true, hits: 2 }],
   zones: [{ id: 'z', name: 'CRM', members: 1 }],

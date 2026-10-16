@@ -63,8 +63,9 @@ export async function classRoutes(app: FastifyInstance, ctx: AppContext): Promis
       if (!sys.has(systemId)) continue;
       const k = `${p.agent_id}>${systemId}`;
       const op: Op = p.kind === 'model' ? 'model' : ((p.operation as Op) ?? 'unknown');
-      const checked = p.access !== 'allow' || p.inspected_by.length > 0;
-      const said = p.access === 'deny' ? `blocked: ${p.access_gate}` : p.access === 'hold' ? `held for approval: ${p.access_gate}` : p.inspected_by.length ? `inspected by ${p.inspected_by.join(', ')}` : null;
+      // On the way out, only what checks the agent's own messages counts (a gate on results coming back doesn't).
+      const checked = p.access !== 'allow' || p.inspects_sent.length > 0;
+      const said = p.access === 'deny' ? `blocked: ${p.access_gate}` : p.access === 'hold' ? `held for approval: ${p.access_gate}` : p.inspects_sent.length ? `inspected by ${p.inspects_sent.join(', ')}` : null;
       const l = links.get(k);
       if (!l) {
         links.set(k, { agent_id: p.agent_id, system_id: systemId, calls: p.requests, op, mitigated: checked, mitigation: said, outside: false, state: p.access, gates: new Set(said ? [said] : []) });

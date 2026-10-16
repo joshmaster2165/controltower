@@ -39,6 +39,8 @@ export interface PathRow {
   access: 'allow' | 'deny' | 'hold';
   access_gate: string | null;
   inspected_by: string[];
+  /** Of those, the gates that check what the agent sends (input or both): what stands on data leaving by this path. */
+  inspects_sent: string[];
   key_permits: boolean;
   /** Agents these calls were made for (each chain's origin), when the agent was acting for others. */
   for_agents: string[];
@@ -129,7 +131,9 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
       if (r.deployment_id) modelUse.set(r.deployment_id, (modelUse.get(r.deployment_id) ?? 0) + Number(r.requests));
     }
     const decision = policy.evaluateWith(policy.rules, { flightId: '', key, target, args: undefined, estInputTokens: 0, projectedNanousd: 0 });
-    const inspect = policy.inspectors(key, target).map((g) => g.rule.name);
+    const inspectors = policy.inspectors(key, target);
+    const inspect = inspectors.map((g) => g.rule.name);
+    const sent = inspectors.filter((g) => g.compiled.direction !== 'output').map((g) => g.rule.name);
     const permits = isTool ? key.allowedMcp.some((g) => globMatch(g, r.model_requested)) : ctx.registry.keyMayUseModel(key, r.model_requested);
     paths.push({
       agent: key.name,
@@ -146,6 +150,7 @@ export async function buildInventory(ctx: AppContext, hours: number): Promise<Da
       access: decision.effect,
       access_gate: decision.rule?.name ?? null,
       inspected_by: inspect,
+      inspects_sent: sent,
       key_permits: permits,
       for_agents: r.origins ? String(r.origins).split(',').filter(Boolean).sort() : [],
     });

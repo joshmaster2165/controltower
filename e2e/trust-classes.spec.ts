@@ -75,6 +75,13 @@ test('classes: depth, a risk path out, an admin setting a class, and a gate that
   expect(risk().level === 'high' || !!risk().mitigation).toBe(true);
   expect(sys(provider).gate).toEqual({ target_kind: 'model', match: { deployments: [deploymentId] } });
 
+  // A gate on what comes back doesn't stand on the way out.
+  const back = await admin.post('/admin/api/rules', { name: `Check results ${run}`, target_kind: 'model', match: { keys: [keyId], deployments: [deploymentId] }, effect: 'inspect', config: { detectors: ['email'], action: 'mask', direction: 'output' }, priority: 41 });
+  expect(back.status, JSON.stringify(back.body)).toBe(201);
+  d = await classes();
+  expect(risk().mitigation ?? '').not.toContain(`Check results ${run}`);
+  await admin.del(`/admin/api/rules/${back.body.id ?? back.body.rule?.id}`);
+
   // The gate the panel adds: what this agent sends there is inspected. The risk is then checked (low).
   const g = await admin.post('/admin/api/rules', { name: `Mask data leaving ${run}`, target_kind: 'model', match: { keys: [keyId], deployments: [deploymentId] }, effect: 'inspect', config: { detectors: ['email', 'credit_card'], action: 'mask', direction: 'input' }, priority: 40 });
   expect(g.status, JSON.stringify(g.body)).toBe(201);

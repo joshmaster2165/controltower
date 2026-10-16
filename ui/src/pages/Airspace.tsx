@@ -451,7 +451,12 @@ export function AirspacePage() {
   useEffect(() => {
     const el = topBarRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => sceneRef.current?.setTopInset(el.offsetTop + el.offsetHeight);
+    const measure = () => {
+      const bottom = el.offsetTop + el.offsetHeight;
+      sceneRef.current?.setTopInset(bottom);
+      // The matrix, classes and coverage views start below it too.
+      hostRef.current?.style.setProperty('--air-top', `${bottom + 10}px`);
+    };
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     measure();

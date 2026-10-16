@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.13 — 16 October 2026
 
 - **Airspace: Classes.** A new view draws your systems as nested trust classes, from production (A) and restricted data (B) out through internal (C) and vendors (D) to the public internet (E), with each agent's links. It shows how deep each agent reaches, and lists its **exfiltration risks**: restricted or production data within reach, and a way out of the company with nothing on it, or around the gateway. One click adds an inspection gate on a risky path. Classes start from what each system is; an admin can set any of them. See [Classes](airspace.md#classes-how-deep-agents-reach-and-where-data-could-leave).
 - **Airspace: Coverage.** Each team as a constellation of its agents, ringed by how much of its traffic is gated, through the gateway with no gate, or around the gateway, with how many of its people are signed in from their computers. See [Coverage](airspace.md#coverage-each-team-and-how-much-of-its-traffic-is-governed).

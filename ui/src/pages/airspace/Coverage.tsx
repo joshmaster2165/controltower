@@ -59,12 +59,6 @@ const spiral = (i: number, n: number, r: number): [number, number] => {
   const a = i * 2.399963;
   return [rr * Math.cos(a), rr * Math.sin(a)];
 };
-/** Background stars, from a fixed seed. */
-const SKY = (() => {
-  let seed = 11;
-  const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-  return Array.from({ length: 140 }, () => [rnd(), rnd(), rnd()] as const);
-})();
 
 export function CoverageView({ right, onOpenAgent }: { right: number; onOpenAgent: (keyId: string) => void }) {
   const [hours, setHours] = useState(24);
@@ -148,9 +142,6 @@ export function CoverageView({ right, onOpenAgent }: { right: number; onOpenAgen
             role="img"
             aria-label="Teams as constellations, each with a ring showing how much of its traffic is gated"
           >
-            {SKY.map(([x, y, b], i) => (
-              <circle key={i} cx={x * W} cy={y * placed.H} r={0.3 + b * 1.1} className="sky" opacity={0.25 + b * 0.4} />
-            ))}
             {placed.teams.map(({ t, r, cx, cy }) => {
               const s = shares(t);
               const ring = r + 10;

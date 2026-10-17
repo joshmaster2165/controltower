@@ -469,7 +469,9 @@ $out`);
     await sleep(2000);
     await screenshot('6-folder-open');
     await dump('c-after-folder');
-    const rule = await api('POST', '/admin/api/rules', { name: REMOTE ? `Sonnet needs a manager (${PERSON})` : 'Sonnet needs a manager', target_kind: 'model', match: { models: [MODELS.claude], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
+    // Local, Claude Desktop picks Sonnet; on a deployment it picks whichever of the key's models it likes (Haiku, on the
+    // showcase): there, every model call of this machine's key is held.
+    const rule = await api('POST', '/admin/api/rules', { name: REMOTE ? `Laptop model calls need a manager (${PERSON})` : 'Sonnet needs a manager', target_kind: 'model', match: { ...(REMOTE ? {} : { models: [MODELS.claude] }), keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
     const sentAt = seen.length;
     // The message box keeps the focus: clear what an earlier step typed, then the message.
     // (Maximized first: the runner's screen is narrower than Claude's window, which put its send button off screen.)
@@ -506,6 +508,11 @@ foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send me
     c('Claude Desktop on Windows: a held message says so in the conversation, while it waits', !!card && /waiting for approval/.test(waiting), card ? `card ${card.id.slice(-6)}; ${(waiting.match(/.*waiting for approval.*/)?.[0] ?? 'no "waiting" line in the window').slice(0, 200)}; ${steps.join('; ')}` : `nothing held (${seen.slice(sentAt).filter((x) => x.path.startsWith('/v1/messages')).length} model calls); ${steps.join('; ')}`);
     if (card) {
       await api('POST', `/admin/api/approvals/${card.id}/decide`, { action: 'approve' });
+      // Anything else of the person's held meanwhile (a background call, like the chat's title): approved too.
+      for (let i = 0; i < 3; i++) {
+        await sleep(1500);
+        for (const a of ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []) as Array<{ id: string; requester: string | null }>) if (a.requester === PERSON) await api('POST', `/admin/api/approvals/${a.id}/decide`, { action: 'approve' });
+      }
       await sleep(8000);
       await screenshot('8-approved');
       await dump('e-approved');

@@ -159,6 +159,22 @@ describe('knowing about new versions', () => {
     const again = new Updates({ version: '0.2.13', db: db.write, check: false, url: '', dataDir: dir, dialect: 'sqlite' });
     await again.start();
     expect((await again.status()).latest).toBe('0.3.0');
+    // After an upgrade, the feed saved by the old version is checked again soon (not a day later).
+    let timers: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, ms: number) => {
+      timers.push(ms);
+      return realSetTimeout(() => undefined, 0);
+    }) as unknown as typeof setTimeout;
+    try {
+      await new Updates({ version: '0.2.13', db: db.write, check: true, url: 'x', dataDir: dir, dialect: 'sqlite' }).start();
+      await new Updates({ version: '0.3.0', db: db.write, check: true, url: 'x', dataDir: dir, dialect: 'sqlite' }).start();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    expect(timers[0]).toBeGreaterThan(3600_000); // same version, checked just now: a day after
+    expect(timers[1]).toBe(60_000); // a new version: a minute after start
+    timers = [];
     // A feed that can't be reached: no news, and why.
     const down = new Updates({ version: '0.2.13', db: db.write, check: true, url: 'x', dataDir: dir, dialect: 'sqlite', fetcher: (async () => new Response('nope', { status: 503 })) as unknown as typeof fetch });
     await down.check();

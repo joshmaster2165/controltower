@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Updates:** after an upgrade, the release feed is checked again a minute after start. It waited up to a day, showing the old version as the latest meanwhile.
+
 ## 0.2.14 — 17 October 2026
 
 - **Updates.** Control Tower tells admins when a new version is out: a banner (louder for a security fix) and an **Updates** page with what changed since your version and the steps for where it runs. It checks a release feed once a day, sending only its version number (`CT_UPDATE_CHECK=off` turns it off). See [Updates](install.md#updates).

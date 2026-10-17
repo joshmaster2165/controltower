@@ -177,13 +177,16 @@ export class Updates {
 
   /** Last feed seen (kept across restarts), then a check a minute after start and every day. */
   async start(): Promise<void> {
-    const saved = await getJson<{ feed: Feed; at: number }>(this.o.db, 'updates.feed');
+    const saved = await getJson<{ feed: Feed; at: number; version?: string }>(this.o.db, 'updates.feed');
     if (saved) {
       this.feed = parseFeed(saved.feed);
       this.checkedAt = saved.at;
     }
     if (!this.o.check) return;
-    const due = this.checkedAt === null || Date.now() - this.checkedAt > DAY ? 60_000 : this.checkedAt + DAY - Date.now();
+    // Soon after start when there's no recent check, or it was made by another version (an upgrade: the feed it saw
+    // may not know this one yet); otherwise a day after the last.
+    const stale = this.checkedAt === null || Date.now() - this.checkedAt > DAY || saved?.version !== this.o.version || (this.feed !== null && compareVersions(this.feed.latest, this.o.version) < 0);
+    const due = stale ? 60_000 : this.checkedAt! + DAY - Date.now();
     this.timer = setTimeout(() => void this.loop(), due);
     this.timer.unref();
   }
@@ -206,7 +209,7 @@ export class Updates {
       this.feed = feed;
       this.checkedAt = Date.now();
       this.error = null;
-      await putJson(this.o.db, 'updates.feed', { feed, at: this.checkedAt });
+      await putJson(this.o.db, 'updates.feed', { feed, at: this.checkedAt, version: this.o.version });
       const newer = this.newer();
       if (newer.length && was !== feed.latest) this.o.log?.(`Control Tower ${feed.latest} is out (this is ${this.o.version})${newer.some((x) => x.security) ? ': it includes a security fix' : ''}. See Updates in the console.`);
     } catch (err) {

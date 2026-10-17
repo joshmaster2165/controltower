@@ -109,6 +109,9 @@ async function migratePostgres(pool: pg.Pool, upgrade?: UpgradeOptions): Promise
 }
 
 const PRAGMAS_WRITE = [
+  // First: a new database only takes this before anything (WAL mode included) writes its header. Databases created
+  // before it was first stay in no-vacuum mode (space is reused, not returned) until they're rewritten.
+  'auto_vacuum = INCREMENTAL',
   'journal_mode = WAL',
   'synchronous = NORMAL',
   'foreign_keys = ON',
@@ -116,7 +119,6 @@ const PRAGMAS_WRITE = [
   'cache_size = -65536',
   'mmap_size = 268435456',
   'wal_autocheckpoint = 2000',
-  'auto_vacuum = INCREMENTAL',
   'temp_store = MEMORY',
 ];
 

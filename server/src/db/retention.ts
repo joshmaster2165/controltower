@@ -65,7 +65,28 @@ export async function applyRetention(db: Kysely<Database>, policy: RetentionPoli
   await run('tickets', sql`expires_at < ${now - 7 * DAY}`);
   await run('grants', sql`expires_at < ${now - 7 * DAY}`);
   await run('sessions', sql`expires_at < ${now}`);
+  // SQLite: give the space deleted rows held back to the disk, a little at a time (the file otherwise stays as large
+  // as it ever was). Databases Control Tower created are in incremental auto-vacuum mode.
+  if (currentDialect() === 'sqlite' && Object.keys(out).length) {
+    const freed = await reclaimSqlite(db);
+    if (freed) out.pages_returned_to_disk = freed;
+  }
   return out;
+}
+
+/** Return free pages to the disk in chunks of 2,000 pages (8 MB at 4 KB pages), yielding between them. */
+export async function reclaimSqlite(db: Kysely<Database>): Promise<number> {
+  const mode = Number(Object.values((await sql`PRAGMA auto_vacuum`.execute(db)).rows[0] ?? {})[0] ?? 0);
+  if (mode !== 2) return 0;
+  let total = 0;
+  for (let i = 0; i < 100_000; i++) {
+    const free = Number(Object.values((await sql`PRAGMA freelist_count`.execute(db)).rows[0] ?? {})[0] ?? 0);
+    if (!free) break;
+    await sql`PRAGMA incremental_vacuum(2000)`.execute(db);
+    total += Math.min(free, 2000);
+    await new Promise((res) => setImmediate(res));
+  }
+  return total;
 }
 
 /** Runs a pass shortly after start and then every hour. */

@@ -10,6 +10,9 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 - **Updates.** Control Tower tells admins when a new version is out: a banner (louder for a security fix) and an **Updates** page with what changed since your version and the steps for where it runs. It checks a release feed once a day, sending only its version number (`CT_UPDATE_CHECK=off` turns it off). See [Updates](install.md#updates).
 - **Safer upgrades.** Before a new version changes the SQLite database, it backs it up to `/data/backups/` (and won't start without room for the copy). An older version refuses to start on data a newer one upgraded, and says which backup to restore; `--restore <backup>` puts one back. Each upgrade is recorded. Every change is now tested by upgrading real data from earlier releases (SQLite and Postgres) and going back.
 - The console warns at the top when the data directory isn't on a persistent volume (an update would start from scratch).
+- **Storage gives space back.** A new install's SQLite database now returns the space of records its retention deletes to the disk, a little at a time. A database created by an earlier version reuses that space for new records instead, so it stops growing once retention starts deleting, but its file doesn't shrink. (Its auto-vacuum setting was written too late to take effect.)
+- **Model health:** a model the provider lists only by a dated name (Anthropic lists `claude-sonnet-4-5-20250929`, and serves `claude-sonnet-4-5`) was marked missing on the map. It no longer is.
+- **Classes:** the risk you selected stays selected when the list re-sorts (after adding a gate, it jumped to another).
 
 ## 0.2.13 — 16 October 2026
 

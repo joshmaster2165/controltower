@@ -126,13 +126,13 @@ const mb = (n: number) => `${Math.ceil(n / 1048576).toLocaleString()} MB`;
 export function backupBeforeMigrate(raw: Database.Database, file: string, o: { fromSchema: number; fromVersion: string | null; toVersion: string; keep: number }): string {
   const dir = path.join(path.dirname(file), BACKUP_DIR);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  let size = 0;
-  for (const f of [file, `${file}-wal`]) {
-    try {
-      size += fs.statSync(f).size;
-    } catch {
-      /* no WAL yet */
-    }
+  // The copy holds the pages in use (free ones are left out), plus whatever the write-ahead log still holds.
+  const pageSize = Number(raw.pragma('page_size', { simple: true }));
+  let size = (Number(raw.pragma('page_count', { simple: true })) - Number(raw.pragma('freelist_count', { simple: true }))) * pageSize;
+  try {
+    size += fs.statSync(`${file}-wal`).size;
+  } catch {
+    /* no WAL */
   }
   const free = freeBytes(dir);
   // The copy is at most the database's size (VACUUM drops free pages), plus room for the migration itself.

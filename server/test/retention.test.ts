@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openSqlite } from '../src/db/index.js';
 import { applyRetention } from '../src/db/retention.js';
@@ -32,5 +35,26 @@ describe('retention', () => {
     flight.run('ancient', now - 900 * DAY);
     expect((await applyRetention(db.write, { flightsDays: 0, eventsDays: 0 }, now)).flights).toBeUndefined();
     expect(count('SELECT COUNT(*) AS n FROM flights')).toBe(6);
+  });
+
+  it('gives the space deleted rows held back to the disk (SQLite)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-retention-'));
+    const db = openSqlite(dir);
+    const now = Date.UTC(2026, 8, 24, 12);
+    const event = db.raw.prepare("INSERT INTO flight_events (flight_id, seq, ts, type, payload) VALUES (?, 0, ?, 'flight.completed', ?)");
+    const pad = JSON.stringify({ text: 'x'.repeat(4000) });
+    db.raw.transaction(() => {
+      for (let i = 0; i < 5000; i++) event.run(`e_${i}`, now - 30 * DAY, pad);
+    })();
+    db.raw.pragma('wal_checkpoint(TRUNCATE)');
+    const file = path.join(dir, 'controltower.db');
+    const before = fs.statSync(file).size;
+    const deleted = await applyRetention(db.write, { flightsDays: 30, eventsDays: 7 }, now);
+    db.raw.pragma('wal_checkpoint(TRUNCATE)');
+    const after = fs.statSync(file).size;
+    expect(deleted.flight_events).toBe(5000);
+    expect(deleted.pages_returned_to_disk).toBeGreaterThan(1000);
+    expect(after).toBeLessThan(before / 4);
+    db.close();
   });
 });

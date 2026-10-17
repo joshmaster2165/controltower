@@ -68,6 +68,8 @@ export interface AppContext {
   tokens?: import('./ee/tokens.js').TokenAuth;
   /** Laptops signed in as people, for Claude Code, Claude Desktop and Codex (Enterprise). */
   devices?: import('./ee/devices.js').DeviceAuth;
+  /** New versions: the release feed, and how to update where this runs. */
+  updates?: import('./updates/updates.js').Updates;
   /** The audit log to SIEMs (Enterprise). */
   auditShipper?: import('./ee/siem.js').AuditShipper;
   /** Cached answers, for models that opt in. */

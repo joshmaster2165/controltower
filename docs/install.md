@@ -144,15 +144,42 @@ pnpm start --config config.yaml     # same flags as the container
 
 For development: `CT_DEMO=1 pnpm dev` runs the server with reload, and `pnpm dev:ui` serves the console with hot reload on <http://localhost:5173>.
 
-## Upgrading
+## Updates
 
-Pull the new image and restart with the same volume. Database migrations run at startup, forward only. Take a copy of `/data` first if you want to be able to roll back.
+Control Tower tells admins when a new version is out: a banner at the top of the console (louder for a security fix), and the **Updates** page with what changed since your version and the exact steps for where it runs (Docker, Compose, Kubernetes, Railway, Render, Fly). It checks once a day, sending only its version number; `CT_UPDATE_CHECK=off` turns the check off, and an install that can't reach the internet just never hears.
+
+### Updating
+
+Start the new version on the same data: the same volume (or Postgres database) and settings. Nothing is lost. At startup, the new version upgrades the database in place, forward only.
 
 ```bash
 docker pull ghcr.io/joshmaster2165/controltower:latest
 docker rm -f controltower && docker run -d --name controltower -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/controltower:latest
 ```
 
+On Kubernetes, `helm upgrade` ([Kubernetes](kubernetes.md)); on Railway, set the service's image to the new version (or redeploy, if it follows `:latest`).
+
+What keeps an update safe:
+
+- **A backup first (SQLite).** When a new version is about to change the database, it first copies it to `/data/backups/`, after checking there's room (it won't start without room for the copy, and says how much it needs). The newest three are kept (`CT_BACKUP_KEEP`). With Postgres, take a snapshot with your provider before updating if you want to be able to go back.
+- **No silent downgrades.** An older version refuses to start on data a newer one has upgraded, and says which version to run, or which backup to restore.
+- **A record.** **Updates** lists the backups and each upgrade: from which version, to which, and whether the database changed.
+- **Tested.** Every change is tested by upgrading real data made by earlier releases (SQLite and Postgres) to it, and going back.
+
+Without a volume, a container's data goes with it: an update (or a new container) starts from scratch. The console says so at the top until `/data` is on a persistent volume.
+
+### Going back
+
+Stop Control Tower, put the backup back with the version you have, then start the version the backup came from:
+
+```bash
+docker stop controltower
+docker run --rm -v controltower-data:/data ghcr.io/joshmaster2165/controltower:<current version> --restore <backup file>
+docker rm -f controltower && docker run -d --name controltower -p 4000:4000 -v controltower-data:/data ghcr.io/joshmaster2165/controltower:<older version>
+```
+
+The backup's name says which versions it sits between, for example `controltower-schema41-v0.2.12-before-v0.2.14-….db`. What was written after the upgrade is lost; the database it replaces is kept in `/data/backups/`.
+
 ## Backups
 
-Back up the whole data directory: `controltower.db` (and its `-wal` / `-shm` files while running) and `master.key`. Without `master.key`, the stored provider and tool-server credentials cannot be decrypted. Alternatively, supply the key yourself with `CT_MASTER_KEY` (base64, 32 bytes) and keep it in your secret store.
+Updates back the database up by themselves ([above](#updates)). For your own backups, copy the whole data directory: `controltower.db` (and its `-wal` / `-shm` files while running) and `master.key`. Without `master.key`, the stored provider and tool-server credentials cannot be decrypted. Alternatively, supply the key yourself with `CT_MASTER_KEY` (base64, 32 bytes) and keep it in your secret store.

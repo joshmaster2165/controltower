@@ -17,6 +17,8 @@ controltower [options]            (docker: pass the same options after the image
                         (with no URL: uses CT_DATABASE_URL)
   --support-bundle [file]  write a report for whoever helps you — version, settings by name,
                         database, health, error counts; no keys, prompts or names — then exit
+  --restore <file>      put a backup taken before an upgrade back in place of the database (SQLite),
+                        keeping the current one beside it; stop the server first. See Install → Updates
   --version, -v         print the version
   --help, -h            this list
 ```
@@ -98,6 +100,10 @@ Until an admin exists, the server prints a **setup code** in its startup log, an
 | `CT_EVENT_RETENTION_DAYS` | `7` | Days to keep each flight's event trail |
 | `CT_LICENSE_KEY` | unset | A [Control Tower Enterprise](enterprise.md) license key. Set here, it can't be changed in the console |
 | `CT_LICENSE_SERVER` | the license service | Where renewed keys come from, daily; the call carries the key, this license year's request count and the number of seats in use ([what's sent](enterprise.md#requests-a-year)). `off` never calls out (air-gapped) |
+| `CT_UPDATE_CHECK` | `on` | Once a day, fetch the release feed to tell admins about new versions ([Updates](install.md#updates)). Sends only this version, in the User-Agent. `off` never checks |
+| `CT_UPDATE_URL` | `https://agentcontroltower.app/releases.json` | Where the release feed is read from (a mirror, for example) |
+| `CT_BACKUP_BEFORE_UPGRADE` | `on` | Before a new version changes the SQLite database, copy it to `<data>/backups` (it won't start without room for the copy). `off` upgrades without one |
+| `CT_BACKUP_KEEP` | `3` | How many of those backups to keep |
 | `CT_ROLE`, `CT_REGION`, `CT_CONTROL_PLANE_URL`, `CT_REGION_TOKEN`, `CT_CONFIG_POLL_S` | unset | Run as a region of a [multi-region](multi-region.md#environment) deployment (Enterprise) |
 | `CT_AUDIT_RETENTION_DAYS` | `365` | Days to keep the [audit log](audit.md) (`0` = forever). The oldest events go first, so the rest still verifies |
 | `CT_SESSION_TTL_MS` | 7 days | Console session lifetime |

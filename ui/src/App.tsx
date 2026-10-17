@@ -20,6 +20,7 @@ import { GuardrailsPage } from './pages/Guardrails';
 import { UsersPage, ChangePassword } from './pages/Users';
 import { AuditPage } from './ee/Audit';
 import { CompliancePage } from './ee/Compliance';
+import { UpdateBanner, UpdatesPage } from './pages/Updates';
 import { AgentIdentityPage } from './ee/AgentIdentity';
 import { SecretManagersPage } from './ee/SecretManagers';
 import { TeamsPage } from './ee/Teams';
@@ -70,6 +71,7 @@ const NAV: Array<{ group: string; items: Array<{ id: Route; label: string; icon:
       { id: 'audit', label: 'Audit log', icon: 'list', hint: 'Who changed what, and who tried' },
       { id: 'compliance', label: 'Compliance', icon: 'shield', hint: 'EU AI Act, NIST AI RMF and ISO/IEC 42001: status and evidence' },
       { id: 'license', label: 'License', icon: 'shield', hint: 'Control Tower Enterprise' },
+      { id: 'updates', label: 'Updates', icon: 'download', hint: 'New versions, and how to update where this runs (your data is backed up first)' },
     ],
   },
   {
@@ -131,7 +133,7 @@ export function App() {
   const navShows = (id: string) =>
     id === 'regions'
       ? role === 'admin' && !status?.region
-      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'compliance', 'agent-identity', 'secret-managers', 'laptops'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
+      : role === 'member' ? MEMBER_PAGES.has(id) && (id !== 'teams' || hasTeams) : ['users', 'audit', 'compliance', 'agent-identity', 'secret-managers', 'laptops', 'updates'].includes(id) ? role === 'admin' : id === 'teams' ? role === 'admin' || hasTeams : true;
   const manages = me.scope && me.scope.manage !== 'all' ? me.scope.manage : [];
 
   const logout = async () => {
@@ -266,6 +268,7 @@ export function App() {
           </div>
         )}
         <LicenseBanner />
+        {!status?.region && <UpdateBanner isAdmin={role === 'admin'} />}
         {status?.region && (
           <div className="role-banner" role="status">
             This is region <b>{status.region.region}</b>: its configuration comes from the control plane at {status.region.control_plane} — change it there.
@@ -310,6 +313,7 @@ export function App() {
         {route === 'users' && role === 'admin' && <UsersPage />}
         {route === 'audit' && role === 'admin' && <AuditPage />}
         {route === 'compliance' && role === 'admin' && <CompliancePage />}
+        {route === 'updates' && role === 'admin' && <UpdatesPage />}
         {route === 'agent-identity' && role === 'admin' && <AgentIdentityPage />}
         {route === 'secret-managers' && role === 'admin' && <SecretManagersPage />}
         {route === 'laptops' && role === 'admin' && <LaptopsPage />}

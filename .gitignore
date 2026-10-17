@@ -15,4 +15,5 @@ playwright-report/
 test-results/
 dist-npm/
 site/docs/
+site/releases.json
 load-report/

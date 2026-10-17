@@ -12,13 +12,18 @@ Control Tower sits between your AI agents and the models, tools and APIs they ca
 
 You run Control Tower yourself, with Docker, Kubernetes or Node. Calls go from your servers straight to your providers and tools. Control Tower records them in your own database (SQLite, or your Postgres) and nowhere else.
 
-The only connection to us is the **license renewal** (Enterprise only). Once a day (hourly around its renewal date), a server that can reach `license.agentcontroltower.app` sends:
+Two connections reach us, and neither carries anything about your agents, calls, configuration or people:
+
+- **The update check** (every install). Once a day, Control Tower fetches `agentcontroltower.app/releases.json`, the list of releases, to tell admins when a new version is out ([Updates](install.md#updates)). The request carries its version number in the User-Agent and nothing else. `CT_UPDATE_CHECK=off` turns it off.
+- **The license renewal** (Enterprise only), described next.
+
+Once a day (hourly around its renewal date), an Enterprise server that can reach `license.agentcontroltower.app` sends:
 - its license key;
 - the year's request count;
 - how many people use seats;
 - whether its clock was found set back, and by how much.
 
-Nothing about your agents, calls, configuration or people is sent. Set `CT_LICENSE_SERVER=off` and it never calls out. License keys are checked offline, so it works fully air-gapped.
+Nothing about your agents, calls, configuration or people is sent. Set `CT_LICENSE_SERVER=off` and `CT_UPDATE_CHECK=off` and it never calls out. License keys are checked offline, so it works fully air-gapped.
 
 There is no usage telemetry, crash reporting or analytics, in the product or on our website.
 

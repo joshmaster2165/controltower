@@ -1224,3 +1224,20 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .cov-bar .gated { background: var(--sc-signal); }
 .cov-bar .open { background: var(--sc-open); }
 .cov-bar .out { background: var(--sc-out); }
+
+/* Updates */
+.updates .card { margin-bottom: 16px; }
+.updates h3 { margin: 0 0 10px; font-size: 15px; }
+.up-now { display: grid; grid-template-columns: auto auto 1fr; gap: 28px; align-items: start; }
+@media (max-width: 760px) { .up-now { grid-template-columns: 1fr; gap: 12px; } }
+.up-k { font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+.up-v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 8px; }
+.up-checked { font-size: 13px; color: var(--text-dim); }
+.up-releases { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.up-releases li { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; font-size: 13.5px; }
+.up-rel-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.up-rel-h a { margin-left: auto; font-size: 12.5px; }
+.up-note { margin-top: 4px; padding: 6px 10px; background: #fff8ec; border-radius: 6px; font-size: 12.5px; }
+.up-steps { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; }
+.tag.danger { background: #fdecef; color: #b4233a; }
+.tag.ok { background: #e7f6ef; color: #12734d; }

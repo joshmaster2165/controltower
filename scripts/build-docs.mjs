@@ -7,6 +7,7 @@
  *
  *   pnpm docs:build        (the Pages workflow runs it before publishing)
  */
+import { releaseFeed } from './release-feed.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -205,3 +206,7 @@ fs.writeFileSync(path.join(OUT, 'assets/search-index.js'), `window.CT_DOCS_INDEX
 fs.copyFileSync(path.join(REPO, 'scripts/docs-site/docs.css'), path.join(OUT, 'assets/docs.css'));
 fs.copyFileSync(path.join(REPO, 'scripts/docs-site/docs.js'), path.join(OUT, 'assets/docs.js'));
 console.log(`docs site: ${pages.length} pages → ${path.relative(REPO, OUT)}/`);
+// The release feed running servers check for new versions (site/releases.json, beside the landing page).
+const feed = releaseFeed(fs.readFileSync(path.join(SRC, 'changelog.md'), 'utf8'));
+fs.writeFileSync(path.join(REPO, 'site/releases.json'), `${JSON.stringify(feed, null, 1)}\n`);
+console.log(`release feed: ${feed.releases.length} releases, latest ${feed.latest} → site/releases.json`);

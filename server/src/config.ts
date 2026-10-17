@@ -77,6 +77,13 @@ export interface Config {
   /** Console sign-in created from the admin key (UI_USERNAME / UI_PASSWORD). */
   uiUsername: string;
   uiPassword: string | undefined;
+  /**
+   * Updates (CT_UPDATE_CHECK, default on): once a day, fetch the release feed (CT_UPDATE_URL) to tell admins when a new
+   * version is out. Sends nothing but this version, in the User-Agent.
+   */
+  updates: { check: boolean; url: string };
+  /** Before a new version upgrades the SQLite database, copy it to <data>/backups (CT_BACKUP_BEFORE_UPGRADE, default on), keeping the newest CT_BACKUP_KEEP. */
+  backupBeforeUpgrade: { enabled: boolean; keep: number };
   /** Settings seen but not used, reported once at startup. */
   notices: string[];
 }
@@ -178,6 +185,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     loginIpRpm: int(env.CT_LOGIN_IP_RPM, Math.max(60, int(env.CT_LOGIN_RPM, 10) * 2)),
     uiUsername: env.UI_USERNAME || 'admin',
     uiPassword: env.UI_PASSWORD || undefined,
+    updates: { check: !/^(off|0|false|no)$/i.test(env.CT_UPDATE_CHECK ?? ''), url: env.CT_UPDATE_URL || 'https://agentcontroltower.app/releases.json' },
+    backupBeforeUpgrade: { enabled: !/^(off|0|false|no)$/i.test(env.CT_BACKUP_BEFORE_UPGRADE ?? ''), keep: Math.max(1, int(env.CT_BACKUP_KEEP, 3)) },
     notices,
   };
 }

@@ -34,6 +34,7 @@ const ROLE_MAY: Record<Exclude<Role, 'admin'>, Set<string>> = {
 };
 /** Reads only admins may make: people and their roles, the audit log, identity-provider and credential settings. */
 const ADMIN_ONLY_READS = new Set([
+  'GET /admin/api/updates',
   'GET /admin/api/users',
   'GET /admin/api/audit',
   'GET /admin/api/audit/export',

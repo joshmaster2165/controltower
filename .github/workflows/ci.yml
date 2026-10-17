@@ -90,7 +90,7 @@ jobs:
           if-no-files-found: ignore
 
   image:
-    needs: [test, postgres]
+    needs: [test, postgres, upgrade]
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -183,6 +183,44 @@ jobs:
             --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
           echo "::notice::Signed ghcr.io/${{ github.repository }}@${DIGEST}"
+
+  # A real upgrade, from released versions to this build, on data they made (the demo fleet and setup of our own):
+  # nothing lost, the audit chain intact, a backup first; then back to the old version from that backup (SQLite).
+  upgrade:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { from: '0.2.12', db: sqlite }
+          - { from: '0.2.10', db: sqlite }
+          - { from: '0.2.12', db: postgres }
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the release tags
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: CT_TEST_LICENSE_KEYS=1 pnpm build
+      - run: git worktree add --detach "$RUNNER_TEMP/old" "v${{ matrix.from }}"
+      - run: pnpm install --frozen-lockfile && CT_TEST_LICENSE_KEYS=1 pnpm build
+        working-directory: ${{ runner.temp }}/old
+      - run: npx tsx scripts/upgrade/upgrade-test.mts
+        env:
+          OLD_DIR: ${{ runner.temp }}/old
+          FROM: ${{ matrix.from }}
+          UPGRADE_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://postgres:ci@localhost:5432/postgres' || '' }}
 
   # Helm chart: lint, refuse settings that lose data, then install on a kind cluster the way people will —
   # one pod on SQLite, and two on Postgres and Redis — with the image this commit builds. Published on tags.

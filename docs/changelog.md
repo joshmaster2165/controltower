@@ -7,6 +7,9 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 - **Airspace:** the **Get started** checklist shows on the map only. In Classes and Coverage it sat over the side panel's risk list and buttons.
 - **Coverage** fits the panel it's in: as many columns of teams as fit, no sideways scrolling on a laptop screen.
 - The [Airspace guide](airspace.md#classes-how-deep-agents-reach-and-where-data-could-leave) shows Classes and Coverage.
+- **Updates.** Control Tower tells admins when a new version is out: a banner (louder for a security fix) and an **Updates** page with what changed since your version and the steps for where it runs. It checks a release feed once a day, sending only its version number (`CT_UPDATE_CHECK=off` turns it off). See [Updates](install.md#updates).
+- **Safer upgrades.** Before a new version changes the SQLite database, it backs it up to `/data/backups/` (and won't start without room for the copy). An older version refuses to start on data a newer one upgraded, and says which backup to restore; `--restore <backup>` puts one back. Each upgrade is recorded. Every change is now tested by upgrading real data from earlier releases (SQLite and Postgres) and going back.
+- The console warns at the top when the data directory isn't on a persistent volume (an update would start from scratch).
 
 ## 0.2.13 — 16 October 2026
 

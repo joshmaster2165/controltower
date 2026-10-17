@@ -71,6 +71,9 @@ import { LimitExchange, SharedLimiter } from './ee/multi-region/shared-limits.js
 import { UsageSync } from './ee/multi-region/usage-sync.js';
 import { LICENSE_STORE, Licensing } from './ee/license.js';
 import { RequesterMail } from './policy/requester-mail.js';
+import Database from 'better-sqlite3';
+import { BackupSpaceError, NewerDataError, restoreBackup } from './db/upgrade.js';
+import { recordStart, Updates } from './updates/updates.js';
 
 const USAGE = `Control Tower — self-hosted AI gateway with a live map of your agents.
 
@@ -88,6 +91,8 @@ Usage: controltower [options]            (docker: pass the same options after th
   --support-bundle [file]  write a report for whoever helps you with a problem — version, settings
                         by name, database, health and error counts; no keys, prompts or names —
                         to the file, or print it; then exit
+  --restore <file>      put a backup back in place of the database (SQLite; backups are in CT_DATA_DIR/backups,
+                        taken before each upgrade); the current database is kept beside them. Stop the server first
   --rotate-master-key   re-encrypt every stored credential under a new master key (CT_NEW_MASTER_KEY,
                         or a new one generated into CT_DATA_DIR/master.key); stop every instance first
   --detailed_debug      verbose logs (also --debug)
@@ -145,6 +150,29 @@ async function main(): Promise<void> {
     } else process.stdout.write(`Re-encrypted ${total} secret(s) under master key ${keyId(newKey)} (was ${keyId(oldKey)}). Set CT_MASTER_KEY to the value of CT_NEW_MASTER_KEY on every instance, then start them.\n`);
     process.exit(0);
   }
+  if (argv.includes('--restore')) {
+    const arg = argv[argv.indexOf('--restore') + 1];
+    if (!arg || arg.startsWith('-')) throw new CliError(`--restore needs a backup: --restore <file> (the backups are in ${path.join(config.dataDir, 'backups')}, and listed under Updates in the console)`);
+    if (config.databaseUrl) throw new CliError("--restore puts back a SQLite backup. This Control Tower keeps its data in Postgres (CT_DATABASE_URL): restore your database provider's snapshot instead");
+    const file = path.isAbsolute(arg) || arg.includes('/') ? path.resolve(arg) : path.join(config.dataDir, 'backups', arg);
+    // A running server would go on writing to the database it has open: it must be stopped first.
+    const current = path.join(config.dataDir, 'controltower.db');
+    if (fs.existsSync(current) && !argv.includes('--force')) {
+      const probe = new Database(current, { readonly: true });
+      let live: Array<{ host: string | null; id: string }> = [];
+      try {
+        live = probe.prepare('SELECT id, host FROM instances WHERE last_seen > ?').all(Date.now() - 90_000) as typeof live;
+      } catch {
+        /* no instances table yet */
+      } finally {
+        probe.close();
+      }
+      if (live.length) throw new CliError(`Control Tower is still running on this data (${live.map((i) => i.host ?? i.id).join(', ')}): stop it, then run this again (or add --force if it has stopped)`);
+    }
+    const r = restoreBackup(config.dataDir, file, Database);
+    process.stdout.write(`Restored ${path.basename(file)} (database schema ${r.schema}${r.from_version ? `, from Control Tower ${r.from_version}` : ''}).${r.replaced ? ` The database it replaced is kept as ${r.replaced}.` : ''}\nStart ${r.from_version ? `Control Tower ${r.from_version}` : 'the version this backup came from'} (or a newer one, which upgrades it again).\n`);
+    process.exit(0);
+  }
   if (argv.includes('--support-bundle')) {
     // Reads what is there and changes nothing: no master key or data directory is created for it.
     const mkFile = path.join(config.dataDir, 'master.key');
@@ -177,9 +205,11 @@ async function main(): Promise<void> {
   useOutboundProxy(proxy);
   const mk = loadOrCreateMasterKey(config.dataDir, config.masterKeyEnv);
   const secrets = new SecretBox(mk);
-  const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl });
+  const db = await openDatabase({ dataDir: config.dataDir, databaseUrl: config.databaseUrl, upgrade: { appVersion: config.version, backup: config.backupBeforeUpgrade.enabled, keep: config.backupBeforeUpgrade.keep } });
   if (db.dialect === 'postgres') console.warn(`[controltower] data in Postgres (${db.file})`);
   await checkMasterKey(db, mk.id);
+  const upgraded = await recordStart(db.write, config.version, db.upgrade);
+  if (upgraded) console.warn(`[controltower] upgraded ${upgraded.from_version ? `from ${upgraded.from_version} ` : ''}to ${upgraded.to_version}${upgraded.from_schema !== upgraded.to_schema ? ` (database schema ${upgraded.from_schema} → ${upgraded.to_schema})` : ''}${upgraded.backup ? `; the database was backed up first to ${upgraded.backup}` : ''}`);
   // Several instances share a Postgres database and stay in step over Redis; SQLite is one instance's own.
   if (config.redisUrl && db.dialect !== 'postgres') console.warn('[controltower] CT_REDIS_URL is ignored: several instances need a shared Postgres database (CT_DATABASE_URL); this one keeps its data in SQLite.');
   if (db.dialect === 'postgres' && !config.redisUrl) console.warn('[controltower] no CT_REDIS_URL: run one instance on this database, or set it so several share rate limits, caches and the live console.');
@@ -365,6 +395,7 @@ async function main(): Promise<void> {
     devices,
     instanceId: cluster.id,
     orgs,
+    updates: new Updates({ version: config.version, db: db.write, check: config.updates.check, url: config.updates.url, dataDir: config.dataDir, dialect: db.dialect, log: (m) => (logRef ?? console).info?.(m) }),
     // The control plane reaches into regions through the hub; a region answers it in-process, marked by a secret.
     ...(region ? { internalSecret: crypto.randomBytes(32).toString('base64url') } : { regionHub: new RegionHub(cluster.shared ? cluster : undefined) }),
     guardrails,
@@ -458,6 +489,7 @@ async function main(): Promise<void> {
   }
   approvals.start();
   alerts.start();
+  await ctx.updates?.start();
   observed.start();
 
   // A region: the newest configuration from the control plane before serving (or the last one received, if it
@@ -657,7 +689,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  if (err instanceof CliError) console.error(`[controltower] ${err.message}`);
+  if (err instanceof CliError || err instanceof NewerDataError || err instanceof BackupSpaceError) console.error(`[controltower] ${err.message}`);
   else console.error('[controltower] fatal:', err);
   process.exit(1);
 });

@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.14 — 17 October 2026
 
 - **Airspace:** the **Get started** checklist shows on the map only. In Classes and Coverage it sat over the side panel's risk list and buttons.
 - **Coverage** fits the panel it's in: as many columns of teams as fit, no sideways scrolling on a laptop screen.

@@ -245,7 +245,9 @@ export function ClassesView({ right, isAdmin, onOpenAgent }: { right: number; is
   const [error, setError] = useState<string | null>(null);
   const [agentSel, setAgentSel] = useState<string | null>(null);
   const [sysSel, setSysSel] = useState<string | null>(null);
-  const [riskSel, setRiskSel] = useState<number | null>(null);
+  // The selected risk, by agent and destination (the list re-sorts as risks change level).
+  const [riskSel, setRiskSel] = useState<string | null>(null);
+  const riskKey = (r: { agent_id: string; dest_id: string }) => `${r.agent_id}>${r.dest_id}`;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -268,7 +270,7 @@ export function ClassesView({ right, isAdmin, onOpenAgent }: { right: number; is
   const L = useMemo(() => (data ? layout(agents, data.systems) : null), [agents, data]);
   const sys = useMemo(() => new Map((data?.systems ?? []).map((s) => [s.id, s])), [data]);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  const risk = riskSel !== null ? (data?.risks[riskSel] ?? null) : null;
+  const risk = riskSel !== null ? (data?.risks.find((r) => riskKey(r) === riskSel) ?? null) : null;
   const riskyLinks = useMemo(() => {
     const m = new Map<string, ClassRisk['level']>();
     for (const r of data?.risks ?? []) {
@@ -565,13 +567,13 @@ export function ClassesView({ right, isAdmin, onOpenAgent }: { right: number; is
               <div className="risk-list">
                 {data.risks.map((r, i) =>
                   agentSel && r.agent_id !== agentSel ? null : (
-                    <div key={`${r.agent_id}>${r.dest_id}`} className={`risk ${r.level} ${riskSel === i ? 'on' : ''}`}>
+                    <div key={`${r.agent_id}>${r.dest_id}`} className={`risk ${r.level} ${riskSel === riskKey(r) ? 'on' : ''}`}>
                       <button
                         className="risk-head"
-                        aria-expanded={riskSel === i}
+                        aria-expanded={riskSel === riskKey(r)}
                         onClick={() => {
                           setSysSel(null);
-                          setRiskSel(riskSel === i ? null : i);
+                          setRiskSel(riskSel === riskKey(r) ? null : riskKey(r));
                         }}
                       >
                         <span className="lvl">{LEVEL[r.level]}</span>
@@ -582,7 +584,7 @@ export function ClassesView({ right, isAdmin, onOpenAgent }: { right: number; is
                           </em>
                         </span>
                       </button>
-                      {riskSel === i && (
+                      {riskSel === riskKey(r) && (
                         <div className="why">
                           {r.reason}.{r.mitigation ? ` ${r.mitigation[0]!.toUpperCase()}${r.mitigation.slice(1)}.` : ''} {compact(r.calls)} calls in {data.hours === 168 ? '7 days' : `${data.hours} h`}
                           .{r.outside && <> It goes around the gateway: bring it inside (Outside, on the map) so a gate can stand on it.</>}

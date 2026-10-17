@@ -24,6 +24,15 @@ const UNHEALTHY = /cannot reach|timed out|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_A
 
 /** Providers whose model list names models exactly as agents' deployments do. */
 const EXACT_LISTS = new Set(['openai', 'openai-compatible', 'anthropic']);
+/**
+ * Whether a provider's model list has this model. Some list only dated versions while accepting the short name too
+ * (Anthropic lists claude-sonnet-4-5-20250929 and serves claude-sonnet-4-5): a dated version counts.
+ */
+export function listed(ids: Set<string>, model: string): boolean {
+  if (ids.has(model)) return true;
+  for (const id of ids) if (id.startsWith(`${model}-`) && /^\d{8}$|^\d{4}-\d{2}-\d{2}$/.test(id.slice(model.length + 1))) return true;
+  return false;
+}
 
 export class ModelHealth {
   private timer: NodeJS.Timeout | undefined;
@@ -112,7 +121,7 @@ export class ModelHealth {
 
   private fromList(p: ProviderRecord, d: DeploymentRecord, l: { ok: boolean; ids: Set<string>; detail: string; latencyMs: number }): HealthResult {
     if (!l.ok) return { health: 'down', detail: `${p.name} is not answering: ${l.detail}`, latencyMs: l.latencyMs };
-    if (EXACT_LISTS.has(p.kind) && l.ids.size && !l.ids.has(d.upstreamModel)) return { health: 'missing', detail: `${p.name} no longer lists ${d.upstreamModel}`, latencyMs: l.latencyMs };
+    if (EXACT_LISTS.has(p.kind) && l.ids.size && !listed(l.ids, d.upstreamModel)) return { health: 'missing', detail: `${p.name} no longer lists ${d.upstreamModel}`, latencyMs: l.latencyMs };
     return { health: 'ok', detail: l.detail, latencyMs: l.latencyMs };
   }
 

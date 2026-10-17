@@ -2,9 +2,16 @@ name: laptops on real machines
 
 # The Laptops rollout on real Windows and macOS machines: the install files run the way Intune and Jamf run them, then
 # the real Claude Code and Codex, configured by nothing else, call Control Tower as the person who signed in.
-# Manual, and weekly (the clients change often).
+# Manual, and weekly (the clients change often). Run by hand with target "showcase", the same machines roll out against
+# the deployed showcase instead, and show up in its console (Laptops, Flights, Airspace) as they sign in and call.
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Where the tools are rolled out to'
+        type: choice
+        options: [local, showcase]
+        default: local
   schedule:
     - cron: '0 6 * * 1'
 
@@ -26,6 +33,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+        if: inputs.target != 'showcase'
         env:
           CT_TEST_LICENSE_KEYS: '1'
       - run: npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot
@@ -33,6 +41,8 @@ jobs:
         env:
           RESULTS_DIR: ${{ runner.temp }}
           GITHUB_TOKEN: ${{ github.token }}
+          CT_REMOTE_URL: ${{ inputs.target == 'showcase' && 'https://showcase-production-b625.up.railway.app' || '' }}
+          CT_REMOTE_ADMIN_KEY: ${{ inputs.target == 'showcase' && secrets.SHOWCASE_ADMIN_KEY || '' }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:

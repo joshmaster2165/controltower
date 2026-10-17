@@ -8,9 +8,14 @@
  *   npx tsx scripts/laptops/real-machine.mts            (Windows: as administrator; macOS: with passwordless sudo)
  *
  * Writes laptops-real-results.json (RESULTS_DIR) and a summary for the workflow run.
+ *
+ * With CT_REMOTE_URL (and CT_REMOTE_ADMIN_KEY), the tools are rolled out against that deployed Control Tower instead of
+ * one started here: a person, a team and a key of their own are made there, and what they do shows in its console as
+ * it happens (with how many seconds each sign-in and call took to appear). Answers come from that deployment's models.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,8 +29,14 @@ if (!process.env.CI && !process.env.CT_REAL_MACHINE) throw new Error('This chang
 const REPO = path.resolve(import.meta.dirname, '../..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-real-'));
 const PORT = 4000;
-const CT = `http://127.0.0.1:${PORT}`;
-const AK = 'real-machine-admin-key-0123456789abcdef';
+const REMOTE = process.env.CT_REMOTE_URL?.replace(/\/+$/, '') || undefined;
+if (REMOTE && !process.env.CT_REMOTE_ADMIN_KEY) throw new Error('CT_REMOTE_URL needs CT_REMOTE_ADMIN_KEY');
+const CT = REMOTE ?? `http://127.0.0.1:${PORT}`;
+const AK = REMOTE ? process.env.CT_REMOTE_ADMIN_KEY! : 'real-machine-admin-key-0123456789abcdef';
+const OS_NAME = WIN ? 'windows' : 'macos';
+// Remote: a new person each run (their computer shows on Laptops under their name), on a team and key of their own.
+const PERSON = REMOTE ? `laptop-${OS_NAME}-${Date.now().toString(36)}@acme.com` : 'dev@acme.example';
+const MODELS = { claude: 'claude-sonnet-4-5', fast: 'claude-haiku-4-5', gpt: REMOTE ? 'gpt-4.1-mini' : 'gpt-5' };
 const REPLY = 'Connected through Control Tower as the person signed in.';
 const checks: Array<{ what: string; pass: boolean; detail: string }> = [];
 const c = (what: string, pass: boolean, detail: string) => {
@@ -54,17 +65,20 @@ function run(line: string, env: Record<string, string | undefined> = {}, timeout
 }
 const q = (s: string) => `"${s}"`;
 
-const ant = await anthropicUpstream({ reply: REPLY, models: ['claude-sonnet-4-5', 'claude-haiku-4-5'] });
-const oai = await openAiUpstream({ reply: REPLY, models: ['gpt-5'] });
-const files = await mcpUpstream('files-token');
-const ct: ChildProcess = spawn(process.execPath, ['server/dist/server.mjs', '--port', String(PORT)], {
-  cwd: REPO,
-  env: { ...process.env, CT_DATA_DIR: path.join(TMP, 'data'), CT_ADMIN_KEY: AK, CT_UI_DIR: path.join(REPO, 'ui/dist'), CT_LOG_LEVEL: 'warn', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_LICENSE_KEY: testLicense(), CT_LICENSE_SERVER: 'off', CT_MODEL_HEALTH_INTERVAL_S: '0' },
-  stdio: ['ignore', 'inherit', 'inherit'],
-});
+// Local: stand-in model providers and a tool server, and Control Tower itself. Remote: what that deployment has.
+const ant = REMOTE ? undefined : await anthropicUpstream({ reply: REPLY, models: [MODELS.claude, MODELS.fast] });
+const oai = REMOTE ? undefined : await openAiUpstream({ reply: REPLY, models: [MODELS.gpt] });
+const files = REMOTE ? undefined : await mcpUpstream('files-token');
+const ct: ChildProcess | undefined = REMOTE
+  ? undefined
+  : spawn(process.execPath, ['server/dist/server.mjs', '--port', String(PORT)], {
+      cwd: REPO,
+      env: { ...process.env, CT_DATA_DIR: path.join(TMP, 'data'), CT_ADMIN_KEY: AK, CT_UI_DIR: path.join(REPO, 'ui/dist'), CT_LOG_LEVEL: 'warn', CT_LICENSE_PUBLIC_KEY: TEST_LICENSE_PUBLIC_KEY, CT_LICENSE_KEY: testLicense(), CT_LICENSE_SERVER: 'off', CT_MODEL_HEALTH_INTERVAL_S: '0' },
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
 for (let i = 0; ; i++) {
   if ((await fetch(`${CT}/healthz`).catch(() => null))?.ok) break;
-  if (i > 150) throw new Error('Control Tower did not start (a test build is needed: CT_TEST_LICENSE_KEYS=1 pnpm build)');
+  if (i > 150) throw new Error(REMOTE ? `${CT} doesn't answer` : 'Control Tower did not start (a test build is needed: CT_TEST_LICENSE_KEYS=1 pnpm build)');
   await sleep(200);
 }
 // A recorder in front of Control Tower: what each tool sends (method, path, its credential's kind, the answer). The
@@ -75,7 +89,10 @@ const seen: Array<{ method: string; path: string; ua: string; cred: string; stat
 const recorder = http.createServer((req, res) => {
   const a = String(req.headers.authorization ?? req.headers['x-api-key'] ?? '');
   const cred = /ct_dt_/.test(a) ? 'ct_dt' : a ? 'other' : 'none';
-  const up = http.request({ host: '127.0.0.1', port: PORT, path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${RECORD_PORT}` } }, (r) => {
+  const target = new URL(CT);
+  const via = target.protocol === 'https:' ? https : http;
+  // Remote: the deployment's own host name (its proxy routes by it); local: the recorder's, for the links it builds.
+  const up = via.request({ host: target.hostname, port: target.port || (target.protocol === 'https:' ? 443 : 80), path: req.url, method: req.method, headers: { ...req.headers, host: REMOTE ? target.host : `127.0.0.1:${RECORD_PORT}` } }, (r) => {
     seen.push({ method: req.method ?? '', path: (req.url ?? '').split('?')[0]!, ua: String(req.headers['user-agent'] ?? ''), cred, status: r.statusCode ?? 0 });
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
@@ -87,26 +104,65 @@ const recorder = http.createServer((req, res) => {
 await new Promise<void>((r) => recorder.listen(RECORD_PORT, '127.0.0.1', () => r()));
 const api = (method: string, p: string, body?: unknown) =>
   fetch(CT + p, { method, headers: { authorization: `Bearer ${AK}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }).then(async (r) => (await r.json().catch(() => ({}))) as any);
+/** A call that went through Control Tower with the person's device token, and was answered (from the recorder). */
+const throughCT = (since: number, ua: RegExp, p: RegExp) => seen.slice(since).find((x) => ua.test(x.ua) && p.test(x.path) && x.cred === 'ct_dt' && x.status === 200);
+/** Local, the stand-in model's reply; remote, any answer, seen going through Control Tower. */
+const answered = (text: string, since: number, ua: RegExp, p: RegExp) => (REMOTE ? text.trim().length > 0 && !!throughCT(since, ua, p) : text.includes(REPLY));
+/** How long until something shows in Control Tower's console (its admin API), polled every 250 ms. */
+async function shows(what: () => Promise<boolean>, maxMs = 20_000): Promise<number | null> {
+  const t = Date.now();
+  while (Date.now() - t < maxMs) {
+    if (await what().catch(() => false)) return Date.now() - t;
+    await sleep(250);
+  }
+  return null;
+}
+const secs = (ms: number | null) => (ms === null ? 'not within 20 s' : `in ${(ms / 1000).toFixed(1)} s`);
+const flightsOf = async (keyId: string) => ((await api('GET', `/admin/api/flights?key_id=${keyId}&limit=200`)).flights ?? []) as Array<{ principal: string | null; model_requested: string; client: string | null }>;
 
 try {
   // ---- Control Tower: providers, a tool server, a key, a rule, and a person ----
-  await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant.url, credentials: { api_key: 'sk-ant-real' } });
-  const op = await api('POST', '/admin/api/providers', { catalog_id: 'custom', name: 'OpenAI', slug: 'openai', base_url: `${oai.url}/v1`, credentials: { api_key: 'sk-real' } });
-  await api('POST', '/admin/api/deployments', { provider_id: (op.provider ?? op).id, upstream_model: 'gpt-5', public_name: 'gpt-5' });
-  await api('POST', '/admin/api/mcp/servers', { name: 'Files', slug: 'files', url: `${files.url}/mcp`, auth: { type: 'bearer', token: 'files-token' } });
-  const key = await api('POST', '/admin/api/keys', { name: 'laptops', agent_id: 'laptops' });
-  await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: key.id }] });
-  const made = await api('POST', '/admin/api/users', { email: 'dev@acme.example', role: 'viewer' });
+  let key: { id: string };
+  if (!REMOTE) {
+    await api('POST', '/admin/api/providers', { catalog_id: 'anthropic', base_url: ant!.url, credentials: { api_key: 'sk-ant-real' } });
+    const op = await api('POST', '/admin/api/providers', { catalog_id: 'custom', name: 'OpenAI', slug: 'openai', base_url: `${oai!.url}/v1`, credentials: { api_key: 'sk-real' } });
+    await api('POST', '/admin/api/deployments', { provider_id: (op.provider ?? op).id, upstream_model: MODELS.gpt, public_name: MODELS.gpt });
+    await api('POST', '/admin/api/mcp/servers', { name: 'Files', slug: 'files', url: `${files!.url}/mcp`, auth: { type: 'bearer', token: 'files-token' } });
+    key = await api('POST', '/admin/api/keys', { name: 'laptops', agent_id: 'laptops' });
+    await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: null, key_id: key.id }] });
+  } else {
+    // A team for this machine's rollouts, its key (the deployment's models, any tool), and a laptop rule for the team:
+    // made once, reused by later runs. The other machine may be editing the rules at the same moment: check, and retry.
+    const teamName = `laptop-rollout-${OS_NAME}`;
+    const findTeam = async () => ((await api('GET', '/admin/api/teams')).teams as Array<{ id: string; name: string }>).find((t) => t.name === teamName);
+    const team = (await findTeam()) ?? ((await api('POST', '/admin/api/teams', { name: teamName })), await findTeam());
+    if (!team) throw new Error(`couldn't make the team ${teamName}`);
+    const keyName = `laptop-rollout-${OS_NAME}`;
+    key = ((await api('GET', '/admin/api/keys')).keys as Array<{ id: string; name: string }>).find((k) => k.name === keyName) ?? (await api('POST', '/admin/api/keys', { name: keyName, team: teamName, owner: 'it@acme.com', allowed_models: [MODELS.claude, MODELS.fast, MODELS.gpt] }));
+    for (let i = 0; i < 6; i++) {
+      const rules = ((await api('GET', '/admin/api/devices')).rules ?? []) as Array<{ client: string; team_id: string | null; key_id: string }>;
+      if (rules.some((r) => r.team_id === team.id && r.key_id === key.id)) break;
+      await api('PUT', '/admin/api/devices/rules', { rules: [{ client: '*', team_id: team.id, key_id: key.id }, ...rules.map((r) => ({ client: r.client, team_id: r.team_id, key_id: r.key_id }))] });
+      await sleep(1000 + Math.random() * 2000);
+    }
+    await api('POST', '/admin/api/users', { email: PERSON, role: 'member' }).then(async (m) => {
+      (globalThis as any).__pw = m.password;
+      await api('PUT', `/admin/api/teams/${team.id}/members`, { email: PERSON, role: 'member' });
+    });
+    console.log(`In ${CT}: Laptops and Flights will show ${PERSON} (team ${teamName}) as this runs.`);
+  }
+  const made = REMOTE ? { password: (globalThis as any).__pw as string } : await api('POST', '/admin/api/users', { email: PERSON, role: 'viewer' });
   const login = async (pw: string) => {
-    const r = await fetch(`${CT}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'dev@acme.example', password: pw }) });
+    const r = await fetch(`${CT}/admin/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: PERSON, password: pw }) });
     return { cookie: r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; '), csrf: ((await r.json()) as { csrf: string }).csrf };
   };
+  const mine = `${made.password}-${OS_NAME}-laptop`;
   let s = await login(made.password);
-  await fetch(`${CT}/admin/api/me/password`, { method: 'POST', headers: { cookie: s.cookie, 'x-ct-csrf': s.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ current: made.password, password: 'dev-password-123' }) });
-  s = await login('dev-password-123');
+  await fetch(`${CT}/admin/api/me/password`, { method: 'POST', headers: { cookie: s.cookie, 'x-ct-csrf': s.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ current: made.password, password: mine }) });
+  s = await login(mine);
 
   // ---- What IT deploys ----
-  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-code,claude-desktop,codex,copilot&mcp=1&lockdown=1`);
+  const roll = await api('GET', `/admin/api/devices/rollout?url=${encodeURIComponent(GW)}&clients=claude-code,claude-desktop,codex,copilot&mcp=1&lockdown=1${REMOTE ? `&copilot_model=${MODELS.claude}` : ''}`);
   const file = (n: string) => (roll.files as Array<{ name: string; content: string }>).find((f) => f.name === n)!.content;
   if (WIN) {
     // As Intune runs a platform script: Windows PowerShell 5.1, 64-bit, as an administrator.
@@ -161,6 +217,9 @@ try {
     const ok = code ? (await fetch(`${CT}/admin/api/me/devices/approve`, { method: 'POST', headers: { cookie: s.cookie, 'x-ct-csrf': s.csrf, 'content-type': 'application/json' }, body: JSON.stringify({ user_code: code }) })).status : 0;
     const r = await p;
     c(`${client}: ct-auth signs in (the address from the installed configuration)`, r.code === 0 && ok === 200, `approve ${ok}; ${(r.err || r.out).trim().split('\n').pop()}`);
+    // The computer shows on Laptops, under the person and the tool.
+    const ms = await shows(async () => ((await api('GET', '/admin/api/devices')).sessions as Array<{ person: string; client: string; status: string }>).some((d) => d.person === PERSON && d.client === client && d.status === 'active'));
+    c(`${client}: the computer shows on Laptops, under the person`, ms !== null && ms < 10_000, secs(ms));
   };
   await signIn('claude-code');
   await signIn('codex');
@@ -179,17 +238,23 @@ try {
   // ---- The real tools, with nothing configured but what IT deployed ----
   // Signed in already: a helper that finds no sign-in fails at once instead of waiting for a browser.
   const clean = { ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: undefined, ANTHROPIC_AUTH_TOKEN: undefined, OPENAI_API_KEY: undefined, CT_URL: undefined, CT_AUTH_NONINTERACTIVE: '1' };
-  const cc = await run('claude -p "Which gateway?" --output-format stream-json --verbose', { ...clean, CLAUDE_CONFIG_DIR: path.join(TMP, 'claude'), ANTHROPIC_MODEL: 'claude-sonnet-4-5', ANTHROPIC_SMALL_FAST_MODEL: 'claude-haiku-4-5' });
+  const ccAt = seen.length;
+  const cc = await run('claude -p "Which gateway?" --output-format stream-json --verbose', { ...clean, CLAUDE_CONFIG_DIR: path.join(TMP, 'claude'), ANTHROPIC_MODEL: MODELS.claude, ANTHROPIC_SMALL_FAST_MODEL: MODELS.fast });
   const events = cc.out.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
   const init = events.find((e) => e.type === 'system' && e.subtype === 'init');
   const result = events.find((e) => e.type === 'result');
-  c('Claude Code answers through Control Tower, its credential from ct-auth', String(result?.result ?? '').includes('Connected through Control Tower'), String(result?.result ?? (cc.err || cc.out)).slice(0, 300));
+  c('Claude Code answers through Control Tower, its credential from ct-auth', answered(String(result?.result ?? ''), ccAt, /claude-cli/, /^\/v1\/messages/) && result?.is_error !== true, String(result?.result ?? (cc.err || cc.out)).slice(0, 300));
+  const ccShows = await shows(async () => (await flightsOf(key.id)).some((f) => f.principal === PERSON && f.client === 'claude-code'));
+  c("Claude Code's call shows in Control Tower's flights, as the person, in Claude Code", ccShows !== null && ccShows < 10_000, secs(ccShows));
   c('Claude Code connects to Control Tower\'s MCP endpoint (managed-mcp.json, headersHelper)', (init?.mcp_servers ?? []).some((m: any) => m.name === 'controltower' && m.status === 'connected'), JSON.stringify(init?.mcp_servers ?? null));
   const ver = await run('claude --version');
   console.log('claude', ver.out.trim());
 
-  const cx = await run('codex exec --skip-git-repo-check -m gpt-5 "Which gateway?"', clean);
-  c('Codex answers through Control Tower (requirements.toml, auth.command)', (cx.out + cx.err).includes('Connected through Control Tower'), (cx.out + cx.err).trim().slice(-400));
+  const cxAt = seen.length;
+  const cx = await run(`codex exec --skip-git-repo-check -m ${MODELS.gpt} "Which gateway?"`, clean);
+  c('Codex answers through Control Tower (requirements.toml, auth.command)', REMOTE ? cx.code === 0 && !!throughCT(cxAt, /codex/i, /^\/v1\/(responses|chat)/) : (cx.out + cx.err).includes(REPLY), (cx.out + cx.err).trim().slice(-400));
+  const cxShows = await shows(async () => (await flightsOf(key.id)).some((f) => f.principal === PERSON && f.client === 'codex'));
+  c("Codex's call shows in Control Tower's flights, as the person, in Codex", cxShows !== null && cxShows < 10_000, secs(cxShows));
   const mcpList = await run('codex mcp list', clean);
   c('Codex has Control Tower\'s MCP server, enabled', /controltower\s+\S*127\.0\.0\.1:4002\/mcp[\s\S]*enabled/.test(mcpList.out), mcpList.out.trim().split('\n').slice(0, 3).join(' | ').slice(0, 300));
   c('Codex runs its MCP headers helper without errors, and reads no setting it ignores', !/headers helper exited/i.test(cx.err) && !/no longer supported/i.test(cx.out + cx.err), ((cx.out + cx.err).match(/.*(headers helper|no longer supported).*/i)?.[0] ?? 'no helper errors, no ignored settings').slice(0, 240));
@@ -208,8 +273,9 @@ try {
   const keyCmd = WIN ? copilotEnv.COPILOT_PROVIDER_API_KEY_COMMAND ?? '' : '/usr/local/bin/ct-auth-copilot';
   const kc = await run(keyCmd, copilotEnv);
   c('Copilot CLI\'s credential command prints a token for the person', kc.code === 0 && /^ct_dt_/.test(kc.out.trim()), `${keyCmd}: exit ${kc.code}${kc.code ? `; ${(kc.err || kc.out).trim().slice(0, 200)}` : `; ${kc.out.trim().slice(0, 6)}… (${kc.out.trim().length} chars)`}`);
+  const cplAt = seen.length;
   const cpl = await run(WIN ? 'copilot -p "Which gateway?" --allow-all-tools' : `zsh -c 'copilot -p "Which gateway?" --allow-all-tools'`, copilotEnv);
-  c('GitHub Copilot CLI answers through Control Tower (the rollout\'s environment, ct-auth\'s token, no GitHub account)', (cpl.out + cpl.err).includes('Connected through Control Tower'), (cpl.out + cpl.err).trim().slice(0, 400));
+  c('GitHub Copilot CLI answers through Control Tower (the rollout\'s environment, ct-auth\'s token, no GitHub account)', REMOTE ? cpl.code === 0 && !!throughCT(cplAt, /./, /^\/v1\/(messages|chat|responses)/) : (cpl.out + cpl.err).includes(REPLY), (cpl.out + cpl.err).trim().slice(0, 400));
   const cplv = await run('copilot --version', copilotEnv);
   console.log('copilot', cplv.out.trim());
 
@@ -403,7 +469,7 @@ $out`);
     await sleep(2000);
     await screenshot('6-folder-open');
     await dump('c-after-folder');
-    const rule = await api('POST', '/admin/api/rules', { name: 'Sonnet needs a manager', target_kind: 'model', match: { models: ['claude-sonnet-4-5'], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
+    const rule = await api('POST', '/admin/api/rules', { name: REMOTE ? `Sonnet needs a manager (${PERSON})` : 'Sonnet needs a manager', target_kind: 'model', match: { models: [MODELS.claude], keys: [key.id] }, effect: 'require_approval', config: { hold_ms: 180_000 }, priority: 10 });
     const sentAt = seen.length;
     // The message box keeps the focus: clear what an earlier step typed, then the message.
     // (Maximized first: the runner's screen is narrower than Claude's window, which put its send button off screen.)
@@ -431,7 +497,7 @@ foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send me
     let card: { id: string } | undefined;
     for (let i = 0; i < 60 && !card; i++) {
       await sleep(1000);
-      card = ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []).find((a: { requester: string | null }) => a.requester === 'dev@acme.example');
+      card = ((await api('GET', '/admin/api/approvals?status=pending')).approvals ?? []).find((a: { requester: string | null }) => a.requester === PERSON);
     }
     await sleep(4000);
     await screenshot('7-waiting');
@@ -444,7 +510,7 @@ foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send me
       await screenshot('8-approved');
       await dump('e-approved');
       const after = await claudeText();
-      c('Claude Desktop on Windows: once approved, it says who approved, then the answer follows', /approved by/.test(after) && after.includes(REPLY), (after.match(/.*approved by.*/)?.[0] ?? 'no "approved by" line').slice(0, 200));
+      c('Claude Desktop on Windows: once approved, it says who approved, then the answer follows', /approved by/.test(after) && (REMOTE ? after.length > waiting.length : after.includes(REPLY)), (after.match(/.*approved by.*/)?.[0] ?? 'no "approved by" line').slice(0, 200));
     }
     await api('DELETE', `/admin/api/rules/${rule.id}`);
   }
@@ -459,21 +525,21 @@ foreach ($e in (All $w)) { if ($e.Current.Name -match '^(Start task|Send|Send me
 
   // ---- In Control Tower: the calls, as the person ----
   await sleep(1500);
-  const flights = ((await api('GET', `/admin/api/flights?key_id=${key.id}&limit=100`)).flights ?? []) as Array<{ principal: string | null; model_requested: string; client: string | null }>;
-  const mine = flights.filter((f) => f.principal === 'dev@acme.example');
-  c('Control Tower records Copilot CLI\'s calls as the person, in Copilot', flights.some((f) => f.principal === 'dev@acme.example' && f.client === 'copilot'), [...new Set(flights.filter((f) => f.principal === 'dev@acme.example').map((f) => f.client ?? 'unknown'))].join(', '));
-  c('Control Tower records both tools\' calls as the person', mine.some((f) => f.model_requested.startsWith('claude')) && mine.some((f) => f.model_requested.startsWith('gpt')), `${mine.length} calls as dev@acme.example: ${[...new Set(mine.map((f) => f.model_requested))].join(', ')}`);
-  const devices = ((await api('GET', '/admin/api/devices')).sessions ?? []) as Array<{ client: string; device_name: string; status: string }>;
+  const flights = await flightsOf(key.id);
+  const theirs = flights.filter((f) => f.principal === PERSON);
+  c('Control Tower records Copilot CLI\'s calls as the person, in Copilot', theirs.some((f) => f.client === 'copilot'), [...new Set(theirs.map((f) => f.client ?? 'unknown'))].join(', '));
+  c('Control Tower records both tools\' calls as the person', theirs.some((f) => f.model_requested.startsWith('claude')) && theirs.some((f) => f.model_requested.startsWith('gpt')), `${theirs.length} calls as ${PERSON}: ${[...new Set(theirs.map((f) => f.model_requested))].join(', ')}`);
+  const devices = (((await api('GET', '/admin/api/devices')).sessions ?? []) as Array<{ person: string; client: string; device_name: string; status: string }>).filter((d) => d.person === PERSON);
   c('Laptops lists the computer, once per tool', devices.filter((d) => d.status === 'active').length === 4, devices.map((d) => `${d.client} on ${d.device_name}`).join(', '));
 } finally {
   const failed = checks.filter((x) => !x.pass).length;
   fs.writeFileSync(path.join(process.env.RESULTS_DIR ?? REPO, 'laptops-real-results.json'), JSON.stringify({ platform: process.platform, ran_at: new Date().toISOString(), checks }, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Laptops on ${WIN ? 'Windows' : 'macOS'}: ${checks.length - failed} of ${checks.length}\n\n${checks.map((x) => `- ${x.pass ? '✅' : '❌'} ${x.what} — ${x.detail.replace(/\n/g, ' ')}`).join('\n')}\n`);
   console.log(`${checks.length - failed} of ${checks.length} passed`);
-  ct.kill();
+  ct?.kill();
   recorder.close();
-  await ant.close();
-  await oai.close();
-  await files.close();
+  await ant?.close();
+  await oai?.close();
+  await files?.close();
   process.exitCode = failed || !checks.length ? 1 : 0;
 }

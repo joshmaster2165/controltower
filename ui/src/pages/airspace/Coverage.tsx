@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 
 interface CoverageAgent {
@@ -43,7 +43,8 @@ const shares = (t: { calls: number; governed: number; outside: number }) => {
     : { gated: 0, open: 0, outside: 0, all: 0 };
 };
 
-const W = 1100;
+/** A team's cell: wide enough for its largest circle, its ring and its label. */
+const CELL_W = 300;
 const polar = (cx: number, cy: number, r: number, turn: number): [number, number] => [cx + r * Math.sin(turn * 2 * Math.PI), cy - r * Math.cos(turn * 2 * Math.PI)];
 function arc(cx: number, cy: number, r: number, from: number, to: number) {
   if (to - from <= 0.0005) return '';
@@ -80,11 +81,23 @@ export function CoverageView({ right, onOpenAgent }: { right: number; onOpenAgen
     return () => clearInterval(t);
   }, [hours]);
 
+  // Drawn at the panel's own width (no scaling, no sideways scroll): as many columns as fit.
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const [W, setW] = useState(1100);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setW(Math.max(CELL_W, Math.round(el.clientWidth - 28))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data === null]);
+
   // Teams in a grid of cells; each circle's area follows its traffic.
   const placed = useMemo(() => {
     if (!data) return null;
     const teams = data.teams;
-    const cols = teams.length <= 2 ? Math.max(1, teams.length) : teams.length <= 6 ? 3 : 4;
+    const fit = Math.max(1, Math.floor(W / CELL_W));
+    const cols = Math.min(fit, Math.max(1, teams.length), teams.length > 6 ? 4 : 3);
     const cellW = W / cols;
     const cellH = 270;
     const maxAll = Math.max(1, ...teams.map((t) => t.calls + t.outside));
@@ -104,7 +117,7 @@ export function CoverageView({ right, onOpenAgent }: { right: number; onOpenAgen
         };
       }),
     };
-  }, [data]);
+  }, [data, W]);
 
   if (!data || !placed) {
     return (
@@ -134,11 +147,11 @@ export function CoverageView({ right, onOpenAgent }: { right: number; onOpenAgen
         </span>
       </div>
       <div className="scope-body">
-        <div className="scope-board" onClick={() => setSel(null)}>
+        <div className="scope-board" ref={boardRef} onClick={() => setSel(null)}>
           <svg
             viewBox={`0 0 ${W} ${placed.H}`}
             width="100%"
-            style={{ minWidth: 760, display: 'block' }}
+            style={{ display: 'block' }}
             role="img"
             aria-label="Teams as constellations, each with a ring showing how much of its traffic is gated"
           >

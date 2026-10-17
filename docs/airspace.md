@@ -64,6 +64,8 @@ The matrix follows the view you are in and the Teams / Agents choice.
 
 **Classes** in the map controls draws your systems as nested trust classes, like controlled airspace: the further in, the more it matters.
 
+![Classes: support-triage reaches restricted data (Zendesk) and sends to a model outside the company with nothing on the way, a High risk](images/airspace-classes.png)
+
 | Class | What's in it | By default |
 |---|---|---|
 | **A · Production** | Live systems: deploys, infrastructure, production data stores | A name that says production, deploys, Kubernetes, Terraform, infrastructure, CI/CD or a cloud account |
@@ -89,10 +91,12 @@ Click a system to see why it is in its class and which agents reach it. An admin
 
 ## Coverage: each team, and how much of its traffic is governed
 
+![Coverage: customer-support selected, with how much of its traffic is gated, through the gateway with no gate, or around it](images/airspace-coverage.png)
+
 **Coverage** draws each team as a constellation: a star per agent, sized by its calls, inside a circle sized by the team's traffic. The ring around it is the team's AI traffic, split three ways:
 
 - **Gated** (blue): through the gateway, on a path a gate stands on (an approval, a block, limits or an inspection).
-- **Through the gateway, no gate** (dark blue): logged, counted and held to the agent's key (its models, tools and budget), but no gate.
+- **Through the gateway, no gate** (grey-blue): logged, counted and held to the agent's key (its models, tools and budget), but no gate.
 - **Around the gateway** (violet): seen outside it, where no gate can stand.
 
 A thin green arc outside the ring is how many of the team's people are [signed in from their computers](laptops.md). Click a team for its agents, each with its own split; click an agent to see it on the map. The panel on the right ranks the least-covered teams. Both views cover the last hour, day or week.

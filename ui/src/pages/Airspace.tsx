@@ -896,7 +896,8 @@ export function AirspacePage() {
         return mode === 'classes' ? <ClassesView right={r} isAdmin={isAdmin} onOpenAgent={open} /> : <CoverageView right={r} onOpenAgent={open} />;
       })()}
 
-      {topology && isAdmin && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
+      {/* On the map only: the other views' side panels sit where it would, and its steps are about the map. */}
+      {topology && isAdmin && mode === 'map' && <GettingStarted topology={topology} rules={policy?.rules.length ?? 0} onGate={() => !gateMode && toggleGate()} demo={demoOn} />}
       <div className={`legend ${legendOpen ? '' : 'closed'}`}>
         <button className="legend-toggle" onClick={toggleLegend} aria-expanded={legendOpen} title={legendOpen ? 'Hide legend' : 'Show legend'}>
           Legend

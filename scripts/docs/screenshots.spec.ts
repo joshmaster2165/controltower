@@ -172,6 +172,24 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
     await shot(page, 'airspace-trace');
     await page.keyboard.press('Escape');
 
+    // Classes and Coverage. With the demo's catch-all secrets scan paused, model calls leave unchecked, so risks show.
+    const admin = { authorization: `Bearer ${ADMIN_KEY}`, 'content-type': 'application/json' };
+    const secretsScan = (enabled: boolean) => fetch(`${ct.url}/admin/api/rules/rule_demo_inspect_secrets`, { method: 'PATCH', headers: admin, body: JSON.stringify({ enabled }) });
+    await secretsScan(false);
+    await page.getByRole('radio', { name: 'Classes' }).click();
+    await page.locator('.risk.high').first().waitFor();
+    await page.locator('.risk.high .risk-head').first().click();
+    await page.waitForTimeout(700);
+    await shot(page, 'airspace-classes');
+    await page.getByRole('radio', { name: 'Coverage' }).click();
+    await page.locator('g.team').first().waitFor();
+    await page.locator('g.team').first().click();
+    await page.waitForTimeout(700);
+    await shot(page, 'airspace-coverage');
+    await page.getByRole('radio', { name: 'Map' }).click();
+    await secretsScan(true);
+    await page.waitForTimeout(800);
+
     // A gate: drag from the agent to a tool server, pick the tool and the effect.
     await page.getByRole('button', { name: 'Add gate' }).click();
     const [sx, sy] = await stationAt(page, 'support-triage');

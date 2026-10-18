@@ -5,6 +5,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 ## Unreleased
 
 - **Updates:** after an upgrade, the release feed is checked again a minute after start. It waited up to a day, showing the old version as the latest meanwhile.
+- **Updates** shows how much data the database holds, the free space on its disk, and whether the next update's backup would fit. When it wouldn't, admins see a warning at the top: the next update wouldn't start until there's room.
 
 ## 0.2.14 — 17 October 2026
 

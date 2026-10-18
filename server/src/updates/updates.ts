@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Database } from '../db/schema.js';
 import { BACKUP_DIR, listBackups, type UpgradeInfo } from '../db/upgrade.js';
 
@@ -126,6 +126,33 @@ export function dataOnVolume(dataDir: string): boolean | null {
   }
 }
 
+/**
+ * SQLite: how much of the database is in use (what the next upgrade's backup copies), the file's size, and the room
+ * on the disk it's on. The backup needs about the data in use, plus some.
+ */
+export async function sqliteDisk(db: Kysely<Database>, dataDir: string) {
+  const one = async (pragma: string) => Number(Object.values((await sql.raw(`PRAGMA ${pragma}`).execute(db)).rows[0] ?? {})[0] ?? 0);
+  const [pages, free, size] = [await one('page_count'), await one('freelist_count'), await one('page_size')];
+  const used = (pages - free) * size;
+  let file = 0;
+  for (const f of ['controltower.db', 'controltower.db-wal']) {
+    try {
+      file += fs.statSync(path.join(dataDir, f)).size;
+    } catch {
+      /* none */
+    }
+  }
+  let disk: { free: number; total: number } | null = null;
+  try {
+    const s = fs.statfsSync(dataDir);
+    disk = { free: s.bavail * s.bsize, total: s.blocks * s.bsize };
+  } catch {
+    /* unknown */
+  }
+  const needed = Math.ceil(used * 1.1) + 64 * 1048576;
+  return { database_in_use: used, database_file: file, disk_free: disk?.free ?? null, disk_total: disk?.total ?? null, backup_needs: needed, room_for_backup: disk ? disk.free >= needed : null };
+}
+
 // ---- What happened at each start ----
 
 export interface UpgradeRecord {
@@ -241,6 +268,7 @@ export class Updates {
         on_volume: this.o.dialect === 'postgres' ? true : dataOnVolume(this.o.dataDir),
         backups: this.o.dialect === 'sqlite' ? listBackups(backupsDir).map(({ name, size, created_at, schema, from_version, before_version }) => ({ name, size, created_at, schema, from_version, before_version })) : [],
         backups_dir: this.o.dialect === 'sqlite' ? backupsDir : null,
+        storage: this.o.dialect === 'sqlite' ? await sqliteDisk(this.o.db, this.o.dataDir).catch(() => null) : null,
       },
       history: (await getJson<UpgradeRecord[]>(this.o.db, 'app.upgrades')) ?? [],
     };

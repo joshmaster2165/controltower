@@ -1,0 +1,44 @@
+name: showcase health
+
+# The deployed showcase, checked every day (and by hand): it answers, runs the latest release, the demo fleet sends
+# traffic, the stories the videos tell still show, the audit chain holds, and its disk has room for the next update.
+# A problem opens (or adds to) an issue labelled showcase-health; a clean run closes it.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 13 * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: run
+        run: npx --yes tsx@4 scripts/showcase/health.mts
+        continue-on-error: true
+        env:
+          SHOWCASE_ADMIN_KEY: ${{ secrets.SHOWCASE_ADMIN_KEY }}
+          SHOWCASE_FINANCE_KEY: ${{ secrets.SHOWCASE_FINANCE_KEY }}
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          gh label create showcase-health --color d93f0b --description "The deployed showcase needs attention" 2>/dev/null || true
+          open=$(gh issue list --label showcase-health --state open --json number -q '.[0].number')
+          if [ "$OUTCOME" = "success" ]; then
+            [ -n "$open" ] && gh issue close "$open" --comment "Healthy again: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+          else
+            body="$(cat showcase-health.md)
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ -n "$open" ]; then gh issue comment "$open" --body "$body"; else gh issue create --label showcase-health --title "Showcase needs attention" --body "$body"; fi
+            exit 1
+          fi

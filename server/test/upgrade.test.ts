@@ -155,6 +155,11 @@ describe('knowing about new versions', () => {
     const s = await u.status();
     expect(s).toMatchObject({ current: '0.2.13', latest: '0.3.0', update_available: true, security: true, check: 'on', error: null });
     expect(s.newer.map((r) => r.version)).toEqual(['0.3.0', '0.2.14']);
+    // Storage: the data in use, the file, the disk, and whether the next update's backup would fit.
+    expect(s.data.storage).toMatchObject({ room_for_backup: true });
+    expect(s.data.storage!.database_in_use).toBeGreaterThan(0);
+    expect(s.data.storage!.backup_needs).toBeGreaterThan(s.data.storage!.database_in_use);
+    expect(s.data.storage!.disk_free).toBeGreaterThan(0);
     // Kept across a restart.
     const again = new Updates({ version: '0.2.13', db: db.write, check: false, url: '', dataDir: dir, dialect: 'sqlite' });
     await again.start();

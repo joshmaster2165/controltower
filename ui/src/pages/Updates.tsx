@@ -26,6 +26,7 @@ export interface UpdateStatus {
     on_volume: boolean | null;
     backups: Array<{ name: string; size: number; created_at: number; schema: number | null; from_version: string | null; before_version: string | null }>;
     backups_dir: string | null;
+    storage: { database_in_use: number; database_file: number; disk_free: number | null; disk_total: number | null; backup_needs: number; room_for_backup: boolean | null } | null;
   };
   history: Array<{ at: number; from_version: string | null; to_version: string; from_schema: number; to_schema: number; backup: string | null }>;
 }
@@ -56,6 +57,12 @@ export function UpdateBanner({ isAdmin }: { isAdmin: boolean }) {
     return (
       <div className="role-banner warn" role="alert">
         The data directory isn’t on a volume of its own: updating (or restarting on a new container) would start Control Tower from scratch. Give it a persistent volume at <code>/data</code>. <a href="#/updates">Updates</a>
+      </div>
+    );
+  if (s.data.storage?.room_for_backup === false)
+    return (
+      <div className="role-banner warn" role="alert">
+        Not enough free disk space for the backup the next update takes ({size(s.data.storage.backup_needs)} needed, {size(s.data.storage.disk_free ?? 0)} free): it wouldn’t start until there’s room. Give the volume more space, or keep less history. <a href="#/updates">Updates</a>
       </div>
     );
   if (!s.update_available || (!s.security && dismissed === s.latest)) return null;
@@ -192,6 +199,18 @@ export function UpdatesPage() {
                 ? 'On a persistent volume: updates and restarts keep it.'
                 : `In ${s.data.backups_dir?.replace(/\/backups$/, '') ?? 'the data directory'}: updates keep it.`}
         </p>
+        {s.data.storage && (
+          <p className={s.data.storage.room_for_backup === false ? 'up-note' : 'hint'}>
+            The database holds {size(s.data.storage.database_in_use)} of data
+            {s.data.storage.database_file > s.data.storage.database_in_use * 1.2 ? ` (its file is ${size(s.data.storage.database_file)}: space freed by retention is reused)` : ''}.
+            {s.data.storage.disk_free !== null && s.data.storage.disk_total !== null ? ` ${size(s.data.storage.disk_free)} free of ${size(s.data.storage.disk_total)} on its disk.` : ''}
+            {s.data.storage.room_for_backup === false
+              ? ` The next update's backup needs about ${size(s.data.storage.backup_needs)}: give the volume more space, or keep less history (CT_RETENTION_DAYS), before updating.`
+              : s.data.storage.room_for_backup
+                ? ' Room for the next update’s backup.'
+                : ''}
+          </p>
+        )}
         {s.data.database === 'sqlite' && (
           <>
             <div className="up-k" style={{ marginTop: 12 }}>

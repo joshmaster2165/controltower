@@ -18,8 +18,10 @@ const KIND_RANK: Record<string, number> = { openai: 0, anthropic: 0, gemini: 0, 
 const LIST_TTL_MS = 5 * 60_000;
 
 export class AutoModels {
-  private lists = new Map<string, { at: number; ids: Set<string> }>();
+  private lists = new Map<string, { at: number; ids: Set<string>; failed?: string }>();
   private pending = new Map<string, Promise<boolean>>();
+  /** Model → the providers that couldn't be asked for their model list, the last time it wasn't found. */
+  private misses = new Map<string, string[]>();
 
   constructor(
     private readonly deps: { db: Kysely<Database>; registry: Registry; pricing: PricingTable; adapters: Adapters; enabled: boolean },
@@ -66,8 +68,27 @@ export class AutoModels {
       })
       .sort((a, b) => (KIND_RANK[a.kind] ?? 5) - (KIND_RANK[b.kind] ?? 5));
     if (priced[0]) return { provider: priced[0], upstream, pinned };
-    for (const p of providers) if ((await this.listed(p)).has(upstream)) return { provider: p, upstream, pinned };
+    const failed: string[] = [];
+    for (const p of providers) {
+      if ((await this.listed(p)).has(upstream)) {
+        this.misses.delete(model);
+        return { provider: p, upstream, pinned };
+      }
+      const why = this.lists.get(p.id)?.failed;
+      if (why) failed.push(`${p.name} (${why})`);
+    }
+    if (failed.length) this.misses.set(model, failed);
+    else this.misses.delete(model);
+    if (this.misses.size > 1000) this.misses.delete(this.misses.keys().next().value!);
     return undefined;
+  }
+
+  /**
+   * Why a model wasn't found, when it may only be because a provider didn't answer: "no provider serves it" would
+   * send the person looking in the wrong place (a stopped Ollama, a provider that is down).
+   */
+  unreachable(model: string): string[] | undefined {
+    return this.misses.get(model);
   }
 
   private async add(model: string): Promise<boolean> {
@@ -93,15 +114,18 @@ export class AutoModels {
     const hit = this.lists.get(p.id);
     if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.ids;
     let ids = new Set<string>();
+    let failed: string | undefined;
     const adapter = this.deps.adapters.get(p.kind);
     if (adapter?.listModels) {
       try {
         ids = new Set((await adapter.listModels(p)).map((m) => m.id));
-      } catch {
-        // an unreachable provider simply offers nothing
+      } catch (err) {
+        // An unreachable provider offers nothing; asked again soon rather than in five minutes.
+        const e = err as Error & { code?: string };
+        failed = e.code === 'client_aborted' ? 'it did not answer in time' : e.message;
       }
     }
-    this.lists.set(p.id, { at: Date.now(), ids });
+    this.lists.set(p.id, { at: failed ? Date.now() - LIST_TTL_MS + 15_000 : Date.now(), ids, ...(failed ? { failed } : {}) });
     return ids;
   }
 }

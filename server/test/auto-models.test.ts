@@ -52,4 +52,18 @@ describe('models on first use', () => {
     const auto = setup([provider('d', 'mock', 'anthropic', true)]);
     expect(await auto.providerFor('claude-opus-4-1')).toBeUndefined();
   });
+
+  it('says when a provider could not be asked, instead of "not served"', async () => {
+    const registry = { providers: new Map([['o', provider('o', 'openai-compatible', 'ollama')]]), providersBySlug: new Map(), deploymentsByPublicName: new Map(), aliasesByName: new Map() } as unknown as Registry;
+    let up = false;
+    const adapters = { get: () => ({ listModels: async () => (up ? [{ id: 'llama3.2' }] : Promise.reject(Object.assign(new Error('Cannot reach ollama: connect ECONNREFUSED'), { code: 'provider_unreachable' }))) }) } as unknown as Adapters;
+    const auto = new AutoModels({ db: {} as Kysely<Database>, registry, pricing: new PricingTable(), adapters, enabled: true }, () => undefined);
+    expect(await auto.providerFor('llama3.2')).toBeUndefined();
+    expect(auto.unreachable('llama3.2')).toEqual(['ollama (Cannot reach ollama: connect ECONNREFUSED)']);
+    // A failed list isn't kept for five minutes: once the server is up (and the short wait has passed), it's asked again.
+    up = true;
+    (auto as unknown as { lists: Map<string, { at: number }> }).lists.get('o')!.at -= 20_000;
+    expect((await auto.providerFor('llama3.2'))?.provider.id).toBe('o');
+    expect(auto.unreachable('llama3.2')).toBeUndefined();
+  });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -122,6 +123,24 @@ test('OpenAI SDK → Control Tower → OpenAI-compatible provider: chat, streami
   const chatFlight = flights.find((f) => f.model_requested === 'gpt-4.1-mini' && f.status === 'ok');
   expect(chatFlight.in_tokens).toBe(12);
   expect(chatFlight.cost_nanousd).toBeGreaterThan(0);
+});
+
+test('a local model server that is down: the first request says it could not be asked, not that nobody serves the model', async () => {
+  // A port nothing listens on: a stopped Ollama.
+  const srv = net.createServer();
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));
+  const port = (srv.address() as net.AddressInfo).port;
+  await new Promise((r) => srv.close(r));
+  const prov = await admin.post('/admin/api/providers', { catalog_id: 'ollama', name: 'Stopped Ollama', slug: 'stopped-ollama', base_url: `http://127.0.0.1:${port}/v1` });
+  expect(prov.status).toBe(201);
+  const agent = await key('rw-local-agent');
+  const r = await fetch(`${CT}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${agent.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'llama3.2-local-only', messages: [{ role: 'user', content: 'hi' }] }) });
+  expect(r.status).toBe(502);
+  const body = (await r.json()) as { error: { code: string; message: string } };
+  expect(body.error.code).toBe('provider_unreachable');
+  expect(body.error.message).toContain('Stopped Ollama');
+  expect(body.error.message).toContain('running and reachable');
+  await admin.call('DELETE', `/admin/api/providers/${prov.body.provider?.id ?? prov.body.id}`);
 });
 
 test('Anthropic SDK (and Claude Code’s path) → /v1/messages → Anthropic, plus an OpenAI SDK call translated to Anthropic', async () => {

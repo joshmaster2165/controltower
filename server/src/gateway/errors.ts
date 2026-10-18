@@ -88,6 +88,12 @@ export const E = {
     code: 'model_not_found',
     message: `No connected provider serves the model "${model}". Connect the provider that offers it (Providers in the Control Tower console) and retry — models are added on first use — or pin one with "<provider>/${model}".`,
   }),
+  /** Not found, but maybe only because a provider couldn't be asked which models it serves. */
+  modelNotFoundUnreachable: (model: string, providers: string[]): GatewayError => ({
+    status: 502,
+    code: 'provider_unreachable',
+    message: `No connected provider was found serving the model "${model}", and ${providers.join(', ')} could not be asked which models ${providers.length > 1 ? 'they serve' : 'it serves'}. Check that ${providers.length > 1 ? 'they are' : 'it is'} running and reachable from Control Tower, then retry.`,
+  }),
   badRequest: (msg: string): GatewayError => ({ status: 400, code: 'invalid_request', message: msg }),
   regionNotAllowed: (region: string, allowed: string[]): GatewayError => ({
     status: 403,

@@ -370,7 +370,10 @@ export class FlightRunner {
     let res = spec.resolve ? await spec.resolve() : ctx.registry.resolveModel(f.modelRequested);
     // A model a connected provider serves is added on first use: no Models step needed.
     if (!spec.resolve && res.candidates.length === 0 && (await ctx.autoModels.ensure(f.modelRequested))) res = ctx.registry.resolveModel(f.modelRequested);
-    if (res.candidates.length === 0) throw E.modelNotFound(f.modelRequested);
+    if (res.candidates.length === 0) {
+      const down = spec.resolve ? undefined : ctx.autoModels.unreachable(f.modelRequested);
+      throw down ? E.modelNotFoundUnreachable(f.modelRequested, down) : E.modelNotFound(f.modelRequested);
+    }
     if (spec.servedBy) {
       const served = res.candidates.filter((d) => {
         const p = ctx.registry.providers.get(d.providerId);

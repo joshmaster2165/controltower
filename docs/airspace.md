@@ -101,6 +101,16 @@ Click a system to see why it is in its class and which agents reach it. An admin
 
 A thin green arc outside the ring is how many of the team's people are [signed in from their computers](laptops.md). Click a team for its agents, each with its own split; click an agent to see it on the map. The panel on the right ranks the least-covered teams. Both views cover the last hour, day or week.
 
+## Reach: one agent's blast radius, and trimming it
+
+**Reach** puts one agent in the middle and everything its key lets it reach around it, in rings: the models it thinks with, the tools and APIs it can use, and anything it reaches around the gateway. A solid line is something it used in the window (7, 30 or 90 days); a faint dashed one is a permission it has and never used. Colours say what each does (reads, writes, admin), and whether a gate blocks it or a person approves it.
+
+![Reach: support-triage may reach 12 models, tools and APIs, and used 3](images/airspace-reach.png)
+
+The panel says how much of what it may reach it actually used, and lists the rest by system. The unused ones that can change or delete something, with no gate on them, are marked: they're the permissions worth removing first.
+
+**Trim to what it uses** (admins) shows the key's model and tool lists as they would be, keeping only what the agent used in the window (a whole tool server when it used every tool on it), next to what they are now. **Trim** saves them: anything else the agent asks for is refused from then on, and you can widen the key again on **Keys**. An agent with no calls in the window has nothing to trim to: retire its key instead ([Agents that come and go](keys.md#agents-that-come-and-go)).
+
 ## What needs attention
 
 **Attention** in the toolbar lists what needs a person on the map you are looking at — the whole organization or a [view](#views-one-part-of-the-organization-at-a-time) — most urgent first, and dims everything else while it is open. The badge counts the items that matter most.

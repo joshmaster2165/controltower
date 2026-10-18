@@ -4,6 +4,7 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Airspace: Reach.** One agent in the middle and everything its key lets it reach around it, in rings: what it used in the last 7, 30 or 90 days, solid, and what it may reach and never used, dashed. Unused permissions that can change or delete something with no gate on them are marked. **Trim to what it uses** shows the key's lists keeping only what it used, and saves them. See [Reach](airspace.md#reach-one-agents-blast-radius-and-trimming-it).
 - **Updates:** after an upgrade, the release feed is checked again a minute after start. It waited up to a day, showing the old version as the latest meanwhile.
 - **Rolling upgrades are tested:** CI runs a released version and the new build side by side on one Postgres database under traffic, every call answered; database changes are checked to only add, so an instance not yet replaced keeps working. See [Upgrading, one instance at a time](scaling.md#upgrading-one-instance-at-a-time).
 - **Updates** shows how much data the database holds, the free space on its disk, and whether the next update's backup would fit. When it wouldn't, admins see a warning at the top: the next update wouldn't start until there's room.

@@ -51,6 +51,7 @@ import { userRoutes } from './admin/users.js';
 import { viewRoutes } from './admin/views.js';
 import { classRoutes } from './admin/airspace-classes.js';
 import { updateRoutes } from './admin/updates.js';
+import { reachRoutes } from './admin/reach.js';
 import { a2aAdminRoutes } from './admin/a2a.js';
 import { mountDemoMcpServers } from './demo/mcp-servers.js';
 import { mountDemoHttpApis } from './demo/http-apis.js';
@@ -260,6 +261,7 @@ export async function buildApp(ctx: Omit<AppContext, 'log'>, opts: { uiDir?: str
     await viewRoutes(a, full);
     await classRoutes(a, full);
     await updateRoutes(a, full);
+    await reachRoutes(a, full);
     await a2aAdminRoutes(a, full);
     await alertRoutes(a, full);
     await importRoutes(a, full);

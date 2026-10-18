@@ -21,11 +21,12 @@ import { AttentionPanel, type Attention } from './airspace/Attention';
 import { MatrixView } from './airspace/Matrix';
 import { ClassesView } from './airspace/Classes';
 import { CoverageView } from './airspace/Coverage';
+import { ReachView } from './airspace/Reach';
 import type { MatrixData } from '../airspace/scene';
 
 const MODE_KEY = 'ct.airspace.mode';
 /** The map, or a view over it: the matrix, trust classes, coverage by team. */
-type Mode = 'map' | 'matrix' | 'classes' | 'coverage';
+type Mode = 'map' | 'matrix' | 'classes' | 'coverage' | 'reach';
 
 const LEVEL_KEY = 'ct.airspace.level';
 
@@ -97,7 +98,7 @@ export function AirspacePage() {
   const [mode, setModeState] = useState<Mode>(() => {
     try {
       const m = localStorage.getItem(MODE_KEY);
-      return m === 'matrix' || m === 'classes' || m === 'coverage' ? m : 'map';
+      return m === 'matrix' || m === 'classes' || m === 'coverage' || m === 'reach' ? m : 'map';
     } catch {
       return 'map';
     }
@@ -640,6 +641,7 @@ export function AirspacePage() {
                 ['matrix', 'Matrix', 'Every agent against every destination: volume, live connections and which have a gate'],
                 ['classes', 'Classes', 'Trust classes, production to the public internet: how deep each agent reaches, and where data could leave'],
                 ['coverage', 'Coverage', 'Each team as a constellation, ringed by how much of its traffic a gate stands on'],
+                ['reach', 'Reach', 'One agent: everything its key lets it reach, what it used, and trimming it to that'],
               ] as const
             ).map(([id, label, hint]) => (
               <button key={id} role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''} title={hint} onClick={() => setMode(id)}>
@@ -886,14 +888,14 @@ export function AirspacePage() {
         />
       )}
 
-      {(mode === 'classes' || mode === 'coverage') && (() => {
+      {(mode === 'classes' || mode === 'coverage' || mode === 'reach') && (() => {
         const open = (keyId: string) => {
           setMode('map');
           const id = sceneRef.current?.reveal(`key:${keyId}`, 372);
           if (id) revealed(id);
         };
         const r = showTower || focusId || attentionOpen ? 388 : 16;
-        return mode === 'classes' ? <ClassesView right={r} isAdmin={isAdmin} onOpenAgent={open} /> : <CoverageView right={r} onOpenAgent={open} />;
+        return mode === 'classes' ? <ClassesView right={r} isAdmin={isAdmin} onOpenAgent={open} /> : mode === 'coverage' ? <CoverageView right={r} onOpenAgent={open} /> : <ReachView right={r} isAdmin={isAdmin} />;
       })()}
 
       {/* On the map only: the other views' side panels sit where it would, and its steps are about the map. */}

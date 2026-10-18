@@ -1241,3 +1241,44 @@ td .link-btn.sub { display: block; margin-left: auto; font-size: 11.5px; }
 .up-steps { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; }
 .tag.danger { background: #fdecef; color: #b4233a; }
 .tag.ok { background: #e7f6ef; color: #12734d; }
+
+/* Reach: one agent's blast radius */
+.reach-ring { fill: none; stroke: var(--border); stroke-dasharray: 2 5; }
+.reach-ring.r-model { fill: #f6f8fd; stroke: #d3dded; stroke-dasharray: none; }
+.reach-ring-label { font-size: 10px; font-weight: 650; letter-spacing: 1px; fill: var(--text-faint); }
+.reach-agent { fill: var(--accent); }
+.reach-agent-name { font-size: 12.5px; font-weight: 650; fill: #fff; }
+.reach-agent-sub { font-size: 9.5px; fill: #dbe6ff; }
+.reach-ln { stroke: #9fb1cc; }
+.reach-ln.used { stroke: var(--accent); stroke-opacity: 0.75; }
+.reach-ln.used.op-write { stroke: var(--warn); }
+.reach-ln.used.op-admin { stroke: var(--danger); }
+.reach-ln.ghost { stroke: #b8c4d6; stroke-dasharray: 3 5; stroke-opacity: 0.8; }
+.reach-ln.deny { stroke: var(--text-faint); stroke-dasharray: 1 4; }
+.reach-ln.hold { stroke: var(--warn); stroke-dasharray: 5 3; }
+.reach-ln.out { stroke: #7c5cd6; stroke-dasharray: 6 4; }
+.reach-ln.dim, .reach-node.dim { opacity: 0.2; }
+.reach-node { cursor: pointer; }
+.reach-node circle { fill: #fff; stroke: #9fb1cc; stroke-width: 1.6; }
+.reach-node.used circle { fill: var(--accent); stroke: var(--accent); }
+.reach-node.used.op-write circle { fill: var(--warn); stroke: var(--warn); }
+.reach-node.used.op-admin circle { fill: var(--danger); stroke: var(--danger); }
+.reach-node.ghost circle { stroke-dasharray: 2 2; }
+.reach-node.hold circle { stroke: var(--warn); stroke-width: 2.2; }
+.reach-node.deny circle { fill: #eef1f5; stroke: var(--text-faint); }
+.reach-node.out circle { fill: #7c5cd6; stroke: #7c5cd6; }
+.reach-node.sel circle { stroke: var(--text); stroke-width: 2.5; }
+.reach-x { stroke: var(--text-dim); stroke-width: 1.5; }
+.reach-label { font-size: 11px; fill: var(--text); }
+.reach-node.ghost .reach-label, .reach-node.deny .reach-label { fill: var(--text-dim); }
+.scope-key .k-used { background: var(--accent); }
+.scope-key .k-write { background: var(--warn); }
+.scope-key .k-admin { background: var(--danger); }
+.scope-key .k-hold-d { background: repeating-linear-gradient(90deg, var(--warn) 0 5px, transparent 5px 8px); }
+.scope-key .k-deny-d { background: repeating-linear-gradient(90deg, var(--text-faint) 0 2px, transparent 2px 5px); }
+.scope-key .k-ghost { background: repeating-linear-gradient(90deg, #b8c4d6 0 3px, transparent 3px 6px); }
+.reach-trim { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 6px; background: #f8fafd; }
+.reach-trim .mono { font-size: 11.5px; word-break: break-all; }
+.reach-sys { margin-top: 6px; }
+.reach-sys-h { font-size: 12px; font-weight: 650; margin-top: 4px; }
+.rail-row .dim.risky { color: var(--danger); font-weight: 600; }

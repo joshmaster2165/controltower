@@ -50,6 +50,7 @@ const ADMIN_ONLY_READS = new Set([
  * each answered for their teams only — and the shared catalogue (models, tool servers, gates) keys refer to.
  */
 const MEMBER_READS = new Set([
+  'GET /admin/api/airspace/reach',
   'GET /admin/api/airspace/classes',
   'GET /admin/api/airspace/coverage',
   'GET /admin/api/me',

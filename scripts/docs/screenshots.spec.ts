@@ -186,6 +186,11 @@ test('demo fleet: the map, gates, approvals, zones, alerts, spend', async ({ pag
     await page.locator('g.team').first().click();
     await page.waitForTimeout(700);
     await shot(page, 'airspace-coverage');
+    await page.getByRole('radio', { name: 'Reach' }).click();
+    await page.getByRole('region', { name: 'Reach' }).getByLabel('Agent').selectOption('key_demo_support-triage');
+    await page.locator('.reach-node').first().waitFor();
+    await page.waitForTimeout(700);
+    await shot(page, 'airspace-reach');
     await page.getByRole('radio', { name: 'Map' }).click();
     await secretsScan(true);
     await page.waitForTimeout(800);

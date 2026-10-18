@@ -178,6 +178,7 @@ All paths are under `/admin/api`. Approvers and viewers may read any of them (ex
 | PATCH, DELETE | `/airspace/views/:id` | Change or remove a view |
 | GET | `/airspace/classes?hours=` | [Trust classes](airspace.md#classes-how-deep-agents-reach-and-where-data-could-leave): `systems` (each with its `class`, `default_class` and why), `agents` (with the innermost class each reaches, `depth`, and its worst `risk`), `links` and exfiltration `risks`. `hours` 1–720, default 24 |
 | PUT, DELETE | `/airspace/classes/:id` | Set a system's class, `{class: "A"…"E"}`, or set it back to its default. `:id` is a system id from the list (`provider:…`, `tool:…`, `observed:…`). Admins only |
+| GET | `/airspace/reach?key=&days=` | [Reach](airspace.md#reach-one-agents-blast-radius-and-trimming-it): what the key `key` may reach (`items`, each `granted` and `used`, with its calls, operation, class and what a gate would do), a `summary`, and `trim`: the model and tool lists it would keep. Trimming is `PATCH /keys/:id` with those lists |
 | GET | `/airspace/coverage?hours=` | [Coverage](airspace.md#coverage-each-team-and-how-much-of-its-traffic-is-governed) per team: calls, `governed`, `outside`, its agents, and people signed in |
 | GET | `/export/dataflow` | The data-flow inventory (`?format=md\|csv`, `hours`) |
 | GET (WebSocket) | `/admin/ws` | Live traffic for the console: a `tick` each second (totals, calls per path, gate hits) and `events` for held, denied and failed flights. Needs a session; a browser from another origin is refused (close code `4403`) |

@@ -5,7 +5,8 @@
  *
  *   IMAGE=ghcr.io/joshmaster2165/controltower:main npx tsx scripts/install/fresh-docker.mts
  */
-import { execSync, spawnSync } from 'node:child_process';
+import { execFile, execSync, spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import http from 'node:http';
 import { chromium } from '@playwright/test';
@@ -62,7 +63,9 @@ try {
   const open = /Open\s+(http:\/\/localhost:4000\/\?setup=[\w-]+)/.exec(log)?.[1];
   const code = /Setup code\s+([\w-]+)/.exec(log)?.[1];
   c('its log shows the Open link and the setup code, as the docs say', !!open && !!code && /ANTHROPIC_BASE_URL=http:\/\/localhost:4000/.test(log) && /master\.key/.test(log), open ?? log.slice(0, 300));
-  c('it runs as a user other than root', sh(`docker exec ${NAME} id -u`) !== '0');
+  // The entrypoint starts as root to hand /data to `node`, then drops to it: the server process is what counts.
+  const uid = sh(`docker exec ${NAME} sh -c 'for p in /proc/[0-9]*; do grep -q dist/serve[r].mjs $p/cmdline 2>/dev/null && stat -c %u $p; done'`).split('\n')[0] ?? '';
+  c('the server runs as a user other than root', uid !== '' && uid !== '0', `uid ${uid || 'not found'}`);
 
   // 2. The first admin, from the Open link (the code is filled in).
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -94,7 +97,8 @@ try {
   await page.locator('.keybox').waitFor({ timeout: 20_000 });
   await page.locator('.connect-agent').getByRole('button', { name: 'Test with curl' }).click();
   const curl = (await page.locator('.connect-agent pre').filter({ hasText: 'curl' }).first().innerText()).trim();
-  const out = spawnSync('bash', ['-c', curl.replace(/\\\n/g, ' ') + ' -s -w "\\n%{http_code}"'], { encoding: 'utf8' });
+  // Run without blocking: the stand-in model server lives in this process and has to answer while curl waits.
+  const out = await promisify(execFile)('bash', ['-c', curl.replace(/\\\n/g, ' ') + ' -s -w "\\n%{http_code}"'], { encoding: 'utf8' }).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }));
   const status = out.stdout.trim().split('\n').pop();
   c("the console's curl command works as shown", status === '200' && out.stdout.includes('stand-in model'), `${status}: ${out.stdout.slice(0, 120)}`);
   const green = await page.locator('.connect-status', { hasText: 'Connected' }).waitFor({ timeout: 20_000 }).then(() => true, () => false);
@@ -110,9 +114,15 @@ try {
   sh(`docker restart ${NAME}`);
   c('it comes back after a restart', await healthy());
   await page.goto(CT);
-  await field(/^Email or username/).fill('you@example.com');
-  await field(/^Password/).fill('a-long-admin-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Sessions are kept in the database, so the console may still be signed in; otherwise sign in again.
+  const keysLink = page.getByRole('link', { name: 'Keys' }).first();
+  const signIn = page.getByRole('button', { name: 'Sign in' });
+  await keysLink.or(signIn).first().waitFor({ timeout: 20_000 });
+  if (await signIn.isVisible()) {
+    await field(/^Email or username/).fill('you@example.com');
+    await field(/^Password/).fill('a-long-admin-password');
+    await signIn.click();
+  }
   await page.getByRole('link', { name: 'Keys' }).first().click();
   c('…with the admin and the key still there (the volume)', await page.getByText('my-agent').first().waitFor({ timeout: 15_000 }).then(() => true, () => false));
   const health = sh(`docker inspect --format '{{.State.Health.Status}}' ${NAME}`);

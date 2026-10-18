@@ -56,7 +56,7 @@ test('the console: the rings, the unused list, and trimming the key', async ({ p
   await page.goto(`${CT}/#/airspace`);
   await page.getByRole('radio', { name: 'Reach' }).click();
   const view = page.getByRole('region', { name: 'Reach' });
-  await view.getByLabel('Agent').selectOption(keyId);
+  await view.getByLabel('Agent', { exact: true }).selectOption(keyId);
   await expect(view.locator('.reach-agent-name')).toContainText(`reach-agent-${run}`.slice(0, 15));
   await expect(view.locator('.rail-kicker', { hasText: 'Allowed, never used' })).toBeVisible();
   await expect(view.locator('.rail-row', { hasText: `ok-never-${run}` })).toBeVisible();

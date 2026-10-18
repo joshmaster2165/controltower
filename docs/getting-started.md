@@ -2,6 +2,10 @@
 
 From an empty machine to your own agent on the map in about five minutes. You need Docker (or Node 24, see [Install](install.md)) and an API key for a model provider — or a local model server such as Ollama.
 
+<video class="docs-video" controls preload="none" playsinline poster="../media/quickstart.jpg" src="../media/quickstart.mp4" width="1920" height="1080" aria-label="Quick start, narrated: start Control Tower with Docker, create the first admin with the setup code, connect a model provider, create a key for an agent, send its first request, and see it on the map"></video>
+
+*The steps below, in a 90-second video with narration.*
+
 ## 1. Start Control Tower
 
 ```bash

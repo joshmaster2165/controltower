@@ -172,3 +172,6 @@ svg { width: 18px; height: 18px; flex: none; }
   .pager .next { grid-column: 1; }
   .footer { padding: 20px 16px; }
 }
+
+/* Narrated videos in a page */
+.docs-video { display: block; width: 100%; height: auto; margin: 14px 0 6px; border-radius: 10px; border: 1px solid var(--border, #e3e8f0); background: #0b1220; }

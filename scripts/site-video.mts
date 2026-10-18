@@ -4,6 +4,7 @@
  *
  *   SHOWCASE_URL=https://… SHOWCASE_KEY=… npx tsx scripts/site-video.mts
  *
+ * Narrated (marketing/lib/narration.mjs: CT_TTS_KEY or CT_TTS_KEY_FILE for a Control Tower with a speech model).
  * Writes site/media/controltower-tour.mp4 and its poster. Frames come from the browser's own screencast (every
  * change, not a screenshot loop), so motion is smooth. Gates the take adds are removed afterwards.
  */
@@ -11,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { REPO, openStage, encodeFrames, ffmpeg, duration } from '../marketing/lib/stage.mjs';
+import { mixNarration, narrator } from '../marketing/lib/narration.mjs';
 
 const URL_ = (process.env.SHOWCASE_URL ?? 'https://showcase-production-b625.up.railway.app').replace(/\/+$/, '');
 const KEY = process.env.SHOWCASE_KEY ?? fs.readFileSync(path.join(REPO, 'data/railway-test/showcase-admin-key.txt'), 'utf8').trim();
@@ -44,6 +46,27 @@ await s.go('airspace');
 await s.wait(12000);
 await s.fitMap();
 
+// ---- The voice-over, generated before the take so each scene can wait for its line ----
+const n = narrator({ dir: path.join(REPO, 'data/brand/narration/tour') });
+const lines = await n.prepare({
+  map: 'This is Control Tower: every AI agent and coding assistant in your company, on one live map. The models, tools and APIs they reach, and the traffic between them.',
+  trace: 'Click an agent to see everything it touches: each model, tool and API, how often it calls them, and what that costs.',
+  gate: "Least privilege is drawn right on the map. Drag from an agent to a tool, and choose: block it, inspect it, or require a person's approval.",
+  hold: "Now the agent's next call waits at the gate. Not a log line after the fact: a person decides before it happens.",
+  approve: 'Approve it in the Tower. Who asked, from which agent, for what, and who said yes, all on the record.',
+  classes: 'Trust classes show how deep each agent reaches, and flag the ones that could send customer data outside the company.',
+  reach: 'Reach puts one agent in the middle: what it may reach, against what it actually uses. One click trims its key to just that.',
+  flights: 'Every call is on the record: who made it, which agent, which model or tool, what each gate decided, and the cost.',
+  guardrails: 'Secrets and personal data stop at the gateway, with built-in detectors, your own guardrails, or services like Presidio and Lakera.',
+  laptops: 'Roll it out to every laptop with Jamf or Intune. Claude Code, Claude Desktop, Codex and Copilot sign in as the person using them.',
+  inventory: 'The AI inventory keeps itself current: every agent, its owner, what it reaches, and the gates on the way.',
+  audit: 'Every change and every refusal lands in a tamper-evident audit log, hash-chained, and sent to your SIEM.',
+  compliance: 'When the assessor asks, each requirement of the EU AI Act, NIST AI RMF and ISO 42001 is checked against your own records.',
+  evidence: 'Then hand them the evidence pack.',
+  end: 'Control Tower. See every agent. Gate every call. Prove it. Open source, and you run it yourself.',
+});
+log(`narration: ${Object.values(lines).reduce((a, b) => a + b, 0) / 1000} s of speech`);
+
 // ---- Recording: the browser's screencast, every frame it paints ----
 const framesDir = path.join(TMP, 'frames');
 fs.mkdirSync(framesDir, { recursive: true });
@@ -59,27 +82,33 @@ await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: 
 log('recording');
 
 try {
+  const say = async (id: string, title: string | null, sub = '') => {
+    if (title) await s.caption(null, title, sub);
+    n.say(id);
+  };
+
   // 1. The map
-  await s.caption(null, 'Every AI agent and coding assistant, on one live map', 'Claude Code, Codex, Copilot and your own agents, through a gateway you run');
-  await s.wait(4500);
+  await say('map', 'Every AI agent and coding assistant, on one live map', 'Claude Code, Codex, Copilot and your own agents, through a gateway you run');
+  await s.wait(2500);
   for (const a of ['support-triage', 'pr-reviewer', 'outbound-sdr']) {
     const [x, y] = await s.stationAt(a);
     await s.glide(x, y, 800);
-    await s.wait(700);
+    await s.wait(500);
   }
+  await n.done();
 
   // 2. Trace an agent
-  await s.caption(1, 'See what each agent can reach', 'Click an agent: every model, tool and API it uses lights up');
+  await say('trace', 'See what each agent can reach', 'Click an agent: every model, tool and API it uses lights up');
   {
     const [x, y] = await s.stationAt('support-triage');
     await s.clickAt(x, y, 700);
-    await s.wait(4500);
+    await n.done();
     await page.keyboard.press('Escape');
-    await s.wait(600);
+    await s.wait(400);
   }
 
   // 3. A gate, and 4. a person approves
-  await s.caption(2, 'Least privilege, drawn on the map', 'Drag from an agent to a tool: block it, inspect it, or require approval');
+  await say('gate', 'Least privilege, drawn on the map', 'Drag from an agent to a tool: block it, inspect it, or require approval');
   await s.clickEl(page.getByRole('button', { name: 'Add gate' }), 700);
   await s.wait(400);
   {
@@ -102,79 +131,102 @@ try {
   await s.clickEl(pop.getByRole('button', { name: 'Add gate', exact: true }), 600);
   await s.wait(300);
   await page.getByRole('button', { name: 'Add gate', exact: true }).first().click().catch(() => {});
-  await s.caption(3, 'Human oversight, before it happens', 'The next call waits at the gate for a person: not a log line after the fact');
+  await n.done(150);
+  await say('hold', 'Human oversight, before it happens', 'The next call waits at the gate for a person: not a log line after the fact');
   await s.clickEl(page.getByRole('button', { name: /^Approvals/ }), 900);
   const card = page.locator('.tower-drawer .approval').filter({ hasText: 'support-triage' }).first();
   await card.waitFor({ timeout: 40000 });
-  await s.wait(2200);
-  await s.caption(3, 'Approve it in the Tower', 'Who asked, from which agent, for what, and who said yes: all on record');
+  await n.done(150);
+  await say('approve', 'Approve it in the Tower', 'Who asked, from which agent, for what, and who said yes: all on record');
   await s.clickEl(card.getByRole('button', { name: 'Approve', exact: true }), 800).catch(() => {});
-  await s.wait(2600);
+  await n.done();
   await page.keyboard.press('Escape');
 
-  // 5. Flights
+  // 5. Trust classes: where data could leave
+  await s.clickEl(page.getByRole('radio', { name: 'Classes' }), 700);
+  await page.locator('g.agent').first().waitFor({ timeout: 20000 });
+  await say('classes', 'Where customer data could leave', 'Each agent against trust classes, from production out to the public internet');
+  const risk = page.locator('.risk.high, .risk.critical').first();
+  if (await risk.count()) {
+    await s.wait(1800);
+    await s.clickEl(risk.locator('.risk-head'), 800);
+  }
+  await n.done();
+
+  // 6. Reach: least privilege, from its own traffic
+  await s.clickEl(page.getByRole('radio', { name: 'Reach' }), 700);
+  await page.getByRole('region', { name: 'Reach' }).getByLabel('Agent', { exact: true }).selectOption('key_demo_support-triage').catch(() => {});
+  await page.locator('.reach-node').first().waitFor({ timeout: 20000 }).catch(() => {});
+  await say('reach', 'What it may reach, against what it uses', 'Unused permissions as ghosts, and one click trims the key to what it uses');
+  await s.wait(2200);
+  await s.hoverEl(page.getByRole('button', { name: /Trim to what it uses/ }), 900).catch(() => {});
+  await n.done();
+  await s.clickEl(page.getByRole('radio', { name: 'Map' }), 600);
+
+  // 7. Flights
   await s.caption(null);
   await s.go('flights');
-  await s.caption(4, 'Every call on the record', 'Who made it, which agent, which model or tool, what each gate decided, and the cost');
-  await s.wait(3500);
-  await s.glide(800, 420, 700);
-  await s.scroll(450, 2600);
+  await say('flights', 'Every call on the record', 'Who made it, which agent, which model or tool, what each gate decided, and the cost');
   await s.wait(1500);
+  await s.glide(800, 420, 700);
+  await s.scroll(450, 2400);
+  await n.done();
 
-  // 6. Guardrails
+  // 8. Guardrails
   await s.caption(null);
   await s.go('guardrails');
-  await s.caption(5, 'Secrets and personal data stop at the gateway', 'Built-in detectors, your own guardrails, and services like Presidio and Lakera');
-  await s.wait(3200);
-  await s.glide(800, 500, 700);
-  await s.scroll(600, 3000);
+  await say('guardrails', 'Secrets and personal data stop at the gateway', 'Built-in detectors, your own guardrails, and services like Presidio and Lakera');
   await s.wait(1500);
+  await s.glide(800, 500, 700);
+  await s.scroll(600, 2600);
+  await n.done();
 
-  // 7. Laptops
+  // 9. Laptops
   await s.caption(null);
   await s.go('laptops');
-  await s.caption(6, 'Coding assistants on every laptop, signed in as the person', 'Claude Code, Claude Desktop, Codex and Copilot CLI, rolled out with Jamf or Intune');
-  await s.wait(3000);
+  await say('laptops', 'Coding assistants on every laptop, signed in as the person', 'Claude Code, Claude Desktop, Codex and Copilot CLI, rolled out with Jamf or Intune');
+  await s.wait(1500);
   await s.glide(800, 500, 700);
-  await s.scroll(900, 3500);
-  await s.wait(1800);
+  await s.scroll(900, 3000);
+  await n.done();
 
-  // 8. Inventory
+  // 10. Inventory
   await s.caption(null);
   await s.go('report');
-  await s.caption(7, 'An AI inventory that keeps itself current', 'Every agent, its owner, what it reaches and the gates on the way: CSV, Markdown or PDF');
-  await s.wait(3000);
-  await s.glide(800, 500, 700);
-  await s.scroll(800, 3500);
+  await say('inventory', 'An AI inventory that keeps itself current', 'Every agent, its owner, what it reaches and the gates on the way: CSV, Markdown or PDF');
   await s.wait(1500);
+  await s.glide(800, 500, 700);
+  await s.scroll(800, 3000);
+  await n.done();
 
-  // 9. Audit log
+  // 11. Audit log
   await s.caption(null);
   await s.go('audit');
-  await s.caption(8, 'A tamper-evident audit log', 'Every change and refusal, hash-chained, and sent to your SIEM');
-  await s.wait(2500);
+  await say('audit', 'A tamper-evident audit log', 'Every change and refusal, hash-chained, and sent to your SIEM');
+  await s.wait(1200);
   await s.clickEl(page.getByRole('button', { name: 'Verify' }), 800).catch(() => {});
-  await s.wait(3200);
+  await n.done();
 
-  // 10. Compliance
+  // 12. Compliance
   await s.caption(null);
   await s.go('compliance');
   await page.getByRole('cell', { name: 'Art. 12' }).waitFor({ timeout: 20000 });
-  await s.caption(9, 'Evidence for the EU AI Act, NIST AI RMF and ISO/IEC 42001', 'Each requirement checked against your own records, with what to do next');
-  await s.wait(3500);
+  await say('compliance', 'Evidence for the EU AI Act, NIST AI RMF and ISO/IEC 42001', 'Each requirement checked against your own records, with what to do next');
+  await s.wait(1800);
   await s.clickEl(page.getByRole('cell', { name: 'Art. 14' }), 800);
-  await s.wait(3500);
+  await s.wait(1800);
   await s.clickEl(page.getByRole('radio', { name: 'ISO/IEC 42001' }), 800);
   await page.getByRole('cell', { name: 'A.6.2.8' }).waitFor({ timeout: 20000 });
-  await s.wait(2500);
-  await s.caption(9, 'Hand your assessor the evidence pack', 'The register and the records behind it, its checksum in the audit log');
+  await n.done(150);
+  await say('evidence', 'Hand your assessor the evidence pack', 'The register and the records behind it, its checksum in the audit log');
   await s.hoverEl(page.getByRole('link', { name: 'Evidence pack' }), 900);
-  await s.wait(3200);
+  await n.done();
 
   // The end
   await s.caption(null);
   await s.endCard('Control Tower', 'See every agent. Gate every call. Prove it.', 'agentcontroltower.app');
-  await s.wait(4000);
+  n.say('end');
+  await n.done(1200);
 } finally {
   await cdp.send('Page.stopScreencast').catch(() => {});
   // The browser sends a frame only when something changes: the last one is held until the take ends.
@@ -189,6 +241,8 @@ try {
 const raw = path.join(TMP, 'raw.mp4');
 encodeFrames(frames, raw);
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
-ffmpeg(['-i', raw, '-c:v', 'libx264', '-preset', 'slow', '-crf', '22', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', OUT]);
+const silent = path.join(TMP, 'silent.mp4');
+ffmpeg(['-i', raw, '-c:v', 'libx264', '-preset', 'slow', '-crf', '22', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', silent]);
+mixNarration(silent, n.cues, frames[0]!.t, OUT);
 ffmpeg(['-ss', '6', '-i', OUT, '-frames:v', '1', '-q:v', '3', POSTER]);
 log(`${OUT}: ${duration(OUT).toFixed(1)} s, ${(fs.statSync(OUT).size / 1e6).toFixed(1)} MB`);

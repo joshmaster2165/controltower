@@ -65,8 +65,19 @@ async function traffic(urls: string[], ms: number) {
       ? await fetch(`${url}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${AK}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 5, messages: [{ role: 'user', content: `rolling ${n}` }] }) }).catch((e) => e as Error)
       : await fetch(`${url}/admin/api/flights?limit=20`, { headers: { authorization: `Bearer ${AK}` } }).catch((e) => e as Error);
     if (r instanceof Error) bad.push(`${url} ${r.message}`);
-    else if (!r.ok) bad.push(`${url} ${r.status} ${(await r.text()).slice(0, 120)}`);
-    else await r.arrayBuffer();
+    else if (!r.ok) {
+      // The demo's stand-in model fails ~1% of calls on purpose (429s and 500s, passed on as provider_*): those are
+      // the model's, not the gateway's. Anything else (the gateway's own errors) counts.
+      const text = await r.text();
+      const code = (() => {
+        try {
+          return String((JSON.parse(text) as { error?: { code?: string } }).error?.code ?? '');
+        } catch {
+          return '';
+        }
+      })();
+      if (!code.startsWith('provider_')) bad.push(`${url} ${r.status} ${text.slice(0, 120)}`);
+    } else await r.arrayBuffer();
     n++;
     await sleep(100);
   }
@@ -78,7 +89,7 @@ try {
   c(`the old version runs on Postgres (${await version(old.url)})`, true);
   await sleep(15_000); // the demo fleet's traffic and setup
   const before = await traffic([old.url], 3000);
-  c('it serves', !before.bad.length, `${before.n} calls`);
+  c('it serves', !before.bad.length, before.bad.length ? before.bad.slice(0, 3).join(' | ') : `${before.n} calls`);
 
   // This build starts beside it: it upgrades the schema under the running old version.
   const next = await start(REPO, 4721, false);
@@ -88,7 +99,7 @@ try {
 
   await stop(old.proc);
   const after = await traffic([next.url], 3000);
-  c('the old one stops, and this build carries on alone', !after.bad.length, `${after.n} calls`);
+  c('the old one stops, and this build carries on alone', !after.bad.length, after.bad.length ? after.bad.slice(0, 3).join(' | ') : `${after.n} calls`);
 } catch (err) {
   c('the test ran', false, (err as Error).message);
 } finally {

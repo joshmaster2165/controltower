@@ -64,7 +64,7 @@ try {
   const code = /Setup code\s+([\w-]+)/.exec(log)?.[1];
   c('its log shows the Open link and the setup code, as the docs say', !!open && !!code && /ANTHROPIC_BASE_URL=http:\/\/localhost:4000/.test(log) && /master\.key/.test(log), open ?? log.slice(0, 300));
   // The entrypoint starts as root to hand /data to `node`, then drops to it: the server process is what counts.
-  const uid = sh(`docker exec ${NAME} sh -c 'for p in /proc/[0-9]*; do grep -q dist/serve[r].mjs $p/cmdline 2>/dev/null && stat -c %u $p; done'`).split('\n')[0] ?? '';
+  const uid = sh(`docker exec ${NAME} sh -c 'for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = node ] && grep -q dist/serve[r].mjs $p/cmdline && stat -c %u $p; done; true'`).split('\n')[0] ?? '';
   c('the server runs as a user other than root', uid !== '' && uid !== '0', `uid ${uid || 'not found'}`);
 
   // 2. The first admin, from the Open link (the code is filled in).

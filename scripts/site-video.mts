@@ -49,21 +49,20 @@ await s.fitMap();
 // ---- The voice-over, generated before the take so each scene can wait for its line ----
 const n = narrator({ dir: path.join(REPO, 'data/brand/narration/tour') });
 const lines = await n.prepare({
-  map: 'This is Control Tower: every AI agent and coding assistant in your company, on one live map. The models, tools and APIs they reach, and the traffic between them.',
-  trace: 'Click an agent to see everything it touches: each model, tool and API, how often it calls them, and what that costs.',
-  gate: "Least privilege is drawn right on the map. Drag from an agent to a tool, and choose: block it, inspect it, or require a person's approval.",
-  hold: "Now the agent's next call waits at the gate. Not a log line after the fact: a person decides before it happens.",
-  approve: 'Approve it in the Tower. Who asked, from which agent, for what, and who said yes, all on the record.',
-  classes: 'Trust classes show how deep each agent reaches, and flag the ones that could send customer data outside the company.',
-  reach: 'Reach puts one agent in the middle: what it may reach, against what it actually uses. One click trims its key to just that.',
-  flights: 'Every call is on the record: who made it, which agent, which model or tool, what each gate decided, and the cost.',
-  guardrails: 'Secrets and personal data stop at the gateway, with built-in detectors, your own guardrails, or services like Presidio and Lakera.',
-  laptops: 'Roll it out to every laptop with Jamf or Intune. Claude Code, Claude Desktop, Codex and Copilot sign in as the person using them.',
-  inventory: 'The AI inventory keeps itself current: every agent, its owner, what it reaches, and the gates on the way.',
-  audit: 'Every change and every refusal lands in a tamper-evident audit log, hash-chained, and sent to your SIEM.',
-  compliance: 'When the assessor asks, each requirement of the EU AI Act, NIST AI RMF and ISO 42001 is checked against your own records.',
-  evidence: 'Then hand them the evidence pack.',
-  end: 'Control Tower. See every agent. Gate every call. Prove it. Open source, and you run it yourself.',
+  map: 'This is Control Tower: every AI agent and coding assistant in your company, on one live map.',
+  trace: 'Click an agent to see everything it touches, how often, and what it costs.',
+  gate: 'Least privilege is drawn on the map. Drag from an agent to a tool: block it, inspect it, or require approval.',
+  hold: 'Now its next call waits at the gate for a person, before it happens.',
+  approve: "Approve it in the Tower, and it's on the record: who asked, and who said yes.",
+  classes: 'Trust classes flag agents that could send customer data outside the company.',
+  reach: 'Reach shows what an agent may touch, against what it actually uses. One click trims its key to just that.',
+  flights: 'Every call is on the record, with what each gate decided and what it cost.',
+  guardrails: 'Secrets and personal data stop at the gateway.',
+  laptops: 'Roll it out to every laptop with Jamf or Intune: Claude Code, Codex and Copilot sign in as the person.',
+  inventory: 'The AI inventory keeps itself current.',
+  audit: 'Every change lands in a tamper-evident audit log, sent to your SIEM.',
+  compliance: 'And each requirement of the EU AI Act, NIST AI RMF and ISO 42001 is checked against your own records, with an evidence pack for your assessor.',
+  end: 'Control Tower. See every agent. Gate every call. Prove it.',
 });
 log(`narration: ${Object.values(lines).reduce((a, b) => a + b, 0) / 1000} s of speech`);
 
@@ -140,7 +139,9 @@ try {
   await say('approve', 'Approve it in the Tower', 'Who asked, from which agent, for what, and who said yes: all on record');
   await s.clickEl(card.getByRole('button', { name: 'Approve', exact: true }), 800).catch(() => {});
   await n.done();
-  await page.keyboard.press('Escape');
+  // Close the drawer (the views after this have panels where it sits).
+  await s.clickEl(page.getByRole('button', { name: /^Approvals/ }), 500);
+  await s.wait(400);
 
   // 5. Trust classes: where data could leave
   await s.clickEl(page.getByRole('radio', { name: 'Classes' }), 700);
@@ -155,10 +156,20 @@ try {
 
   // 6. Reach: least privilege, from its own traffic
   await s.clickEl(page.getByRole('radio', { name: 'Reach' }), 700);
-  await page.getByRole('region', { name: 'Reach' }).getByLabel('Agent', { exact: true }).selectOption('key_demo_support-triage').catch(() => {});
+  await s.caption(null, 'What it may reach, against what it uses', 'Unused permissions as ghosts, and one click trims the key to what it uses');
+  {
+    // The agent with the most unused permissions (finance-reconciler on the showcase: also the High risk above).
+    const picker = page.getByRole('region', { name: 'Reach' }).getByLabel('Agent', { exact: true });
+    await page.waitForFunction(() => [...document.querySelectorAll('.reach select option')].some((o) => o.textContent?.startsWith('finance-reconciler')), null, { timeout: 15000 }).catch(() => {});
+    const value = await picker.evaluate((el) => [...(el as HTMLSelectElement).options].find((o) => o.textContent?.startsWith('finance-reconciler'))?.value ?? '');
+    if (value) {
+      await picker.selectOption(value);
+      await page.locator('.reach-agent-name', { hasText: 'finance-reconcil' }).waitFor({ timeout: 15000 }).catch(() => {});
+    }
+  }
   await page.locator('.reach-node').first().waitFor({ timeout: 20000 }).catch(() => {});
-  await say('reach', 'What it may reach, against what it uses', 'Unused permissions as ghosts, and one click trims the key to what it uses');
-  await s.wait(2200);
+  await say('reach', null);
+  await s.wait(1600);
   await s.hoverEl(page.getByRole('button', { name: /Trim to what it uses/ }), 900).catch(() => {});
   await n.done();
   await s.clickEl(page.getByRole('radio', { name: 'Map' }), 600);
@@ -167,36 +178,36 @@ try {
   await s.caption(null);
   await s.go('flights');
   await say('flights', 'Every call on the record', 'Who made it, which agent, which model or tool, what each gate decided, and the cost');
-  await s.wait(1500);
-  await s.glide(800, 420, 700);
-  await s.scroll(450, 2400);
+  await s.wait(800);
+  await s.glide(800, 420, 600);
+  await s.scroll(450, 1800);
   await n.done();
 
   // 8. Guardrails
   await s.caption(null);
   await s.go('guardrails');
   await say('guardrails', 'Secrets and personal data stop at the gateway', 'Built-in detectors, your own guardrails, and services like Presidio and Lakera');
-  await s.wait(1500);
-  await s.glide(800, 500, 700);
-  await s.scroll(600, 2600);
+  await s.wait(800);
+  await s.glide(800, 500, 600);
+  await s.scroll(600, 1800);
   await n.done();
 
   // 9. Laptops
   await s.caption(null);
   await s.go('laptops');
   await say('laptops', 'Coding assistants on every laptop, signed in as the person', 'Claude Code, Claude Desktop, Codex and Copilot CLI, rolled out with Jamf or Intune');
-  await s.wait(1500);
-  await s.glide(800, 500, 700);
-  await s.scroll(900, 3000);
+  await s.wait(800);
+  await s.glide(800, 500, 600);
+  await s.scroll(900, 2400);
   await n.done();
 
   // 10. Inventory
   await s.caption(null);
   await s.go('report');
   await say('inventory', 'An AI inventory that keeps itself current', 'Every agent, its owner, what it reaches and the gates on the way: CSV, Markdown or PDF');
-  await s.wait(1500);
-  await s.glide(800, 500, 700);
-  await s.scroll(800, 3000);
+  await s.wait(600);
+  await s.glide(800, 500, 600);
+  await s.scroll(800, 1800);
   await n.done();
 
   // 11. Audit log
@@ -211,15 +222,13 @@ try {
   await s.caption(null);
   await s.go('compliance');
   await page.getByRole('cell', { name: 'Art. 12' }).waitFor({ timeout: 20000 });
-  await say('compliance', 'Evidence for the EU AI Act, NIST AI RMF and ISO/IEC 42001', 'Each requirement checked against your own records, with what to do next');
-  await s.wait(1800);
-  await s.clickEl(page.getByRole('cell', { name: 'Art. 14' }), 800);
-  await s.wait(1800);
-  await s.clickEl(page.getByRole('radio', { name: 'ISO/IEC 42001' }), 800);
+  await say('compliance', 'Evidence for the EU AI Act, NIST AI RMF and ISO/IEC 42001', 'Each requirement checked against your own records, and an evidence pack for your assessor');
+  await s.wait(1200);
+  await s.clickEl(page.getByRole('cell', { name: 'Art. 14' }), 700);
+  await s.wait(1200);
+  await s.clickEl(page.getByRole('radio', { name: 'ISO/IEC 42001' }), 700);
   await page.getByRole('cell', { name: 'A.6.2.8' }).waitFor({ timeout: 20000 });
-  await n.done(150);
-  await say('evidence', 'Hand your assessor the evidence pack', 'The register and the records behind it, its checksum in the audit log');
-  await s.hoverEl(page.getByRole('link', { name: 'Evidence pack' }), 900);
+  await s.hoverEl(page.getByRole('link', { name: 'Evidence pack' }), 800);
   await n.done();
 
   // The end

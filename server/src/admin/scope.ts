@@ -53,7 +53,7 @@ export function visibleKeyIds(ctx: AppContext, scope: Scope): string[] | undefin
 }
 
 /** An id list safe for SQL `IN` (never empty: an empty scope matches nothing). */
-export const inList = (ids: string[]) => (ids.length ? ids : ['\u0000none']);
+export const inList = (ids: string[]) => (ids.length ? ids : ['__ct_no_key__']);
 
 /** A scope as it travels to a region (which applies it to the person asking on the control plane). */
 export interface SerializedScope {

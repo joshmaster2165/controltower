@@ -2,7 +2,7 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
-## Unreleased
+## 0.2.15 — 18 October 2026
 
 - **Airspace: Reach.** One agent in the middle and everything its key lets it reach around it, in rings: what it used in the last 7, 30 or 90 days, solid, and what it may reach and never used, dashed. Unused permissions that can change or delete something with no gate on them are marked. **Trim to what it uses** shows the key's lists keeping only what it used, and saves them. See [Reach](airspace.md#reach-one-agents-blast-radius-and-trimming-it).
 - **Rolling upgrades are tested:** CI runs a released version and the new build side by side on one Postgres database under traffic, every call answered; database changes are checked to only add, so an instance not yet replaced keeps working. See [Upgrading, one instance at a time](scaling.md#upgrading-one-instance-at-a-time).

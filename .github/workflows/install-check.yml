@@ -1,0 +1,39 @@
+name: fresh install
+
+# A new user's first five minutes, against the published image, exactly as Getting started says: docker run, the
+# setup code from the log, the admin, a provider, a key, the console's own curl command, the agent on the map, and a
+# restart that keeps it all. After every main build (the :main image) and each release, and by hand.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image to install (default: :main)'
+        required: false
+
+jobs:
+  install:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      # Which image: the one asked for, a release's (its tag without the v; ci publishes it), or :main.
+      - run: |
+          if [ -n "${{ inputs.image }}" ]; then img="${{ inputs.image }}"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then img="ghcr.io/joshmaster2165/controltower:${GITHUB_REF_NAME#v}"
+          else img=ghcr.io/joshmaster2165/controltower:main; fi
+          echo "IMAGE=$img" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do docker manifest inspect "$img" >/dev/null 2>&1 && break; sleep 30; done
+      - run: npx tsx scripts/install/fresh-docker.mts

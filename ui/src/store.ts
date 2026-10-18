@@ -131,6 +131,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async refreshAlerts() {
+    // Members see their teams' agents and requests: alerts aren't theirs to read.
+    if (get().me?.role === 'member') return;
     try {
       const [a, r, c] = await Promise.all([
         api.get<{ alerts: AlertItem[]; unread: number }>('/admin/api/alerts?limit=100'),

@@ -28,8 +28,18 @@ export function ConnectAgent({ keyId, secret }: { keyId: string; secret: string 
   const topology = useStore((s) => s.topology);
   const setRoute = useStore((s) => s.setRoute);
   const origin = location.origin;
-  const model =
-    topology?.deployments.find((d) => !d.demo && d.enabled)?.public_name ?? topology?.deployments.find((d) => d.enabled)?.public_name ?? 'gpt-4.1-mini';
+  const own = topology?.deployments.find((d) => !d.demo && d.enabled)?.public_name ?? topology?.deployments.find((d) => d.enabled)?.public_name;
+  // No model added yet (a new install): one a connected provider serves. It's added the first time an agent asks for it.
+  const [served, setServed] = useState<string | null>(null);
+  const firstProvider = topology?.providers.find((p) => !p.demo)?.id;
+  useEffect(() => {
+    if (own || !firstProvider) return;
+    void api
+      .get<{ models: Array<{ id: string }> }>(`/admin/api/providers/${encodeURIComponent(firstProvider)}/models`)
+      .then((r) => setServed(r.models[0]?.id ?? null))
+      .catch(() => undefined);
+  }, [own, firstProvider]);
+  const model = own ?? served ?? 'gpt-4.1-mini';
   // Codex speaks the Responses API; any model works (non-OpenAI ones are translated).
   // Copilot speaks the Messages API to Control Tower: a Claude model first, any model works (others are translated).
   const copilotModel = topology?.deployments.find((d) => d.enabled && !d.demo && /claude/i.test(d.public_name ?? d.upstream_model))?.public_name ?? model;

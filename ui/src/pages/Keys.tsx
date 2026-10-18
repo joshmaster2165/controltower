@@ -80,10 +80,13 @@ export function KeysPage() {
   };
   useEffect(() => {
     void load();
-    void api
-      .get<{ idle_days: number }>('/admin/api/keys/retire-policy')
-      .then((r) => setRetireDays(r.idle_days))
-      .catch(() => undefined);
+    // The retirement setting is shown (and readable) only outside a member's own-teams view.
+    if (!myTeams)
+      void api
+        .get<{ idle_days: number }>('/admin/api/keys/retire-policy')
+        .then((r) => setRetireDays(r.idle_days))
+        .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const now = Date.now();
   const shown = keys.filter((k) => matches(k, filter, now));

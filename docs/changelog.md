@@ -4,6 +4,9 @@ Every release is on [GitHub Releases](https://github.com/joshmaster2165/controlt
 
 ## Unreleased
 
+- **Team members' console:** pages no longer ask for things a member can't read (the alert inbox, the key retirement setting), which showed as refused requests on every page.
+- **Connect panel:** on a new install with only a local model server connected, the example request named `gpt-4.1-mini`, which that server doesn't serve. It now names a model the provider lists.
+- **Tested on every change:** every console page and Airspace view, as an admin, approver, viewer and team member, with no script errors and no refused requests; every link and anchor in the docs and website; and, after each build, a new install of the published image exactly as Getting started says (`docker run`, the setup code from the log, a provider, a key, the console's own curl command, a restart).
 - **Airspace: Reach.** One agent in the middle and everything its key lets it reach around it, in rings: what it used in the last 7, 30 or 90 days, solid, and what it may reach and never used, dashed. Unused permissions that can change or delete something with no gate on them are marked. **Trim to what it uses** shows the key's lists keeping only what it used, and saves them. See [Reach](airspace.md#reach-one-agents-blast-radius-and-trimming-it).
 - **Updates:** after an upgrade, the release feed is checked again a minute after start. It waited up to a day, showing the old version as the latest meanwhile.
 - **Rolling upgrades are tested:** CI runs a released version and the new build side by side on one Postgres database under traffic, every call answered; database changes are checked to only add, so an instance not yet replaced keeps working. See [Upgrading, one instance at a time](scaling.md#upgrading-one-instance-at-a-time).

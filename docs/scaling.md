@@ -64,6 +64,16 @@ Each says so in its log: *instance a1b2…: sharing Postgres and Redis with othe
 - **Gracefully** (a deploy, a scale-down): it stops taking new calls, gives calls in flight `CT_SHUTDOWN_GRACE_MS` to finish, hands calls held for approval a ticket to retry with, and records anything still unfinished as stopped.
 - **Crashing:** the others notice within 90 seconds (`CT_INSTANCE_TIMEOUT_MS`) that it has stopped saying it is alive, and close out what it left: its unfinished calls are marked stopped, and approvals nobody can come back to are expired.
 
+## Upgrading, one instance at a time
+
+Replace instances one at a time (a rolling update: Kubernetes, Railway and most platforms do this when you change the image). There's no downtime:
+
+- The first new instance upgrades the database as it starts, under a lock, so instances starting together don't race. Its readiness check (`/readyz`) passes only once that's done.
+- Until the last old instance is replaced, old and new serve the same database together. Database changes only ever add (new tables, new columns), so the old version keeps working on the upgraded schema. When something has to be removed, the release that stops using it comes first and the removal ships in a later one.
+- Take a snapshot of Postgres with your provider before updating if you want a way back: an older version refuses to start on data a newer one upgraded.
+
+This is tested on every change: CI runs a released version and the new build side by side on one database under steady traffic, and every call must be answered. On a real deployment, two services sharing Postgres went from 0.1.8 to 0.2.14 while answering 751 calls, none failed.
+
 ## Postgres with one instance
 
 `CT_DATABASE_URL` without `CT_REDIS_URL` runs one instance on Postgres — for a database you already back up and monitor. The log says so; add Redis before starting a second one.

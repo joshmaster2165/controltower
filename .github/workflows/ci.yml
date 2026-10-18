@@ -221,6 +221,15 @@ jobs:
           OLD_DIR: ${{ runner.temp }}/old
           FROM: ${{ matrix.from }}
           UPGRADE_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://postgres:ci@localhost:5432/postgres' || '' }}
+      # Rolling: the old version and this build serving one Postgres database at once, every call answered.
+      - if: matrix.db == 'postgres'
+        run: PGPASSWORD=ci psql -h localhost -U postgres -c "CREATE DATABASE rolling"
+      - if: matrix.db == 'postgres'
+        run: npx tsx scripts/upgrade/rolling-test.mts
+        env:
+          OLD_DIR: ${{ runner.temp }}/old
+          FROM: ${{ matrix.from }}
+          UPGRADE_DATABASE_URL: postgres://postgres:ci@localhost:5432/rolling
 
   # Helm chart: lint, refuse settings that lose data, then install on a kind cluster the way people will —
   # one pod on SQLite, and two on Postgres and Redis — with the image this commit builds. Published on tags.

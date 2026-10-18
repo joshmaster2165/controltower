@@ -37,6 +37,7 @@ pnpm test:e2e             # Playwright, against the built bundle (run `pnpm buil
 - Match the surrounding code's style, naming and comment density. Comments explain *why*, not what.
 - Anything that touches credentials, request bodies or events: never log or emit secrets or bodies. Redaction is structural — keep it that way.
 - The map must stay honest: a line is solid only when Control Tower is actually in the path.
+- Database migrations only add (tables, nullable columns or columns with a default, indexes): during a rolling upgrade the previous version runs on the upgraded database. To remove something, stop using it in one release and drop it in a later migration named "… (contract)". A test enforces this.
 
 ## Pull requests
 

@@ -60,19 +60,38 @@ export function verify(token, pub = PUBLIC, kind = 'ctl1') {
  * nothing is stored here. The key it opens is the same however many times the link is opened.
  */
 const trialRequest = (company, email, now) => sign({ company, email, iat: now, exp: now + LINK_MS }, SIGNING, 'ctt1');
+/**
+ * Trial emails go to an address someone typed, so bots use the form to send mail to people who never asked (and
+ * to test what the email will carry). Before anything is sent: the form must have been served here (a signed time,
+ * kind "ctf1"), and not just now; a field people never see must be empty; and no more than a day's worth of trials
+ * go out. A request that fails gets the same "check your inbox" page, so a bot can't tell, and nothing is sent.
+ */
+const FORM_MIN_MS = Number(process.env.TRIAL_FORM_MIN_MS ?? 3000);
+const FORM_MAX_MS = 6 * 3600_000;
+const TRIALS_PER_DAY = Number(process.env.TRIALS_PER_DAY ?? 25);
+const formToken = () => (SIGNING ? sign({ iat: Date.now() }, SIGNING, 'ctf1') : '');
+function botReason(b, now = Date.now()) {
+  if (String(b.website ?? '') !== '') return 'honeypot';
+  if (!SIGNING) return undefined;
+  const f = verify(b.ft ?? '', PUBLIC, 'ctf1');
+  if (!f || !Number.isFinite(f.iat)) return 'no_form';
+  if (now - f.iat < FORM_MIN_MS) return 'too_fast';
+  if (now - f.iat > FORM_MAX_MS) return 'stale_form';
+  return undefined;
+}
 function trialKey(r) {
   const id = `lic_trial_${crypto.createHash('sha256').update(`${r.email}|${r.iat}`).digest('hex').slice(0, 12)}`;
   return sign({ v: 1, kid: KID, id, customer: r.company, email: r.email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: r.iat, expires_at: r.iat + 30 * DAY, period_start: r.iat });
 }
-async function sendTrialEmail(to, company, link) {
+async function sendTrialEmail(to, link) {
   const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#0f1b2d">
 <div style="font-weight:600;font-size:17px">Control Tower</div>
 <p style="font:500 11px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#1f5eff;margin:28px 0 8px">TRIAL CLEARANCE</p>
-<h1 style="font-size:28px;font-weight:500;letter-spacing:-.02em;margin:0 0 12px">Your trial is ready for ${esc(company)}</h1>
+<h1 style="font-size:28px;font-weight:500;letter-spacing:-.02em;margin:0 0 12px">Your trial is ready</h1>
 <p style="color:#5b6b82;line-height:1.6;margin:0 0 24px">30 days of Control Tower Enterprise, with ${INCLUDED_SEATS} seats and every feature. Open your key, paste it into <b>License</b> in Control Tower, and you're cleared.</p>
 <a href="${link}" style="display:inline-block;background:#1f5eff;color:#fff;text-decoration:none;font-weight:600;padding:13px 20px;border-radius:10px">Open my trial key</a>
 <p style="color:#8a98ad;font-size:13px;line-height:1.6;margin:24px 0 0">The link works for 24 hours. If you didn't ask for a trial, ignore this email: nothing happens.</p></div>`;
-  const text = `Your Control Tower Enterprise trial for ${company} is ready: 30 days, ${INCLUDED_SEATS} seats, every feature.\n\nOpen your key (the link works for 24 hours):\n${link}\n\nIf you didn't ask for a trial, ignore this email.`;
+  const text = `Your Control Tower Enterprise trial is ready: 30 days, ${INCLUDED_SEATS} seats, every feature.\n\nOpen your key (the link works for 24 hours):\n${link}\n\nIf you didn't ask for a trial, ignore this email.`;
   const r = await fetch(`${EMAIL_API}/emails`, {
     method: 'POST',
     headers: { authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' },
@@ -331,6 +350,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:24px}
 .field input:focus{border-color:#5b8bff;box-shadow:0 0 0 3px rgba(31,94,255,.3)}
 .field input::placeholder{color:#62739a}
 .trial .fine{color:#7d8fb1}
+.hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
 .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;counter-reset:s}
 .step{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:20px}
 .step b{display:block;font:500 11px var(--mono);letter-spacing:.12em;color:var(--accent);margin-bottom:8px}
@@ -505,7 +525,7 @@ ${ticker}
 <div class="trial" id="trial"><div class="scanline" aria-hidden="true"></div>
 <span class="eyebrow">Free trial</span><h3 style="margin-top:12px">30 days of everything</h3>
 <p>${INCLUDED_SEATS} seats, every feature, no card. ${RESEND_KEY ? 'We email you a link to your key' : 'Your key appears on the next page'} — paste it into <b>License</b> in Control Tower and you’re cleared.</p>
-<form method="post" action="/trial"><div class="field"><label for="company">Company</label><input id="company" type="text" name="company" placeholder="Acme Corp" required maxlength="100" autocomplete="organization"></div>
+<form method="post" action="/trial"><input type="hidden" name="ft" value="${formToken()}"><div class="hp" aria-hidden="true"><label for="website">Website (leave empty)</label><input id="website" type="text" name="website" tabindex="-1" autocomplete="off"></div><div class="field"><label for="company">Company</label><input id="company" type="text" name="company" placeholder="Acme Corp" required maxlength="100" autocomplete="organization"></div>
 <div class="field"><label for="email">Work email</label><input id="email" type="email" name="email" placeholder="you@acme.com" required maxlength="200" autocomplete="email"></div>
 <button class="btn primary lg full" style="margin-top:6px">${RESEND_KEY ? 'Email me my trial key' : 'Get my trial key'} ${ARROW}</button></form>
 <p class="fine">Ends on its own after 30 days. Nothing is charged, and your gateway keeps working. By starting a trial you agree to our <a href="${SITE}/terms.html" style="color:#a9b8d3;text-decoration:underline">terms</a> and <a href="${SITE}/privacy.html" style="color:#a9b8d3;text-decoration:underline">privacy policy</a>.</p>
@@ -689,13 +709,22 @@ export function createServer() {
         if (!company || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return html(res, 400, note('Check the form', 'RETURNED · 400', 'Enter your company and a work email.'));
         if (limited(email, 'trial-email', 2, 24 * 3600_000)) return html(res, 429, note('Trial limit reached', 'HOLD · 429', 'We’ve already sent a trial link to that address today. Check your inbox, or contact sales for a longer trial.'));
         const now = Date.now();
+        const bot = botReason(b, now);
+        if (bot) {
+          console.log(JSON.stringify({ event: 'trial_blocked', reason: bot, email: masked(email), at: new Date(now).toISOString() }));
+          return html(res, 200, inboxPage(email));
+        }
+        if (limited('all', 'trial-day', TRIALS_PER_DAY, 24 * 3600_000)) {
+          console.log(JSON.stringify({ event: 'trial_blocked', reason: 'daily_cap', email: masked(email), at: new Date(now).toISOString() }));
+          return html(res, 429, note('Trials are paused for today', 'HOLD · 429', 'We’ve had more trial requests than usual today. Try again tomorrow, or contact sales.'));
+        }
         if (!RESEND_KEY) {
           console.log(JSON.stringify({ event: 'trial', company, email, verified: false, at: new Date(now).toISOString() }));
           return html(res, 200, keyPage('You’re cleared for 30 days', trialKey({ company, email, iat: now }), `30 days of Control Tower Enterprise for ${company}, with ${INCLUDED_SEATS} seats.`));
         }
         const link = `${PUBLIC_URL}/trial/confirm?t=${encodeURIComponent(trialRequest(company, email, now))}`;
         try {
-          await sendTrialEmail(email, company, link);
+          await sendTrialEmail(email, link);
         } catch (err) {
           console.error(JSON.stringify({ error: `trial email not sent: ${err.message}`, email }));
           return html(res, 502, note('We couldn’t send the email', 'NO CONTACT · 502', 'Try again in a minute, or contact sales.'));

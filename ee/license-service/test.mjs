@@ -32,6 +32,11 @@ const sub = () => ({
 });
 
 let fake, svc, base;
+/** The trial form as the plans page serves it: its signed time (old enough), the hidden field empty. */
+function form(fields, ageMs = 10_000) {
+  const head = `ctf1.${Buffer.from(JSON.stringify({ iat: Date.now() - ageMs })).toString('base64url')}`;
+  return new URLSearchParams({ ft: `${head}.${crypto.sign(null, Buffer.from(head), privateKey).toString('base64url')}`, website: '', ...fields });
+}
 before(async () => {
   fake = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
@@ -165,7 +170,7 @@ test('refresh: keys carry when the subscription began; the request count is kept
 });
 
 test('trials: the key goes by email, behind a link that works for a day; 30 days, 5 seats', async () => {
-  const t = await (await fetch(`${base}/trial`, { method: 'POST', body: new URLSearchParams({ company: 'Tryco', email: 'Dev@Tryco.io' }) })).text();
+  const t = await (await fetch(`${base}/trial`, { method: 'POST', body: form({ company: 'Tryco', email: 'Dev@Tryco.io' }) })).text();
   assert.match(t, /Check your inbox/);
   assert.doesNotMatch(t, /ctl1\./, 'no key on the page: only the mailbox gets it');
   const mail = emails.at(-1);
@@ -190,8 +195,8 @@ test('trials: the key goes by email, behind a link that works for a day; 30 days
   const old = `${oldHead}.${crypto.sign(null, Buffer.from(oldHead), privateKey).toString('base64url')}`;
   assert.equal((await fetch(`${base}/trial/confirm?t=${encodeURIComponent(old)}`)).status, 410);
   // The same address can't ask again and again.
-  await fetch(`${base}/trial`, { method: 'POST', body: new URLSearchParams({ company: 'Tryco', email: 'dev@tryco.io' }) });
-  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '203.0.113.9' }, body: new URLSearchParams({ company: 'Tryco', email: 'dev@tryco.io' }) })).status, 429);
+  await fetch(`${base}/trial`, { method: 'POST', body: form({ company: 'Tryco', email: 'dev@tryco.io' }) });
+  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '203.0.113.9' }, body: form({ company: 'Tryco', email: 'dev@tryco.io' }) })).status, 429);
 });
 
 test('payment enforcement: no key until the money is in; an unpaid renewal doesn\'t extend the license', async () => {
@@ -332,13 +337,60 @@ test('without an email service, the trial key is shown at once', async () => {
   process.env.RESEND_API_KEY = saved;
   const s2 = mod.createServer();
   await new Promise((r) => s2.listen(0, '127.0.0.1', r));
-  const t = await (await fetch(`http://127.0.0.1:${s2.address().port}/trial`, { method: 'POST', body: new URLSearchParams({ company: 'Walkin', email: 'a@walkin.io' }) })).text();
+  const t = await (await fetch(`http://127.0.0.1:${s2.address().port}/trial`, { method: 'POST', body: form({ company: 'Walkin', email: 'a@walkin.io' }) })).text();
   s2.close();
   assert.equal(decode(/(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(t)[1]).customer, 'Walkin');
 });
 
+test('trials: bots get the inbox page and no email (no form, too fast, the hidden field filled)', async () => {
+  const sent = emails.length;
+  const ask = async (body, n) => {
+    const r = await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': `192.0.2.${n}` }, body });
+    return { status: r.status, text: await r.text() };
+  };
+  const tries = [
+    await ask(new URLSearchParams({ company: 'hehmrwnhzf', email: 'victim1@example.org' }), 61), // posted straight, no form
+    await ask(form({ company: 'qvhmlnjnpm', email: 'victim2@example.org' }, 200), 62), // a fifth of a second after loading it
+    await ask(form({ company: 'unlgtxxwhv', email: 'victim3@example.org', website: 'unlgtxxwhv' }), 63), // filled every field
+    await ask(form({ company: 'x', email: 'victim4@example.org' }, 7 * 3600_000), 64), // a form from hours ago, replayed
+    await ask(new URLSearchParams({ ft: 'ctf1.e30.bad', company: 'x', email: 'victim5@example.org' }), 65), // a made-up token
+  ];
+  for (const t of tries) {
+    assert.equal(t.status, 200);
+    assert.match(t.text, /Check your inbox/);
+  }
+  assert.equal(emails.length, sent, 'nothing was sent');
+  // A person, a few seconds after the page loaded, still gets the email.
+  assert.match((await ask(form({ company: 'Realco', email: 'dev@realco.io' }), 66)).text, /Check your inbox/);
+  assert.equal(emails.length, sent + 1);
+});
+
+test('trials: the plans page serves a signed form, and the email repeats nothing typed into it', async () => {
+  const page = await (await fetch(`${base}/`)).text();
+  assert.match(page, /name="ft" value="ctf1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"/);
+  assert.match(page, /name="website"[^>]*tabindex="-1"/);
+  await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.70' }, body: form({ company: 'Visit evil.example now', email: 'dev@inject.io' }) });
+  const mail = emails.at(-1);
+  assert.deepEqual(mail.to, ['dev@inject.io']);
+  assert.doesNotMatch(mail.html + mail.text + mail.subject, /evil\.example/);
+});
+
+test('trials: no more than a day\'s worth of emails go out, however many addresses ask', async () => {
+  process.env.TRIALS_PER_DAY = '2';
+  const mod = await import(`./server.mjs?cap=${Date.now()}`);
+  delete process.env.TRIALS_PER_DAY;
+  const s2 = mod.createServer();
+  await new Promise((r) => s2.listen(0, '127.0.0.1', r));
+  const sent = emails.length;
+  const codes = [];
+  for (let i = 0; i < 4; i++) codes.push((await fetch(`http://127.0.0.1:${s2.address().port}/trial`, { method: 'POST', headers: { 'x-real-ip': `198.18.0.${i}` }, body: form({ company: 'Capco', email: `c${i}@capco.io` }) })).status);
+  s2.close();
+  assert.deepEqual(codes, [200, 200, 429, 429]);
+  assert.equal(emails.length, sent + 2);
+});
+
 test('a client can\'t dodge the limit by writing its own X-Forwarded-For', async () => {
-  const ask = (i) => fetch(`${base}/trial`, { method: 'POST', headers: { 'x-forwarded-for': `198.51.100.${i}` }, body: new URLSearchParams({ company: 'Spoof', email: `s${i}@spoof.io` }) }).then((r) => r.status);
+  const ask = (i) => fetch(`${base}/trial`, { method: 'POST', headers: { 'x-forwarded-for': `198.51.100.${i}` }, body: form({ company: 'Spoof', email: `s${i}@spoof.io` }) }).then((r) => r.status);
   const codes = [];
   for (let i = 0; i < 6; i++) codes.push(await ask(i));
   assert.ok(codes.includes(429), codes.join(' '));
@@ -346,9 +398,9 @@ test('a client can\'t dodge the limit by writing its own X-Forwarded-For', async
 
 test('trials: rate-limited, and the form is checked', async () => {
   const from = { 'x-real-ip': '192.0.2.50' };
-  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: from, body: new URLSearchParams({ company: 'x', email: 'bad' }) })).status, 400);
-  for (let i = 0; i < 3; i++) await fetch(`${base}/trial`, { method: 'POST', headers: from, body: new URLSearchParams({ company: 'y', email: `y${i}@y.io` }) });
-  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: from, body: new URLSearchParams({ company: 'z', email: 'z@z.io' }) })).status, 429);
+  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: from, body: form({ company: 'x', email: 'bad' }) })).status, 400);
+  for (let i = 0; i < 3; i++) await fetch(`${base}/trial`, { method: 'POST', headers: from, body: form({ company: 'y', email: `y${i}@y.io` }) });
+  assert.equal((await fetch(`${base}/trial`, { method: 'POST', headers: from, body: form({ company: 'z', email: 'z@z.io' }) })).status, 429);
 });
 
 test('prices: graduated seat tiers give the volume discount', async () => {

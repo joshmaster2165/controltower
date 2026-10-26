@@ -4,7 +4,7 @@ Control Tower sits between your AI agents and the models, tools and APIs they ca
 
 **In short:**
 - Control Tower runs on your servers. Your prompts, responses, credentials, call records and users never reach us, and there's no telemetry.
-- The only call to us is an optional daily license renewal: the license key and one number. Air-gapped servers turn it off.
+- The only call to us is an optional daily license check-in (Enterprise and trials): the license key, a few counts and the version. Air-gapped servers turn it off.
 - Credentials are encrypted at rest, and agents' keys are stored as hashes.
 - Every release is signed, with an SBOM and build provenance you can check.
 
@@ -17,11 +17,12 @@ Two connections reach us, and neither carries anything about your agents, calls,
 - **The update check** (every install). Once a day, Control Tower fetches `agentcontroltower.app/releases.json`, the list of releases, to tell admins when a new version is out ([Updates](install.md#updates)). The request carries its version number in the User-Agent and nothing else. `CT_UPDATE_CHECK=off` turns it off.
 - **The license renewal** (Enterprise only), described next.
 
-Once a day (hourly around its renewal date), an Enterprise server that can reach `license.agentcontroltower.app` sends:
+Once a day (hourly around its renewal date), an Enterprise server that can reach `license.agentcontroltower.app` sends the following. A trial's server sends the same until the trial ends, so we can see whether it's in use and help:
 - its license key;
 - the year's request count;
 - how many people use seats;
-- whether its clock was found set back, and by how much.
+- whether its clock was found set back, and by how much;
+- its Control Tower version.
 
 Nothing about your agents, calls, configuration or people is sent. Set `CT_LICENSE_SERVER=off` and `CT_UPDATE_CHECK=off` and it never calls out. License keys are checked offline, so it works fully air-gapped.
 
@@ -78,7 +79,7 @@ Enterprise license keys are signed with Ed25519 and checked offline against the 
 
 We run two small services, both on Railway:
 - **The website** at agentcontroltower.app: static pages, with no cookies, analytics or tracking.
-- **The license service** at license.agentcontroltower.app, which issues and renews keys. It keeps no database. Stripe processes payments, so card details never reach us. Trial keys are sent by Resend.
+- **The license service** at license.agentcontroltower.app, which issues and renews keys. It keeps a record of trials (company, email, daily check-ins, the emails sent) for a year after each ends, and nothing about subscriptions beyond what Stripe holds. Stripe processes payments, so card details never reach us. Trial emails are sent by Resend.
 
 Our [privacy policy](https://agentcontroltower.app/privacy.html) lists exactly what these services collect, and our [data processing agreement](https://agentcontroltower.app/dpa.html) covers what you send us for support.
 

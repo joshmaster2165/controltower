@@ -31,7 +31,7 @@ const sub = () => ({
   items: { data: [{ id: 'si_platform', price: { id: 'price_py', lookup_key: 'ct_enterprise_platform_year', recurring: { interval: 'year' } }, quantity: 1, current_period_end: stripe.periodEnd }, { id: 'si_seat', price: { id: 'price_sy', lookup_key: 'ct_enterprise_seat_year', recurring: { interval: 'year' } }, quantity: stripe.seatQty, current_period_end: stripe.periodEnd }] },
 });
 
-let fake, svc, base;
+let fake, svc, base, mod;
 /** The trial form as the plans page serves it: its signed time (old enough), the hidden field empty. */
 function form(fields, ageMs = 10_000) {
   const head = `ctf1.${Buffer.from(JSON.stringify({ iat: Date.now() - ageMs })).toString('base64url')}`;
@@ -89,7 +89,8 @@ before(async () => {
   process.env.PUBLIC_URL = 'https://license.example.com';
   process.env.RESEND_API_KEY = 're_test_fake';
   process.env.EMAIL_API_BASE = process.env.STRIPE_API_BASE;
-  const mod = await import(`./server.mjs?${Date.now()}`);
+  process.env.ADMIN_PASSWORD = 'trials-admin-pw';
+  mod = await import(`./server.mjs?${Date.now()}`);
   svc = mod.createServer();
   await new Promise((r) => svc.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${svc.address().port}`;
@@ -389,6 +390,115 @@ test('trials: no more than a day\'s worth of emails go out, however many address
   assert.equal(emails.length, sent + 2);
 });
 
+test('trials, followed: asked → key opened (a welcome) → the server checks in → week one and ending emails → unsubscribe', async () => {
+  const DAYMS = 86_400_000;
+  const ip = { 'x-real-ip': '192.0.2.120' };
+  await fetch(`${base}/trial`, { method: 'POST', headers: ip, body: form({ company: 'Followco', email: 'ops@followco.io' }) });
+  const link = /https:\/\/license\.example\.com\/trial\/confirm\?t=[^"\s]+/.exec(emails.at(-1).html)[0];
+  const id = (() => {
+    const r = JSON.parse(Buffer.from(new URL(link).searchParams.get('t').split('.')[1], 'base64url'));
+    return `lic_trial_${crypto.createHash('sha256').update(`${r.email}|${r.iat}`).digest('hex').slice(0, 12)}`;
+  })();
+  const store = mod.trialsStore;
+  assert.equal(store.get(id).company, 'Followco');
+  assert.equal(store.get(id).confirmed_at, null);
+
+  // Opening the key: recorded, and a welcome goes out once (not again on reopening).
+  const before = emails.length;
+  const page = await (await fetch(`${base}${new URL(link).pathname}${new URL(link).search}`)).text();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(store.get(id).confirmed_at);
+  const welcome = emails.at(-1);
+  assert.equal(emails.length, before + 1);
+  assert.match(welcome.subject, /where to start/);
+  assert.equal(welcome.reply_to, 'support@agentcontroltower.app');
+  assert.match(welcome.headers['List-Unsubscribe'], /^<https:\/\/license\.example\.com\/unsubscribe\?t=ctu1\./);
+  assert.equal(welcome.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
+  await fetch(`${base}${new URL(link).pathname}${new URL(link).search}`);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(emails.length, before + 1, 'one welcome only');
+
+  // Its server checks in with the trial key: the numbers land on the trial.
+  const key = /(ctl1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(page)[1];
+  const r = await fetch(`${base}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json', ...ip }, body: JSON.stringify({ key, usage: { requests: 1234, period_start: Date.now() }, seats_used: 3, version: '0.2.16' }) });
+  assert.deepEqual(await r.json(), { status: 'unchanged' });
+  assert.deepEqual({ requests: store.get(id).requests, seats: store.get(id).seats_used, version: store.get(id).version }, { requests: 1234, seats: 3, version: '0.2.16' });
+  assert.equal(store.checkinsOf(id).length, 1);
+
+  // Day 7: the week-one email, with what the server reported. Day 25: the ending email. Each once.
+  // (Other tests' trials share this store: count only Followco's emails.)
+  const mine = () => emails.filter((e) => e.to[0] === 'ops@followco.io');
+  const t0 = store.get(id).requested_at;
+  let had = mine().length;
+  await mod.runFollowUps(t0 + 2 * DAYMS);
+  assert.equal(mine().length, had);
+  await mod.runFollowUps(t0 + 7 * DAYMS + 1000);
+  assert.equal(mine().length, had + 1);
+  assert.match(mine().at(-1).subject, /How’s your Control Tower trial going/);
+  assert.match(mine().at(-1).text, /1,234 requests/);
+  await mod.runFollowUps(t0 + 8 * DAYMS);
+  assert.equal(mine().length, had + 1);
+  await mod.runFollowUps(t0 + 25 * DAYMS + 1000);
+  assert.equal(mine().length, had + 2);
+  assert.match(mine().at(-1).subject, /ends in 5 days/);
+
+  // Unsubscribing: opening the link changes nothing (a mail scanner); the button (or one-click POST) does.
+  const unsub = new URL(/^<(.+)>$/.exec(welcome.headers['List-Unsubscribe'])[1]);
+  assert.match(await (await fetch(`${base}${unsub.pathname}${unsub.search}`)).text(), /Stop trial emails\?/);
+  assert.equal(store.get(id).unsubscribed_at, null);
+  await fetch(`${base}${unsub.pathname}${unsub.search}`, { method: 'POST', body: 'List-Unsubscribe=One-Click' });
+  assert.ok(store.get(id).unsubscribed_at);
+  assert.equal((await fetch(`${base}/unsubscribe?t=ctu1.e30.bad`)).status, 400);
+});
+
+test('trials, followed: a request nobody opens gets no follow-ups; bots are counted, not followed', async () => {
+  const store = mod.trialsStore;
+  const sent = emails.length;
+  await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.121' }, body: form({ company: 'Ghostco', email: 'nobody@ghostco.io' }) });
+  assert.equal(emails.length, sent + 1); // the link
+  await mod.runFollowUps(Date.now() + 8 * 86_400_000);
+  assert.equal(emails.filter((e) => e.to[0] === 'nobody@ghostco.io').length, 1, 'only the link, no follow-ups');
+  const blockedBefore = store.blockedSince(0).reduce((s, b) => s + b.n, 0);
+  await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.122' }, body: new URLSearchParams({ company: 'abcdefghij', email: 'victim@example.org' }) });
+  assert.equal(store.blockedSince(0).reduce((s, b) => s + b.n, 0), blockedBefore + 1);
+});
+
+test('the Trials page: off without a password; the password, then a page; writing to a trial only from the page itself', async () => {
+  const auth = { authorization: `Basic ${Buffer.from('admin:trials-admin-pw').toString('base64')}` };
+  assert.equal((await fetch(`${base}/admin`, { headers: { 'x-real-ip': '192.0.2.130' } })).status, 401);
+  assert.equal((await fetch(`${base}/admin`, { headers: { 'x-real-ip': '192.0.2.130', authorization: `Basic ${Buffer.from('admin:wrong').toString('base64')}` } })).status, 401);
+  const page = await (await fetch(`${base}/admin`, { headers: auth })).text();
+  assert.match(page, /<h1>Trials<\/h1>/);
+  assert.match(page, /Followco/);
+  assert.doesNotMatch(page, /Ghostco/, 'never-opened requests are folded away');
+  assert.match(page, /turned away as bots/);
+  assert.match(await (await fetch(`${base}/admin?all=1`, { headers: auth })).text(), /Ghostco/);
+  const id = /href="\/admin\/trial\?id=([^"]+)"/.exec(page)[1];
+  const detail = await (await fetch(`${base}/admin/trial?id=${id}`, { headers: auth })).text();
+  assert.match(detail, /Daily check-ins/);
+  assert.match(detail, /0\.2\.16/);
+
+  // Followco stopped trial emails above; a trial that didn't can be written to, from this site's own page only.
+  await fetch(`${base}/trial`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.131' }, body: form({ company: 'Writeco', email: 'cto@writeco.io' }) });
+  const link = /https:\/\/license\.example\.com\/trial\/confirm\?t=[^"\s]+/.exec(emails.at(-1).html)[0];
+  await fetch(`${base}${new URL(link).pathname}${new URL(link).search}`);
+  await new Promise((r) => setTimeout(r, 50));
+  const wid = /href="\/admin\/trial\?id=([^"]+)"[^<]*>Writeco/.exec(await (await fetch(`${base}/admin`, { headers: auth })).text())[1];
+  const post = (origin) => fetch(`${base}/admin/trial/email`, { method: 'POST', redirect: 'manual', headers: { ...auth, origin }, body: new URLSearchParams({ id: decodeURIComponent(wid), subject: 'Setting up SSO?', body: 'Hi,\n\nHappy to help with Okta.' }) });
+  const sent = emails.length;
+  assert.equal((await post('https://evil.example')).status, 403);
+  assert.equal(emails.length, sent);
+  const ok = await post('https://license.example.com');
+  assert.equal(ok.status, 303);
+  assert.match(ok.headers.get('location'), /sent=1/);
+  assert.equal(emails.at(-1).subject, 'Setting up SSO?');
+  assert.match(emails.at(-1).text, /Happy to help with Okta/);
+  assert.match(emails.at(-1).text, /Stop trial emails/);
+  // Ten wrong passwords from one address: locked out for the hour, even with the right one.
+  for (let i = 0; i < 10; i++) await fetch(`${base}/admin`, { headers: { 'x-real-ip': '192.0.2.140', authorization: `Basic ${Buffer.from('a:nope').toString('base64')}` } });
+  assert.equal((await fetch(`${base}/admin`, { headers: { 'x-real-ip': '192.0.2.140', ...auth } })).status, 429);
+});
+
 test('a client can\'t dodge the limit by writing its own X-Forwarded-For', async () => {
   const ask = (i) => fetch(`${base}/trial`, { method: 'POST', headers: { 'x-forwarded-for': `198.51.100.${i}` }, body: form({ company: 'Spoof', email: `s${i}@spoof.io` }) }).then((r) => r.status);
   const codes = [];
@@ -435,4 +545,22 @@ test('manage: the license key asks, the billing email gets a link to the billing
   // A trial key has no subscription to manage.
   const trial = await fetch(`${base}/manage`, { method: 'POST', headers: { 'x-real-ip': '192.0.2.89' }, body: new URLSearchParams({ key: 'ctl1.bad.key' }) });
   assert.equal(trial.status, 400);
+});
+
+test('trials are kept on disk (DATA_DIR) across restarts, and deleted a year after they end', async () => {
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { openStore } = await import('./trials.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-trials-'));
+  const now = Date.now();
+  let s = openStore(dir);
+  s.confirmed({ id: 'lic_trial_disk', email: 'a@disk.io', company: 'Diskco', at: now });
+  s.close();
+  s = openStore(dir);
+  assert.equal(s.get('lic_trial_disk').company, 'Diskco');
+  s.purge(now + 30 * 86_400_000 + 366 * 86_400_000);
+  assert.equal(s.get('lic_trial_disk'), undefined);
+  s.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 });

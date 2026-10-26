@@ -153,12 +153,14 @@ export class Licensing {
   }
 
   /**
-   * Ask the license service for a renewed key (a subscription renewed, or its seats changed). Only keys that
-   * belong to a subscription are sent; air-gapped servers (no license server) never call out.
+   * Ask the license service for a renewed key (a subscription renewed, or its seats changed). Keys that belong to a
+   * subscription are sent, and trial keys until the trial ends (the same numbers, so the trial can be followed up);
+   * air-gapped servers (no license server) never call out.
    */
   async refresh(server: string, log: { info(o: object, m: string): void; warn(o: object, m: string): void }): Promise<'renewed' | 'unchanged' | 'ended' | 'skipped' | 'failed'> {
     const l = this.state.license;
-    if (!l?.sub || !this.raw) return 'skipped';
+    if (!l || !this.raw) return 'skipped';
+    if (!l.sub && !(l.plan === 'trial' && Date.now() < l.expires_at + 24 * 3600_000)) return 'skipped';
     try {
       // With the key goes this license year's request count (a number, nothing else), for renewals and capacity.
       const u = await this.usage?.().catch(() => undefined);
@@ -168,7 +170,7 @@ export class Licensing {
       const clock = c?.behind ? { behind_ms: c.behind_ms, latest_seen: c.high_water } : undefined;
       // And how many people use seats now (a number), so seats can't be reduced below it.
       const seats_used = await seatsUsed(this.db).catch(() => undefined);
-      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}), ...(clock ? { clock } : {}), ...(seats_used !== undefined ? { seats_used } : {}) }), signal: AbortSignal.timeout(15_000) });
+      const r = await fetch(`${server.replace(/\/+$/, '')}/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: this.raw, ...(usage ? { usage } : {}), ...(clock ? { clock } : {}), ...(seats_used !== undefined ? { seats_used } : {}), ...(this.version ? { version: this.version } : {}) }), signal: AbortSignal.timeout(15_000) });
       const j = (await r.json()) as { status?: string; key?: string };
       if (j.status === 'renewed' && j.key) {
         const next = parseLicense(j.key);
@@ -199,6 +201,9 @@ export class Licensing {
 
   /** Whether the clock has been set back, sent with renewals (set by the clock watch). */
   clock: (() => { behind: boolean; behind_ms: number; high_water: number | null }) | undefined;
+
+  /** This server's Control Tower version, sent with renewals and trial check-ins. */
+  version: string | undefined;
 
   /** This license year's request count, sent with renewals (set by the metering service). */
   usage: (() => Promise<{ used: number; period_start: number; period_end: number } | undefined>) | undefined;

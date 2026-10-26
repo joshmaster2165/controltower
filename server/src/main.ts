@@ -434,6 +434,7 @@ async function main(): Promise<void> {
   const metering = new Metering({ db, license, audit: full.audit, log: () => app.log });
   full.metering = metering;
   license.usage = () => metering.usage();
+  license.version = config.version;
   if (!region) metering.start();
   // A clock set back would keep an ended license going: noticed, reported, never acted on.
   const clock = new ClockWatch({

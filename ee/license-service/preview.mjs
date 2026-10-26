@@ -40,5 +40,29 @@ process.env.RESEND_API_KEY = 're_preview';
 process.env.EMAIL_API_BASE = process.env.STRIPE_API_BASE;
 process.env.LICENSE_SIGNING_KEY = crypto.generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' });
 process.env.PUBLIC_URL = `http://127.0.0.1:${PORT}`;
-const { createServer } = await import('./server.mjs');
+// The Trials page (/admin), with sample trials at each stage. Local only: the password is "preview".
+process.env.ADMIN_PASSWORD = 'preview';
+const { createServer, trialsStore: store } = await import('./server.mjs');
+{
+  const D = 86_400_000;
+  const now = Date.now();
+  const sample = [
+    ['Northwind Labs', 'platform@northwind.example', 12, true, [[1, 40, 2], [5, 2900, 4], [11, 9100, 6]], false],
+    ['Contoso Health', 'it@contoso.example', 9, true, [[2, 120, 1], [3, 410, 1]], false],
+    ['Fabrikam', 'devops@fabrikam.example', 3, true, [], false],
+    ['Tailspin Air', 'cto@tailspin.example', 26, true, [[1, 300, 3], [24, 51000, 12]], true],
+    ['Unopened Co', 'someone@unopened.example', 1, false, [], false],
+  ];
+  for (const [company, email, daysAgo, opened, checks, bought] of sample) {
+    const at = now - daysAgo * D;
+    const id = `lic_trial_${crypto.createHash('sha256').update(`${email}|${at}`).digest('hex').slice(0, 12)}`;
+    store.requested({ id, email, company, at });
+    if (opened) store.confirmed({ id, email, company, at });
+    for (const [d, requests, seats] of checks) store.checkin({ id, email, company, at }, { requests, seats_used: seats, version: '0.2.16' }, at + d * D);
+    if (opened) store.emailed(id, 'welcome', 'Your Control Tower trial: where to start', 'Your key is in…', true, undefined, at + 600_000);
+    if (daysAgo >= 7 && opened) store.emailed(id, 'day7', 'How’s your Control Tower trial going?', 'A week in…', true, undefined, at + 7 * D);
+    if (bought) store.bought(email, now - D);
+  }
+  for (const [reason, k] of [['no_form', 14], ['honeypot', 5], ['too_fast', 2]]) for (let i = 0; i < k; i++) store.blocked(reason, 'v•••@example.org', now - i * 3600_000);
+}
 createServer().listen(PORT, '127.0.0.1', () => console.log(`license service preview on http://127.0.0.1:${PORT}`));

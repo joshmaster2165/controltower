@@ -2,6 +2,10 @@
 
 Every release is on [GitHub Releases](https://github.com/joshmaster2165/controltower/releases) and as a container image, `ghcr.io/joshmaster2165/controltower:<version>`. Control Tower is in preview: minor versions may change APIs, and each release notes what to watch for.
 
+## Unreleased
+
+- **Trials check in.** A server with a trial key now checks in with the license service once a day until the trial ends, as subscriptions already do: the key, the request count, seats in use and the Control Tower version, nothing else. That's how we can see whether a trial is in use, and help. Every license check-in now also carries the version. `CT_LICENSE_SERVER=off` still turns all of it off. See [what's sent](security.md#your-data-stays-on-your-servers).
+
 ## 0.2.15 — 18 October 2026
 
 - **Airspace: Reach.** One agent in the middle and everything its key lets it reach around it, in rings: what it used in the last 7, 30 or 90 days, solid, and what it may reach and never used, dashed. Unused permissions that can change or delete something with no gate on them are marked. **Trim to what it uses** shows the key's lists keeping only what it used, and saves them. See [Reach](airspace.md#reach-one-agents-blast-radius-and-trimming-it).

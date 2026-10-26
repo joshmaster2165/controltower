@@ -122,6 +122,44 @@ describe('license renewal', () => {
     }
   });
 
+  it('a trial checks in (the same numbers and its version) until it ends; a hand-issued key never does', async () => {
+    const { openSqlite } = await import('../src/db/index.js');
+    const { Licensing } = await import('../src/ee/license.js');
+    const http = await import('node:http');
+    process.env.CT_LICENSE_PUBLIC_KEY = keys.t;
+    const got: Array<Record<string, unknown>> = [];
+    const svc = http.createServer((req, res) => {
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => {
+        got.push(JSON.parse(b));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'unchanged' }));
+      });
+    });
+    await new Promise<void>((r) => svc.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${(svc.address() as { port: number }).port}`;
+    const log = { info: () => undefined, warn: () => undefined };
+    try {
+      const db = openSqlite('', { memory: true });
+      const trial = { ...base, kid: 'test', plan: 'trial' as const, issued_at: Date.now(), expires_at: Date.now() + 20 * 86_400_000 };
+      const l = new Licensing(db.write, signLicense(trial, privateKey));
+      l.version = '0.2.16';
+      await l.load();
+      expect(await l.refresh(url, log)).toBe('unchanged');
+      expect(got.at(-1)).toMatchObject({ version: '0.2.16' });
+      expect(Object.keys(got.at(-1)!).sort()).toEqual(expect.arrayContaining(['key', 'version']));
+      // Ended more than a day ago: nothing more is sent.
+      const ended = new Licensing(db.write, signLicense({ ...trial, issued_at: Date.now() - 40 * 86_400_000, expires_at: Date.now() - 2 * 86_400_000 }, privateKey));
+      await ended.load();
+      expect(await ended.refresh(url, log)).toBe('skipped');
+      expect(got.length).toBe(1);
+    } finally {
+      svc.close();
+      delete process.env.CT_LICENSE_PUBLIC_KEY;
+    }
+  });
+
   it('checks daily, and hourly from a day before the end date (a renewal is issued only once it is paid)', async () => {
     const { openSqlite } = await import('../src/db/index.js');
     const { Licensing } = await import('../src/ee/license.js');

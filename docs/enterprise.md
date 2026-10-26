@@ -49,7 +49,7 @@ A license includes a number of requests a year, and **License** shows how many h
 - **At 80%, and again at 100%,** a line at the top of the console says so. The [audit log](audit.md) records it once each year as `license.usage`, and the server logs it.
 - **Going over never slows, refuses or stops anything.** It's a conversation at renewal, where more requests a year cost less each ([pricing](https://agentcontroltower.app/pricing.html)).
 
-**What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key, the number of people using seats, and whether the clock was found set back. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
+**What's sent:** when Control Tower renews a subscription's key (daily, from the license service), it sends this license year's request count and dates with the key, the number of people using seats, whether the clock was found set back, and its version. A trial sends the same each day until it ends. Nothing else goes: no names, models, prompts or anything about the calls. With `CT_LICENSE_SERVER=off` (air-gapped), nothing is sent, and the count stays in the console. People who see only their [teams](teams.md) don't see the count.
 
 ## When a license ends
 

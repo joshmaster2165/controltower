@@ -16,6 +16,7 @@
 // Environment: LICENSE_SIGNING_KEY (Ed25519 private key, PEM), STRIPE_SECRET_KEY, STRIPE_API_VERSION, STRIPE_PORTAL_CONFIGURATION,
 // RESEND_API_KEY, EMAIL_FROM, PUBLIC_URL, PORT.
 import crypto from 'node:crypto';
+import { followUp, openStore, trialPage, trialsPage, unsubscribePage, written } from './trials.mjs';
 import http from 'node:http';
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -28,6 +29,12 @@ const KID = process.env.LICENSE_KEY_ID ?? 'k1';
 const RESEND_KEY = process.env.RESEND_API_KEY ?? '';
 const EMAIL_API = (process.env.EMAIL_API_BASE ?? 'https://api.resend.com').replace(/\/+$/, '');
 const EMAIL_FROM = process.env.EMAIL_FROM ?? 'Control Tower <trials@agentcontroltower.app>';
+/** Replies to trial emails reach a person. */
+const REPLY_TO = process.env.TRIAL_REPLY_TO ?? 'support@agentcontroltower.app';
+/** The Trials page (/admin) is off until a password is set. */
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? '';
+/** Trials are kept in a SQLite file here (a volume); without it, in memory only (lost on restart). */
+const store = openStore(process.env.DATA_DIR || undefined);
 /** How long the link in a trial email works. */
 const LINK_MS = 24 * 3600_000;
 const PUBLIC = SIGNING ? crypto.createPublicKey(SIGNING) : undefined;
@@ -79,8 +86,9 @@ function botReason(b, now = Date.now()) {
   if (now - f.iat > FORM_MAX_MS) return 'stale_form';
   return undefined;
 }
+const trialId = (email, iat) => `lic_trial_${crypto.createHash('sha256').update(`${email}|${iat}`).digest('hex').slice(0, 12)}`;
 function trialKey(r) {
-  const id = `lic_trial_${crypto.createHash('sha256').update(`${r.email}|${r.iat}`).digest('hex').slice(0, 12)}`;
+  const id = trialId(r.email, r.iat);
   return sign({ v: 1, kid: KID, id, customer: r.company, email: r.email, plan: 'trial', seats: INCLUDED_SEATS, requests_per_year: REQUESTS_PER_YEAR, features: ['*'], issued_at: r.iat, expires_at: r.iat + 30 * DAY, period_start: r.iat });
 }
 async function sendTrialEmail(to, link) {
@@ -101,6 +109,45 @@ async function sendTrialEmail(to, link) {
   // Resend says why it refused (an unverified domain, a key limited to another domain): keep that for the log.
   if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
 }
+
+/** An email about a trial (the follow-ups, or one written on the Trials page), recorded with the trial. */
+const unsubToken = (id) => sign({ id }, SIGNING, 'ctu1');
+async function sendTrialNote(t, kind, mail) {
+  if (!RESEND_KEY) return false;
+  const unsubUrl = `${PUBLIC_URL}/unsubscribe?t=${encodeURIComponent(unsubToken(t.id))}`;
+  try {
+    const r = await fetch(`${EMAIL_API}/emails`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${RESEND_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ from: EMAIL_FROM, to: [t.email], reply_to: REPLY_TO, subject: mail.subject, html: mail.html, text: mail.text, headers: { 'List-Unsubscribe': `<${unsubUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) throw new Error(`the email service answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
+    store.emailed(t.id, kind, mail.subject, mail.text, true);
+    console.log(JSON.stringify({ event: 'trial_email', kind, license: t.id }));
+    return true;
+  } catch (err) {
+    store.emailed(t.id, kind, mail.subject, mail.text, false, err.message);
+    console.error(JSON.stringify({ error: `trial email "${kind}" not sent: ${err.message}`, license: t.id }));
+    return false;
+  }
+}
+const mailContext = (t) => ({ site: SITE, buyUrl: `${PUBLIC_URL}/#buy`, unsubUrl: `${PUBLIC_URL}/unsubscribe?t=${encodeURIComponent(unsubToken(t.id))}` });
+/** Sends the follow-ups that are due (hourly). */
+let following = false;
+export async function runFollowUps(now = Date.now()) {
+  if (following || !RESEND_KEY || !SIGNING) return 0;
+  following = true;
+  let sent = 0;
+  try {
+    store.purge(now);
+    for (const { trial, kind } of store.due(now)) if (await sendTrialNote(trial, kind, followUp(kind, trial, { ...mailContext(trial), now }))) sent++;
+  } finally {
+    following = false;
+  }
+  return sent;
+}
+export const trialsStore = store;
 
 /**
  * Seat changes. Stripe's customer portal can't change a subscription with more than one product (ours: the platform
@@ -665,6 +712,51 @@ export function createServer() {
       if (req.method === 'GET' && u.pathname === '/healthz') return json(res, 200, { ok: true, signing: !!SIGNING, stripe: !!STRIPE_KEY });
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, await plansPage());
 
+      // ---- trial emails: stop them (a page with a button, so a mail scanner opening the link changes nothing; the
+      // one-click POST from the List-Unsubscribe header works too) ----
+      if (u.pathname === '/unsubscribe' && (req.method === 'GET' || req.method === 'POST')) {
+        const r = verify(u.searchParams.get('t') ?? '', PUBLIC, 'ctu1');
+        if (!r?.id) return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Use the link from the email as it is.'));
+        if (req.method === 'POST') {
+          store.unsubscribe(r.id);
+          console.log(JSON.stringify({ event: 'trial_unsubscribed', license: r.id }));
+        }
+        return html(res, 200, unsubscribePage(req.method === 'POST'));
+      }
+
+      // ---- the Trials page: only with ADMIN_PASSWORD set, and the password ----
+      if (u.pathname === '/admin' || u.pathname.startsWith('/admin/')) {
+        if (!ADMIN_PASSWORD) return json(res, 404, { error: 'not_found' });
+        // Ten wrong passwords an hour from one address, then nothing is checked until the hour has passed.
+        if ((hits.get(`admin-fail:${ip}`) ?? []).filter((t) => t > Date.now() - 3600_000).length >= 10) return json(res, 429, { error: 'rate_limited' });
+        const given = /^Basic\s+(.+)$/i.exec(String(req.headers.authorization ?? ''))?.[1];
+        const pass = given ? Buffer.from(given, 'base64').toString('utf8').split(':').slice(1).join(':') : '';
+        const ok = pass !== '' && crypto.timingSafeEqual(crypto.createHash('sha256').update(pass).digest(), crypto.createHash('sha256').update(ADMIN_PASSWORD).digest());
+        if (!ok) {
+          if (given) limited(ip, 'admin-fail', 10, 3600_000);
+          return send(res, 401, 'text/plain', 'Sign in to see trials.', { 'www-authenticate': 'Basic realm="Control Tower trials", charset="UTF-8"' });
+        }
+        if (req.method === 'GET' && u.pathname === '/admin') return html(res, 200, trialsPage(store, { showAll: u.searchParams.get('all') === '1' }));
+        if (req.method === 'GET' && u.pathname === '/admin/trial') {
+          const sent = u.searchParams.get('sent');
+          const p = trialPage(store, u.searchParams.get('id') ?? '', { flash: sent === '1' ? { text: 'Sent.' } : sent === '0' ? { text: 'Not sent: see the email below for why.', bad: true } : undefined });
+          return p ? html(res, 200, p) : json(res, 404, { error: 'not_found' });
+        }
+        if (req.method === 'POST' && u.pathname === '/admin/trial/email') {
+          // The browser sends the password by itself, so a form on another site could post here: only this site's own.
+          if (req.headers.origin !== new URL(PUBLIC_URL).origin) return json(res, 403, { error: 'wrong_origin' });
+          const b = await body(req);
+          const t = store.get(String(b.id ?? ''));
+          if (!t) return json(res, 404, { error: 'not_found' });
+          const subject = String(b.subject ?? '').trim().slice(0, 150);
+          const text = String(b.body ?? '').trim().slice(0, 5000);
+          if (!subject || !text || t.unsubscribed_at) return redirect(res, `/admin/trial?id=${encodeURIComponent(t.id)}`);
+          const ok = await sendTrialNote(t, 'written', written(subject, text, t, mailContext(t)));
+          return redirect(res, `/admin/trial?id=${encodeURIComponent(t.id)}&sent=${ok ? 1 : 0}`);
+        }
+        return json(res, 404, { error: 'not_found' });
+      }
+
       if (req.method === 'POST' && u.pathname === '/checkout') {
         if (limited(ip, 'checkout', 20, 3600_000)) return html(res, 429, note('Too many attempts', 'HOLD · 429', 'Try again in a while.'));
         const b = await body(req);
@@ -698,6 +790,7 @@ export function createServer() {
         const issued = licenseFor(s.subscription, customer);
         // Each time the page is opened (a reload logs it again): who bought what, until when.
         console.log(JSON.stringify({ event: 'license_issued', license: issued.id, customer: issued.customer, email: issued.email, seats: issued.seats, until: new Date(issued.expires_at).toISOString(), live: s.livemode === true }));
+        if (issued.email) store.bought(issued.email);
         return html(res, 200, keyPage('You’re cleared', sign(issued), `Your Control Tower Enterprise license, for ${customer.name ?? customer.email}. It renews with your subscription; servers that can reach this service pick up the renewed key themselves.`));
       }
 
@@ -712,14 +805,17 @@ export function createServer() {
         const bot = botReason(b, now);
         if (bot) {
           console.log(JSON.stringify({ event: 'trial_blocked', reason: bot, email: masked(email), at: new Date(now).toISOString() }));
+          store.blocked(bot, masked(email), now);
           return html(res, 200, inboxPage(email));
         }
         if (limited('all', 'trial-day', TRIALS_PER_DAY, 24 * 3600_000)) {
           console.log(JSON.stringify({ event: 'trial_blocked', reason: 'daily_cap', email: masked(email), at: new Date(now).toISOString() }));
+          store.blocked('daily_cap', masked(email), now);
           return html(res, 429, note('Trials are paused for today', 'HOLD · 429', 'We’ve had more trial requests than usual today. Try again tomorrow, or contact sales.'));
         }
         if (!RESEND_KEY) {
           console.log(JSON.stringify({ event: 'trial', company, email, verified: false, at: new Date(now).toISOString() }));
+          store.confirmed({ id: trialId(email, now), email, company, at: now });
           return html(res, 200, keyPage('You’re cleared for 30 days', trialKey({ company, email, iat: now }), `30 days of Control Tower Enterprise for ${company}, with ${INCLUDED_SEATS} seats.`));
         }
         const link = `${PUBLIC_URL}/trial/confirm?t=${encodeURIComponent(trialRequest(company, email, now))}`;
@@ -730,6 +826,7 @@ export function createServer() {
           return html(res, 502, note('We couldn’t send the email', 'NO CONTACT · 502', 'Try again in a minute, or contact sales.'));
         }
         console.log(JSON.stringify({ event: 'trial_requested', company, email, at: new Date(now).toISOString() }));
+        store.requested({ id: trialId(email, now), email, company, at: now });
         return html(res, 200, inboxPage(email));
       }
 
@@ -738,6 +835,9 @@ export function createServer() {
         if (!r?.email || !r.company || !Number.isFinite(r.iat)) return html(res, 400, note('That link isn’t valid', 'UNKNOWN · 400', 'Open the link from your email as it is, or start a trial again.'));
         if (Date.now() > r.exp) return html(res, 410, note('That link has expired', 'EXPIRED · 410', 'Trial links work for 24 hours. Start a trial again for a new one.'));
         console.log(JSON.stringify({ event: 'trial', company: r.company, email: r.email, verified: true, at: new Date().toISOString() }));
+        const t = { id: trialId(r.email, r.iat), email: r.email, company: r.company, at: r.iat };
+        // The first time the key is opened, a welcome (a mail scanner opening the link gets one too; it's harmless).
+        if (store.confirmed(t)) void sendTrialNote(store.get(t.id), 'welcome', followUp('welcome', store.get(t.id), mailContext(store.get(t.id))));
         return html(res, 200, keyPage('You’re cleared for 30 days', trialKey(r), `30 days of Control Tower Enterprise for ${r.company}, with ${INCLUDED_SEATS} seats.`));
       }
 
@@ -746,6 +846,10 @@ export function createServer() {
         const b = await body(req);
         const lic = verify(b.key);
         if (!lic) return json(res, 400, { error: 'invalid_license' });
+        // A trial's server checking in (0.2.16+): how it's being used, for the Trials page. Trials don't renew.
+        if (!lic.sub && lic.plan === 'trial' && typeof lic.email === 'string' && Number.isFinite(lic.issued_at)) {
+          store.checkin({ id: lic.id, email: lic.email, company: String(lic.customer ?? ''), at: lic.issued_at }, { requests: Number(b.usage?.requests), seats_used: Number(b.seats_used), version: b.version });
+        }
         if (!lic.sub) return json(res, 200, { status: 'unchanged' }); // trials and hand-issued keys don't renew here
         let sub = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(lic.sub)}?expand[]=customer&expand[]=latest_invoice`);
         // A seat reduction's schedule, once its last period has begun, lets go of the subscription: while attached it
@@ -917,5 +1021,10 @@ export function createServer() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (!SIGNING) console.warn('LICENSE_SIGNING_KEY is not set: keys cannot be issued.');
   if (!STRIPE_KEY) console.warn('STRIPE_SECRET_KEY is not set: checkout and renewals are off.');
-  createServer().listen(PORT, () => console.log(`license service on :${PORT} (${PUBLIC_URL})`));
+  if (!process.env.DATA_DIR) console.warn('DATA_DIR is not set: trials are kept in memory and lost on restart.');
+  if (!ADMIN_PASSWORD) console.warn('ADMIN_PASSWORD is not set: the Trials page (/admin) is off.');
+  createServer().listen(PORT, () => console.log(`license service on :${PORT} (${PUBLIC_URL}); trials in ${store.file}`));
+  // Follow-up emails: a minute after start, then hourly.
+  setTimeout(() => void runFollowUps().catch((err) => console.error(JSON.stringify({ error: `follow-ups: ${err.message}` }))), 60_000).unref();
+  setInterval(() => void runFollowUps().catch((err) => console.error(JSON.stringify({ error: `follow-ups: ${err.message}` }))), 3600_000).unref();
 }

@@ -50,13 +50,13 @@ footer .sp { flex: 1; }
 <main>
 <div class="eyebrow">Legal</div>
 <h1>Privacy policy</h1>
-<div class="meta">Effective 1 October 2026 · Questions or requests: <a href="mailto:privacy@agentcontroltower.app">privacy@agentcontroltower.app</a></div>
+<div class="meta">Effective 1 October 2026 · Updated 26 October 2026 · Questions or requests: <a href="mailto:privacy@agentcontroltower.app">privacy@agentcontroltower.app</a></div>
 <div class="summary">
 <h2>In short</h2>
 <ul>
 <li>Control Tower runs on your servers. Your prompts, responses, credentials, call records and users never reach us.</li>
 <li>This website uses no cookies, no analytics and no tracking.</li>
-<li>We keep what we need to sell and renew a subscription: who you are, what you bought and, once a day, two numbers from your servers (the year's request count and how many people use seats).</li>
+<li>We keep what we need to sell and renew a subscription, and to help during a trial: who you are, what you bought or tried and, once a day, a few numbers from your servers (the request count, how many people use seats, and the Control Tower version).</li>
 <li>We don't sell personal information, and we don't use it for advertising.</li>
 </ul>
 </div>
@@ -65,15 +65,15 @@ footer .sp { flex: 1; }
 
 <h2 id="not">What this policy doesn't cover: the software you run</h2>
 <p>Control Tower is self-hosted, so what it processes stays on your infrastructure. That includes the prompts, responses, tool calls and call records passing through it, your provider credentials and the people who sign in to it. Nothing sends that to us, and there is no usage telemetry.</p>
-<p>The only thing an installation sends us is its daily license renewal, described below. You can turn that off with <code>CT_LICENSE_SERVER=off</code>. For the data your installation processes, you're the controller, and your own policies apply.</p>
+<p>The only thing an installation sends us is its daily license check-in (a renewal, or during a trial, a check-in), described below. You can turn that off with <code>CT_LICENSE_SERVER=off</code>. For the data your installation processes, you're the controller, and your own policies apply.</p>
 
 <h2 id="collect">What we collect, and why</h2>
 <div class="tw"><table>
 <tr><th>When</th><th>What</th><th>Why</th></tr>
 <tr><td>You visit this website</td><td>Nothing is stored by us. Our hosting provider records requests (IP address, browser, page) in its logs. Your browser fetches fonts from Google Fonts, which receives your IP address.</td><td>Running and securing the site</td></tr>
-<tr><td>You start a trial</td><td>Company name and work email. We email that address a link to your key, so we know it's real; both are written into your trial key and recorded in our license service's logs.</td><td>Checking the address, issuing the key; one follow-up about your trial, which you can opt out of</td></tr>
+<tr><td>You start a trial</td><td>Company name and work email. We email that address a link to your key, so we know it's real. Both are written into your trial key and kept in our license service's trial records, with when you opened your key and the emails we've sent you.</td><td>Checking the address and issuing the key; emails about your trial (a welcome, a check-in after a week, a reminder before it ends, and notes from us), each with a link to stop them</td></tr>
 <tr><td>You buy a subscription</td><td>Name, email, billing address and payment details, collected on Stripe's checkout page. The payment is sold through Link, Stripe's merchant-of-record service, which handles the payment, taxes, receipts and invoices under its own privacy policy. We see your name, email, billing address and subscription, not your full card number.</td><td>Issuing and renewing your license, seat changes, and our records</td></tr>
-<tr><td>Your servers renew their key (once a day)</td><td>The license key (which names your organisation, email and plan), the number of requests this license year and when that year began, how many people use seats, whether the server's clock was found set back (and by how much), and the server's IP address as part of the request. Nothing else.</td><td>Renewing your key; seeing whether your plan fits at renewal; not reducing seats below those in use</td></tr>
+<tr><td>Your servers renew their key, or check in during a trial (once a day)</td><td>The license key (which names your organisation, email and plan), the number of requests this license year and when that year began, how many people use seats, whether the server's clock was found set back (and by how much), the Control Tower version, and the server's IP address as part of the request. Nothing else.</td><td>Renewing your key; seeing whether your plan fits at renewal; not reducing seats below those in use; during a trial, seeing whether it's in use so we can help</td></tr>
 <tr><td>You write to us</td><td>Whatever you send</td><td>Answering you</td></tr>
 </table></div>
 <p>Our lawful bases, where the GDPR or UK GDPR applies:</p>
@@ -88,7 +88,7 @@ footer .sp { flex: 1; }
 <ul>
 <li><b>Stripe</b>, and <b>Link</b> (Stripe's merchant of record): payments, taxes, subscriptions, receipts and invoices, and the customer portal.</li>
 <li><b>Railway</b>: hosting of this website and the license service, including their logs.</li>
-<li><b>Resend</b>: sending the email with your trial key.</li>
+<li><b>Resend</b>: sending our emails about your trial.</li>
 <li><b>Google Fonts</b>: fonts for this website and the license service.</li>
 <li><b>GitHub</b>: the source code, documentation and container images.</li>
 <li><b>ImprovMX</b> and <b>Google (Gmail)</b>: receiving and answering our email.</li>
@@ -98,6 +98,7 @@ footer .sp { flex: 1; }
 <h2 id="keep">How long we keep it</h2>
 <ul>
 <li><b>License service logs</b> (trial sign-ups, renewals): kept by our hosting provider for up to 30 days.</li>
+<li><b>Trial records</b> (company, email, daily check-ins, emails sent): kept for a year after the trial ends, then deleted. Trial requests turned away as automated are kept for 90 days, with the email address masked.</li>
 <li><b>Subscription and billing records:</b> kept in Stripe for as long as the law requires for tax and accounting, typically 7 years.</li>
 <li><b>Emails:</b> kept for as long as they're useful for helping you, then deleted.</li>
 </ul>
